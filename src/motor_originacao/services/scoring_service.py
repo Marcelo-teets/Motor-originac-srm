@@ -66,6 +66,15 @@ class ScoringService:
         )
         return self.repository.store_score_snapshot(snapshot)
 
+    def get_score_band(self, score: int) -> str:
+        if score >= 75:
+            return "prioritario"
+        if score >= 55:
+            return "monitorar"
+        if score >= 35:
+            return "cautela"
+        return "critico"
+
     def get_current_score(self, company_id: str) -> ScoreSnapshotEntity | None:
         history = self.repository.score_history.get(company_id, [])
         return history[-1] if history else None

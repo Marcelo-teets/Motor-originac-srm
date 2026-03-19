@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query
 
+from motor_originacao.domain.enums import SourceCategory
 from motor_originacao.models.source import SourceCreate, SourceResponse
 from motor_originacao.services.app_state import source_governance_service
 
@@ -7,8 +8,11 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 
 
 @router.get("", response_model=list[SourceResponse])
-def list_sources(active_only: bool = Query(default=False)) -> list[SourceResponse]:
-    sources = source_governance_service.list_sources(active_only=active_only)
+def list_sources(
+    active_only: bool = Query(default=False),
+    categoria: SourceCategory | None = Query(default=None),
+) -> list[SourceResponse]:
+    sources = source_governance_service.list_sources(active_only=active_only, categoria=categoria)
     return [SourceResponse.model_validate(source, from_attributes=True) for source in sources]
 
 

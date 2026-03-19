@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import inspect
-import json
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, get_args, get_origin
 
 from pydantic import BaseModel
@@ -185,6 +185,8 @@ def cast_value(annotation: Any, value: Any) -> Any:
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is None:
+        if isinstance(annotation, type) and issubclass(annotation, Enum):
+            return annotation(value)
         if annotation in {str, int, float, bool} and not isinstance(value, annotation):
             if annotation is bool and isinstance(value, str):
                 return value.lower() in {"1", "true", "yes", "on"}

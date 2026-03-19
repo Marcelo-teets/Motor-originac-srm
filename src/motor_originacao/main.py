@@ -2,6 +2,7 @@ from contextlib import contextmanager
 
 from fastapi import FastAPI
 
+from motor_originacao.api.routes_copilot import router as copilot_router
 from motor_originacao.api.routes_companies import router as companies_router
 from motor_originacao.api.routes_health import router as health_router
 from motor_originacao.api.routes_market_map import router as market_map_router
@@ -34,3 +35,4 @@ app.include_router(signals_router)
 app.include_router(scores_router)
 app.include_router(thesis_router)
 app.include_router(market_map_router)
+app.include_router(copilot_router)

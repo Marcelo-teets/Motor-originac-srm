@@ -10,6 +10,7 @@
 - `GET /companies`
 - `GET /companies/{company_id}`
 - `GET /companies/{company_id}/signals`
+- `GET /companies/{company_id}/overview`
 
 ### Sources
 - `GET /sources`
@@ -28,7 +29,11 @@
 - `GET /thesis/{company_id}`
 
 ### Market Map
+- `GET /market-map`
 - `GET /market-map/{company_id}`
+
+### Copilot
+- `GET /copilot/{company_id}/context`
 
 ## Exemplo de payloads
 

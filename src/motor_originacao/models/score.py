@@ -15,5 +15,6 @@ class ScoreSnapshotResponse(BaseModel):
 class ScoreCurrentResponse(BaseModel):
     company_id: str
     current_score: int
+    score_band: str
     latest_snapshot: ScoreSnapshotResponse | None
     snapshot_count: int

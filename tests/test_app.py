@@ -67,6 +67,7 @@ def test_create_valid_signal_and_recalculate_score(client):
     score = client.get(f"/scores/{company['id']}")
     assert score.status_code == 200
     assert score.json()["current_score"] > 50
+    assert score.json()["score_band"] in {"monitorar", "prioritario"}
 
 
 def test_reject_signal_with_unknown_company(client):
@@ -156,6 +157,73 @@ def test_generate_thesis(client):
     assert payload["riscos"]
 
 
+def test_company_overview_and_copilot_context(client):
+    company = create_company(client, nome="Base Analítica", cnpj="11.333.555/0001-77").json()
+    source_id = first_source_id(client)
+    client.post(
+        "/signals",
+        json={
+            "company_id": company["id"],
+            "source_id": source_id,
+            "tipo": "positivo",
+            "titulo": "Relacionamento bancário estável",
+            "descricao": "Sem ocorrências críticas.",
+            "intensidade": 4,
+        },
+    )
+
+    overview = client.get(f"/companies/{company['id']}/overview")
+    copilot = client.get(f"/copilot/{company['id']}/context")
+
+    assert overview.status_code == 200
+    assert overview.json()["signal_count"] == 1
+    assert overview.json()["source_count"] == 1
+    assert copilot.status_code == 200
+    assert copilot.json()["company_id"] == company["id"]
+    assert len(copilot.json()["perguntas_sugeridas"]) == 3
+
+
+def test_signal_ingestion_is_idempotent_for_same_fingerprint(client):
+    company = create_company(client, nome="Empresa Repetida", cnpj="77.123.111/0001-00").json()
+    source_id = first_source_id(client)
+    payload = {
+        "company_id": company["id"],
+        "source_id": source_id,
+        "tipo": "alerta",
+        "titulo": "Mudança regulatória relevante",
+        "descricao": "Mesmo evento enviado duas vezes.",
+        "intensidade": 3,
+        "signal_date": "2026-03-19T12:00:00",
+    }
+    first = client.post("/signals", json=payload)
+    second = client.post("/signals", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    history = client.get(f"/scores/{company['id']}/history")
+    assert len(history.json()) == 1
+
+
+def test_list_market_map_cards(client):
+    company = create_company(client, nome="Mapa Um", cnpj="44.222.999/0001-55").json()
+    source_id = first_source_id(client)
+    client.post(
+        "/signals",
+        json={
+            "company_id": company["id"],
+            "source_id": source_id,
+            "tipo": "crescimento",
+            "titulo": "Nova expansão regional",
+            "intensidade": 4,
+        },
+    )
+    response = client.get("/market-map")
+    assert response.status_code == 200
+    assert len(response.json()) >= 1
+    assert response.json()[0]["company_id"] == company["id"]
+
+
 def test_integrated_flow_company_signal_score_and_thesis(client):
     company = create_company(client, nome="Núcleo Financeiro", cnpj="45.987.111/0001-10").json()
     sources = client.get("/sources").json()
@@ -187,11 +255,13 @@ def test_integrated_flow_company_signal_score_and_thesis(client):
     thesis = client.get(f"/thesis/{company['id']}")
     market_map = client.get(f"/market-map/{company['id']}")
     company_signals = client.get(f"/companies/{company['id']}/signals")
+    copilot = client.get(f"/copilot/{company['id']}/context")
 
     assert score.status_code == 200
     assert thesis.status_code == 200
     assert market_map.status_code == 200
     assert company_signals.status_code == 200
+    assert copilot.status_code == 200
     assert len(company_signals.json()) == 2
     assert score.json()["snapshot_count"] == 2
     assert "score" in market_map.json()["score_resumo"].lower()

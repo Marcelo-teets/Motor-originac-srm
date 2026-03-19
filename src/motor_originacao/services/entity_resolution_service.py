@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 from fastapi import HTTPException, status
 
 from motor_originacao.domain.entities import CompanyEntity
 from motor_originacao.models.company import CompanyCreate
 from motor_originacao.repositories.in_memory_repository import InMemoryRepository
+from motor_originacao.utils.identity import build_deterministic_id
 from motor_originacao.utils.normalization import normalize_cnpj, normalize_name
 from motor_originacao.utils.time import utcnow
 
@@ -19,18 +18,24 @@ class EntityResolutionService:
         normalized_name = normalize_name(payload.nome)
         normalized_cnpj = normalize_cnpj(payload.cnpj)
 
-        if normalized_cnpj:
-            existing_id = self.repository.company_ids_by_cnpj.get(normalized_cnpj)
-            if existing_id:
-                return self.repository.companies[existing_id]
+        existing_by_cnpj = self.repository.get_company_by_cnpj(normalized_cnpj)
+        if existing_by_cnpj:
+            return existing_by_cnpj
 
-        existing_by_name = self.repository.company_ids_by_normalized_name.get(normalized_name)
+        existing_by_name = self.repository.get_company_by_normalized_name(normalized_name)
         if existing_by_name:
-            return self.repository.companies[existing_by_name]
+            if normalized_cnpj and not existing_by_name.normalized_cnpj:
+                now = utcnow()
+                existing_by_name.cnpj = payload.cnpj
+                existing_by_name.normalized_cnpj = normalized_cnpj
+                existing_by_name.updated_at = now
+                self.repository.store_company(existing_by_name)
+            return existing_by_name
 
         now = utcnow()
+        identity_key = normalized_cnpj or normalized_name
         company = CompanyEntity(
-            id=f"cmp_{uuid4().hex[:12]}",
+            id=build_deterministic_id("cmp", identity_key),
             nome=payload.nome.strip(),
             normalized_nome=normalized_name,
             cnpj=payload.cnpj,
@@ -41,13 +46,13 @@ class EntityResolutionService:
         return self.repository.store_company(company)
 
     def get_company(self, company_id: str) -> CompanyEntity:
-        company = self.repository.companies.get(company_id)
+        company = self.repository.get_company_by_id(company_id)
         if not company:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Empresa não encontrada.")
         return company
 
     def list_companies(self, nome: str | None = None, cnpj: str | None = None) -> list[CompanyEntity]:
-        companies = list(self.repository.companies.values())
+        companies = self.repository.list_companies()
         if nome:
             normalized_name = normalize_name(nome)
             companies = [company for company in companies if normalized_name in company.normalized_nome]

@@ -13,6 +13,7 @@ def get_current_score(company_id: str) -> ScoreCurrentResponse:
     return ScoreCurrentResponse(
         company_id=company_id,
         current_score=latest.score if latest else 50,
+        score_band=scoring_service.get_score_band(latest.score if latest else 50),
         latest_snapshot=ScoreSnapshotResponse.model_validate(latest, from_attributes=True) if latest else None,
         snapshot_count=len(scoring_service.get_history(company_id)),
     )

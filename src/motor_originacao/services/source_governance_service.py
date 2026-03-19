@@ -76,10 +76,16 @@ class SourceGovernanceService:
             )
             self.repository.store_source(source)
 
-    def list_sources(self, active_only: bool = False) -> list[SourceEntity]:
-        sources = list(self.repository.sources.values())
+    def list_sources(
+        self,
+        active_only: bool = False,
+        categoria: SourceCategory | None = None,
+    ) -> list[SourceEntity]:
+        sources = self.repository.list_sources()
         if active_only:
             sources = [source for source in sources if source.ativa]
+        if categoria:
+            sources = [source for source in sources if source.categoria == categoria]
         return sorted(sources, key=lambda source: source.nome)
 
     def create_source(self, payload: SourceCreate) -> SourceEntity:

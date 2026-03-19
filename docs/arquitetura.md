@@ -23,6 +23,9 @@ Representa a síntese textual gerada de forma determinística com base em score,
 ### MarketMapCard
 Representa um resumo operacional para visão futura de mapa de mercado.
 
+### Copilot Context
+Representa a camada mínima de contexto estruturado para futuras experiências assistidas sem acoplar ainda um copiloto completo ao sistema.
+
 ## Camadas
 
 ### API
@@ -36,6 +39,7 @@ Contêm a lógica de produto:
 - `ScoringService`: cálculo explícito e histórico de snapshots.
 - `ThesisService`: tese determinística, cache em memória e regeneração quando necessário.
 - `MarketMapService`: consolidação resumida para evolução futura.
+- `CopilotService`: consolidação de contexto operacional e perguntas sugeridas para próximos passos analíticos.
 
 ### Repository
 `InMemoryRepository` centraliza todo o estado em memória. Isso evita estado global espalhado e simplifica a futura substituição por persistência real.
@@ -47,6 +51,7 @@ Contêm a lógica de produto:
 4. `GET /scores/{company_id}` e `/history` expõem score atual e histórico.
 5. `GET /thesis/{company_id}` gera ou reutiliza tese coerente com os dados atuais.
 6. `GET /market-map/{company_id}` monta um card resumido com score e sinais-chave.
+7. `GET /copilot/{company_id}/context` expõe o pacote mínimo de contexto para uma evolução assistida futura.
 
 ## Decisões arquiteturais
 - **FastAPI + Pydantic** para velocidade, clareza e documentação automática.

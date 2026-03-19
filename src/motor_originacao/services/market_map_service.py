@@ -36,3 +36,9 @@ class MarketMapService:
             updated_at=utcnow(),
         )
         return self.repository.store_market_map(card)
+
+    def list_cards(self) -> list[MarketMapCardEntity]:
+        cards = []
+        for company_id in sorted(self.repository.companies):
+            cards.append(self.build_card(company_id))
+        return sorted(cards, key=lambda card: card.updated_at, reverse=True)

@@ -10,9 +10,11 @@ Construir uma base funcional e evolutiva para identificar empresas, consolidar s
 - Entity resolution por CNPJ e nome normalizado.
 - Catálogo interno de fontes BR-only com governança básica.
 - Ingestão de sinais com histórico por empresa.
+- Ingestão idempotente para evitar duplicidade de sinais iguais.
 - Score determinístico com snapshots históricos.
 - Geração de thesis coerente e reutilizável.
 - Fundação de market map com card resumido.
+- Foundation de copilot com contexto analítico estruturado.
 - Testes end-to-end cobrindo os fluxos centrais.
 
 ## Arquitetura
@@ -89,6 +91,7 @@ PYTHONPATH=src pytest -q
 - `GET /companies`
 - `GET /companies/{company_id}`
 - `GET /companies/{company_id}/signals`
+- `GET /companies/{company_id}/overview`
 
 ### Sources
 - `GET /sources`
@@ -107,7 +110,11 @@ PYTHONPATH=src pytest -q
 - `GET /thesis/{company_id}`
 
 ### Market Map
+- `GET /market-map`
 - `GET /market-map/{company_id}`
+
+### Copilot
+- `GET /copilot/{company_id}/context`
 
 ## Exemplos de uso
 
@@ -150,6 +157,11 @@ curl http://localhost:8000/scores/cmp_xxx
 curl http://localhost:8000/thesis/cmp_xxx
 ```
 
+### Consultar contexto para copilot
+```bash
+curl http://localhost:8000/copilot/cmp_xxx/context
+```
+
 ## Regras de score implementadas
 - Score base de 50.
 - Cada sinal gera delta proporcional à intensidade (`1..5`).
@@ -158,6 +170,7 @@ curl http://localhost:8000/thesis/cmp_xxx
 - A confiabilidade da fonte multiplica o impacto do sinal.
 - O resultado final é limitado entre 0 e 100.
 - Cada ingestão de sinal gera um novo snapshot histórico.
+- Eventos idênticos no mesmo dia/fonte/tipo/título são tratados de forma idempotente.
 
 ## Catálogo inicial de fontes
 Inclui fontes brasileiras plausíveis e úteis para a fase atual:

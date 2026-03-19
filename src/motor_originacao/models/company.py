@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List
 
 from pydantic import BaseModel, Field
 
@@ -16,3 +17,12 @@ class CompanyResponse(BaseModel):
     normalized_cnpj: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CompanyOverviewResponse(BaseModel):
+    company: CompanyResponse
+    signal_count: int
+    source_count: int
+    current_score: int
+    score_band: str
+    latest_signals: List[str]
