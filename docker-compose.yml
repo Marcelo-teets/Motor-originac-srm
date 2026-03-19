@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: Motor Originação SRM
+      APP_ENV: development
+      APP_DEBUG: "true"
+      API_PREFIX: ""
