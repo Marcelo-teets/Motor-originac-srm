@@ -1,0 +1,89 @@
+:root {
+  --bg: #07111f;
+  --panel: #0f1c30;
+  --muted: #9fb2ce;
+  --accent: #59c3c3;
+  --text: #edf4ff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  background: linear-gradient(180deg, #07111f, #091728 40%, #10243e);
+  color: var(--text);
+}
+
+a { color: var(--accent); text-decoration: none; }
+button {
+  background: var(--accent);
+  color: #04212a;
+  border: none;
+  border-radius: 10px;
+  padding: 0.9rem 1.2rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+pre {
+  white-space: pre-wrap;
+  background: rgba(255,255,255,0.04);
+  padding: 1rem;
+  border-radius: 10px;
+}
+.hero, .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 2rem;
+  padding: 2rem 3rem;
+}
+.eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+.nav-links, .actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.grid-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.25rem;
+  padding: 0 3rem 3rem;
+}
+.panel {
+  background: rgba(15, 28, 48, 0.9);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 1.25rem;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.85rem;
+}
+.kpi {
+  background: rgba(255,255,255,0.03);
+  padding: 0.85rem;
+  border-radius: 14px;
+}
+.kpi span, .timeline { color: var(--muted); }
+.kpi strong { display: block; margin-top: 0.4rem; font-size: 1.4rem; }
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.timeline li { padding: 0.8rem; background: rgba(255,255,255,0.03); border-radius: 12px; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.data-table th, .data-table td {
+  padding: 0.9rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+}
+.error { color: #ff8d8d; padding: 1rem 3rem 3rem; }

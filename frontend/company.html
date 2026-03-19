@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Company Detail | OIP V7</title>
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Company Detail</p>
+        <h1 id="company-name">Loading company...</h1>
+        <p id="company-meta"></p>
+      </div>
+      <div class="actions">
+        <button id="run-pipeline">Run Full Pipeline V2</button>
+        <a href="./rankings-v2.html">See Rankings V2</a>
+      </div>
+    </header>
+
+    <main class="grid-panels">
+      <section class="panel" id="ranking-context">
+        <h2>Ranking V2 Context</h2>
+        <div class="kpi-grid" id="ranking-kpis"></div>
+      </section>
+
+      <section class="panel" id="score-history-panel">
+        <h2>ScoreHistoryPanel</h2>
+        <ul id="score-history-list" class="timeline"></ul>
+      </section>
+
+      <section class="panel" id="thesis-panel">
+        <h2>ThesisPanel</h2>
+        <div id="thesis-content"></div>
+      </section>
+
+      <section class="panel" id="market-map-panel">
+        <h2>MarketMapCardPanel</h2>
+        <div id="market-map-content"></div>
+      </section>
+
+      <section class="panel" id="monitoring-panel">
+        <h2>Monitoring Outputs</h2>
+        <div id="monitoring-content"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./js/company.js"></script>
+  </body>
+</html>
