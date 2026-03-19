@@ -1,0 +1,13 @@
+{
+  "name": "motor-originac-srm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP backend para mapeamento, enrichment e monitoramento de empresas com foco em originação DCM.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
