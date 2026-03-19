@@ -18,7 +18,7 @@ Construir uma fundação backend simples e profissional para suportar, nas próx
 
 ## Stack utilizada
 
-- **Python 3.12**
+- **Python 3.10+**
 - **FastAPI**
 - **Uvicorn**
 - **Pydantic**
@@ -85,7 +85,7 @@ pip install -r requirements.txt
 
 ## Como rodar localmente
 
-1. Copie o arquivo de exemplo de variáveis de ambiente:
+1. Opcionalmente, copie o arquivo de exemplo de variáveis de ambiente para customizar a execução local:
 
 ```bash
 cp .env.example .env
@@ -109,10 +109,13 @@ uvicorn motor_originacao.main:app --reload --app-dir src --port 8000
 docker compose up --build
 ```
 
+> A aplicação já possui valores padrão e pode subir com Docker mesmo sem criar um `.env` local.
+
+
 ## Como testar
 
 ```bash
-PYTHONPATH=src pytest
+PYTHONPATH=src python -m pytest
 ```
 
 ## Endpoint disponível

@@ -3,8 +3,6 @@ services:
     build:
       context: .
     container_name: motor-originacao-srm-api
-    env_file:
-      - .env.example
     ports:
       - "8000:8000"
     command: uvicorn motor_originacao.main:app --host 0.0.0.0 --port 8000 --app-dir src
