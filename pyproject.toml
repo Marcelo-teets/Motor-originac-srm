@@ -1,0 +1,9 @@
+[project]
+name = "origination-intelligence-platform"
+version = "0.1.0"
+description = "Ranking V2 API for the Origination Intelligence Platform"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
