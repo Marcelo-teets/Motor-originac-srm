@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rankings V2 | OIP V7</title>
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Rankings</p>
+        <h1>Dynamic Ranking V2</h1>
+        <p>Ranking consolidado com ORS v2, delta, triggers, source confidence e market fit.</p>
+      </div>
+      <a href="./index.html">Home</a>
+    </header>
+
+    <main class="panel">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Empresa</th>
+            <th>ORS v2</th>
+            <th>Delta</th>
+            <th>Trigger</th>
+            <th>Source Confidence</th>
+            <th>Market Fit</th>
+            <th>Ranking V2</th>
+            <th>Tier</th>
+          </tr>
+        </thead>
+        <tbody id="ranking-table-body"></tbody>
+      </table>
+    </main>
+
+    <script type="module" src="./js/rankings.js"></script>
+  </body>
+</html>
