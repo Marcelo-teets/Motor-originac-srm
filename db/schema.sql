@@ -12,7 +12,7 @@ create table if not exists users (
 );
 
 create table if not exists search_profiles (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   user_id uuid references users(id),
   name text not null,
   segment text,
@@ -25,46 +25,45 @@ create table if not exists search_profiles (
   minimum_confidence numeric(5,2) default 0.60,
   time_window_days integer default 90,
   status text not null default 'active',
+  profile_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
 create table if not exists search_profile_filters (
   id uuid primary key default gen_random_uuid(),
-  profile_id uuid not null references search_profiles(id) on delete cascade,
+  profile_id text not null references search_profiles(id) on delete cascade,
   filter_key text not null,
   filter_value jsonb not null,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_search_profile_filters_profile on search_profile_filters(profile_id);
 
-create table if not exists watchlists (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references users(id),
-  company_id uuid,
-  profile_id uuid references search_profiles(id),
-  created_at timestamptz not null default now()
-);
-
 create table if not exists companies (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   legal_name text not null,
   trade_name text,
+  cnpj text,
   segment text,
   subsegment text,
   geography text,
   company_type text,
+  stage text,
   website text,
+  current_funding_structure text,
   observed_payload jsonb default '{}'::jsonb,
   inferred_payload jsonb default '{}'::jsonb,
   estimated_payload jsonb default '{}'::jsonb,
   source_trace jsonb default '[]'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint uq_companies_cnpj unique (cnpj)
 );
 create index if not exists idx_companies_segment on companies(segment);
+create index if not exists idx_companies_stage on companies(stage);
 
 create table if not exists source_catalog (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   name text not null unique,
   source_type text not null,
   category text not null,
@@ -79,19 +78,20 @@ create table if not exists source_catalog (
 
 create table if not exists company_sources (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
-  source_id uuid not null references source_catalog(id),
+  company_id text not null references companies(id) on delete cascade,
+  source_id text not null references source_catalog(id),
   external_id text,
   observed_at timestamptz,
   payload jsonb default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint uq_company_source_reference unique (company_id, source_id, external_id)
 );
 create index if not exists idx_company_sources_company on company_sources(company_id);
 
 create table if not exists monitoring_state (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid references companies(id),
-  source_id uuid references source_catalog(id),
+  company_id text references companies(id),
+  source_id text references source_catalog(id),
   last_run_at timestamptz,
   next_run_at timestamptz,
   status text not null default 'queued',
@@ -102,20 +102,23 @@ create table if not exists monitoring_state (
 );
 
 create table if not exists monitoring_outputs (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   monitoring_state_id uuid references monitoring_state(id),
-  company_id uuid references companies(id),
-  source_id uuid references source_catalog(id),
+  company_id text references companies(id),
+  source_id text references source_catalog(id),
   output_payload jsonb not null,
+  normalized_payload jsonb not null default '{}'::jsonb,
   confidence_score numeric(5,2),
+  connector_status text not null default 'partial',
   observed_vs_inferred text default 'observed',
   created_at timestamptz not null default now()
 );
+create index if not exists idx_monitoring_outputs_company on monitoring_outputs(company_id, created_at desc);
 
 create table if not exists trigger_events (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid references companies(id),
-  source_id uuid references source_catalog(id),
+  company_id text references companies(id),
+  source_id text references source_catalog(id),
   trigger_type text not null,
   trigger_strength integer not null default 0,
   description text,
@@ -126,8 +129,8 @@ create index if not exists idx_trigger_events_company on trigger_events(company_
 
 create table if not exists company_signals (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
-  source_id uuid references source_catalog(id),
+  company_id text not null references companies(id) on delete cascade,
+  source_id text references source_catalog(id),
   signal_type text not null,
   signal_strength integer not null default 0,
   confidence_score numeric(5,2) not null default 0.50,
@@ -135,10 +138,11 @@ create table if not exists company_signals (
   observed_vs_inferred text default 'observed',
   created_at timestamptz not null default now()
 );
+create index if not exists idx_company_signals_company on company_signals(company_id, created_at desc);
 
 create table if not exists enrichments (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   enrichment_type text not null,
   provider text,
   payload jsonb not null,
@@ -148,16 +152,18 @@ create table if not exists enrichments (
 
 create table if not exists score_snapshots (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   score_type text not null default 'qualification',
   score_value integer not null,
   rationale text,
   version integer not null default 1,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_score_snapshots_company_type on score_snapshots(company_id, score_type, created_at desc);
+
 create table if not exists score_history (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   score_type text not null,
   previous_value integer,
   current_value integer,
@@ -168,17 +174,22 @@ create table if not exists score_history (
 
 create table if not exists lead_score_snapshots (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
+  qualification_snapshot_id uuid,
   lead_score integer not null,
   bucket text not null,
   rationale text,
   next_action text,
+  source_confidence numeric(5,2),
+  trigger_strength integer,
+  pattern_score integer,
   created_at timestamptz not null default now()
 );
+create index if not exists idx_lead_score_snapshots_company on lead_score_snapshots(company_id, created_at desc);
 
 create table if not exists qualification_snapshots (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   has_credit_product boolean,
   credit_product_type text,
   credit_is_core_product boolean,
@@ -215,18 +226,22 @@ create table if not exists qualification_snapshots (
   qualification_score_timing integer,
   qualification_score_total integer,
   confidence_score numeric(5,2),
+  source_confidence_score numeric(5,2),
+  trigger_strength_score integer,
   rationale_summary text,
   evidence_payload jsonb default '{}'::jsonb,
+  pattern_summary jsonb not null default '[]'::jsonb,
   predicted_funding_need_score integer,
   urgency_score integer,
   suggested_structure_type text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+create index if not exists idx_qualification_snapshots_company on qualification_snapshots(company_id, created_at desc);
 
 create table if not exists thesis_outputs (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   thesis_summary text not null,
   structure_type text,
   market_map_summary text,
@@ -236,7 +251,7 @@ create table if not exists thesis_outputs (
 
 create table if not exists market_map_cards (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   peer_name text not null,
   peer_type text,
   rationale text,
@@ -245,17 +260,18 @@ create table if not exists market_map_cards (
 
 create table if not exists ranking_v2 (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   position integer not null,
   qualification_score integer not null,
   lead_score integer not null,
+  ranking_score integer not null default 0,
   rationale text,
   created_at timestamptz not null default now()
 );
 
 create table if not exists pipeline (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
+  company_id text not null references companies(id) on delete cascade,
   stage text not null,
   owner_id uuid references users(id),
   notes text,
@@ -265,7 +281,7 @@ create table if not exists pipeline (
 
 create table if not exists activities (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid references companies(id),
+  company_id text references companies(id),
   owner_id uuid references users(id),
   title text not null,
   activity_type text,
@@ -276,7 +292,7 @@ create table if not exists activities (
 
 create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid references companies(id),
+  company_id text references companies(id),
   owner_id uuid references users(id),
   title text not null,
   status text not null default 'todo',
@@ -303,8 +319,8 @@ create table if not exists agent_runs (
   id uuid primary key default gen_random_uuid(),
   execution_id text not null unique,
   agent_name text not null,
-  company_id uuid references companies(id),
-  source_id uuid references source_catalog(id),
+  company_id text references companies(id),
+  source_id text references source_catalog(id),
   status text not null,
   started_at timestamptz not null,
   finished_at timestamptz,
@@ -352,7 +368,7 @@ create table if not exists validation_results (
 
 create table if not exists learning_memory (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid references companies(id),
+  company_id text references companies(id),
   learning_type text not null,
   memory_payload jsonb not null,
   created_at timestamptz not null default now()
@@ -369,25 +385,29 @@ create table if not exists improvement_backlog (
 );
 
 create table if not exists pattern_catalog (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   pattern_name text not null unique,
   pattern_family text not null,
   description text not null,
   explicit_features jsonb not null default '[]'::jsonb,
   latent_features jsonb not null default '[]'::jsonb,
+  default_qualification_impact integer not null default 0,
+  default_lead_score_impact integer not null default 0,
+  default_ranking_impact integer not null default 0,
   created_at timestamptz not null default now()
 );
 
 create table if not exists company_patterns (
-  id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references companies(id) on delete cascade,
-  pattern_id uuid not null references pattern_catalog(id),
+  id text primary key,
+  company_id text not null references companies(id) on delete cascade,
+  pattern_id text not null references pattern_catalog(id),
   rationale text,
   confidence_score numeric(5,2),
   qualification_impact integer,
   lead_score_impact integer,
   ranking_impact integer,
   thesis_impact text,
+  evidence_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_company_patterns_company on company_patterns(company_id);
