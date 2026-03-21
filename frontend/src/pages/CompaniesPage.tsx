@@ -1,61 +1,121 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, Pill, ProgressBar } from '../components/UI';
+import { Card, DataStatusBanner, PageIntro, Pill, ScoreBadge } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
 
+function priorityTone(bucket: string) {
+  if (bucket.includes('immediate')) return 'success';
+  if (bucket.includes('high')) return 'warning';
+  return 'info';
+}
+
 export function CompaniesPage() {
   const { session } = useAuth();
-  const { data, loading, error } = useAsyncData(() => api.getCompanies(session), [session?.access_token]);
+  const [query, setQuery] = useState('');
+  const [priority, setPriority] = useState('all');
+  const [structure, setStructure] = useState('all');
+  const { data, loading, error } = useAsyncData(
+    async () => {
+      const companiesState = await api.getCompaniesWithFallback(session);
+      const details = await Promise.all(companiesState.data.map(async (company) => {
+        const detailState = await api.getCompanyWithFallback(session, company.id);
+        return {
+          ...company,
+          lastSignal: detailState.data.signals[0]?.note ?? detailState.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
+        };
+      }));
+      return { companiesState, companies: details };
+    },
+    [session?.access_token],
+  );
 
-  if (loading) return <div className="page"><Card title="Companies" subtitle="Carregando lista do banco">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Companies" subtitle="Falha ao carregar lista">{error}</Card></div>;
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return data.companies.filter((company) => {
+      const matchesQuery = [company.name, company.segment, company.subsegment, company.topPatterns.join(' ')].join(' ').toLowerCase().includes(query.toLowerCase());
+      const matchesPriority = priority === 'all' || company.leadBucket === priority;
+      const matchesStructure = structure === 'all' || company.suggestedStructure === structure;
+      return matchesQuery && matchesPriority && matchesStructure;
+    }).sort((a, b) => b.leadScore - a.leadScore);
+  }, [data, priority, query, structure]);
+
+  if (loading) return <div className="page"><Card title="Leads" subtitle="Carregando companies do backend oficial">Aguarde...</Card></div>;
+  if (error || !data) return <div className="page"><Card title="Leads" subtitle="Falha ao carregar lista">{error}</Card></div>;
+
+  const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure)));
 
   return (
     <div className="page">
-      <Card title="Leads / Companies list" subtitle="Tabela conectada ao backend real" actions={<Pill tone="success">ranking v2</Pill>}>
-        <table>
-          <thead><tr><th>Empresa</th><th>Segmento</th><th>Estrutura</th><th>Qualificação</th><th>Lead</th><th>Funding need</th><th>Prioridade</th></tr></thead>
+      <PageIntro
+        eyebrow="Leads / Companies"
+        title="Tabela operacional de originação"
+        description="A lista foi convertida em uma tabela mais clara, filtrável e orientada a decisão, com destaque para score, prioridade, estrutura sugerida e último sinal relevante."
+        actions={<Pill tone="success">clique direto para detalhe</Pill>}
+      />
+
+      <DataStatusBanner source={data.companiesState.source} note={data.companiesState.note} />
+
+      <Card title="Filters" subtitle="Busca rápida, filtros de prioridade e estrutura" className="dense-card">
+        <div className="toolbar-grid">
+          <label>
+            <span>Busca</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar empresa, segmento ou pattern" />
+          </label>
+          <label>
+            <span>Prioridade</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+              <option value="all">Todas</option>
+              <option value="immediate_priority">Immediate</option>
+              <option value="high_priority">High</option>
+              <option value="monitor_closely">Monitor</option>
+            </select>
+          </label>
+          <label>
+            <span>Estrutura sugerida</span>
+            <select value={structure} onChange={(event) => setStructure(event.target.value)}>
+              <option value="all">Todas</option>
+              {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+      </Card>
+
+      <Card title="Leads Table" subtitle={`${filtered.length} companhias na visão atual`} actions={<Pill tone="info">desktop-first</Pill>} className="dense-card">
+        <table className="dense-table">
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Qualification Score</th>
+              <th>Lead Score</th>
+              <th>Pattern</th>
+              <th>Suggested Structure</th>
+              <th>Priority</th>
+              <th>Last Signal</th>
+            </tr>
+          </thead>
           <tbody>
-            {data.map((company) => (
+            {filtered.map((company) => (
               <tr key={company.id}>
                 <td>
                   <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
-                  <div className="table-helper">{company.subsegment}</div>
+                  <div className="table-helper">{company.segment} · {company.subsegment}</div>
                 </td>
-                <td>{company.segment}</td>
+                <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
+                <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
+                <td>
+                  <strong>{company.topPatterns[0] ?? 'Sem pattern dominante'}</strong>
+                  <div className="table-helper">trigger {company.triggerStrength}</div>
+                </td>
                 <td>{company.suggestedStructure}</td>
-                <td>{company.qualificationScore}</td>
-                <td>{company.leadScore}</td>
-                <td>{company.predictedFundingNeed}</td>
-                <td><Pill tone={company.leadBucket === 'immediate_priority' ? 'success' : 'warning'}>{company.leadBucket}</Pill></td>
+                <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
+                <td>{company.lastSignal}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
-
-      <section className="grid cols-3">
-        {data.map((company) => (
-          <Card key={company.id} title={company.name} subtitle={`${company.segment} · ${company.suggestedStructure}`}>
-            <div className="stats-stack compact">
-              <div>
-                <div className="row-between"><span>Qualification</span><strong>{company.qualificationScore}</strong></div>
-                <ProgressBar value={company.qualificationScore} />
-              </div>
-              <div>
-                <div className="row-between"><span>Lead</span><strong>{company.leadScore}</strong></div>
-                <ProgressBar value={company.leadScore} tone="success" />
-              </div>
-            </div>
-            <ul className="list compact-list">
-              <li><strong>Patterns</strong><span>{company.topPatterns.join(' · ') || 'Sem padrão ativo'}</span></li>
-              <li><strong>Trigger strength</strong><span>{company.triggerStrength}</span></li>
-              <li><strong>Source confidence</strong><span>{company.sourceConfidence.toFixed(2)}</span></li>
-            </ul>
-          </Card>
-        ))}
-      </section>
     </div>
   );
 }
