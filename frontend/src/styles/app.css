@@ -4,37 +4,56 @@
   background: #08111f;
   color: #e8eefc;
 }
+* { box-sizing: border-box; }
 body { margin: 0; background: radial-gradient(circle at top, #10213b, #07101d 60%); }
 a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
-button { background: #4f7cff; color: white; border: 0; border-radius: 12px; padding: 12px 18px; cursor: pointer; }
+button { background: linear-gradient(90deg, #4f7cff, #5f8fff); color: white; border: 0; border-radius: 12px; padding: 12px 18px; cursor: pointer; }
 button.secondary { background: transparent; border: 1px solid #37507d; }
 input { background: #0b1628; color: white; border: 1px solid #20314c; border-radius: 10px; padding: 12px; }
 .shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
-.sidebar { padding: 28px; border-right: 1px solid rgba(255,255,255,.08); background: rgba(7, 16, 29, .82); position: sticky; top: 0; height: 100vh; }
-.nav { display: block; padding: 12px 14px; border-radius: 12px; color: #a9b8d6; margin-top: 8px; }
-.nav.active, .nav:hover { background: rgba(79,124,255,.18); color: white; }
+.sidebar { padding: 28px; border-right: 1px solid rgba(255,255,255,.08); background: rgba(7, 16, 29, .88); position: sticky; top: 0; height: 100vh; }
+.sidebar-copy { color: #9cb1d7; line-height: 1.5; }
+.nav { display: block; padding: 12px 14px; border-radius: 12px; color: #a9b8d6; margin-top: 8px; border: 1px solid transparent; }
+.nav.active, .nav:hover { background: rgba(79,124,255,.18); border-color: rgba(98, 132, 255, .22); color: white; }
 .content { padding: 24px; }
-.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 18px; }
+.topbar-meta, .pill-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .badge, .pill { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 999px; background: rgba(79,124,255,.14); color: #bfd2ff; font-size: 12px; }
+.badge.subtle { background: rgba(255,255,255,.06); color: #d8e2fa; }
+.pill-success { background: rgba(76, 211, 160, .16); color: #97f5d2; }
+.pill-warning { background: rgba(255, 189, 89, .16); color: #ffd99c; }
+.pill-danger { background: rgba(244, 99, 99, .14); color: #ffb3b3; }
+.pill-info { background: rgba(105, 210, 255, .16); color: #c0f3ff; }
 .page { display: grid; gap: 20px; }
 .page.narrow { max-width: 720px; margin: 10vh auto; }
 .grid { display: grid; gap: 20px; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .card { background: rgba(9, 17, 31, .88); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: 20px; box-shadow: 0 18px 60px rgba(0,0,0,.18); }
+.card-accent { border-color: rgba(79,124,255,.28); }
+.card-success { border-color: rgba(76,211,160,.28); }
+.card-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
 .card-head h3, .hero h2 { margin: 0; }
-.card-head p, .eyebrow { color: #8ea2c9; margin: 4px 0 0; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+.card-head p, .eyebrow, .table-helper { color: #8ea2c9; margin: 4px 0 0; font-size: 12px; }
+.eyebrow { text-transform: uppercase; letter-spacing: .08em; }
 .hero { padding: 28px; }
-.stats-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
-.stats-row div { background: #0b1628; padding: 16px; border-radius: 16px; }
-.stats-row span { display: block; color: #8ea2c9; margin-bottom: 6px; font-size: 13px; }
-.stats-row strong { font-size: 22px; }
+.hero-grid { display: grid; gap: 20px; }
+.hero-copy { color: #b3c3e3; max-width: 70ch; }
+.stats-row, .stats-stack { display: grid; gap: 16px; }
+.stats-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stat-block { background: #0b1628; padding: 16px; border-radius: 16px; display: grid; gap: 6px; min-height: 112px; }
+.stat-block span { color: #8ea2c9; font-size: 13px; }
+.stat-block strong { font-size: 24px; }
+.stat-block small { color: #b3c3e3; line-height: 1.4; }
 .list { display: grid; gap: 12px; padding: 0; list-style: none; }
 .list li { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
 .list li span { color: #b3c3e3; text-align: right; }
+.compact-list li { padding: 10px 0; }
+.key-value-list li strong { width: 180px; }
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+th, td { text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,255,.08); vertical-align: top; }
 .form-grid { display: grid; gap: 14px; margin-top: 18px; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .form-grid label { display: grid; gap: 8px; }
@@ -42,4 +61,15 @@ th, td { text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,
 .bars { display: grid; gap: 14px; }
 .bar { background: #0a1423; height: 10px; border-radius: 99px; overflow: hidden; margin: 8px 0; }
 .bar i { display: block; height: 100%; background: linear-gradient(90deg, #4f7cff, #69d2ff); }
-@media (max-width: 1200px) { .cols-4, .cols-2, .form-grid.three, .stats-row, .shell { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; } }
+.bar-success { background: linear-gradient(90deg, #3ac38a, #66f2c2) !important; }
+.bar-warning { background: linear-gradient(90deg, #f3a329, #ffd46f) !important; }
+.bar-info { background: linear-gradient(90deg, #38bdf8, #7dd3fc) !important; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.market-map-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 16px; }
+.mini-panel { background: #0b1628; border: 1px solid rgba(255,255,255,.06); border-radius: 16px; padding: 14px; display: grid; gap: 6px; }
+.chart-pair { padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.compact { gap: 12px; }
+@media (max-width: 1200px) {
+  .cols-4, .cols-3, .cols-2, .form-grid.three, .stats-row, .shell, .hero-grid { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+}
