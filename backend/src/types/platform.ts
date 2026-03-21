@@ -158,6 +158,29 @@ export type CompanyPattern = {
   evidencePayload: Record<string, unknown>;
 };
 
+
+export type CompanySignal = {
+  id: string;
+  companyId: string;
+  sourceId?: string;
+  signalType: string;
+  signalStrength: number;
+  confidenceScore: number;
+  evidencePayload: Record<string, unknown>;
+  observedVsInferred: 'observed' | 'inferred';
+  createdAt: string;
+};
+
+export type EnrichmentRecord = {
+  id: string;
+  companyId: string;
+  enrichmentType: string;
+  provider?: string;
+  payload: Record<string, unknown>;
+  observedVsInferred: 'observed' | 'inferred';
+  createdAt: string;
+};
+
 export type ScoreSnapshot = {
   companyId: string;
   scoreType: 'qualification' | 'funding_need' | 'urgency';

@@ -55,8 +55,8 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
       name: seed.name,
       sourceType: seed.type,
       category: seed.category,
-      status: seed.status,
-      health: seed.status === 'mock' ? 'degraded' : 'healthy',
+      status: seed.status as SourceCatalogEntry['status'],
+      health: (seed.status === 'mock' ? 'degraded' : 'healthy') as SourceCatalogEntry['health'],
       metadata: { seeded: true }
     })),
 ];

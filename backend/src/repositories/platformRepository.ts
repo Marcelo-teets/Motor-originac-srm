@@ -1,8 +1,11 @@
+import { additionalCompanySeeds } from '../data/additionalCompanySeeds.js';
 import { companySeeds, patternCatalogSeeds, searchProfileSeeds, sourceCatalogSeeds } from '../data/platformSeeds.js';
 import { getSupabaseClient } from '../lib/supabase.js';
 import type {
   CompanyPattern,
   CompanySeed,
+  CompanySignal,
+  EnrichmentRecord,
   LeadScoreSnapshot,
   MonitoringOutput,
   PatternCatalogEntry,
@@ -18,7 +21,15 @@ export interface PlatformRepository {
   listSources(): Promise<SourceCatalogEntry[]>;
   listPatternCatalog(): Promise<PatternCatalogEntry[]>;
   listMonitoringOutputs(): Promise<MonitoringOutput[]>;
+  listCompanySignals(): Promise<CompanySignal[]>;
+  listEnrichments(): Promise<EnrichmentRecord[]>;
+  listQualificationSnapshots(): Promise<QualificationSnapshot[]>;
+  listCompanyPatterns(): Promise<CompanyPattern[]>;
+  listScoreSnapshots(): Promise<ScoreSnapshot[]>;
+  listLeadScoreSnapshots(): Promise<LeadScoreSnapshot[]>;
   saveMonitoringOutputs(outputs: MonitoringOutput[]): Promise<void>;
+  saveCompanySignals(items: CompanySignal[]): Promise<void>;
+  saveEnrichments(items: EnrichmentRecord[]): Promise<void>;
   saveQualificationSnapshots(items: QualificationSnapshot[]): Promise<void>;
   saveCompanyPatterns(items: CompanyPattern[]): Promise<void>;
   saveScoreSnapshots(items: ScoreSnapshot[]): Promise<void>;
@@ -26,12 +37,43 @@ export interface PlatformRepository {
   seedBaseData(): Promise<void>;
 }
 
+const seededCompanies = [...companySeeds, ...additionalCompanySeeds];
+
+const defaultMonitoring = {
+  status: 'queued',
+  lastRunAt: '',
+  outputs24h: 0,
+  triggers24h: 0,
+  websiteChanges: [],
+  feedHighlights: [],
+};
+
 class MemoryPlatformRepository implements PlatformRepository {
-  private companies = structuredClone(companySeeds);
+  private companies = structuredClone(seededCompanies);
   private searchProfiles = structuredClone(searchProfileSeeds);
   private sources = structuredClone(sourceCatalogSeeds);
   private patternCatalog = structuredClone(patternCatalogSeeds);
   private monitoringOutputs: MonitoringOutput[] = [];
+  private companySignals: CompanySignal[] = this.companies.flatMap((company) => company.signals.map((signal, index) => ({
+    id: `${company.id}_seed_signal_${index + 1}`,
+    companyId: company.id,
+    sourceId: signal.source,
+    signalType: signal.type,
+    signalStrength: signal.strength,
+    confidenceScore: signal.confidence,
+    evidencePayload: { note: signal.note, source: signal.source },
+    observedVsInferred: 'observed',
+    createdAt: company.monitoring.lastRunAt,
+  })));
+  private enrichments: EnrichmentRecord[] = this.companies.map((company) => ({
+    id: `${company.id}_seed_enrichment`,
+    companyId: company.id,
+    enrichmentType: 'company_profile',
+    provider: 'seed',
+    payload: company.enrichment,
+    observedVsInferred: 'inferred',
+    createdAt: company.monitoring.lastRunAt,
+  }));
   private qualificationSnapshots: QualificationSnapshot[] = [];
   private companyPatterns: CompanyPattern[] = [];
   private scoreSnapshots: ScoreSnapshot[] = [];
@@ -42,12 +84,48 @@ class MemoryPlatformRepository implements PlatformRepository {
   async listSources() { return structuredClone(this.sources); }
   async listPatternCatalog() { return structuredClone(this.patternCatalog); }
   async listMonitoringOutputs() { return structuredClone(this.monitoringOutputs); }
-  async saveMonitoringOutputs(outputs: MonitoringOutput[]) { this.monitoringOutputs = outputs; }
-  async saveQualificationSnapshots(items: QualificationSnapshot[]) { this.qualificationSnapshots = items; }
-  async saveCompanyPatterns(items: CompanyPattern[]) { this.companyPatterns = items; }
-  async saveScoreSnapshots(items: ScoreSnapshot[]) { this.scoreSnapshots = items; }
-  async saveLeadScoreSnapshots(items: LeadScoreSnapshot[]) { this.leadScoreSnapshots = items; }
-  async seedBaseData() { return; }
+  async listCompanySignals() { return structuredClone(this.companySignals); }
+  async listEnrichments() { return structuredClone(this.enrichments); }
+  async listQualificationSnapshots() { return structuredClone(this.qualificationSnapshots); }
+  async listCompanyPatterns() { return structuredClone(this.companyPatterns); }
+  async listScoreSnapshots() { return structuredClone(this.scoreSnapshots); }
+  async listLeadScoreSnapshots() { return structuredClone(this.leadScoreSnapshots); }
+
+  async saveMonitoringOutputs(outputs: MonitoringOutput[]) {
+    const ids = new Set(outputs.map((item) => item.id));
+    this.monitoringOutputs = [...this.monitoringOutputs.filter((item) => !ids.has(item.id)), ...outputs];
+  }
+
+  async saveCompanySignals(items: CompanySignal[]) {
+    const ids = new Set(items.map((item) => item.id));
+    this.companySignals = [...this.companySignals.filter((item) => !ids.has(item.id)), ...items];
+  }
+
+  async saveEnrichments(items: EnrichmentRecord[]) {
+    const ids = new Set(items.map((item) => item.id));
+    this.enrichments = [...this.enrichments.filter((item) => !ids.has(item.id)), ...items];
+  }
+
+  async saveQualificationSnapshots(items: QualificationSnapshot[]) {
+    this.qualificationSnapshots.push(...items);
+  }
+
+  async saveCompanyPatterns(items: CompanyPattern[]) {
+    const ids = new Set(items.map((item) => item.id));
+    this.companyPatterns = [...this.companyPatterns.filter((item) => !ids.has(item.id)), ...items];
+  }
+
+  async saveScoreSnapshots(items: ScoreSnapshot[]) {
+    this.scoreSnapshots.push(...items);
+  }
+
+  async saveLeadScoreSnapshots(items: LeadScoreSnapshot[]) {
+    this.leadScoreSnapshots.push(...items);
+  }
+
+  async seedBaseData() {
+    return;
+  }
 }
 
 class SupabasePlatformRepository implements PlatformRepository {
@@ -77,12 +155,15 @@ class SupabasePlatformRepository implements PlatformRepository {
       currentFundingStructure: row.current_funding_structure ?? 'Unknown',
       description: row.observed_payload?.description ?? '',
       signals: row.observed_payload?.signals ?? [],
-      monitoring: row.observed_payload?.monitoring ?? { status: 'queued', lastRunAt: null, outputs24h: 0, triggers24h: 0, websiteChanges: [], feedHighlights: [] },
-      enrichment: row.inferred_payload?.enrichment ?? { governanceMaturity: 'medium', underwritingMaturity: 'medium', operationalMaturity: 'medium', riskModelMaturity: 'medium', unitEconomicsQuality: 'mixed', spreadVsFundingQuality: 'neutral', concentrationRisk: 'medium', delinquencySignal: 'low', sourceConfidence: 0.5, sourceNotes: [] },
+      monitoring: row.observed_payload?.monitoring ?? defaultMonitoring,
+      enrichment: row.inferred_payload?.enrichment ?? seededCompanies.find((item) => item.id === row.id)?.enrichment ?? {
+        governanceMaturity: 'medium', underwritingMaturity: 'medium', operationalMaturity: 'medium', riskModelMaturity: 'medium',
+        unitEconomicsQuality: 'mixed', spreadVsFundingQuality: 'neutral', concentrationRisk: 'medium', delinquencySignal: 'low', sourceConfidence: 0.5, sourceNotes: [],
+      },
       sourceRecords: row.source_trace ?? [],
       marketMapPeers: row.estimated_payload?.marketMapPeers ?? [],
       activities: row.estimated_payload?.activities ?? [],
-    }));
+    } satisfies CompanySeed));
   }
 
   async listSearchProfiles() {
@@ -154,6 +235,91 @@ class SupabasePlatformRepository implements PlatformRepository {
     }));
   }
 
+  async listCompanySignals() {
+    const client = this.ensureClient();
+    const data = await client.select('company_signals', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      sourceId: row.source_id,
+      signalType: row.signal_type,
+      signalStrength: Number(row.signal_strength ?? 0),
+      confidenceScore: Number(row.confidence_score ?? 0),
+      evidencePayload: row.evidence_payload ?? {},
+      observedVsInferred: row.observed_vs_inferred ?? 'observed',
+      createdAt: row.created_at,
+    }));
+  }
+
+  async listEnrichments() {
+    const client = this.ensureClient();
+    const data = await client.select('enrichments', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      enrichmentType: row.enrichment_type,
+      provider: row.provider,
+      payload: row.payload ?? {},
+      observedVsInferred: row.observed_vs_inferred ?? 'inferred',
+      createdAt: row.created_at,
+    }));
+  }
+
+  async listQualificationSnapshots() {
+    const client = this.ensureClient();
+    const data = await client.select('qualification_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({ ...row, companyId: row.company_id, pattern_summary: row.pattern_summary ?? [] }));
+  }
+
+  async listCompanyPatterns() {
+    const client = this.ensureClient();
+    const data = await client.select('company_patterns', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    const catalog = await this.listPatternCatalog();
+    const nameById = Object.fromEntries(catalog.map((item: PatternCatalogEntry) => [item.id, item.patternName]));
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      patternId: row.pattern_id,
+      patternName: nameById[row.pattern_id] ?? row.pattern_id,
+      rationale: row.rationale ?? '',
+      confidenceScore: Number(row.confidence_score ?? 0),
+      qualificationImpact: Number(row.qualification_impact ?? 0),
+      leadScoreImpact: Number(row.lead_score_impact ?? 0),
+      rankingImpact: Number(row.ranking_impact ?? 0),
+      thesisImpact: row.thesis_impact ?? '',
+      evidencePayload: row.evidence_payload ?? {},
+    }));
+  }
+
+  async listScoreSnapshots() {
+    const client = this.ensureClient();
+    const data = await client.select('score_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      companyId: row.company_id,
+      scoreType: row.score_type,
+      scoreValue: Number(row.score_value ?? 0),
+      rationale: row.rationale ?? '',
+      version: Number(row.version ?? 1),
+      createdAt: row.created_at,
+    }));
+  }
+
+  async listLeadScoreSnapshots() {
+    const client = this.ensureClient();
+    const data = await client.select('lead_score_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      companyId: row.company_id,
+      leadScore: Number(row.lead_score ?? 0),
+      bucket: row.bucket,
+      rationale: row.rationale ?? '',
+      nextAction: row.next_action ?? 'Executar análise comercial',
+      sourceConfidence: Number(row.source_confidence ?? 0),
+      triggerStrength: Number(row.trigger_strength ?? 0),
+      patternScore: Number(row.pattern_score ?? 0),
+      createdAt: row.created_at,
+    }));
+  }
+
   async saveMonitoringOutputs(outputs: MonitoringOutput[]) {
     const client = this.ensureClient();
     await client.upsert('monitoring_outputs', outputs.map((output) => ({
@@ -161,10 +327,39 @@ class SupabasePlatformRepository implements PlatformRepository {
       company_id: output.companyId,
       source_id: output.sourceId,
       output_payload: { title: output.title, summary: output.summary },
+      normalized_payload: output.normalizedPayload,
       confidence_score: output.confidenceScore,
       connector_status: output.connectorStatus,
-      normalized_payload: output.normalizedPayload,
       observed_vs_inferred: 'observed',
+      created_at: output.collectedAt,
+    })));
+  }
+
+  async saveCompanySignals(items: CompanySignal[]) {
+    const client = this.ensureClient();
+    await client.upsert('company_signals', items.map((item) => ({
+      id: item.id,
+      company_id: item.companyId,
+      source_id: item.sourceId,
+      signal_type: item.signalType,
+      signal_strength: item.signalStrength,
+      confidence_score: item.confidenceScore,
+      evidence_payload: item.evidencePayload,
+      observed_vs_inferred: item.observedVsInferred,
+      created_at: item.createdAt,
+    })));
+  }
+
+  async saveEnrichments(items: EnrichmentRecord[]) {
+    const client = this.ensureClient();
+    await client.upsert('enrichments', items.map((item) => ({
+      id: item.id,
+      company_id: item.companyId,
+      enrichment_type: item.enrichmentType,
+      provider: item.provider,
+      payload: item.payload,
+      observed_vs_inferred: item.observedVsInferred,
+      created_at: item.createdAt,
     })));
   }
 
@@ -253,9 +448,9 @@ class SupabasePlatformRepository implements PlatformRepository {
       minimum_confidence: item.minimumConfidence,
       time_window_days: item.timeWindowDays,
       status: item.status,
-      profile_payload: item.profilePayload,
+      profile_payload: { ...item.profilePayload, receivables: item.receivables },
     })));
-    await client.upsert('companies', companySeeds.map((item) => ({
+    await client.upsert('companies', seededCompanies.map((item) => ({
       id: item.id,
       legal_name: item.legalName,
       trade_name: item.tradeName,
@@ -268,15 +463,35 @@ class SupabasePlatformRepository implements PlatformRepository {
       website: item.website,
       current_funding_structure: item.currentFundingStructure,
       observed_payload: {
+        description: item.description,
         credit_product: item.creditProduct,
         receivables: item.receivables,
-        description: item.description,
-        signals: item.signals,
         monitoring: item.monitoring,
+        signals: item.signals,
       },
       inferred_payload: { enrichment: item.enrichment },
       estimated_payload: { marketMapPeers: item.marketMapPeers, activities: item.activities },
       source_trace: item.sourceRecords,
+    })));
+    await this.saveCompanySignals(seededCompanies.flatMap((company) => company.signals.map((signal, index) => ({
+      id: `${company.id}_seed_signal_${index + 1}`,
+      companyId: company.id,
+      sourceId: signal.source,
+      signalType: signal.type,
+      signalStrength: signal.strength,
+      confidenceScore: signal.confidence,
+      evidencePayload: { note: signal.note, source: signal.source },
+      observedVsInferred: 'observed',
+      createdAt: company.monitoring.lastRunAt,
+    }))));
+    await this.saveEnrichments(seededCompanies.map((company) => ({
+      id: `${company.id}_seed_enrichment`,
+      companyId: company.id,
+      enrichmentType: 'company_profile',
+      provider: 'seed',
+      payload: company.enrichment,
+      observedVsInferred: 'inferred',
+      createdAt: company.monitoring.lastRunAt,
     })));
   }
 }

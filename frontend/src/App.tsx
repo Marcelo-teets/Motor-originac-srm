@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { RequireAuth } from './lib/auth';
 import { AgentsPage } from './pages/AgentsPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyDetailPage } from './pages/CompanyDetailPage';
@@ -14,7 +15,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/" element={<Layout />}>
+      <Route
+        path="/"
+        element={(
+          <RequireAuth>
+            <Layout />
+          </RequireAuth>
+        )}
+      >
         <Route index element={<DashboardPage />} />
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={<CompaniesPage />} />
