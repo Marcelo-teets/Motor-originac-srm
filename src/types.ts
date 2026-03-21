@@ -77,8 +77,45 @@ export interface Watchlist {
 }
 
 export interface CompanyFilters {
+  q?: string;
   sector?: string;
   stage?: CompanyStage;
   thesisTag?: string;
   minScore?: number;
+}
+
+export interface CreateCompanyInput {
+  legalName: string;
+  tradingName: string;
+  cnpj: string;
+  sector: string;
+  subsector: string;
+  headquarters: string;
+  stage: CompanyStage;
+  website: string;
+  thesisTags: string[];
+  dcmThesis: string;
+  fundingNeedIndicators: string[];
+  governanceHighlights: string[];
+}
+
+export interface CreateWatchlistInput {
+  name: string;
+  owner: string;
+  companyIds: string[];
+}
+
+export interface RefreshCompanyInput {
+  summary?: string;
+}
+
+export interface WatchlistDetail extends Watchlist {
+  companies: Company[];
+}
+
+export interface SrmDatabase {
+  companies: Company[];
+  scores: Record<string, Score[]>;
+  signals: MonitoringSignal[];
+  watchlists: Watchlist[];
 }
