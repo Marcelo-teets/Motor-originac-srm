@@ -1,5 +1,5 @@
 import { agentDefinitions } from '../modules/agents.js';
-import { buildMonitoringOutputs } from '../lib/connectors.js';
+import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
@@ -8,33 +8,118 @@ import { computeLeadScore } from '../lib/scoring.js';
 import { buildThesisOutput } from '../lib/thesis.js';
 import type {
   CompanyDetailView,
-  CompanyView,
+  CompanyPattern,
+  CompanySeed,
+  CompanySignal,
   DashboardView,
+  EnrichmentRecord,
   LeadScoreSnapshot,
+  MonitoringOutput,
   PatternCatalogEntry,
   QualificationSnapshot,
   RankingRow,
   ScoreSnapshot,
+  PriorityBucket,
 } from '../types/platform.js';
 import type { PlatformRepository } from '../repositories/platformRepository.js';
+
+const latestByCompany = <T extends { companyId: string; createdAt?: string; created_at?: string }>(items: T[]) => {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const current = map.get(item.companyId);
+    const stamp = item.createdAt ?? item.created_at ?? '';
+    const currentStamp = current ? (current.createdAt ?? current.created_at ?? '') : '';
+    if (!current || stamp >= currentStamp) map.set(item.companyId, item);
+  }
+  return map;
+};
+
+const groupByCompany = <T extends { companyId: string }>(items: T[]) => items.reduce((acc, item) => {
+  const current = acc.get(item.companyId) ?? [];
+  current.push(item);
+  acc.set(item.companyId, current);
+  return acc;
+}, new Map<string, T[]>());
+
+const toCompanySignalView = (signal: CompanySignal) => ({
+  type: signal.signalType,
+  strength: signal.signalStrength,
+  confidence: signal.confidenceScore,
+  note: String(signal.evidencePayload.note ?? signal.evidencePayload.summary ?? signal.signalType),
+  source: signal.sourceId ?? 'unknown_source',
+});
+
+const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
 
 export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
 
   async bootstrap() {
     await this.repository.seedBaseData();
-    const companies = await this.repository.listCompanies();
-    const sources = await this.repository.listSources();
-    const monitoringOutputs = await buildMonitoringOutputs(companies, sources);
-    await this.repository.saveMonitoringOutputs(monitoringOutputs);
+    await this.refreshMonitoring();
+    await this.recomputeDerivedData();
+  }
 
-    const patternCatalog = await this.repository.listPatternCatalog();
+  private async hydrateCompanies() {
+    const [companies, signals, enrichments, monitoringOutputs] = await Promise.all([
+      this.repository.listCompanies(),
+      this.repository.listCompanySignals(),
+      this.repository.listEnrichments(),
+      this.repository.listMonitoringOutputs(),
+    ]);
+
+    const signalsByCompany = groupByCompany(signals);
+    const enrichmentsByCompany = groupByCompany(enrichments);
+    const outputsByCompany = groupByCompany(monitoringOutputs);
+
+    return companies.map((company) => {
+      const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const companySignals = (signalsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const companyOutputs = (outputsByCompany.get(company.id) ?? []).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
+      const websiteChanges = companyOutputs.filter((item) => item.sourceId === 'src_company_website').slice(0, 2).map((item) => item.summary);
+      const feedHighlights = companyOutputs.filter((item) => item.sourceId !== 'src_company_website').slice(0, 3).map((item) => item.summary);
+
+      return {
+        ...company,
+        signals: companySignals.length ? companySignals.map(toCompanySignalView) : company.signals,
+        enrichment: latestEnrichment?.payload ? { ...fallbackEnrichment(company), ...latestEnrichment.payload } : company.enrichment,
+        monitoring: {
+          ...company.monitoring,
+          status: companyOutputs.some((item) => item.connectorStatus === 'real') ? 'active' : company.monitoring.status,
+          lastRunAt: companyOutputs[0]?.collectedAt ?? company.monitoring.lastRunAt,
+          outputs24h: companyOutputs.length,
+          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65).length,
+          websiteChanges: websiteChanges.length ? websiteChanges : company.monitoring.websiteChanges,
+          feedHighlights: feedHighlights.length ? feedHighlights : company.monitoring.feedHighlights,
+        },
+      } satisfies CompanySeed;
+    });
+  }
+
+  async refreshMonitoring(companyId?: string) {
+    const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
+    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+    const ingestions = await Promise.all(targetCompanies.map((company) => ingestCompanyMonitoring(company, sources)));
+    await this.repository.saveMonitoringOutputs(ingestions.flatMap((item) => item.outputs));
+    await this.repository.saveCompanySignals(ingestions.flatMap((item) => item.signals));
+    await this.repository.saveEnrichments(ingestions.flatMap((item) => item.enrichments));
+    return { companyCount: targetCompanies.length, outputCount: ingestions.reduce((sum, item) => sum + item.outputs.length, 0) };
+  }
+
+  private buildSnapshots(companies: CompanySeed[], monitoringOutputs: MonitoringOutput[], patternCatalog: PatternCatalogEntry[]) {
     const generatedAt = isoNow();
+    const outputsByCompany = groupByCompany(monitoringOutputs);
 
-    const qualifications: QualificationSnapshot[] = companies.map((company) => buildQualificationSnapshot(company, generatedAt));
-    const patterns = companies.flatMap((company) => {
+    const qualifications: QualificationSnapshot[] = companies.map((company) => buildQualificationSnapshot({
+      company,
+      monitoringOutputs: outputsByCompany.get(company.id) ?? [],
+      generatedAt,
+    }));
+
+    const patterns: CompanyPattern[] = companies.flatMap((company) => {
       const qualification = qualifications.find((item) => item.companyId === company.id)!;
-      return detectCompanyPatterns(company, qualification, patternCatalog).map((pattern) => pattern);
+      const companyOutputs = outputsByCompany.get(company.id) ?? [];
+      return detectCompanyPatterns(company, qualification, patternCatalog, companyOutputs);
     });
 
     const patchedQualifications = qualifications.map((qualification) => ({
@@ -55,16 +140,16 @@ export class PlatformService {
         companyId: qualification.companyId,
         scoreType: 'funding_need',
         scoreValue: qualification.predicted_funding_need_score,
-        rationale: 'Predição de funding need pelo qualification_agent v1.',
-        version: 1,
+        rationale: 'Predição de funding need a partir de sinais, monitoring outputs e enrichment.',
+        version: 2,
         createdAt: generatedAt,
       },
       {
         companyId: qualification.companyId,
         scoreType: 'urgency',
         scoreValue: qualification.urgency_score,
-        rationale: 'Urgência sintetizando trigger strength e funding gap.',
-        version: 1,
+        rationale: 'Urgência ponderando triggers, pressão de capital e padrões ativos.',
+        version: 2,
         createdAt: generatedAt,
       },
     ]));
@@ -87,8 +172,8 @@ export class PlatformService {
       return {
         companyId: company.id,
         leadScore: leadScore.score,
-        bucket: leadScore.bucket,
-        rationale: `Lead score combina RankingV2Service, sinais, qualification e impactos de padrões (${patternScore}).`,
+        bucket: leadScore.bucket as PriorityBucket,
+        rationale: `Lead score combina qualification, monitoring real, connector confidence e impacto dos padrões (${patternScore}).`,
         nextAction: company.activities[0]?.title ?? 'Executar análise comercial',
         sourceConfidence: qualification.source_confidence_score,
         triggerStrength: qualification.trigger_strength_score,
@@ -97,65 +182,80 @@ export class PlatformService {
       };
     });
 
-    await this.repository.saveQualificationSnapshots(patchedQualifications);
-    await this.repository.saveCompanyPatterns(patterns);
-    await this.repository.saveScoreSnapshots(scoreSnapshots);
-    await this.repository.saveLeadScoreSnapshots(leadScoreSnapshots);
+    return { generatedAt, qualifications: patchedQualifications, patterns, scoreSnapshots, leadScoreSnapshots };
+  }
+
+  async recomputeDerivedData(companyId?: string) {
+    const [companies, patternCatalog, monitoringOutputs] = await Promise.all([
+      this.hydrateCompanies(),
+      this.repository.listPatternCatalog(),
+      this.repository.listMonitoringOutputs(),
+    ]);
+
+    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+    const companyIds = new Set(targetCompanies.map((item) => item.id));
+    const relevantOutputs = monitoringOutputs.filter((item) => companyIds.has(item.companyId));
+    const snapshots = this.buildSnapshots(targetCompanies, relevantOutputs, patternCatalog);
+
+    await this.repository.saveQualificationSnapshots(snapshots.qualifications);
+    await this.repository.saveCompanyPatterns(snapshots.patterns);
+    await this.repository.saveScoreSnapshots(snapshots.scoreSnapshots);
+    await this.repository.saveLeadScoreSnapshots(snapshots.leadScoreSnapshots);
+    return snapshots;
+  }
+
+  private async ensureDerivedData() {
+    const [qualifications, leadScores] = await Promise.all([
+      this.repository.listQualificationSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+
+    if (!qualifications.length || !leadScores.length) {
+      await this.recomputeDerivedData();
+    }
   }
 
   private async assembleViews() {
-    const companies = await this.repository.listCompanies();
-    const sources = await this.repository.listSources();
-    const patternCatalog = await this.repository.listPatternCatalog();
-    const monitoringOutputs = await this.repository.listMonitoringOutputs();
+    await this.ensureDerivedData();
 
-    const generatedAt = isoNow();
-    const qualifications = companies.map((company) => buildQualificationSnapshot(company, generatedAt));
-    const patterns = companies.flatMap((company) => detectCompanyPatterns(company, qualifications.find((item) => item.companyId === company.id)!, patternCatalog));
-    const theses = companies.map((company) => buildThesisOutput(company, qualifications.find((item) => item.companyId === company.id)!, patterns.filter((item) => item.companyId === company.id)));
-    const leadScores = companies.map((company) => {
-      const qualification = qualifications.find((item) => item.companyId === company.id)!;
-      const companyPatterns = patterns.filter((item) => item.companyId === company.id);
-      const patternScore = companyPatterns.reduce((sum, pattern) => sum + pattern.leadScoreImpact, 0);
-      const computed = computeLeadScore({
-        qualificationScore: qualification.qualification_score_total,
-        sourceConfidence: qualification.source_confidence_score,
-        triggerStrength: qualification.trigger_strength_score,
-        timingIntensity: qualification.urgency_score,
-        executionReadiness: qualification.qualification_score_execution,
-        dataQuality: qualification.confidence_score * 100,
-        pipelineReadiness: qualification.predicted_funding_need_score,
-        patternScore,
-      });
-      return {
-        companyId: company.id,
-        leadScore: computed.score,
-        bucket: computed.bucket,
-        rationale: `Lead score dinâmico com impactos de patterns + source confidence + trigger strength.`,
-        nextAction: company.activities[0]?.title ?? 'Executar playbook comercial',
-        sourceConfidence: qualification.source_confidence_score,
-        triggerStrength: qualification.trigger_strength_score,
-        patternScore,
-        createdAt: generatedAt,
-      };
+    const [companies, sources, patternCatalog, monitoringOutputs, qualificationSnapshots, companyPatterns, scoreSnapshots, leadScoreSnapshots] = await Promise.all([
+      this.hydrateCompanies(),
+      this.repository.listSources(),
+      this.repository.listPatternCatalog(),
+      this.repository.listMonitoringOutputs(),
+      this.repository.listQualificationSnapshots(),
+      this.repository.listCompanyPatterns(),
+      this.repository.listScoreSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+
+    const latestQualifications = latestByCompany(qualificationSnapshots);
+    const latestLeads = latestByCompany(leadScoreSnapshots);
+    const latestScores = latestByCompany(scoreSnapshots.filter((item) => item.scoreType === 'qualification'));
+    const patternByCompany = groupByCompany(companyPatterns);
+    const outputsByCompany = groupByCompany(monitoringOutputs);
+    const theses = companies.map((company) => {
+      const qualification = latestQualifications.get(company.id)!;
+      const patterns = patternByCompany.get(company.id) ?? [];
+      return buildThesisOutput(company, qualification, patterns);
     });
 
     const rankingRows = companies
       .map((company) => buildRankingRow({
         companyId: company.id,
         companyName: company.tradeName,
-        qualification: qualifications.find((item) => item.companyId === company.id)!,
-        lead: leadScores.find((item) => item.companyId === company.id)!,
-        patterns: patterns.filter((item) => item.companyId === company.id),
+        qualification: latestQualifications.get(company.id)!,
+        lead: latestLeads.get(company.id)!,
+        patterns: patternByCompany.get(company.id) ?? [],
       }))
       .sort((a, b) => b.rankingScore - a.rankingScore)
       .map((row, index) => ({ ...row, position: index + 1 }));
 
-    const companyViews: CompanyView[] = companies.map((company) => {
-      const qualification = qualifications.find((item) => item.companyId === company.id)!;
-      const lead = leadScores.find((item) => item.companyId === company.id)!;
-      const thesis = theses.find((item) => item.structureType === qualification.suggested_structure_type && item.summary.includes(company.tradeName))!;
-      const companyPatterns = patterns.filter((item) => item.companyId === company.id);
+    const companyViews = companies.map((company) => {
+      const qualification = latestQualifications.get(company.id)!;
+      const lead = latestLeads.get(company.id)!;
+      const thesis = theses.find((item) => item.summary.includes(company.tradeName))!;
+      const patterns = (patternByCompany.get(company.id) ?? []).slice(0, 3).map((item) => item.patternName);
       return {
         id: company.id,
         name: company.tradeName,
@@ -175,29 +275,46 @@ export class PlatformService {
         urgencyScore: qualification.urgency_score,
         sourceConfidence: qualification.source_confidence_score,
         triggerStrength: qualification.trigger_strength_score,
-        topPatterns: companyPatterns.slice(0, 3).map((item) => item.patternName),
+        topPatterns: patterns,
       };
     });
 
-    return { companies, companyViews, qualifications, patterns, theses, leadScores, rankingRows, sources, monitoringOutputs, agents: agentDefinitions };
+    return {
+      companies,
+      companyViews,
+      qualifications: latestQualifications,
+      patterns: patternByCompany,
+      theses,
+      leadScores: latestLeads,
+      rankingRows,
+      sources,
+      monitoringOutputs: outputsByCompany,
+      allMonitoringOutputs: monitoringOutputs,
+      scoreSnapshots,
+      latestScores,
+      leadScoreSnapshots,
+      patternCatalog,
+      agents: agentDefinitions,
+    };
   }
 
   async getDashboard(): Promise<DashboardView> {
-    const { companyViews, rankingRows, patterns, monitoringOutputs, agents } = await this.assembleViews();
+    const { companyViews, rankingRows, patterns, allMonitoringOutputs, agents } = await this.assembleViews();
+    const allPatterns = Array.from(patterns.values()).flat();
 
     return {
       summary: [
-        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base consolidada na arquitetura oficial atual.' },
-        { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade imediata pelo Ranking V2.' },
-        { label: 'Padrões ativos', value: String(patterns.length), tone: 'warning', helper: 'Pattern catalog com 10 padrões canônicos.' },
-        { label: 'Outputs 24h', value: String(monitoringOutputs.length), tone: 'info', helper: 'Connectors reais/parciais com fallback preenchido.' },
+        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base vinda do backend com Supabase + fallback local apenas se necessário.' },
+        { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
+        { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
+        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
       ],
       topLeads: rankingRows.slice(0, 5),
       monitoring: {
-        activeSources: 4,
-        outputs24h: monitoringOutputs.length,
+        activeSources: 3,
+        outputs24h: allMonitoringOutputs.length,
         triggers24h: companyViews.reduce((sum, company) => sum + Math.round(company.triggerStrength / 25), 0),
-        websiteChecks: monitoringOutputs.filter((item) => item.sourceId === 'src_company_website').length,
+        websiteChecks: allMonitoringOutputs.filter((item) => item.sourceId === 'src_company_website').length,
       },
       agents: agents.filter((agent) => ['qualification_agent', 'pattern_identification_agent', 'monitoring_agent', 'lead_score_agent'].includes(agent.name)).map((agent) => ({
         name: agent.name,
@@ -205,15 +322,15 @@ export class PlatformService {
         lastRun: new Date().toISOString(),
         note: agent.objective,
       })),
-      patterns: Array.from(new Set(patterns.map((pattern) => pattern.patternName))).map((patternName) => {
-        const current = patterns.filter((pattern) => pattern.patternName === patternName);
+      patterns: Array.from(new Set(allPatterns.map((pattern) => pattern.patternName))).map((patternName) => {
+        const current = allPatterns.filter((pattern) => pattern.patternName === patternName);
         return { pattern: patternName, companies: current.length, avgImpact: Math.round(current.reduce((sum, item) => sum + item.leadScoreImpact + item.rankingImpact, 0) / current.length) };
       }).slice(0, 6),
       pipeline: [
-        { stage: 'Identified', count: companyViews.length, coverage: 'Base seeded + monitoring' },
-        { stage: 'Qualified', count: companyViews.filter((company) => company.qualificationScore >= 70).length, coverage: 'qualification_agent' },
-        { stage: 'Approach', count: companyViews.filter((company) => company.leadScore >= 70).length, coverage: 'lead_score_agent' },
-        { stage: 'Structuring', count: companyViews.filter((company) => company.suggestedStructure.includes('FIDC')).length, coverage: 'thesis + market map' },
+        { stage: 'Identified', count: companyViews.length, coverage: 'companies + source catalog' },
+        { stage: 'Qualified', count: companyViews.filter((company) => company.qualificationScore >= 70).length, coverage: 'qualification_snapshots' },
+        { stage: 'Approach', count: companyViews.filter((company) => company.leadScore >= 70).length, coverage: 'lead_score_snapshots' },
+        { stage: 'Structuring', count: companyViews.filter((company) => company.suggestedStructure.includes('FIDC')).length, coverage: 'thesis e patterns' },
       ],
       charts: {
         leadBuckets: [
@@ -222,7 +339,7 @@ export class PlatformService {
           { label: 'Monitor', value: rankingRows.filter((row) => row.bucket === 'monitor_closely').length },
           { label: 'Watchlist', value: rankingRows.filter((row) => row.bucket === 'watchlist').length },
         ],
-        qualificationVsLead: companyViews.map((company) => ({ company: company.name, qualification: company.qualificationScore, lead: company.leadScore })),
+        qualificationVsLead: companyViews.slice(0, 8).map((company) => ({ company: company.name, qualification: company.qualificationScore, lead: company.leadScore })),
       },
     };
   }
@@ -232,13 +349,24 @@ export class PlatformService {
   }
 
   async getCompanyDetail(id: string): Promise<CompanyDetailView | null> {
-    const { companies, companyViews, qualifications, patterns, theses, leadScores, rankingRows, sources, monitoringOutputs } = await this.assembleViews();
+    const { companies, companyViews, qualifications, patterns, theses, leadScores, rankingRows, sources, monitoringOutputs, scoreSnapshots, leadScoreSnapshots } = await this.assembleViews();
     const companySeed = companies.find((item) => item.id === id);
     const company = companyViews.find((item) => item.id === id);
-    const qualification = qualifications.find((item) => item.companyId === id);
-    const lead = leadScores.find((item) => item.companyId === id);
+    const qualification = qualifications.get(id);
+    const lead = leadScores.get(id);
     const ranking = rankingRows.find((item) => item.companyId === id);
     if (!companySeed || !company || !qualification || !lead || !ranking) return null;
+
+    const historyDates = Array.from(new Set([
+      ...scoreSnapshots.filter((item) => item.companyId === id).map((item) => item.createdAt),
+      ...leadScoreSnapshots.filter((item) => item.companyId === id).map((item) => item.createdAt),
+    ])).sort();
+
+    const scoreHistory = historyDates.slice(-5).map((at) => ({
+      at,
+      qualification: scoreSnapshots.find((item) => item.companyId === id && item.scoreType === 'qualification' && item.createdAt === at)?.scoreValue ?? qualification.qualification_score_total,
+      lead: leadScoreSnapshots.find((item) => item.companyId === id && item.createdAt === at)?.leadScore ?? lead.leadScore,
+    }));
 
     return {
       company: {
@@ -251,9 +379,9 @@ export class PlatformService {
       },
       qualification: {
         ...qualification,
-        pattern_summary: patterns.filter((item) => item.companyId === id).map((item) => item.patternName),
+        pattern_summary: (patterns.get(id) ?? []).map((item) => item.patternName),
       },
-      patterns: patterns.filter((item) => item.companyId === id),
+      patterns: patterns.get(id) ?? [],
       thesis: theses.find((item) => item.summary.includes(companySeed.tradeName))!,
       marketMap: companySeed.marketMapPeers,
       monitoring: companySeed.monitoring,
@@ -266,12 +394,8 @@ export class PlatformService {
         bucket: lead.bucket,
         rankingScore: ranking.rankingScore,
       },
-      scoreHistory: [
-        { at: '2026-02-21', qualification: Math.max(qualification.qualification_score_total - 7, 40), lead: Math.max(lead.leadScore - 6, 35) },
-        { at: '2026-03-07', qualification: Math.max(qualification.qualification_score_total - 3, 45), lead: Math.max(lead.leadScore - 2, 40) },
-        { at: '2026-03-21', qualification: qualification.qualification_score_total, lead: lead.leadScore },
-      ],
-      monitoringOutputs: monitoringOutputs.filter((item) => item.companyId === id),
+      scoreHistory,
+      monitoringOutputs: monitoringOutputs.get(id) ?? [],
     };
   }
 
@@ -281,6 +405,19 @@ export class PlatformService {
 
   async getRankings(): Promise<RankingRow[]> {
     return (await this.assembleViews()).rankingRows;
+  }
+
+  async recalculateCompany(id: string, reason = 'manual') {
+    await this.refreshMonitoring(id);
+    const snapshots = await this.recomputeDerivedData(id);
+    const latest = snapshots.qualifications.find((item) => item.companyId === id);
+    return {
+      companyId: id,
+      action: 'recalculated',
+      reason,
+      qualificationScore: latest?.qualification_score_total ?? null,
+      urgencyScore: latest?.urgency_score ?? null,
+    };
   }
 
   async listSearchProfiles() { return this.repository.listSearchProfiles(); }
