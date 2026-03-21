@@ -8,28 +8,38 @@ export function Layout() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div>
+        <div className="sidebar-brand">
           <p className="eyebrow">Origination Intelligence Platform</p>
           <h1>Motor SRM</h1>
-          <p className="sidebar-copy">Main preservada, agora conectada a Supabase/Auth reais com ingestão mínima viável de connectors.</p>
+          <p className="sidebar-copy">Plataforma institucional para qualificação, monitoramento e priorização executiva de oportunidades de crédito/originação.</p>
         </div>
-        <nav>
-          {navItems.map(([to, label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={to === '/'}>
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+
+        <div className="sidebar-section">
+          <span className="sidebar-label">Workspace</span>
+          <nav>
+            {navItems.map(([to, label]) => (
+              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={to === '/'}>
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+
+        <div className="sidebar-footer">
+          <span className="sidebar-label">Estado da stack</span>
+          <div className="sidebar-footnote">Frontend oficial da main com backend real como primeira opção e fallback centralizado para não deixar a operação vazia.</div>
+        </div>
       </aside>
+
       <main className="content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Supabase live</p>
-            <strong>{session?.user.email ?? 'Usuário autenticado'} · Qualification + patterns + monitoring persistidos</strong>
+            <p className="eyebrow">Originação institucional</p>
+            <strong>{session?.user.email ?? 'Usuário autenticado'} · visão de crédito, monitoramento e priorização em um só lugar</strong>
           </div>
           <div className="topbar-meta">
-            <div className="badge">Auth real</div>
-            <div className="badge subtle">DB first</div>
+            <div className="badge">Desktop-first</div>
+            <div className="badge subtle">Main oficial</div>
             <button type="button" className="secondary" onClick={() => void logout()}>Sair</button>
           </div>
         </header>

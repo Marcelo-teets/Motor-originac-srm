@@ -1,22 +1,38 @@
-import { Card } from '../components/UI';
+import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar } from '../components/UI';
+import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { useAsyncData } from '../lib/useAsyncData';
 
 export function PipelinePage() {
+  const { session } = useAuth();
+  const { data, loading, error } = useAsyncData(() => api.getPipelineSnapshot(session), [session?.access_token]);
+
+  if (loading) return <div className="page"><Card title="Pipeline" subtitle="Carregando pipeline">Aguarde...</Card></div>;
+  if (error || !data) return <div className="page"><Card title="Pipeline" subtitle="Falha ao carregar pipeline">{error}</Card></div>;
+
+  const maxStage = Math.max(...data.data.stages.map((item) => item.count), 1);
+
   return (
     <div className="page">
+      <PageIntro eyebrow="Pipeline" title="Pipeline / Activities" description="Leitura objetiva de volume por estágio e atividades recentes para ajudar cobertura, analytics e origination a identificar gargalos." actions={<Pill tone="success">visão executiva</Pill>} />
+      <DataStatusBanner source={data.source} note={data.note} />
       <section className="grid cols-2">
-        <Card title="Pipeline" subtitle="Estágios comerciais sincronizados com backend">
-          <ul className="list">
-            <li><strong>Identified</strong><span>32 empresas</span></li>
-            <li><strong>Qualified</strong><span>17 empresas</span></li>
-            <li><strong>Approach</strong><span>9 empresas</span></li>
-            <li><strong>Structuring</strong><span>4 empresas</span></li>
-          </ul>
+        <Card title="Pipeline" subtitle="Empresas por estágio" className="dense-card">
+          <div className="bars">
+            {data.data.stages.map((stage) => (
+              <div key={stage.stage}>
+                <div className="row-between"><span>{stage.stage}</span><strong>{stage.count}</strong></div>
+                <ProgressBar value={stage.count} max={maxStage} tone="info" />
+                <div className="table-helper">{stage.note}</div>
+              </div>
+            ))}
+          </div>
         </Card>
-        <Card title="Activities" subtitle="Ações e tarefas relacionadas">
+        <Card title="Activities" subtitle="Últimas ações do pipeline" className="dense-card">
           <ul className="list">
-            <li><strong>Preparar tese executiva</strong><span>Origination · aberto</span></li>
-            <li><strong>Call com CFO</strong><span>Coverage · planejado</span></li>
-            <li><strong>Validar webhook Supabase</strong><span>Produto · backlog</span></li>
+            {data.data.recentActivities.map((activity) => (
+              <li key={`${activity.company}-${activity.title}`}><strong>{activity.company}</strong><span>{activity.title} · {activity.owner} · {activity.when} · {activity.status}</span></li>
+            ))}
           </ul>
         </Card>
       </section>
