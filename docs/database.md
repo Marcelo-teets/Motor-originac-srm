@@ -7,17 +7,31 @@
 
 ## Tabelas agora persistidas/relevantes na PR
 - `companies`
-- `search_profiles`
+- `source_catalog`
+- `monitoring_outputs`
+- `company_signals`
+- `score_snapshots`
+- `lead_score_snapshots`
 - `qualification_snapshots`
 - `pattern_catalog`
 - `company_patterns`
-- `monitoring_outputs`
-- `score_snapshots`
-- `lead_score_snapshots`
+- `search_profiles`
+- `search_profile_filters`
+- `enrichments`
 
-## Observações
-- `companies` recebeu `cnpj`, `stage` e `current_funding_structure` para suportar conectores reais e Qualification Agent V1.
-- `qualification_snapshots` agora persiste `source_confidence_score`, `trigger_strength_score` e `pattern_summary`.
-- `monitoring_outputs` agora separa `output_payload` de `normalized_payload` e registra `connector_status`.
-- `pattern_catalog` e `company_patterns` persistem impactos usados pelo ranking dinâmico.
-- Os IDs seedados em tabelas centrais são textuais para simplificar bootstrap, evitar conflito entre ambientes locais e manter idempotência de seed.
+## O que virou real nesta PR
+- O backend grava e lê Supabase REST como primeira opção e só recorre ao fallback em memória quando o banco está vazio ou indisponível.
+- `search_profiles` agora persiste também a decomposição de filtros em `search_profile_filters`.
+- `monitoring_outputs` registra `normalized_payload` com `sourceUrl`, `timestamp` e `confidenceScore` para conectores rastreáveis.
+- `qualification_snapshots` e `company_patterns` passaram a refletir sinais reais persistidos, impactando qualification, funding need, urgency e lead score.
+
+## Seeds iniciais úteis
+- 10+ `companies` realistas para a plataforma parecer viva mesmo antes do volume externo crescer.
+- `source_catalog` com BrasilAPI, Google News RSS, Valor/Google News RSS, CVM RSS e website monitoring.
+- `pattern_catalog` com catálogo inicial e detecção prioritária de 5 padrões reais.
+- 3 `search_profiles` iniciais.
+- `search_profile_filters` iniciais para os perfis seedados.
+
+## O que continua parcial/mock
+- `pipeline`, `tasks`, parte de `agents` e health operacional avançado ainda não têm persistência completa.
+- Conectores além de BrasilAPI/RSS/website seguem fora do escopo desta PR.
