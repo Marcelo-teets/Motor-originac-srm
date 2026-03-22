@@ -3,11 +3,18 @@ import { env } from './env.js';
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 export type AuthUser = { id: string; email?: string; role?: string; raw: Record<string, unknown> };
+export type AuthSession = {
+  access_token: string;
+  refresh_token?: string;
+  expires_at: number;
+  user: { id: string; email?: string; role?: string };
+};
 
 declare global {
   namespace Express {
     interface Request {
       authUser?: AuthUser;
+      accessToken?: string;
     }
   }
 }
@@ -15,13 +22,42 @@ declare global {
 const encoder = new TextEncoder();
 let jwksCache: { expiresAt: number; keys: Jwk[] } | null = null;
 
+const requireAuthEnv = () => {
+  if (!env.supabaseUrl || !env.supabaseAnonKey) {
+    throw new Error('Supabase auth environment is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  }
+};
+
 const decodeBase64Url = (value: string) => {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '==='.slice((normalized.length + 3) % 4);
   return Buffer.from(padded, 'base64');
 };
 
+const mapAuthUser = (payload: Record<string, unknown>): AuthUser => ({
+  id: String(payload.sub ?? payload.id ?? ''),
+  email: typeof payload.email === 'string' ? payload.email : undefined,
+  role: typeof payload.role === 'string'
+    ? payload.role
+    : (typeof payload.app_metadata === 'object' && payload.app_metadata && 'role' in payload.app_metadata
+      ? String((payload.app_metadata as Record<string, unknown>).role)
+      : 'authenticated'),
+  raw: payload,
+});
+
+const mapSession = (payload: Record<string, any>): AuthSession => ({
+  access_token: String(payload.access_token ?? ''),
+  refresh_token: typeof payload.refresh_token === 'string' ? payload.refresh_token : undefined,
+  expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000,
+  user: {
+    id: String(payload.user?.id ?? payload.user?.sub ?? ''),
+    email: payload.user?.email,
+    role: payload.user?.role ?? payload.user?.app_metadata?.role ?? 'authenticated',
+  },
+});
+
 const getSupabaseJwks = async () => {
+  requireAuthEnv();
   if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
   const response = await fetch(`${env.supabaseUrl}/auth/v1/.well-known/jwks.json`);
   if (!response.ok) throw new Error(`Unable to load Supabase JWKS: ${response.status}`);
@@ -41,6 +77,7 @@ const importVerificationKey = async (jwk: Jwk) => {
 };
 
 export const verifySupabaseJwt = async (token: string): Promise<AuthUser> => {
+  requireAuthEnv();
   const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
   if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('Malformed token');
 
@@ -63,18 +100,59 @@ export const verifySupabaseJwt = async (token: string): Promise<AuthUser> => {
     : await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
 
   if (!verified) throw new Error('Invalid token signature');
+  return mapAuthUser(payload);
+};
 
-  return {
-    id: String(payload.sub ?? ''),
-    email: typeof payload.email === 'string' ? payload.email : undefined,
-    role: typeof payload.role === 'string' ? payload.role : (typeof payload.app_metadata === 'object' && payload.app_metadata && 'role' in payload.app_metadata ? String((payload.app_metadata as Record<string, unknown>).role) : 'authenticated'),
-    raw: payload,
-  };
+export const signInWithPassword = async (email: string, password: string): Promise<AuthSession> => {
+  requireAuthEnv();
+  const response = await fetch(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: env.supabaseAnonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = await response.json() as Record<string, any>;
+  if (!response.ok) {
+    throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Falha no login com Supabase Auth.'));
+  }
+  return mapSession(payload);
+};
+
+export const fetchCurrentSupabaseUser = async (accessToken: string): Promise<AuthUser> => {
+  requireAuthEnv();
+  const response = await fetch(`${env.supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: env.supabaseAnonKey,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  const payload = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Unable to fetch current user.'));
+  return mapAuthUser(payload);
+};
+
+export const signOutSupabase = async (accessToken: string) => {
+  requireAuthEnv();
+  const response = await fetch(`${env.supabaseUrl}/auth/v1/logout`, {
+    method: 'POST',
+    headers: {
+      apikey: env.supabaseAnonKey,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase logout failed: ${response.status} ${body}`);
+  }
 };
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  if (!env.supabaseUrl || !env.supabaseAnonKey) {
-    res.status(500).json({ status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase auth environment is not configured.' });
+  try {
+    requireAuthEnv();
+  } catch (error) {
+    res.status(500).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Auth unavailable' });
     return;
   }
 
@@ -85,7 +163,9 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
   }
 
   try {
-    req.authUser = await verifySupabaseJwt(header.slice('Bearer '.length));
+    const accessToken = header.slice('Bearer '.length);
+    req.accessToken = accessToken;
+    req.authUser = await verifySupabaseJwt(accessToken);
     next();
   } catch (error) {
     res.status(401).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unauthorized' });

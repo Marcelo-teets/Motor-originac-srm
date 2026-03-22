@@ -40,6 +40,15 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     metadata: { focus: 'notícias regulatórias e fundos' },
   },
   {
+    id: 'src_valor_rss',
+    name: 'Valor / Google News RSS',
+    sourceType: 'rss',
+    category: 'News/RSS',
+    status: 'real',
+    health: 'healthy',
+    metadata: { provider: 'google-news-rss', focus: 'funding, capital e crédito' },
+  },
+  {
     id: 'src_linkedin_hiring',
     name: 'LinkedIn Hiring Signals',
     sourceType: 'scraper',
@@ -93,8 +102,37 @@ export const searchProfileSeeds: SearchProfile[] = [
     timeWindowDays: 90,
     status: 'active',
     profilePayload: { thesisMode: 'bridge-to-dcm', acceptsImplicitPressure: true }
+  },
+  {
+    id: 'sp_receivables_expansion',
+    name: 'Receivables scale-up em expansão comercial',
+    segment: 'Fintech',
+    subsegment: 'Recebíveis B2B / supply',
+    companyType: 'Scale-up',
+    geography: 'Brasil',
+    creditProduct: 'Antecipação e capital de giro',
+    receivables: ['Duplicatas', 'Cartão', 'Pix parcelado'],
+    targetStructure: 'Warehouse + FIDC',
+    minimumSignalIntensity: 62,
+    minimumConfidence: 0.7,
+    timeWindowDays: 75,
+    status: 'active',
+    profilePayload: { thesisMode: 'receivables-scale', prioritizesExpansionSignals: true }
   }
 ];
+
+export const searchProfileFilterSeeds = searchProfileSeeds.flatMap((profile) => ([
+  { id: `${profile.id}_segment`, profileId: profile.id, filterKey: 'segment', filterValue: profile.segment, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_subsegment`, profileId: profile.id, filterKey: 'subsegment', filterValue: profile.subsegment, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_company_type`, profileId: profile.id, filterKey: 'companyType', filterValue: profile.companyType, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_geography`, profileId: profile.id, filterKey: 'geography', filterValue: profile.geography, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_credit_product`, profileId: profile.id, filterKey: 'creditProduct', filterValue: profile.creditProduct, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_receivables`, profileId: profile.id, filterKey: 'receivables', filterValue: profile.receivables, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_target_structure`, profileId: profile.id, filterKey: 'targetStructure', filterValue: profile.targetStructure, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_minimum_signal_intensity`, profileId: profile.id, filterKey: 'minimumSignalIntensity', filterValue: profile.minimumSignalIntensity, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_minimum_confidence`, profileId: profile.id, filterKey: 'minimumConfidence', filterValue: profile.minimumConfidence, createdAt: '2026-03-21T09:00:00Z' },
+  { id: `${profile.id}_time_window_days`, profileId: profile.id, filterKey: 'timeWindowDays', filterValue: profile.timeWindowDays, createdAt: '2026-03-21T09:00:00Z' },
+]));
 
 export const patternCatalogSeeds: PatternCatalogEntry[] = [
   {

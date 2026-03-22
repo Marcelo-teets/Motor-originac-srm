@@ -4,6 +4,13 @@ const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/
 const nowIso = () => new Date().toISOString();
 const toConfidence = (status: 'real' | 'partial') => (status === 'real' ? 0.82 : 0.45);
 
+const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceScore: number) => ({
+  sourceUrl,
+  collectedAt,
+  timestamp: collectedAt,
+  confidenceScore,
+});
+
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
   try {
@@ -28,9 +35,13 @@ export async function fetchRssFeed(feedUrl: string) {
         publishedAt: sanitizeText(match[3] ?? nowIso()),
         description: sanitizeText(match[4] ?? ''),
       }));
-    return { status: 'real' as const, items };
+    return { status: 'real' as const, items, sourceUrl: feedUrl };
   } catch (error) {
-    return { status: 'partial' as const, items: [{ title: 'RSS fallback', link: feedUrl, publishedAt: new Date().toUTCString(), description: error instanceof Error ? error.message : 'unknown_error' }] };
+    return {
+      status: 'partial' as const,
+      items: [{ title: 'RSS fallback', link: feedUrl, publishedAt: new Date().toUTCString(), description: error instanceof Error ? error.message : 'unknown_error' }],
+      sourceUrl: feedUrl,
+    };
   }
 }
 
@@ -42,9 +53,9 @@ export async function monitorCompanyWebsite(url: string) {
     const title = sanitizeText(html.match(/<title>(.*?)<\/title>/i)?.[1] ?? 'homepage');
     const headings = [...html.matchAll(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/gi)].slice(0, 6).map((match) => sanitizeText(match[1]));
     const bodyText = sanitizeText(html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')).slice(0, 1200);
-    return { status: 'real' as const, title, headings, bodyText };
+    return { status: 'real' as const, title, headings, bodyText, sourceUrl: url };
   } catch (error) {
-    return { status: 'partial' as const, title: 'website_fallback', headings: [error instanceof Error ? error.message : 'unreachable'], bodyText: '' };
+    return { status: 'partial' as const, title: 'website_fallback', headings: [error instanceof Error ? error.message : 'unreachable'], bodyText: '', sourceUrl: url };
   }
 }
 
@@ -64,19 +75,27 @@ const signalStrengthFromText = (text: string) => {
   return 62;
 };
 
-const buildSignal = (company: CompanySeed, sourceId: string, idSuffix: string, text: string, collectedAt: string, status: 'real' | 'partial'): CompanySignal => ({
+const buildSignal = (
+  company: CompanySeed,
+  sourceId: string,
+  idSuffix: string,
+  text: string,
+  collectedAt: string,
+  status: 'real' | 'partial',
+  sourceUrl: string,
+): CompanySignal => ({
   id: `${company.id}_${sourceId}_${idSuffix}`,
   companyId: company.id,
   sourceId,
   signalType: deriveSignalType(text),
   signalStrength: signalStrengthFromText(text),
   confidenceScore: toConfidence(status),
-  evidencePayload: { note: text, source: sourceId },
+  evidencePayload: { note: text, source: sourceId, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status) },
   observedVsInferred: 'observed',
   createdAt: collectedAt,
 });
 
-const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, any>, collectedAt: string): EnrichmentRecord => {
+const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, any>, collectedAt: string, sourceUrl: string): EnrichmentRecord => {
   const sourceConfidence = payload.fallback ? 0.52 : 0.84;
   return {
     id: `${company.id}_enrichment_brasilapi`,
@@ -98,6 +117,8 @@ const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, 
         payload.capital_social ? `Capital social público: ${payload.capital_social}.` : 'Capital social não disponível publicamente.',
       ],
       brasilApi: payload,
+      sourceUrl,
+      collectedAt,
     },
     observedVsInferred: 'observed',
     createdAt: collectedAt,
@@ -128,7 +149,10 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       collectedAt,
       confidenceScore: website.status === 'real' ? 0.74 : 0.42,
       connectorStatus: website.status,
-      normalizedPayload: website,
+      normalizedPayload: {
+        ...website,
+        ...connectorMetadata(website.sourceUrl, collectedAt, website.status === 'real' ? 0.74 : 0.42),
+      },
     },
     {
       id: `${company.id}_brasilapi`,
@@ -139,7 +163,11 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       collectedAt,
       confidenceScore: brasilApi.status === 'real' ? 0.88 : 0.5,
       connectorStatus: brasilApi.status,
-      normalizedPayload: brasilApi.data as Record<string, unknown>,
+      normalizedPayload: {
+        payload: brasilApi.data as Record<string, unknown>,
+        endpoint: brasilApi.endpoint,
+        ...connectorMetadata(brasilApi.endpoint, collectedAt, brasilApi.status === 'real' ? 0.88 : 0.5),
+      },
     },
     ...rssResults.map((rss, index) => ({
       id: `${company.id}_${rssSources[index].id}`,
@@ -150,17 +178,20 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       collectedAt,
       confidenceScore: rss.status === 'real' ? 0.7 : 0.4,
       connectorStatus: rss.status,
-      normalizedPayload: { items: rss.items },
+      normalizedPayload: {
+        items: rss.items,
+        ...connectorMetadata(rss.sourceUrl, collectedAt, rss.status === 'real' ? 0.7 : 0.4),
+      },
     })),
   ];
 
   const signals: CompanySignal[] = [
-    buildSignal(company, 'src_company_website', 'website', website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`, collectedAt, website.status),
-    buildSignal(company, 'src_brasilapi_cnpj', 'brasilapi', brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`, collectedAt, brasilApi.status),
-    ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(company, rssSources[index].id, `rss_${itemIndex + 1}`, `${item.title}. ${item.description}`.trim(), collectedAt, rss.status))),
+    buildSignal(company, 'src_company_website', 'website', website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`, collectedAt, website.status, website.sourceUrl),
+    buildSignal(company, 'src_brasilapi_cnpj', 'brasilapi', brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`, collectedAt, brasilApi.status, brasilApi.endpoint),
+    ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(company, rssSources[index].id, `rss_${itemIndex + 1}`, `${item.title}. ${item.description}`.trim(), collectedAt, rss.status, item.link || rss.sourceUrl))),
   ];
 
-  const enrichments: EnrichmentRecord[] = [buildBrasilApiEnrichment(company, brasilApi.data as Record<string, any>, collectedAt)];
+  const enrichments: EnrichmentRecord[] = [buildBrasilApiEnrichment(company, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)];
 
   return { outputs, signals, enrichments };
 }

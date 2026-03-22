@@ -1,11 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
+import { api } from './api';
 import type { SessionData } from './types';
 
 const SESSION_KEY = 'motor.supabase.session';
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
 type AuthContextValue = {
   session: SessionData | null;
@@ -35,7 +34,37 @@ const readStoredSession = (): SessionData | null => {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<SessionData | null>(() => readStoredSession());
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncSession = async () => {
+      const current = readStoredSession();
+      if (!current?.access_token) {
+        if (!cancelled) {
+          setSession(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const user = await api.getMe(current);
+        if (!cancelled) {
+          setSession({ ...current, user });
+        }
+      } catch {
+        window.localStorage.removeItem(SESSION_KEY);
+        if (!cancelled) setSession(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void syncSession();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (session) {
@@ -50,42 +79,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     loading,
     isAuthenticated: Boolean(session?.access_token),
     async login(email, password) {
-      if (!supabaseUrl || !supabaseAnonKey) throw new Error('VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY são obrigatórios no frontend.');
       setLoading(true);
       try {
-        const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
-          method: 'POST',
-          headers: {
-            apikey: supabaseAnonKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email, password }),
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error_description ?? payload.msg ?? 'Falha no login com Supabase.');
-        setSession({
-          access_token: payload.access_token,
-          refresh_token: payload.refresh_token,
-          expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000,
-          user: {
-            id: payload.user?.id,
-            email: payload.user?.email,
-            role: payload.user?.role ?? payload.user?.app_metadata?.role ?? 'authenticated',
-          },
-        });
+        const nextSession = await api.login(email, password);
+        const user = await api.getMe(nextSession).catch(() => nextSession.user);
+        setSession({ ...nextSession, user });
       } finally {
         setLoading(false);
       }
     },
     async logout() {
-      if (session?.access_token && supabaseUrl && supabaseAnonKey) {
-        await fetch(`${supabaseUrl}/auth/v1/logout`, {
-          method: 'POST',
-          headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }).catch(() => undefined);
+      try {
+        await api.logout(session);
+      } catch {
+        // noop: session cleanup still happens locally
       }
       setSession(null);
     },
@@ -102,12 +109,8 @@ export const useAuth = () => {
 
 export function RequireAuth({ children }: PropsWithChildren) {
   const auth = useAuth();
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!auth.loading && !auth.isAuthenticated) navigate('/login', { replace: true });
-  }, [auth.isAuthenticated, auth.loading, navigate]);
-
-  if (!auth.isAuthenticated) return null;
+  if (auth.loading) return null;
+  if (!auth.isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

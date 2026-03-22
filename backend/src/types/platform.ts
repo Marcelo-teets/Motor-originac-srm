@@ -71,6 +71,14 @@ export type SearchProfile = {
   profilePayload: Record<string, unknown>;
 };
 
+export type SearchProfileFilter = {
+  id: string;
+  profileId: string;
+  filterKey: string;
+  filterValue: unknown;
+  createdAt: string;
+};
+
 export type SourceCatalogEntry = {
   id: string;
   name: string;

@@ -27,7 +27,7 @@ export function Layout() {
 
         <div className="sidebar-footer">
           <span className="sidebar-label">Estado da stack</span>
-          <div className="sidebar-footnote">Frontend oficial da main com backend real como primeira opção e fallback centralizado para não deixar a operação vazia.</div>
+          <div className="sidebar-footnote">Frontend oficial da main consumindo auth e dados reais do backend; módulos avançados ainda podem operar em modo parcial.</div>
         </div>
       </aside>
 
