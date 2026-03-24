@@ -46,6 +46,16 @@ Plataforma de **Origination Intelligence** para originação de crédito estrutu
 Backend padrão: `http://localhost:4000`
 Frontend padrão: `http://localhost:5173`
 
+## Deploy do frontend na Vercel (isolado)
+- O deploy do frontend deve ser configurado com **Root Directory = `frontend/`**.
+- Não use o `package.json` da raiz para build na Vercel.
+- Build do frontend (isolado) deve executar somente:
+  ```bash
+  npm install
+  npm run build
+  ```
+- A configuração recomendada está em `frontend/vercel.json`.
+
 ## Banco e seeds
 - DDL canônico: `db/schema.sql`
 - Migration base: `db/migrations/001_canonical_init.sql`
