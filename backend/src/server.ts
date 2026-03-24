@@ -1,6 +1,6 @@
 import cors from 'cors';
 import express from 'express';
-import { authMiddleware } from './lib/auth.js';
+import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { PlatformService } from './services/platformService.js';
@@ -29,16 +29,58 @@ await service.bootstrap().catch((error) => {
 });
 
 app.get('/health', (_req, res) => res.json(ok(platformMode, { service: 'backend', mode: platformMode, uptime: process.uptime() })));
+
+app.post('/auth/login', wrap(async (req, res) => {
+  const email = String(req.body?.email ?? '').trim();
+  const password = String(req.body?.password ?? '');
+  if (!email || !password) {
+    res.status(400).json(fail(400, 'Email e password são obrigatórios.'));
+    return;
+  }
+
+  const session = await signInWithPassword(email, password);
+  res.json(ok('real', session));
+}));
+
 app.use(authMiddleware);
 
-app.get('/auth/me', wrap((req, res) => res.json(ok('real', req.authUser))));
-app.post('/auth/logout', wrap((_req, res) => res.json(ok('real', { success: true }))));
+app.get('/auth/me', wrap(async (req, res) => {
+  const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
+  res.json(ok('real', liveUser));
+}));
+app.post('/auth/logout', wrap(async (req, res) => {
+  if (req.accessToken) await signOutSupabase(req.accessToken);
+  res.json(ok('real', { success: true }));
+}));
 
 app.get('/search-profiles', wrap(async (_req, res) => res.json(ok(platformMode, await service.listSearchProfiles()))));
+app.post('/search-profiles', wrap(async (req, res) => {
+  const profile = await service.saveSearchProfile({
+    id: req.body?.id,
+    name: req.body?.name,
+    segment: String(req.body?.segment ?? ''),
+    subsegment: String(req.body?.subsegment ?? ''),
+    companyType: String(req.body?.companyType ?? ''),
+    geography: String(req.body?.geography ?? ''),
+    creditProduct: String(req.body?.creditProduct ?? ''),
+    receivables: Array.isArray(req.body?.receivables) ? req.body.receivables.map(String) : [],
+    targetStructure: String(req.body?.targetStructure ?? ''),
+    minimumSignalIntensity: Number(req.body?.minimumSignalIntensity ?? 50),
+    minimumConfidence: Number(req.body?.minimumConfidence ?? 0.6),
+    timeWindowDays: Number(req.body?.timeWindowDays ?? 90),
+    status: req.body?.status === 'paused' ? 'paused' : 'active',
+    profilePayload: typeof req.body?.profilePayload === 'object' && req.body?.profilePayload ? req.body.profilePayload : {},
+  });
+  res.status(201).json(ok(platformMode, profile));
+}));
 app.get('/companies', wrap(async (_req, res) => res.json(ok(platformMode, await service.listCompanies()))));
 app.get('/companies/:id', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
   res.status(detail ? 200 : 404).json(detail ? ok(platformMode, detail) : fail(404, 'Company not found'));
+}));
+app.get('/companies/:id/patterns', wrap(async (req, res) => {
+  const detail = await service.getCompanyDetail(param(req.params.id));
+  res.json(ok(platformMode, detail?.patterns ?? []));
 }));
 app.get('/companies/:id/sources', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
@@ -100,7 +142,7 @@ app.get('/monitoring/triggers', wrap(async (_req, res) => {
 }));
 app.post('/monitoring/run', wrap(async (_req, res) => res.json(ok(platformMode, { started: true, ...(await service.refreshMonitoring()) }))));
 app.post('/monitoring/run/company/:id', wrap(async (req, res) => res.json(ok(platformMode, { started: true, companyId: param(req.params.id), ...(await service.refreshMonitoring(param(req.params.id))) }))));
-app.post('/monitoring/run/source/:id', wrap(async (req, res) => res.json(ok(platformMode, { started: true, sourceId: param(req.params.id), note: 'Source-specific filtering uses persisted outputs catalog.' }))));
+app.post('/monitoring/run/source/:id', wrap((req, res) => res.json(ok(platformMode, { started: true, sourceId: param(req.params.id), note: 'Source-specific filtering uses persisted outputs catalog.' }))));
 
 app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: (await import('./modules/agents.js')).agentDefinitions }))));
 app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMode, (await import('./modules/agents.js')).agentDefinitions))));

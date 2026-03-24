@@ -13,7 +13,7 @@ export function SourcesPage() {
   return (
     <div className="page">
       <Card title="Sources" subtitle="Catálogo vindo de source_catalog">
-        <table><thead><tr><th>Fonte</th><th>Tipo</th><th>Categoria</th><th>Status</th><th>Health</th></tr></thead><tbody>{data.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.sourceType}</td><td>{source.category}</td><td><Pill>{source.status}</Pill></td><td>{source.health}</td></tr>)}</tbody></table>
+        <table><thead><tr><th>Fonte</th><th>Tipo</th><th>Categoria</th><th>Status</th><th>Health</th></tr></thead><tbody>{data.data.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.sourceType}</td><td>{source.category}</td><td><Pill>{source.status}</Pill></td><td>{source.health}</td></tr>)}</tbody></table>
       </Card>
     </div>
   );

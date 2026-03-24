@@ -69,6 +69,7 @@ export type CompanyDetail = {
     source_confidence_score: number;
     suggested_structure_type: string;
     capital_structure_rationale: string;
+    capital_structure_quality?: string;
     pattern_summary: string[];
     funding_gap_level?: string;
     fit_fidc?: boolean;
@@ -96,6 +97,22 @@ export type CompanyDetail = {
 
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
+export type SearchProfile = {
+  id: string;
+  name: string;
+  segment: string;
+  subsegment: string;
+  companyType: string;
+  geography: string;
+  creditProduct: string;
+  receivables: string[];
+  targetStructure: string;
+  minimumSignalIntensity: number;
+  minimumConfidence: number;
+  timeWindowDays: number;
+  status: 'active' | 'paused';
+  profilePayload: Record<string, unknown>;
+};
 
 export type SearchProfileDraft = {
   segment: string;
