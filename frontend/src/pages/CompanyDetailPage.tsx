@@ -11,7 +11,7 @@ function booleanLabel(value: boolean | undefined) {
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
   const { session } = useAuth();
-  const { data, loading, error, setData } = useAsyncData(() => api.getCompanyWithFallback(session, id), [session?.access_token, id]);
+  const { data, loading, error, setData } = useAsyncData(() => api.getCompany(session, id), [session?.access_token, id]);
 
   if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
@@ -20,17 +20,17 @@ export function CompanyDetailPage() {
 
   const handleRecalculate = async () => {
     await api.recalculateCompany(session, id);
-    const refreshed = await api.getCompanyWithFallback(session, id);
+    const refreshed = await api.getCompany(session, id);
     setData(refreshed);
   };
 
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
   const structuralItems = [
-    { label: 'Tem crédito?', value: booleanLabel(Boolean(detail.qualification.has_credit ?? true)) },
+    { label: 'Tem crédito?', value: booleanLabel(Boolean(detail.qualification.has_credit_product ?? true)) },
     { label: 'Tipo', value: detail.company.product },
     { label: 'Tem recebíveis?', value: `${booleanLabel((detail.company.receivables?.length ?? 0) > 0)} · ${detail.company.receivables.join(', ')}` },
-    { label: 'Já tem FIDC?', value: booleanLabel(Boolean(detail.qualification.has_fidc_today)) },
-    { label: 'Qualidade da estrutura de capital', value: detail.qualification.governance_maturity_level ?? 'Em consolidação' },
+    { label: 'Já tem FIDC?', value: booleanLabel(Boolean(detail.qualification.has_fidc)) },
+    { label: 'Qualidade da estrutura de capital', value: detail.qualification.capital_structure_quality ?? 'Em consolidação' },
     { label: 'Funding gap', value: detail.qualification.funding_gap_level ?? 'Não informado' },
     { label: 'Fit FIDC', value: booleanLabel(detail.qualification.fit_fidc) },
     { label: 'Fit DCM', value: booleanLabel(detail.qualification.fit_dcm) },

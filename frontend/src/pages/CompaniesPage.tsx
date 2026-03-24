@@ -18,9 +18,9 @@ export function CompaniesPage() {
   const [structure, setStructure] = useState('all');
   const { data, loading, error } = useAsyncData(
     async () => {
-      const companiesState = await api.getCompaniesWithFallback(session);
+      const companiesState = await api.getCompanies(session);
       const details = await Promise.all(companiesState.data.map(async (company) => {
-        const detailState = await api.getCompanyWithFallback(session, company.id);
+        const detailState = await api.getCompany(session, company.id);
         return {
           ...company,
           lastSignal: detailState.data.signals[0]?.note ?? detailState.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',

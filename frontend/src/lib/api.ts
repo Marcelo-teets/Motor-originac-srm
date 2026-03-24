@@ -1,10 +1,27 @@
-import { mockAgentsSnapshot, mockCompanies, mockCompanyDetails, mockDashboard, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
-import type { AgentsSnapshot, ApiEnvelope, CompanyDetail, CompanyListItem, Dashboard, DataState, MonitoringSnapshot, PipelineSnapshot, SourceEntry } from './types';
-import type { SessionData } from './types';
+import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
+import type {
+  AgentsSnapshot,
+  ApiEnvelope,
+  CompanyDetail,
+  CompanyListItem,
+  Dashboard,
+  DataState,
+  MonitoringSnapshot,
+  PipelineSnapshot,
+  SearchProfile,
+  SessionData,
+  SourceEntry,
+} from './types';
 
-const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
-async function request<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<T> {
+const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
+  if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
+  if (status === 'partial') return `${path} carregado parcialmente; backend priorizou DB real e completou com fallback controlado.`;
+  return `${path} carregado via fallback mock.`;
+};
+
+async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
@@ -15,39 +32,54 @@ async function request<T>(path: string, session: SessionData | null, init?: Requ
   });
   const payload = await response.json() as ApiEnvelope<T> & { error?: string };
   if (!response.ok) throw new Error(payload.error ?? 'Request failed');
-  return payload.data;
+  return payload;
 }
 
-async function withFallback<T>(loader: () => Promise<T>, fallback: T, realNote: string, mockNote: string): Promise<DataState<T>> {
-  try {
-    const data = await loader();
-    return { data, source: 'real', note: realNote };
-  } catch {
-    return { data: fallback, source: 'mock', note: mockNote };
-  }
-}
+const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
+  data: payload.data,
+  source: payload.status,
+  note: stateNote(path, payload.status),
+});
 
 export const api = {
-  getDashboard: (session: SessionData | null) => request<Dashboard>('/dashboard/summary', session),
-  getCompanies: (session: SessionData | null) => request<CompanyListItem[]>('/companies', session),
-  getCompany: (session: SessionData | null, id: string) => request<CompanyDetail>(`/companies/${id}`, session),
-  getSources: (session: SessionData | null) => request<SourceEntry[]>('/sources/catalog', session),
-  recalculateCompany: (session: SessionData | null, id: string) => request(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
-  getDashboardWithFallback: (session: SessionData | null) => withFallback(() => request<Dashboard>('/dashboard/summary', session), mockDashboard, 'Dashboard carregado do backend oficial.', 'Dashboard usando fallback centralizado em frontend/src/mocks/data.ts.'),
-  getCompaniesWithFallback: (session: SessionData | null) => withFallback(() => request<CompanyListItem[]>('/companies', session), mockCompanies, 'Lista de leads carregada do backend oficial.', 'Lista de leads usando fallback centralizado em frontend/src/mocks/data.ts.'),
-  getCompanyWithFallback: (session: SessionData | null, id: string) => withFallback(() => request<CompanyDetail>(`/companies/${id}`, session), mockCompanyDetails[id] ?? mockCompanyDetails[mockCompanies[0].id], 'Company detail carregado do backend oficial.', 'Company detail usando fallback centralizado em frontend/src/mocks/data.ts.'),
+  login: async (email: string, password: string) => {
+    const response = await fetch(`${apiUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const payload = await response.json() as ApiEnvelope<SessionData> & { error?: string };
+    if (!response.ok) throw new Error(payload.error ?? 'Falha ao autenticar.');
+    return payload.data;
+  },
+  logout: (session: SessionData | null) => requestEnvelope<{ success: boolean }>('/auth/logout', session, { method: 'POST' }),
+  getMe: async (session: SessionData | null) => (await requestEnvelope<SessionData['user']>('/auth/me', session)).data,
+
+  getDashboardEnvelope: (session: SessionData | null) => requestEnvelope<Dashboard>('/dashboard/summary', session),
+  getDashboard: async (session: SessionData | null) => toState('Dashboard', await requestEnvelope<Dashboard>('/dashboard/summary', session)),
+  getCompaniesEnvelope: (session: SessionData | null) => requestEnvelope<CompanyListItem[]>('/companies', session),
+  getCompanies: async (session: SessionData | null) => toState('Companies', await requestEnvelope<CompanyListItem[]>('/companies', session)),
+  getCompanyEnvelope: (session: SessionData | null, id: string) => requestEnvelope<CompanyDetail>(`/companies/${id}`, session),
+  getCompany: async (session: SessionData | null, id: string) => toState('Company detail', await requestEnvelope<CompanyDetail>(`/companies/${id}`, session)),
+  getSources: async (session: SessionData | null) => toState('Sources catalog', await requestEnvelope<SourceEntry[]>('/sources/catalog', session)),
+  getSearchProfiles: async (session: SessionData | null) => toState('Search profiles', await requestEnvelope<SearchProfile[]>('/search-profiles', session)),
+  saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
+    await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
+  recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
+
   getMonitoringSnapshot: async (session: SessionData | null): Promise<DataState<MonitoringSnapshot>> => {
     try {
       const [dashboard, companies, sources] = await Promise.all([
-        request<Dashboard>('/dashboard/summary', session),
-        request<CompanyListItem[]>('/companies', session),
-        request<SourceEntry[]>('/sources/catalog', session),
+        requestEnvelope<Dashboard>('/dashboard/summary', session),
+        requestEnvelope<CompanyListItem[]>('/companies', session),
+        requestEnvelope<SourceEntry[]>('/sources/catalog', session),
       ]);
       return {
-        source: 'partial',
+        source: dashboard.status === 'real' && companies.status === 'real' ? 'partial' : dashboard.status,
         note: 'Monitoring consolidado a partir de dashboard, companies e sources do backend oficial.',
         data: {
-          recentTriggers: companies
+          recentTriggers: companies.data
             .sort((a, b) => b.triggerStrength - a.triggerStrength)
             .slice(0, 4)
             .map((company, index) => ({
@@ -57,8 +89,8 @@ export const api = {
               strength: company.triggerStrength,
               when: `${index + 1}h atrás`,
             })),
-          latestRuns: dashboard.agents.map((agent) => ({ workflow: agent.name, status: agent.status, detail: agent.note, when: new Date(agent.lastRun).toLocaleString('pt-BR') })),
-          activeSources: sources.map((source) => ({ name: source.name, status: source.status, health: source.health, coverage: source.category })),
+          latestRuns: dashboard.data.agents.map((agent) => ({ workflow: agent.name, status: agent.status, detail: agent.note, when: new Date(agent.lastRun).toLocaleString('pt-BR') })),
+          activeSources: sources.data.map((source) => ({ name: source.name, status: source.status, health: source.health, coverage: source.category })),
         },
       };
     } catch {
@@ -67,12 +99,12 @@ export const api = {
   },
   getAgentsSnapshot: async (session: SessionData | null): Promise<DataState<AgentsSnapshot>> => {
     try {
-      const dashboard = await request<Dashboard>('/dashboard/summary', session);
+      const dashboard = await requestEnvelope<Dashboard>('/dashboard/summary', session);
       return {
         source: 'partial',
         note: 'Agents consolidados a partir do dashboard oficial.',
         data: {
-          items: dashboard.agents.map((agent, index) => ({
+          items: dashboard.data.agents.map((agent, index) => ({
             name: agent.name,
             status: agent.status,
             failures: agent.status === 'real' ? 0 : 1,
@@ -88,18 +120,18 @@ export const api = {
   },
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
-      const companies = await request<CompanyListItem[]>('/companies', session);
+      const companies = await requestEnvelope<CompanyListItem[]>('/companies', session);
       return {
         source: 'partial',
         note: 'Pipeline consolidado a partir de companies do backend oficial.',
         data: {
           stages: [
-            { stage: 'Identified', count: companies.length, note: 'Base total monitorada' },
-            { stage: 'Qualified', count: companies.filter((item) => item.qualificationScore >= 70).length, note: 'Qualification >= 70' },
-            { stage: 'Approach', count: companies.filter((item) => item.leadScore >= 70).length, note: 'Lead >= 70' },
-            { stage: 'Structuring', count: companies.filter((item) => item.suggestedStructure.includes('FIDC')).length, note: 'Mandatos com fit de estrutura' },
+            { stage: 'Identified', count: companies.data.length, note: 'Base total monitorada' },
+            { stage: 'Qualified', count: companies.data.filter((item) => item.qualificationScore >= 70).length, note: 'Qualification >= 70' },
+            { stage: 'Approach', count: companies.data.filter((item) => item.leadScore >= 70).length, note: 'Lead >= 70' },
+            { stage: 'Structuring', count: companies.data.filter((item) => item.suggestedStructure.includes('FIDC')).length, note: 'Mandatos com fit de estrutura' },
           ],
-          recentActivities: companies.slice(0, 4).map((company, index) => ({
+          recentActivities: companies.data.slice(0, 4).map((company, index) => ({
             company: company.name,
             title: company.nextAction ?? 'Executar contato executivo',
             owner: index % 2 === 0 ? 'Origination' : 'Coverage',

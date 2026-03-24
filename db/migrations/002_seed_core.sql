@@ -3,6 +3,7 @@ insert into source_catalog (id, name, source_type, category, status, metadata, h
 values
   ('src_brasilapi_cnpj', 'BrasilAPI CNPJ', 'api', 'Cadastral', 'real', '{"baseUrl":"https://brasilapi.com.br/api/cnpj/v1"}', 'healthy'),
   ('src_google_news_rss', 'Google News RSS', 'rss', 'News/RSS', 'real', '{"provider":"rss"}', 'healthy'),
+  ('src_valor_rss', 'Valor / Google News RSS', 'rss', 'News/RSS', 'real', '{"provider":"google-news-rss","focus":"funding, capital e crédito"}', 'healthy'),
   ('src_company_website', 'Company Website Monitor', 'sitemap', 'Website monitoring', 'partial', '{"monitors":["homepage","careers"]}', 'healthy'),
   ('src_cvm_rss', 'CVM RSS', 'rss', 'Regulatório', 'partial', '{"focus":"fundos"}', 'healthy')
 on conflict (id) do update set
@@ -38,7 +39,8 @@ on conflict (id) do update set
 insert into search_profiles (id, name, segment, subsegment, company_type, geography, credit_product, target_structure, minimum_signal_intensity, minimum_confidence, time_window_days, status, profile_payload)
 values
   ('sp_growth_fidc', 'Growth lenders com gap de capital', 'Fintech', 'Embedded lending e recebíveis', 'Scale-up', 'Brasil', 'Antecipação de recebíveis', 'FIDC', 65, 0.72, 120, 'active', '{"requiresStructuredFundingGap":true}'),
-  ('sp_embedded_note', 'Embedded finance para bridge DCM/NC', 'Embedded Finance', 'Payments + crédito SMB', 'Growth', 'Brasil', 'Capital de giro', 'Nota comercial', 60, 0.68, 90, 'active', '{"thesisMode":"bridge-to-dcm"}')
+  ('sp_embedded_note', 'Embedded finance para bridge DCM/NC', 'Embedded Finance', 'Payments + crédito SMB', 'Growth', 'Brasil', 'Capital de giro', 'Nota comercial', 60, 0.68, 90, 'active', '{"thesisMode":"bridge-to-dcm"}'),
+  ('sp_receivables_expansion', 'Receivables scale-up em expansão comercial', 'Fintech', 'Recebíveis B2B / supply', 'Scale-up', 'Brasil', 'Antecipação e capital de giro', 'Warehouse + FIDC', 62, 0.70, 75, 'active', '{"thesisMode":"receivables-scale","prioritizesExpansionSignals":true}')
 on conflict (id) do update set
   name = excluded.name,
   segment = excluded.segment,
@@ -52,6 +54,23 @@ on conflict (id) do update set
   time_window_days = excluded.time_window_days,
   status = excluded.status,
   profile_payload = excluded.profile_payload;
+
+insert into search_profile_filters (id, profile_id, filter_key, filter_value, created_at)
+values
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d01', 'sp_growth_fidc', 'segment', '"Fintech"', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d02', 'sp_growth_fidc', 'receivables', '["Cartão","Duplicatas"]', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d03', 'sp_growth_fidc', 'targetStructure', '"FIDC"', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d04', 'sp_embedded_note', 'segment', '"Embedded Finance"', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d05', 'sp_embedded_note', 'receivables', '["Assinaturas","Cartão"]', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d06', 'sp_embedded_note', 'targetStructure', '"Nota comercial"', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d07', 'sp_receivables_expansion', 'segment', '"Fintech"', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d08', 'sp_receivables_expansion', 'receivables', '["Duplicatas","Cartão","Pix parcelado"]', '2026-03-21T09:00:00Z'),
+  ('f0b9b432-1017-4f95-8ef8-d4479f5e6d09', 'sp_receivables_expansion', 'targetStructure', '"Warehouse + FIDC"', '2026-03-21T09:00:00Z')
+on conflict (id) do update set
+  profile_id = excluded.profile_id,
+  filter_key = excluded.filter_key,
+  filter_value = excluded.filter_value,
+  created_at = excluded.created_at;
 
 insert into companies (id, legal_name, trade_name, cnpj, segment, subsegment, geography, company_type, stage, website, current_funding_structure, observed_payload, inferred_payload, estimated_payload, source_trace)
 values

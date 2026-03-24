@@ -15,8 +15,8 @@ export function DashboardPage() {
   const { data, loading, error } = useAsyncData(
     async () => {
       const [dashboardState, companiesState] = await Promise.all([
-        api.getDashboardWithFallback(session),
-        api.getCompaniesWithFallback(session),
+        api.getDashboard(session),
+        api.getCompanies(session),
       ]);
       return { dashboardState, companiesState };
     },

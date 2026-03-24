@@ -122,10 +122,29 @@ export class PlatformService {
       return detectCompanyPatterns(company, qualification, patternCatalog, companyOutputs);
     });
 
-    const patchedQualifications = qualifications.map((qualification) => ({
-      ...qualification,
-      pattern_summary: patterns.filter((pattern) => pattern.companyId === qualification.companyId).map((pattern) => pattern.patternName),
-    }));
+    const patchedQualifications = qualifications.map((qualification) => {
+      const qualificationPatterns = patterns.filter((pattern) => pattern.companyId === qualification.companyId);
+      const qualificationImpact = qualificationPatterns.reduce((sum, pattern) => sum + pattern.qualificationImpact, 0);
+      const urgencyImpact = Math.round(qualificationPatterns.reduce((sum, pattern) => sum + pattern.confidenceScore * 6, 0));
+      const predictedFundingNeedImpact = Math.round(qualificationPatterns.reduce((sum, pattern) => sum + (pattern.qualificationImpact + pattern.rankingImpact) / 2, 0));
+      return {
+        ...qualification,
+        qualification_score_total: Math.min(100, qualification.qualification_score_total + qualificationImpact),
+        predicted_funding_need_score: Math.min(100, qualification.predicted_funding_need_score + predictedFundingNeedImpact),
+        urgency_score: Math.min(100, qualification.urgency_score + urgencyImpact),
+        rationale_summary: `${qualification.rationale_summary} Patterns ativos: ${qualificationPatterns.map((pattern) => pattern.patternName).join(', ') || 'nenhum relevante'}.`,
+        evidence_payload: {
+          ...qualification.evidence_payload,
+          patterns: qualificationPatterns.map((pattern) => ({
+            id: pattern.patternId,
+            name: pattern.patternName,
+            confidence: pattern.confidenceScore,
+            rationale: pattern.rationale,
+          })),
+        },
+        pattern_summary: qualificationPatterns.map((pattern) => pattern.patternName),
+      };
+    });
 
     const scoreSnapshots: ScoreSnapshot[] = patchedQualifications.flatMap((qualification) => ([
       {
@@ -421,6 +440,43 @@ export class PlatformService {
   }
 
   async listSearchProfiles() { return this.repository.listSearchProfiles(); }
+
+  async saveSearchProfile(input: {
+    id?: string;
+    name?: string;
+    segment: string;
+    subsegment: string;
+    companyType: string;
+    geography: string;
+    creditProduct: string;
+    receivables: string[];
+    targetStructure: string;
+    minimumSignalIntensity: number;
+    minimumConfidence: number;
+    timeWindowDays: number;
+    status?: 'active' | 'paused';
+    profilePayload?: Record<string, unknown>;
+  }) {
+    const profile = {
+      id: input.id ?? `sp_${input.segment.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${Date.now()}`,
+      name: input.name ?? `${input.segment} · ${input.targetStructure}`,
+      segment: input.segment,
+      subsegment: input.subsegment,
+      companyType: input.companyType,
+      geography: input.geography,
+      creditProduct: input.creditProduct,
+      receivables: input.receivables,
+      targetStructure: input.targetStructure,
+      minimumSignalIntensity: input.minimumSignalIntensity,
+      minimumConfidence: input.minimumConfidence,
+      timeWindowDays: input.timeWindowDays,
+      status: input.status ?? 'active',
+      profilePayload: input.profilePayload ?? {},
+    };
+
+    return this.repository.saveSearchProfile(profile);
+  }
+
   async listSources() { return this.repository.listSources(); }
   async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }

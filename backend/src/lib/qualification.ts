@@ -5,18 +5,31 @@ import { qualificationWeightTotal } from './scoring.js';
 import type { CompanySeed, MonitoringOutput, QualificationSnapshot } from '../types/platform.js';
 
 const receivablesRecurrence = (receivables: string[]) => (receivables.length >= 2 ? 'high' : 'medium');
-const receivablesPredictability = (receivables: string[]) => (receivables.some((item) => ['Cartão', 'Folha', 'Mensalidades', 'Assinaturas', 'Boletos', 'Pix parcelado'].includes(item)) ? 'medium_high' : 'medium');
+const receivablesPredictability = (receivables: string[]) => (receivables.some((item) => ['Cartão', 'Folha', 'Mensalidades', 'Assinaturas', 'Boletos', 'Pix parcelado', 'CPR'].includes(item)) ? 'medium_high' : 'medium');
+
+const monitoringSignalTerms = [/receb/i, /cart/i, /funding/i, /capital/i, /expans/i, /contrat/i, /fidc/i, /warehouse/i];
 
 const scoreFromMonitoring = (outputs: MonitoringOutput[]) => {
   if (!outputs.length) return 45;
   const avgConfidence = average(outputs.map((output) => output.confidenceScore * 100));
-  const realCoverage = outputs.filter((output) => output.connectorStatus === 'real').length * 8;
-  return clamp(avgConfidence * 0.65 + realCoverage);
+  const realCoverage = outputs.filter((output) => output.connectorStatus === 'real').length * 9;
+  const signalDensity = outputs.filter((output) => monitoringSignalTerms.some((term) => term.test(output.summary))).length * 4;
+  return clamp(avgConfidence * 0.6 + realCoverage + signalDensity);
 };
 
-const scoreFromSignals = (company: CompanySeed) => {
-  if (!company.signals.length) return 40;
-  return clamp(average(company.signals.map((signal) => signal.strength)));
+const scoreFromSignals = (company: CompanySeed, outputs: MonitoringOutput[]) => {
+  const base = company.signals.length ? average(company.signals.map((signal) => signal.strength)) : 40;
+  const outputBoost = outputs.filter((output) => monitoringSignalTerms.some((term) => term.test(output.summary))).length * 3;
+  return clamp(base + outputBoost);
+};
+
+const scoreFromFundingStructure = (currentFundingStructure: string) => {
+  const value = currentFundingStructure.toLowerCase();
+  if (value.includes('fidc') || value.includes('securit')) return 58;
+  if (value.includes('warehouse') || value.includes('debênture') || value.includes('debenture') || value.includes('nota comercial')) return 66;
+  if (value.includes('linhas bilaterais')) return 74;
+  if (value.includes('balanço próprio') || value.includes('caixa')) return 85;
+  return 72;
 };
 
 export const buildQualificationSnapshot = ({
@@ -29,33 +42,40 @@ export const buildQualificationSnapshot = ({
   generatedAt: string;
 }): QualificationSnapshot => {
   const monitoringScore = scoreFromMonitoring(monitoringOutputs);
-  const timingScore = scoreFromSignals(company);
+  const timingScore = scoreFromSignals(company, monitoringOutputs);
+  const fundingStructurePenalty = scoreFromFundingStructure(company.currentFundingStructure);
+  const recurringReceivablesBonus = company.receivables.length >= 2 ? 20 : 10;
+  const structuredFundingPresent = /fidc|securit|warehouse|deb[êe]nture|nota comercial|linhas bilaterais/i.test(company.currentFundingStructure);
+  const balanceSheetOnly = /balanço próprio|caixa/i.test(company.currentFundingStructure);
+  const strongReceivables = company.receivables.some((item) => ['Cartão', 'Mensalidades', 'Assinaturas', 'Duplicatas', 'Pix parcelado', 'CPR', 'Folha'].includes(item));
 
   const structuralScore = clamp(
-    (company.creditProduct ? 52 : 0) +
-      (company.receivables.length >= 2 ? 24 : 15) +
-      (monitoringScore >= 65 ? 12 : 5) +
-      (company.currentFundingStructure.includes('Balanço próprio') ? 12 : 20),
+    (company.creditProduct ? 50 : 25) +
+    recurringReceivablesBonus +
+    (strongReceivables ? 12 : 4) +
+    (monitoringScore >= 70 ? 10 : 4),
   );
+
   const capitalScore = clamp(
-    (company.currentFundingStructure.includes('FIDC') ? 48 : 72) +
-      (timingScore >= 75 ? 14 : 8) +
-      (company.enrichment.spreadVsFundingQuality === 'fragile' ? 10 : 4),
+    fundingStructurePenalty +
+    (timingScore >= 75 ? 10 : 4) +
+    (company.enrichment.spreadVsFundingQuality === 'fragile' ? 10 : company.enrichment.spreadVsFundingQuality === 'neutral' ? 6 : 2) +
+    (balanceSheetOnly ? 8 : 0),
   );
+
   const receivablesScore = clamp(
-    (company.receivables.length >= 2 ? 70 : 56) +
-      (company.receivables.some((item) => ['Cartão', 'Folha', 'Mensalidades', 'Assinaturas'].includes(item)) ? 12 : 5) +
-      (monitoringOutputs.some((item) => /receb|cart|assinatura|folha/i.test(item.summary)) ? 10 : 0),
+    (strongReceivables ? 72 : 55) +
+    recurringReceivablesBonus +
+    (monitoringOutputs.some((item) => /receb|cart|assinatura|folha|mensalidades|duplicatas|cpr/i.test(item.summary)) ? 8 : 0),
   );
-  const executionScore = clamp(
-    average([
-      maturityToScore(company.enrichment.governanceMaturity),
-      maturityToScore(company.enrichment.underwritingMaturity),
-      maturityToScore(company.enrichment.operationalMaturity),
-      maturityToScore(company.enrichment.riskModelMaturity),
-      monitoringScore,
-    ]),
-  );
+
+  const executionScore = clamp(average([
+    maturityToScore(company.enrichment.governanceMaturity),
+    maturityToScore(company.enrichment.underwritingMaturity),
+    maturityToScore(company.enrichment.operationalMaturity),
+    maturityToScore(company.enrichment.riskModelMaturity),
+    monitoringScore,
+  ]));
 
   const weightedTotal = clamp(
     (structuralScore * qualificationWeights.structural +
@@ -63,34 +83,34 @@ export const buildQualificationSnapshot = ({
       receivablesScore * qualificationWeights.receivables +
       executionScore * qualificationWeights.execution +
       timingScore * qualificationWeights.timing) /
-      qualificationWeightTotal,
+    qualificationWeightTotal,
   );
 
-  const fitFidc = company.receivables.length >= 2 && !company.currentFundingStructure.includes('FIDC');
-  const fitDcm = ['Debênture privada piloto', 'Balanço próprio', 'linhas bilaterais', 'nota comercial'].some((fragment) => company.currentFundingStructure.toLowerCase().includes(fragment.toLowerCase()));
+  const fitFidc = strongReceivables && !/fidc/i.test(company.currentFundingStructure);
+  const fitDcm = ['debênture privada piloto', 'balanço próprio', 'linhas bilaterais', 'nota comercial', 'caixa'].some((fragment) => company.currentFundingStructure.toLowerCase().includes(fragment.toLowerCase()));
   const suggestedStructure = fitFidc ? 'FIDC + warehouse inicial' : fitDcm ? 'Debênture / nota comercial privada' : 'Warehouse';
-  const predictedFundingNeed = clamp((capitalScore * 0.4) + (timingScore * 0.3) + (weightedTotal * 0.2) + (monitoringScore * 0.1));
-  const urgency = clamp((timingScore * 0.4) + (capitalScore * 0.25) + (monitoringScore * 0.2) + (structuralScore * 0.15));
+  const predictedFundingNeed = clamp((capitalScore * 0.38) + (timingScore * 0.28) + (weightedTotal * 0.22) + (monitoringScore * 0.12));
+  const urgency = clamp((timingScore * 0.42) + (capitalScore * 0.23) + (monitoringScore * 0.2) + (structuralScore * 0.15));
   const rationale = fitFidc ? thesisRationales.fidc : fitDcm ? thesisRationales.note : thesisRationales.dcm;
 
   return {
     companyId: company.id,
-    has_credit_product: true,
+    has_credit_product: Boolean(company.creditProduct),
     credit_product_type: company.creditProduct,
     credit_is_core_product: true,
     has_receivables: company.receivables.length > 0,
     receivables_type: company.receivables,
     receivables_recurrence_level: receivablesRecurrence(company.receivables),
     receivables_predictability_level: receivablesPredictability(company.receivables),
-    has_fidc: company.currentFundingStructure.includes('FIDC'),
-    has_securitization_structure: company.currentFundingStructure.includes('FIDC') || company.currentFundingStructure.toLowerCase().includes('securit'),
-    has_existing_debt_structure: !company.currentFundingStructure.includes('Balanço próprio'),
+    has_fidc: /fidc/i.test(company.currentFundingStructure),
+    has_securitization_structure: /fidc|securit/i.test(company.currentFundingStructure),
+    has_existing_debt_structure: structuredFundingPresent,
     funding_structure_type: company.currentFundingStructure,
-    capital_structure_quality: company.currentFundingStructure.includes('Balanço próprio') ? 'partial' : 'emerging',
+    capital_structure_quality: balanceSheetOnly ? 'weak' : structuredFundingPresent ? 'emerging' : 'partial',
     capital_structure_rationale: `Estrutura atual: ${company.currentFundingStructure}. ${rationale}`,
-    funding_gap_level: capitalScore >= 75 ? 'high' : capitalScore >= 60 ? 'medium' : 'low',
-    capital_dependency_level: company.currentFundingStructure.includes('Balanço próprio') ? 'high' : 'medium',
-    growth_vs_funding_mismatch: urgency >= 75 ? 'elevated' : urgency >= 60 ? 'moderate' : 'low',
+    funding_gap_level: capitalScore >= 78 ? 'high' : capitalScore >= 62 ? 'medium' : 'low',
+    capital_dependency_level: balanceSheetOnly ? 'high' : structuredFundingPresent ? 'medium' : 'medium_high',
+    growth_vs_funding_mismatch: urgency >= 78 ? 'elevated' : urgency >= 62 ? 'moderate' : 'low',
     fit_fidc: fitFidc,
     fit_dcm: fitDcm,
     fit_other_structure: suggestedStructure,
@@ -114,8 +134,9 @@ export const buildQualificationSnapshot = ({
     rationale_summary: `${company.tradeName}: ${rationale}`,
     evidence_payload: {
       signals: company.signals,
-      monitoringOutputs: monitoringOutputs.map((item) => ({ sourceId: item.sourceId, summary: item.summary, confidenceScore: item.confidenceScore })),
+      monitoringOutputs: monitoringOutputs.map((item) => ({ sourceId: item.sourceId, title: item.title, summary: item.summary, confidenceScore: item.confidenceScore, connectorStatus: item.connectorStatus })),
       enrichment: company.enrichment,
+      fundingStructure: company.currentFundingStructure,
     },
     predicted_funding_need_score: predictedFundingNeed,
     urgency_score: urgency,
