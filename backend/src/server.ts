@@ -7,6 +7,7 @@ import { dataIntelligenceAgents } from './modules/agentsDataIntelligence.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { createAgentLearningRouter } from './routes/agentLearningRouter.js';
 import { createAiRouter } from './routes/aiRouter.js';
+import { createCompanyDecisionMemoRouter } from './routes/companyDecisionMemoRouter.js';
 import { createCompanyIntelligenceRouter } from './routes/companyIntelligenceRouter.js';
 import { createDataIntelligenceRouter } from './routes/dataIntelligenceRouter.js';
 import { createMvpOrchestrationRouter } from './routes/mvpOrchestrationRouter.js';
@@ -62,6 +63,7 @@ app.use(authMiddleware);
 app.use('/ai', createAiRouter(service));
 app.use('/data-intelligence', createDataIntelligenceRouter());
 app.use('/company-intelligence', createCompanyIntelligenceRouter());
+app.use('/company-decision-memo', createCompanyDecisionMemoRouter());
 app.use('/agent-learning', createAgentLearningRouter());
 app.use('/mvp', createMvpOrchestrationRouter(service));
 
@@ -247,6 +249,7 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   monitoring: 'real',
   dataIntelligence: 'real',
   companyIntelligence: 'real',
+  companyDecisionMemo: 'real',
   agentLearning: 'real',
   agents: 'partial',
   pipeline: 'partial',
