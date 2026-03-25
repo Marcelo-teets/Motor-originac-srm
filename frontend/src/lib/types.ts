@@ -95,6 +95,72 @@ export type CompanyDetail = {
   monitoringOutputs: Array<{ id: string; sourceId: string; title: string; summary: string; confidenceScore: number; connectorStatus: string; collectedAt: string }>;
 };
 
+
+
+export type AbmStakeholder = {
+  id: string;
+  company_id: string;
+  name: string;
+  title?: string;
+  role_in_buying_committee?: string;
+  champion_score: number;
+  blocker_score: number;
+  influence_score: number;
+  relationship_strength: number;
+  what_they_care_about?: string;
+  known_objections?: string;
+  last_contact_at?: string;
+};
+
+export type AbmTouchpoint = {
+  id: string;
+  company_id: string;
+  channel: string;
+  direction?: string;
+  occurred_at: string;
+  summary: string;
+  sentiment?: string;
+  objection_raised: boolean;
+  agreed_next_step?: string;
+  next_step_due_at?: string;
+};
+
+export type AbmObjection = {
+  id: string;
+  company_id: string;
+  objection_text: string;
+  status: string;
+  severity?: string;
+  resolution_notes?: string;
+};
+
+export type AbmWeeklyWarRoom = {
+  top_accounts: Array<{ company_id: string; company_name: string; priority_band: string; priority_score?: number; momentum_status: string; momentum_score?: number }>;
+  cooling_accounts: Array<{ company_id: string; company_name: string }>;
+  without_champion: Array<{ company_id: string; company_name: string }>;
+  overdue_next_steps: Array<{ company_id: string; company_name: string; next_step_due_at: string }>;
+  critical_open_objections: Array<{ company_id: string; objection_text: string; severity?: string }>;
+};
+
+export type PreCallBriefing = {
+  companyId: string;
+  institutional_summary: string;
+  thesis: string;
+  why_now: string;
+  recent_signals: Array<{ type: string; strength: number; observed_at: string }>;
+  stakeholders: AbmStakeholder[];
+  recent_touchpoints: AbmTouchpoint[];
+  open_objections: AbmObjection[];
+  recommended_next_step: string;
+  conversation_risks: string[];
+  suggested_cta: string;
+};
+
+export type PreMortem = {
+  companyId: string;
+  risks: Array<{ risk: string; evidence: string; mitigation: string }>;
+};
+
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {

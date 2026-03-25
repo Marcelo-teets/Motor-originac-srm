@@ -11,3 +11,5 @@
 | Agents | Real/Parcial | Qualification, patterns e lead score estão reais; backlog/health avançado seguem simplificados. |
 | Database | Real | DDL canônico sincronizado, seeds úteis e bootstrap em Supabase. |
 | Frontend fallback | Parcial | Dashboard/companies/detail/search profiles usam backend real; monitoring/agents/pipeline ainda possuem fallback controlado. |
+
+| ABM War Room | Real/Parcial | Camada comercial operacional adicionada com stakeholders, touchpoints, objeções, momentum/priority e briefing; evolução de governança/completude segue parcial. |

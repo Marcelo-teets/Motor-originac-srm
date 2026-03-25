@@ -11,17 +11,52 @@ function booleanLabel(value: boolean | undefined) {
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
   const { session } = useAuth();
-  const { data, loading, error, setData } = useAsyncData(() => api.getCompany(session, id), [session?.access_token, id]);
+  const { data, loading, error, setData } = useAsyncData(async () => {
+    const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
+      api.getCompany(session, id),
+      api.getAbmStakeholders(session, id),
+      api.getAbmTouchpoints(session, id),
+      api.getAbmObjections(session, id),
+      api.getPreCallBriefing(session, id),
+      api.getPreMortem(session, id),
+    ]);
+    return {
+      ...companyState,
+      data: {
+        ...companyState.data,
+        abm: {
+          stakeholders: stakeholders.data,
+          touchpoints: touchpoints.data,
+          objections: objections.data,
+          preCall: preCall.data,
+          preMortem: preMortem.data,
+        },
+      },
+    };
+  }, [session?.access_token, id]);
 
   if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
 
-  const detail = data.data;
+  const detail: any = data.data;
 
   const handleRecalculate = async () => {
-    await api.recalculateCompany(session, id);
-    const refreshed = await api.getCompany(session, id);
-    setData(refreshed);
+    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
+    const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
+      api.getCompany(session, id),
+      api.getAbmStakeholders(session, id),
+      api.getAbmTouchpoints(session, id),
+      api.getAbmObjections(session, id),
+      api.getPreCallBriefing(session, id),
+      api.getPreMortem(session, id),
+    ]);
+    setData({
+      ...companyState,
+      data: {
+        ...companyState.data,
+        abm: { stakeholders: stakeholders.data, touchpoints: touchpoints.data, objections: objections.data, preCall: preCall.data, preMortem: preMortem.data },
+      },
+    });
   };
 
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
@@ -107,7 +142,7 @@ export function CompanyDetailPage() {
 
         <Card title="Detected Patterns" subtitle="Padrões detectados, rationale e impacto na tese" className="dense-card">
           <div className="stack-blocks">
-            {detail.patterns.map((pattern) => (
+            {detail.patterns.map((pattern: any) => (
               <div key={pattern.id} className="pattern-card">
                 <div className="row-between">
                   <strong>{pattern.patternName}</strong>
@@ -139,7 +174,7 @@ export function CompanyDetailPage() {
               <tr><th>Sinal</th><th>Fonte</th><th>Força</th><th>Confidence</th></tr>
             </thead>
             <tbody>
-              {detail.signals.map((signal, index) => (
+              {detail.signals.map((signal: any, index: number) => (
                 <tr key={`${signal.type}-${index}`}>
                   <td><strong>{signal.type}</strong><div className="table-helper">{signal.note}</div></td>
                   <td>{signal.source}</td>
@@ -162,7 +197,7 @@ export function CompanyDetailPage() {
               ]} />
             </div>
             <div className="market-map-grid no-top">
-              {detail.sources.map((source) => (
+              {detail.sources.map((source: any) => (
                 <div key={source.id} className="mini-panel">
                   <strong>{source.name}</strong>
                   <span>{source.category}</span>
@@ -172,7 +207,7 @@ export function CompanyDetailPage() {
             </div>
           </div>
           <div className="market-map-grid">
-            {detail.monitoringOutputs.map((output) => (
+            {detail.monitoringOutputs.map((output: any) => (
               <div key={output.id} className="mini-panel">
                 <strong>{output.title}</strong>
                 <span>{output.connectorStatus}</span>
@@ -184,7 +219,7 @@ export function CompanyDetailPage() {
 
         <Card title="Pipeline / Activities" subtitle="Estágio atual, última atividade e próxima ação" className="dense-card">
           <ul className="list">
-            {detail.activities.map((activity) => (
+            {detail.activities.map((activity: any) => (
               <li key={`${activity.title}-${activity.dueDate}`}>
                 <div>
                   <strong>{activity.title}</strong>
@@ -198,7 +233,7 @@ export function CompanyDetailPage() {
 
         <Card title="Score History" subtitle="Evolução de qualification e lead ao longo do tempo" className="dense-card">
           <div className="bars">
-            {detail.scoreHistory.map((entry) => (
+            {detail.scoreHistory.map((entry: any) => (
               <div key={entry.at}>
                 <div className="row-between"><span>{new Date(entry.at).toLocaleDateString('pt-BR')}</span><strong>{entry.qualification}/{entry.lead}</strong></div>
                 <ProgressBar value={entry.qualification} tone="default" />
@@ -207,6 +242,58 @@ export function CompanyDetailPage() {
             ))}
           </div>
         </Card>
+
+        <Card title="Stakeholder Map" subtitle="Mapa de buying committee com champion/blocker" className="dense-card">
+          <table className="dense-table">
+            <thead><tr><th>Nome</th><th>Papel</th><th>Champion</th><th>Blocker</th><th>Influence</th></tr></thead>
+            <tbody>
+              {detail.abm.stakeholders.map((item: any) => (
+                <tr key={item.id}>
+                  <td><strong>{item.name}</strong><div className="table-helper">{item.title ?? '-'}</div></td>
+                  <td>{item.role_in_buying_committee ?? '-'}</td>
+                  <td>{item.champion_score}</td>
+                  <td>{item.blocker_score}</td>
+                  <td>{item.influence_score}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+
+        <Card title="Touchpoint Timeline" subtitle="Interações externas recentes com próximos passos" className="dense-card">
+          <ul className="list">
+            {detail.abm.touchpoints.map((item: any) => (
+              <li key={item.id}><strong>{new Date(item.occurred_at).toLocaleDateString('pt-BR')} · {item.channel}</strong><span>{item.summary} · next: {item.agreed_next_step ?? '-'} </span></li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card title="Objection Intelligence" subtitle="Objeções abertas e tratamento" className="dense-card">
+          <ul className="list">
+            {detail.abm.objections.map((item: any) => (
+              <li key={item.id}><strong>{item.severity ?? 'n/a'} · {item.status}</strong><span>{item.objection_text}</span></li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card title="Pre-Call Briefing" subtitle="Resumo operacional para conversa comercial" className="dense-card">
+          <KeyValueList items={[
+            { label: 'Resumo institucional', value: detail.abm.preCall.institutional_summary },
+            { label: 'Tese atual', value: detail.abm.preCall.thesis },
+            { label: 'Why now', value: detail.abm.preCall.why_now },
+            { label: 'Próximo passo recomendado', value: detail.abm.preCall.recommended_next_step },
+            { label: 'CTA sugerido', value: detail.abm.preCall.suggested_cta },
+          ]} />
+        </Card>
+
+        <Card title="Deal Risks / Pre-Mortem" subtitle="Leitura estruturada de riscos de perda" className="dense-card">
+          <ul className="list">
+            {detail.abm.preMortem.risks.map((risk: any, index: number) => (
+              <li key={index}><strong>{risk.risk}</strong><span>{risk.evidence} · Mitigação: {risk.mitigation}</span></li>
+            ))}
+          </ul>
+        </Card>
+
       </section>
     </div>
   );
