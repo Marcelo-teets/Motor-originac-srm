@@ -144,6 +144,19 @@ export type QualificationIntelligenceBridge = {
   recommendedStructuralAction: string;
 };
 
+export type MvpReadinessSnapshot = {
+  companiesTracked: number;
+  companiesWithIntelligence: number;
+  companiesFitForStructuredCredit: number;
+  avgIntelligenceConfidence: number;
+  avgQualificationScore: number;
+  avgLeadScore: number;
+  topRecommendedActions: string[];
+  summary: string;
+};
+
+export type MvpQuickAction = { id: string; title: string; owner: string; priority: 'high' | 'medium' | 'low' };
+
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
