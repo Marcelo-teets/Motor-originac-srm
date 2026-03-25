@@ -2,8 +2,15 @@ import cors from 'cors';
 import express from 'express';
 import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
+import { agentDefinitions } from './modules/agents.js';
+import { dataIntelligenceAgents } from './modules/agentsDataIntelligence.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
+import { createAgentLearningRouter } from './routes/agentLearningRouter.js';
 import { createAiRouter } from './routes/aiRouter.js';
+import { createDataIntelligenceRouter } from './routes/dataIntelligenceRouter.js';
+import { createMvpOrchestrationRouter } from './routes/mvpOrchestrationRouter.js';
+import { AgentLearningService } from './services/agentLearningService.js';
+import { DataIntelligenceService } from './services/dataIntelligenceService.js';
 import { PlatformService } from './services/platformService.js';
 
 const app = express();
@@ -12,6 +19,9 @@ app.use(express.json());
 
 const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
 const service = new PlatformService(repository);
+const dataIntelligence = new DataIntelligenceService();
+const agentLearning = new AgentLearningService();
+const allAgentDefinitions = [...agentDefinitions, ...dataIntelligenceAgents];
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
 const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
@@ -27,6 +37,10 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
 
 await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
+});
+
+await dataIntelligence.seedCatalog().catch((error) => {
+  console.warn('Data intelligence seed warning:', error instanceof Error ? error.message : error);
 });
 
 app.get('/health', (_req, res) => res.json(ok(platformMode, { service: 'backend', mode: platformMode, uptime: process.uptime() })));
@@ -45,6 +59,9 @@ app.post('/auth/login', wrap(async (req, res) => {
 
 app.use(authMiddleware);
 app.use('/ai', createAiRouter(service));
+app.use('/data-intelligence', createDataIntelligenceRouter());
+app.use('/agent-learning', createAgentLearningRouter());
+app.use('/mvp', createMvpOrchestrationRouter(service));
 
 app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
@@ -129,7 +146,7 @@ app.get('/companies/:id/activities', wrap(async (req, res) => {
 
 app.get('/dashboard/summary', wrap(async (_req, res) => res.json(ok(platformMode, await service.getDashboard()))));
 app.get('/dashboard/top-leads', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).topLeads))));
-app.get('/dashboard/agents', wrap((_req, res) => res.json(ok(platformMode, { agentsMode: platformMode }))));
+app.get('/dashboard/agents', wrap((_req, res) => res.json(ok(platformMode, { agentsMode: platformMode, definitions: allAgentDefinitions.length }))));
 app.get('/dashboard/monitoring', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).monitoring))));
 app.get('/dashboard/patterns', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).patterns))));
 
@@ -146,21 +163,21 @@ app.post('/monitoring/run', wrap(async (_req, res) => res.json(ok(platformMode, 
 app.post('/monitoring/run/company/:id', wrap(async (req, res) => res.json(ok(platformMode, { started: true, companyId: param(req.params.id), ...(await service.refreshMonitoring(param(req.params.id))) }))));
 app.post('/monitoring/run/source/:id', wrap((req, res) => res.json(ok(platformMode, { started: true, sourceId: param(req.params.id), note: 'Source-specific filtering uses persisted outputs catalog.' }))));
 
-app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: (await import('./modules/agents.js')).agentDefinitions }))));
-app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMode, (await import('./modules/agents.js')).agentDefinitions))));
-app.get('/agents/runs', wrap(async (_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', status: 'completed', mode: platformMode }, { agent_name: 'pattern_identification_agent', status: 'completed', mode: platformMode }]))));
+app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: allAgentDefinitions }))));
+app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMode, allAgentDefinitions))));
+app.get('/agents/runs', wrap(async (_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', status: 'completed', mode: platformMode }, { agent_name: 'connector_runner_agent', status: 'partial', mode: platformMode }, { agent_name: 'pattern_identification_agent', status: 'completed', mode: platformMode }]))));
 app.get('/agents/runs/:id', wrap((req, res) => res.json(ok(platformMode, { execution_id: param(req.params.id), status: 'completed', mode: platformMode }))));
-app.get('/agents/validations', wrap((_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', validation: 'passed' }, { agent_name: 'lead_score_agent', validation: 'passed' }]))));
-app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Supabase/Auth real.' }]))));
+app.get('/agents/validations', wrap((_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', validation: 'passed' }, { agent_name: 'lead_score_agent', validation: 'passed' }, { agent_name: 'signal_extraction_agent', validation: 'seeded' }]))));
+app.get('/agents/improvements', wrap(async (_req, res) => res.json(ok(platformMode, await agentLearning.listImprovementBacklog()))));
 app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPatternCatalog()))));
 app.post('/agents/run/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), scope: 'global', started: true }))));
 app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), companyId: param(req.params.id), started: true }))));
 app.post('/agents/orchestrate/company/:id', wrap(async (req, res) => {
   await service.refreshMonitoring(param(req.params.id));
   await service.recalculateCompany(param(req.params.id), 'orchestrated');
-  res.json(ok(platformMode, { companyId: param(req.params.id), orchestrated: true, runCount: 3 }));
+  res.json(ok(platformMode, { companyId: param(req.params.id), orchestrated: true, runCount: 5 }));
 }));
-app.get('/agents/health', wrap((_req, res) => res.json(ok(platformMode, { healthy: 4, degraded: 1, mocked: 0 }))));
+app.get('/agents/health', wrap((_req, res) => res.json(ok(platformMode, { healthy: 6, degraded: 2, mocked: 0 }))));
 
 app.get('/score/company/:id/current', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
@@ -226,6 +243,8 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   leadScore: 'real',
   sources: 'real',
   monitoring: 'real',
+  dataIntelligence: 'real',
+  agentLearning: 'real',
   agents: 'partial',
   pipeline: 'partial',
   frontendDataFallback: 'partial',
