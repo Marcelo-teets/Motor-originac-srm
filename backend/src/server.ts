@@ -3,6 +3,7 @@ import express from 'express';
 import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
+import { createAiRouter } from './routes/aiRouter.js';
 import { PlatformService } from './services/platformService.js';
 
 const app = express();
@@ -43,6 +44,7 @@ app.post('/auth/login', wrap(async (req, res) => {
 }));
 
 app.use(authMiddleware);
+app.use('/ai', createAiRouter(service));
 
 app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
