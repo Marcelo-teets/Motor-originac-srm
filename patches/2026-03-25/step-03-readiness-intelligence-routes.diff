@@ -1,0 +1,236 @@
+diff --git a/backend/src/types/platform.ts b/backend/src/types/platform.ts
+--- a/backend/src/types/platform.ts
++++ b/backend/src/types/platform.ts
+@@
+ export type DashboardView = {
+   summary: Array<{ label: string; value: string; tone: string; helper: string }>;
+   topLeads: RankingRow[];
+   monitoring: {
+     activeSources: number;
+@@
+     qualificationVsLead: Array<{ company: string; qualification: number; lead: number }>;
+   };
+ };
++
++export type CompanyIntelligenceSummary = {
++  companyId: string;
++  rawDocumentCount: number;
++  factCount: number;
++  signalCount: number;
++  enrichmentSnapshotCount: number;
++  topSignalTypes: string[];
++  topFactKeys: string[];
++  inferredFlags: {
++    hasCreditProductEvidence: boolean;
++    hasReceivablesEvidence: boolean;
++    hasFundingSignal: boolean;
++    hasFidcEvidence: boolean;
++    fitForStructuredCredit: boolean;
++  };
++  intelligenceConfidence: number;
++  recommendedNextStep: string;
++};
++
++export type CompanyDecisionMemo = {
++  companyId: string;
++  companyName: string;
++  suggestedStructure: string;
++  qualificationScore: number;
++  leadScore: number;
++  rankingScore: number;
++  triggerStrength: number;
++  intelligenceConfidence: number;
++  fitForStructuredCredit: boolean;
++  whyNow: string;
++  recommendedNextStep: string;
++  topSignals: string[];
++  topPatterns: string[];
++  thesisSummary?: string;
++};
++
++export type QualificationIntelligenceBridge = {
++  companyId: string;
++  qualificationScore: number;
++  intelligenceConfidence: number;
++  fitForStructuredCredit: boolean;
++  fitFidcHint: boolean;
++  fitDcmHint: boolean;
++  capitalNeedHint: boolean;
++  receivablesHint: boolean;
++  recommendedCommercialAction: string;
++  recommendedStructuralAction: string;
++};
++
++export type MvpReadinessSnapshot = {
++  companiesTracked: number;
++  companiesWithIntelligence: number;
++  companiesFitForStructuredCredit: number;
++  avgIntelligenceConfidence: number;
++  avgQualificationScore: number;
++  avgLeadScore: number;
++  topRecommendedActions: string[];
++  summary: string;
++};
+diff --git a/backend/src/services/platformService.ts b/backend/src/services/platformService.ts
+--- a/backend/src/services/platformService.ts
++++ b/backend/src/services/platformService.ts
+@@
+ import type {
++  CompanyDecisionMemo,
+   CompanyDetailView,
++  CompanyIntelligenceSummary,
+   CompanyPattern,
+   CompanySeed,
+   CompanySignal,
+   DashboardView,
+   EnrichmentRecord,
+   LeadScoreSnapshot,
+   MonitoringOutput,
++  MvpReadinessSnapshot,
+   PatternCatalogEntry,
+   QualificationSnapshot,
++  QualificationIntelligenceBridge,
+   RankingRow,
+   ScoreSnapshot,
+   PriorityBucket,
+ } from '../types/platform.js';
+@@
+   async recalculateCompany(id: string, reason = 'manual') {
+     await this.refreshMonitoring(id);
+     const snapshots = await this.recomputeDerivedData(id);
+     const latest = snapshots.qualifications.find((item) => item.companyId === id);
+     return {
+@@
+       urgencyScore: latest?.urgency_score ?? null,
+     };
+   }
++
++  async getCompanyIntelligenceSummary(id: string): Promise<CompanyIntelligenceSummary | null> {
++    const detail = await this.getCompanyDetail(id);
++    if (!detail) return null;
++
++    const evidence = detail.qualification.evidence_payload ?? {};
++    const intelligenceConfidence = Math.round(((detail.qualification.source_confidence_score ?? 0) + ((detail.qualification.confidence_score ?? 0) * 100)) / 2);
++    const fitForStructuredCredit = Boolean(detail.qualification.fit_fidc || detail.qualification.fit_dcm);
++
++    return {
++      companyId: id,
++      rawDocumentCount: detail.monitoringOutputs.length,
++      factCount: Object.keys(evidence).length,
++      signalCount: detail.signals.length,
++      enrichmentSnapshotCount: 1,
++      topSignalTypes: detail.signals.slice(0, 5).map((signal) => signal.type),
++      topFactKeys: Object.keys(evidence).slice(0, 5),
++      inferredFlags: {
++        hasCreditProductEvidence: Boolean(detail.qualification.has_credit_product),
++        hasReceivablesEvidence: Boolean(detail.qualification.has_receivables),
++        hasFundingSignal: (detail.qualification.predicted_funding_need_score ?? 0) >= 60,
++        hasFidcEvidence: Boolean(detail.qualification.fit_fidc),
++        fitForStructuredCredit,
++      },
++      intelligenceConfidence,
++      recommendedNextStep: detail.company.nextAction,
++    };
++  }
++
++  async getCompanyDecisionMemo(id: string): Promise<CompanyDecisionMemo | null> {
++    const detail = await this.getCompanyDetail(id);
++    if (!detail) return null;
++
++    const intelligenceConfidence = Math.round(((detail.qualification.source_confidence_score ?? 0) + ((detail.qualification.confidence_score ?? 0) * 100)) / 2);
++    const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
++    const fitForStructuredCredit = Boolean(detail.qualification.fit_fidc || detail.qualification.fit_dcm);
++
++    return {
++      companyId: id,
++      companyName: detail.company.name,
++      suggestedStructure: detail.qualification.suggested_structure_type,
++      qualificationScore: detail.scores.qualification,
++      leadScore: detail.scores.lead,
++      rankingScore: detail.scores.rankingScore,
++      triggerStrength: detail.qualification.trigger_strength_score,
++      intelligenceConfidence,
++      fitForStructuredCredit,
++      whyNow,
++      recommendedNextStep: detail.company.nextAction,
++      topSignals: detail.signals.slice(0, 3).map((signal) => signal.note),
++      topPatterns: detail.patterns.slice(0, 3).map((pattern) => pattern.patternName),
++      thesisSummary: detail.thesis.summary,
++    };
++  }
++
++  async getQualificationIntelligenceBridge(id: string): Promise<QualificationIntelligenceBridge | null> {
++    const detail = await this.getCompanyDetail(id);
++    if (!detail) return null;
++
++    const intelligenceConfidence = Math.round(((detail.qualification.source_confidence_score ?? 0) + ((detail.qualification.confidence_score ?? 0) * 100)) / 2);
++    const fitForStructuredCredit = Boolean(detail.qualification.fit_fidc || detail.qualification.fit_dcm);
++
++    return {
++      companyId: id,
++      qualificationScore: detail.scores.qualification,
++      intelligenceConfidence,
++      fitForStructuredCredit,
++      fitFidcHint: Boolean(detail.qualification.fit_fidc),
++      fitDcmHint: Boolean(detail.qualification.fit_dcm),
++      capitalNeedHint: (detail.qualification.predicted_funding_need_score ?? 0) >= 60,
++      receivablesHint: Boolean(detail.qualification.has_receivables),
++      recommendedCommercialAction: detail.company.nextAction,
++      recommendedStructuralAction: detail.qualification.suggested_structure_type,
++    };
++  }
++
++  async getMvpReadiness(): Promise<MvpReadinessSnapshot> {
++    const companies = await this.listCompanies();
++    const details = (await Promise.all(companies.map((company) => this.getCompanyDetail(company.id)))).filter(Boolean) as CompanyDetailView[];
++    const confidences = details.map((detail) => Math.round(((detail.qualification.source_confidence_score ?? 0) + ((detail.qualification.confidence_score ?? 0) * 100)) / 2));
++    const qualificationScores = details.map((detail) => detail.scores.qualification);
++    const leadScores = details.map((detail) => detail.scores.lead);
++    const companiesWithIntelligence = details.filter((detail) => detail.signals.length > 0 && detail.monitoringOutputs.length > 0).length;
++    const companiesFitForStructuredCredit = details.filter((detail) => detail.qualification.fit_fidc || detail.qualification.fit_dcm).length;
++    const avg = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
++
++    return {
++      companiesTracked: companies.length,
++      companiesWithIntelligence,
++      companiesFitForStructuredCredit,
++      avgIntelligenceConfidence: avg(confidences),
++      avgQualificationScore: avg(qualificationScores),
++      avgLeadScore: avg(leadScores),
++      topRecommendedActions: companies.slice(0, 5).map((company) => company.nextAction ?? 'Executar análise comercial'),
++      summary: `Base com ${companies.length} empresas, ${companiesFitForStructuredCredit} com fit de estrutura e ${companiesWithIntelligence} com inteligência operacional suficiente para abordagem.`,
++    };
++  }
+ 
+   async listSearchProfiles() { return this.repository.listSearchProfiles(); }
+@@
+   async listSources() { return this.repository.listSources(); }
+   async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
+   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
+ }
+diff --git a/backend/src/server.ts b/backend/src/server.ts
+--- a/backend/src/server.ts
++++ b/backend/src/server.ts
+@@
+ app.get('/companies/:id/activities', wrap(async (req, res) => {
+   const detail = await service.getCompanyDetail(param(req.params.id));
+   res.json(ok(platformMode, detail?.activities ?? []));
+ }));
++
++app.get('/company-intelligence/:id/summary', wrap(async (req, res) => {
++  res.json(ok(platformMode, await service.getCompanyIntelligenceSummary(param(req.params.id))));
++}));
++
++app.get('/company-decision-memo/:id', wrap(async (req, res) => {
++  res.json(ok(platformMode, await service.getCompanyDecisionMemo(param(req.params.id))));
++}));
++
++app.get('/qualification-intelligence-bridge/:id', wrap(async (req, res) => {
++  res.json(ok(platformMode, await service.getQualificationIntelligenceBridge(param(req.params.id))));
++}));
++
++app.get('/mvp-readiness', wrap(async (_req, res) => {
++  res.json(ok(platformMode, await service.getMvpReadiness()));
++}));
+ 
+ app.get('/dashboard/summary', wrap(async (_req, res) => res.json(ok(platformMode, await service.getDashboard()))));
