@@ -463,3 +463,116 @@ as $$
   order by vd.embedding <=> query_embedding
   limit greatest(match_count, 1);
 $$;
+
+alter table companies
+  add column if not exists account_tier text,
+  add column if not exists estimated_ticket_size numeric,
+  add column if not exists commercial_owner_id uuid references users(id),
+  add column if not exists commercial_owner_name text,
+  add column if not exists next_step text,
+  add column if not exists next_step_due_at timestamptz,
+  add column if not exists last_touchpoint_at timestamptz,
+  add column if not exists momentum_status text,
+  add column if not exists priority_reason text,
+  add column if not exists mapped_pains jsonb not null default '[]'::jsonb,
+  add column if not exists competitors_context jsonb not null default '[]'::jsonb,
+  add column if not exists entry_angle text,
+  add column if not exists weekly_focus_flag boolean not null default false;
+
+create table if not exists account_stakeholders (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  name text not null,
+  title text,
+  email text,
+  phone text,
+  linkedin_url text,
+  role_in_buying_committee text,
+  seniority text,
+  influence_score integer not null default 0,
+  champion_score integer not null default 0,
+  blocker_score integer not null default 0,
+  relationship_strength integer not null default 0,
+  what_they_care_about text,
+  known_objections text,
+  last_contact_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_account_stakeholders_company on account_stakeholders(company_id, updated_at desc);
+
+create table if not exists touchpoints (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  stakeholder_id uuid references account_stakeholders(id) on delete set null,
+  owner_id uuid references users(id),
+  owner_name text,
+  channel text not null,
+  direction text,
+  occurred_at timestamptz not null,
+  summary text not null,
+  raw_notes text,
+  sentiment text,
+  objection_raised boolean not null default false,
+  agreed_next_step text,
+  next_step_due_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_touchpoints_company_occurred on touchpoints(company_id, occurred_at desc);
+
+create table if not exists objection_playbook (
+  id uuid primary key default gen_random_uuid(),
+  category text not null,
+  objection_label text not null,
+  objection_text text not null,
+  recommended_response text not null,
+  credit_angle text,
+  escalation_rule text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists objection_instances (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  stakeholder_id uuid references account_stakeholders(id) on delete set null,
+  touchpoint_id uuid references touchpoints(id) on delete set null,
+  playbook_id uuid references objection_playbook(id) on delete set null,
+  objection_text text not null,
+  status text not null default 'open',
+  severity text,
+  resolution_notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_objection_instances_company_status on objection_instances(company_id, status, updated_at desc);
+
+create table if not exists account_momentum_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  momentum_score integer not null,
+  momentum_status text not null,
+  rationale text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_momentum_company_created on account_momentum_snapshots(company_id, created_at desc);
+
+create table if not exists commercial_priority_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  priority_score integer not null,
+  priority_band text not null,
+  rationale text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_priority_company_created on commercial_priority_snapshots(company_id, created_at desc);
+
+create table if not exists deal_outcomes (
+  id uuid primary key default gen_random_uuid(),
+  company_id text not null references companies(id) on delete cascade,
+  outcome_type text not null,
+  reason text,
+  decisive_objection text,
+  learning_notes text,
+  created_at timestamptz not null default now()
+);

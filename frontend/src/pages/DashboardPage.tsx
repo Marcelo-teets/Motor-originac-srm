@@ -14,11 +14,12 @@ export function DashboardPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(
     async () => {
-      const [dashboardState, companiesState] = await Promise.all([
+      const [dashboardState, companiesState, abmWeekly] = await Promise.all([
         api.getDashboard(session),
         api.getCompanies(session),
+        api.getAbmWeekly(session),
       ]);
-      return { dashboardState, companiesState };
+      return { dashboardState, companiesState, abmWeekly };
     },
     [session?.access_token],
   );
@@ -26,7 +27,7 @@ export function DashboardPage() {
   if (loading) return <div className="page"><Card title="Dashboard" subtitle="Carregando visão executiva do backend oficial">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Dashboard" subtitle="Falha ao carregar dados do dashboard">{error}</Card></div>;
 
-  const { dashboardState, companiesState } = data;
+  const { dashboardState, companiesState, abmWeekly } = data;
   const dashboard = dashboardState.data;
   const companies = companiesState.data;
   const topLeads = dashboard.topLeads.map((lead) => {
@@ -92,6 +93,17 @@ export function DashboardPage() {
               ))}
             </tbody>
           </table>
+        </Card>
+
+
+        <Card title="ABM War Room" subtitle="Top contas da semana e pendências comerciais críticas" actions={<Pill tone="warning">novo</Pill>}>
+          <ul className="list compact-list">
+            <li><strong>Top contas</strong><span>{abmWeekly.data.top_accounts.length}</span></li>
+            <li><strong>Contas esfriando</strong><span>{abmWeekly.data.cooling_accounts.length}</span></li>
+            <li><strong>Sem champion</strong><span>{abmWeekly.data.without_champion.length}</span></li>
+            <li><strong>Ações vencidas</strong><span>{abmWeekly.data.overdue_next_steps.length}</span></li>
+            <li><strong>Objeções críticas</strong><span>{abmWeekly.data.critical_open_objections.length}</span></li>
+          </ul>
         </Card>
 
         <Card title="Monitoring" subtitle="Triggers recentes, últimas execuções e cobertura ativa" actions={<Pill tone="info">widget</Pill>}>

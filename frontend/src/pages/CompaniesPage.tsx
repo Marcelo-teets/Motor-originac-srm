@@ -18,12 +18,19 @@ export function CompaniesPage() {
   const [structure, setStructure] = useState('all');
   const { data, loading, error } = useAsyncData(
     async () => {
-      const companiesState = await api.getCompanies(session);
+      const [companiesState, weekly] = await Promise.all([api.getCompanies(session), api.getAbmWeekly(session)]);
+      const warMap = new Map(weekly.data.top_accounts.map((item) => [item.company_id, item]));
       const details = await Promise.all(companiesState.data.map(async (company) => {
         const detailState = await api.getCompany(session, company.id);
+        const war = warMap.get(company.id);
         return {
           ...company,
           lastSignal: detailState.data.signals[0]?.note ?? detailState.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
+          commercialPriority: war?.priority_band ?? 'monitor',
+          momentum: war?.momentum_status ?? 'stable',
+          nextStep: detailState.data.company.nextAction ?? 'Definir próximo passo',
+          lastTouchpoint: detailState.data.activities[0]?.dueDate ?? '-',
+          championStatus: (detailState.data.activities.length > 0 ? 'mapped' : 'unmapped'),
         };
       }));
       return { companiesState, companies: details };
@@ -92,7 +99,7 @@ export function CompaniesPage() {
               <th>Pattern</th>
               <th>Suggested Structure</th>
               <th>Priority</th>
-              <th>Last Signal</th>
+              <th>Commercial Priority</th><th>Momentum</th><th>Next Step</th><th>Last Touchpoint</th><th>Champion</th><th>Last Signal</th>
             </tr>
           </thead>
           <tbody>
@@ -110,6 +117,11 @@ export function CompaniesPage() {
                 </td>
                 <td>{company.suggestedStructure}</td>
                 <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
+                <td><Pill tone={priorityTone(company.commercialPriority)}>{company.commercialPriority}</Pill></td>
+                <td><Pill tone={company.momentum === 'cooling' ? 'warning' : company.momentum === 'accelerating' ? 'success' : 'info'}>{company.momentum}</Pill></td>
+                <td>{company.nextStep}</td>
+                <td>{company.lastTouchpoint}</td>
+                <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
                 <td>{company.lastSignal}</td>
               </tr>
             ))}
