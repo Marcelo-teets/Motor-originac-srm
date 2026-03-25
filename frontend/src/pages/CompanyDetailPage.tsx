@@ -12,11 +12,17 @@ export function CompanyDetailPage() {
   const { id = '' } = useParams();
   const { session } = useAuth();
   const { data, loading, error, setData } = useAsyncData(() => api.getCompany(session, id), [session?.access_token, id]);
+  const intelligence = useAsyncData(() => api.getCompanyIntelligence(session, id), [session?.access_token, id, 'intelligence']);
+  const decisionMemo = useAsyncData(() => api.getCompanyDecisionMemo(session, id), [session?.access_token, id, 'decision-memo']);
+  const qualificationBridge = useAsyncData(() => api.getQualificationBridge(session, id), [session?.access_token, id, 'qualification-bridge']);
 
   if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
 
   const detail = data.data;
+  const intelligenceData = intelligence.data?.data;
+  const memoData = decisionMemo.data?.data;
+  const bridgeData = qualificationBridge.data?.data;
 
   const handleRecalculate = async () => {
     await api.recalculateCompany(session, id);
@@ -24,7 +30,7 @@ export function CompanyDetailPage() {
     setData(refreshed);
   };
 
-  const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
+  const whyNow = memoData?.whyNow ?? detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
   const structuralItems = [
     { label: 'Tem crédito?', value: booleanLabel(Boolean(detail.qualification.has_credit_product ?? true)) },
     { label: 'Tipo', value: detail.company.product },
@@ -46,6 +52,7 @@ export function CompanyDetailPage() {
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
+      {intelligence.data ? <DataStatusBanner source={intelligence.data.source} note={intelligence.data.note} /> : null}
 
       <section className="hero executive-hero">
         <div>
@@ -56,6 +63,7 @@ export function CompanyDetailPage() {
             <Pill tone="success">{detail.qualification.suggested_structure_type}</Pill>
             <Pill tone="warning">{detail.scores.bucket.replace(/_/g, ' ')}</Pill>
             <Pill tone="info">ranking {detail.scores.rankingScore}</Pill>
+            {memoData?.fitForStructuredCredit ? <Pill tone="success">fit estruturado</Pill> : null}
           </div>
         </div>
         <div className="executive-scores">
@@ -64,6 +72,36 @@ export function CompanyDetailPage() {
           <div className="score-panel"><span>Priority</span><ScoreBadge value={detail.scores.bucket.replace(/_/g, ' ')} kind="priority" /></div>
           <div className="score-panel"><span>Suggested Structure</span><strong>{detail.qualification.suggested_structure_type}</strong></div>
         </div>
+      </section>
+
+      <section className="grid cols-3">
+        <Card title="Intelligence Summary" subtitle="Cobertura da nova camada de dados" className="dense-card">
+          <div className="mini-metric-grid">
+            <Stat label="Raw docs" value={String(intelligenceData?.rawDocumentCount ?? 0)} helper="documentos vinculados" />
+            <Stat label="Facts" value={String(intelligenceData?.factCount ?? 0)} helper="fatos estruturados" />
+            <Stat label="Signals" value={String(intelligenceData?.signalCount ?? 0)} helper="sinais extraídos" />
+            <Stat label="Confidence" value={String(intelligenceData?.intelligenceConfidence ?? 0)} helper="confiança média" />
+          </div>
+        </Card>
+
+        <Card title="Decision Memo" subtitle="Leitura executiva para originação" className="dense-card">
+          <KeyValueList items={[
+            { label: 'Why now', value: memoData?.whyNow ?? whyNow },
+            { label: 'Próxima ação', value: memoData?.recommendedNextStep ?? detail.company.nextAction },
+            { label: 'Top signals', value: memoData?.topSignals?.join(', ') || 'Em consolidação' },
+            { label: 'Top patterns', value: memoData?.topPatterns?.join(', ') || 'Em consolidação' },
+          ]} />
+        </Card>
+
+        <Card title="Qualification Bridge" subtitle="Ponte entre intelligence e estrutura" className="dense-card">
+          <KeyValueList items={[
+            { label: 'Fit estruturado', value: booleanLabel(bridgeData?.fitForStructuredCredit) },
+            { label: 'Hint FIDC', value: booleanLabel(bridgeData?.fitFidcHint) },
+            { label: 'Hint DCM', value: booleanLabel(bridgeData?.fitDcmHint) },
+            { label: 'Ação comercial', value: bridgeData?.recommendedCommercialAction ?? 'Em consolidação' },
+            { label: 'Ação estrutural', value: bridgeData?.recommendedStructuralAction ?? 'Em consolidação' },
+          ]} />
+        </Card>
       </section>
 
       <section className="grid cols-2 detail-layout">
