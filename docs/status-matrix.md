@@ -9,5 +9,8 @@
 | Monitoring | Real/Parcial | BrasilAPI, RSS públicos e website monitoring gravam outputs/sinais reais; health/orquestração avançada seguem parciais. |
 | Sources | Real | `source_catalog` seedado e lido do backend com status explícito por fonte. |
 | Agents | Real/Parcial | Qualification, patterns e lead score estão reais; backlog/health avançado seguem simplificados. |
+| Pipeline | Real/Parcial | Estrutura operacional endurecida com migration dedicada; integração completa do app ainda em evolução. |
+| Activities | Real/Parcial | Camada operacional priorizada para persistência e histórico, ainda coexistindo com partes derivadas do company detail. |
+| Tasks | Parcial | Modelo operacional e persistência priorizados, UX ainda não consolidada nas telas principais. |
 | Database | Real | DDL canônico sincronizado, seeds úteis e bootstrap em Supabase. |
 | Frontend fallback | Parcial | Dashboard/companies/detail/search profiles usam backend real; monitoring/agents/pipeline ainda possuem fallback controlado. |
