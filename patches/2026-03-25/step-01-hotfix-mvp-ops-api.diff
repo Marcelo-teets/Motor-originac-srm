@@ -1,0 +1,70 @@
+diff --git a/frontend/src/lib/api.ts b/frontend/src/lib/api.ts
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@
+ import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
+ import type {
+   AgentsSnapshot,
+   ApiEnvelope,
+   CompanyDecisionMemo,
+   CompanyDetail,
+   CompanyIntelligenceSummary,
+   CompanyListItem,
+   Dashboard,
+   DataState,
++  MvpQuickAction,
++  MvpReadinessSnapshot,
+   MonitoringSnapshot,
+   PipelineSnapshot,
+   QualificationIntelligenceBridge,
+   SearchProfile,
+   SessionData,
+   SourceEntry,
+ } from './types';
+@@
+ export const api = {
+@@
+-  getMvpReadiness: async (session: SessionData | null) => toState('MVP readiness', await requestEnvelope<Record<string, unknown>>('/mvp-readiness', session)),
++  getMvpReadiness: async (session: SessionData | null) => toState('MVP readiness', await requestEnvelope<MvpReadinessSnapshot>('/mvp-readiness', session)),
++  getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickAction[]>> => {
++    try {
++      const [tasks, companies] = await Promise.all([
++        requestEnvelope<Array<{ id: string; title: string; status?: string }>>('/tasks', session),
++        requestEnvelope<CompanyListItem[]>('/companies', session),
++      ]);
++
++      const highPriorityCompanyActions: MvpQuickAction[] = companies.data
++        .filter((item) => item.leadScore >= 75)
++        .slice(0, 5)
++        .map((item, index) => ({
++          id: `cmp_${item.id}_${index + 1}`,
++          title: item.nextAction ?? `Avançar ${item.name} para próximo estágio`,
++          owner: index % 2 === 0 ? 'Origination' : 'Coverage',
++          priority: item.leadScore >= 85 ? 'high' : 'medium',
++        }));
++
++      const taskActions: MvpQuickAction[] = tasks.data.map((task, index) => ({
++        id: task.id,
++        title: task.title,
++        owner: index % 2 === 0 ? 'Ops' : 'Origination',
++        priority: task.status === 'todo' ? 'high' : 'medium',
++      }));
++
++      return {
++        source: tasks.status === 'real' ? 'partial' : tasks.status,
++        note: 'Quick actions consolidadas a partir de /tasks e empresas prioritárias do backend oficial.',
++        data: [...taskActions, ...highPriorityCompanyActions].slice(0, 8),
++      };
++    } catch {
++      return {
++        source: 'mock',
++        note: 'Quick actions usando fallback local para não quebrar o cockpit operacional.',
++        data: [
++          { id: 'quick_1', title: 'Configurar variáveis Supabase em produção', owner: 'Ops', priority: 'high' },
++          { id: 'quick_2', title: 'Rodar monitoring para empresas prioritárias', owner: 'Origination', priority: 'medium' },
++          { id: 'quick_3', title: 'Recalcular ranking após ingestão', owner: 'Analytics', priority: 'medium' },
++        ],
++      };
++    }
++  },
+ }
