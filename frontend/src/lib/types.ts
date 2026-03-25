@@ -95,6 +95,55 @@ export type CompanyDetail = {
   monitoringOutputs: Array<{ id: string; sourceId: string; title: string; summary: string; confidenceScore: number; connectorStatus: string; collectedAt: string }>;
 };
 
+export type CompanyIntelligenceSummary = {
+  companyId: string;
+  rawDocumentCount: number;
+  factCount: number;
+  signalCount: number;
+  enrichmentSnapshotCount: number;
+  topSignalTypes: string[];
+  topFactKeys: string[];
+  inferredFlags: {
+    hasCreditProductEvidence: boolean;
+    hasReceivablesEvidence: boolean;
+    hasFundingSignal: boolean;
+    hasFidcEvidence: boolean;
+    fitForStructuredCredit: boolean;
+  };
+  intelligenceConfidence: number;
+  recommendedNextStep: string;
+};
+
+export type CompanyDecisionMemo = {
+  companyId: string;
+  companyName: string;
+  suggestedStructure: string;
+  qualificationScore: number;
+  leadScore: number;
+  rankingScore: number;
+  triggerStrength: number;
+  intelligenceConfidence: number;
+  fitForStructuredCredit: boolean;
+  whyNow: string;
+  recommendedNextStep: string;
+  topSignals: string[];
+  topPatterns: string[];
+  thesisSummary?: string;
+};
+
+export type QualificationIntelligenceBridge = {
+  companyId: string;
+  qualificationScore: number;
+  intelligenceConfidence: number;
+  fitForStructuredCredit: boolean;
+  fitFidcHint: boolean;
+  fitDcmHint: boolean;
+  capitalNeedHint: boolean;
+  receivablesHint: boolean;
+  recommendedCommercialAction: string;
+  recommendedStructuralAction: string;
+};
+
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
