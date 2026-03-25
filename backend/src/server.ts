@@ -7,6 +7,7 @@ import { dataIntelligenceAgents } from './modules/agentsDataIntelligence.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { createAgentLearningRouter } from './routes/agentLearningRouter.js';
 import { createAiRouter } from './routes/aiRouter.js';
+import { createCompanyIntelligenceRouter } from './routes/companyIntelligenceRouter.js';
 import { createDataIntelligenceRouter } from './routes/dataIntelligenceRouter.js';
 import { createMvpOrchestrationRouter } from './routes/mvpOrchestrationRouter.js';
 import { AgentLearningService } from './services/agentLearningService.js';
@@ -60,6 +61,7 @@ app.post('/auth/login', wrap(async (req, res) => {
 app.use(authMiddleware);
 app.use('/ai', createAiRouter(service));
 app.use('/data-intelligence', createDataIntelligenceRouter());
+app.use('/company-intelligence', createCompanyIntelligenceRouter());
 app.use('/agent-learning', createAgentLearningRouter());
 app.use('/mvp', createMvpOrchestrationRouter(service));
 
@@ -107,7 +109,7 @@ app.get('/companies/:id/sources', wrap(async (req, res) => {
 }));
 app.get('/companies/:id/signals', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
-  res.json(ok(platformMode, { companyId: param(req.params.id), signals: detail?.signals ?? [] }));
+  res.json(ok(platformMode, detail?.signals ?? []));
 }));
 app.get('/companies/:id/monitoring', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
@@ -244,6 +246,7 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   sources: 'real',
   monitoring: 'real',
   dataIntelligence: 'real',
+  companyIntelligence: 'real',
   agentLearning: 'real',
   agents: 'partial',
   pipeline: 'partial',
