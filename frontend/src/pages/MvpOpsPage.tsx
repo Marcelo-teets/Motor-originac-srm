@@ -1,18 +1,45 @@
 import { Card, DataStatusBanner, PageIntro } from '../components/UI';
 import { MvpOpsPanel } from '../components/MvpOpsPanel';
-import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
+import type { ApiEnvelope, MvpQuickAction, MvpReadinessSnapshot } from '../lib/types';
+
+const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+
+type OpsPayload = {
+  readiness: { source: 'real' | 'partial' | 'mock'; note: string; data: MvpReadinessSnapshot };
+  quickActions: { source: 'real' | 'partial' | 'mock'; note: string; data: MvpQuickAction[] };
+};
 
 export function MvpOpsPage() {
   const { session } = useAuth();
-  const { data, loading, error } = useAsyncData(
+  const { data, loading, error } = useAsyncData<OpsPayload>(
     async () => {
-      const [readiness, quickActions] = await Promise.all([
-        api.getMvpReadiness(session),
-        api.getMvpQuickActions(session),
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      };
+
+      const [readinessResponse, quickActionsResponse] = await Promise.all([
+        fetch(`${apiUrl}/mvp-readiness`, { headers }),
+        fetch(`${apiUrl}/mvp-quick-actions`, { headers }),
       ]);
-      return { readiness, quickActions };
+
+      const readinessPayload = await readinessResponse.json() as ApiEnvelope<MvpReadinessSnapshot>;
+      const quickActionsPayload = await quickActionsResponse.json() as ApiEnvelope<MvpQuickAction[]>;
+
+      return {
+        readiness: {
+          source: readinessPayload.status,
+          note: 'Prontidão carregada diretamente da rota oficial do MVP.',
+          data: readinessPayload.data,
+        },
+        quickActions: {
+          source: quickActionsPayload.status,
+          note: 'Quick actions carregadas diretamente da rota oficial do MVP.',
+          data: quickActionsPayload.data,
+        },
+      };
     },
     [session?.access_token],
   );
