@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DataIntelligencePage } from './pages/DataIntelligencePage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { MvpOpsPage } from './pages/MvpOpsPage';
 import { PipelinePage } from './pages/PipelinePage';
 import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="data-intelligence" element={<DataIntelligencePage />} />
+        <Route path="mvp-ops" element={<MvpOpsPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
       </Route>
