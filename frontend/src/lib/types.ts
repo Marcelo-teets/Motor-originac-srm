@@ -165,18 +165,12 @@ export type PreMortem = {
 export type MvpQuickAction = {
   id: string;
   title: string;
-  description?: string;
-  owner?: string;
-  priority?: 'high' | 'medium' | 'low' | string;
-  dueAt?: string;
-  companyId?: string;
-  companyName?: string;
-  status?: string;
+  owner: string;
+  priority: 'high' | 'medium' | 'low';
 };
 
-export type MvpQuickActionsResponse = {
-  generatedAt?: string;
-  actions: MvpQuickAction[];
+export type MvpQuickActionsSnapshot = {
+  items: MvpQuickAction[];
 };
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };

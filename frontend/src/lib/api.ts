@@ -11,7 +11,7 @@ import type {
   Dashboard,
   DataState,
   MonitoringSnapshot,
-  MvpQuickActionsResponse,
+  MvpQuickActionsSnapshot,
   PipelineSnapshot,
   PreCallBriefing,
   PreMortem,
@@ -75,7 +75,61 @@ export const api = {
   ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
 
-  getMvpQuickActions: (session: SessionData | null) => requestEnvelope<MvpQuickActionsResponse>('/mvp/ops/quick-actions', session),
+  getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
+    try {
+      const [dashboard, companies] = await Promise.all([
+        requestEnvelope<Dashboard>('/dashboard/summary', session),
+        requestEnvelope<CompanyListItem[]>('/companies', session),
+      ]);
+
+      const highestLead = [...companies.data].sort((a, b) => b.leadScore - a.leadScore)[0];
+      const highestUrgency = [...companies.data].sort((a, b) => (b.urgencyScore ?? 0) - (a.urgencyScore ?? 0))[0];
+
+      return {
+        source: dashboard.status === 'real' && companies.status === 'real' ? 'real' : 'partial',
+        note: 'Quick actions montadas a partir de dashboard e companies do backend oficial.',
+        data: {
+          items: [
+            {
+              id: 'qa_top_lead',
+              title: highestLead ? `Abordar ${highestLead.name}` : 'Revisar top lead',
+              owner: 'Origination',
+              priority: 'high',
+            },
+            {
+              id: 'qa_monitoring',
+              title: `Rodar monitoring prioritário (${dashboard.data.monitoring.outputs24h} outputs)`,
+              owner: 'Intelligence',
+              priority: 'medium',
+            },
+            {
+              id: 'qa_urgent_company',
+              title: highestUrgency ? `Validar timing de ${highestUrgency.name}` : 'Validar timing comercial',
+              owner: 'Coverage',
+              priority: 'high',
+            },
+            {
+              id: 'qa_pipeline',
+              title: 'Atualizar pipeline comercial',
+              owner: 'Origination',
+              priority: 'medium',
+            },
+          ],
+        },
+      };
+    } catch {
+      return {
+        source: 'mock',
+        note: 'Quick actions usando fallback sintético até a tela ser conectada ao backend oficial.',
+        data: {
+          items: [
+            { id: 'qa_mock_1', title: 'Revisar ranking', owner: 'Origination', priority: 'high' },
+            { id: 'qa_mock_2', title: 'Abrir monitoring', owner: 'Intelligence', priority: 'medium' },
+          ],
+        },
+      };
+    }
+  },
 
   getAbmWeekly: (session: SessionData | null) => requestEnvelope<AbmWeeklyWarRoom>('/abm/war-room/weekly', session),
   getAbmStakeholders: (session: SessionData | null, companyId: string) => requestEnvelope<AbmStakeholder[]>(`/abm/companies/${companyId}/stakeholders`, session),
