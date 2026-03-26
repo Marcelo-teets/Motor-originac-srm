@@ -1,0 +1,123 @@
+{
+  "rankingRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "position": 1,
+      "qualificationScore": 86,
+      "leadScore": 82,
+      "rankingScore": 84,
+      "qualificationScoreDelta": 4,
+      "leadScoreDelta": 6,
+      "triggerStrength": 78,
+      "sourceConfidence": 0.91,
+      "suggestedStructure": "FIDC",
+      "rationale": "Recebíveis fortes com sinal de expansão e necessidade de funding."
+    }
+  ],
+  "thesisRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "thesisSummary": "Empresa com forte aderência a estrutura de crédito baseada em recebíveis.",
+      "structureType": "FIDC",
+      "marketMapSummary": "Comparable com fintechs de crédito e embedded finance em crescimento.",
+      "whyNow": "A empresa apresenta expansão comercial e aumento de intensidade de capital.",
+      "commercialAngle": "Abordagem consultiva focada em funding estruturado e eficiência de capital.",
+      "validationRisks": [
+        "Confirmar qualidade da carteira",
+        "Validar governança operacional"
+      ],
+      "evidencePayload": {
+        "evidenceSources": [
+          "company site",
+          "news",
+          "monitoring outputs"
+        ]
+      },
+      "confidenceScore": 0.88
+    }
+  ],
+  "scoreHistoryRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "scoreType": "lead_score",
+      "previousValue": 76,
+      "currentValue": 82,
+      "diff": 6,
+      "changedBy": "system",
+      "rationale": "Novo trigger de expansão e reforço de fit estrutural.",
+      "sourceConfidence": 0.91,
+      "triggerStrength": 78,
+      "payload": {
+        "patternSummary": [
+          "growth_without_funding",
+          "embedded_finance_pressure"
+        ]
+      }
+    }
+  ],
+  "pipelineRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "stageCode": "conversa_ventures",
+      "ownerName": "Origination",
+      "nextAction": "Agendar conversa com fundador e time financeiro",
+      "nextActionDueAt": "2026-03-26T12:00:00.000Z",
+      "followUpAt": "2026-03-27T12:00:00.000Z",
+      "status": "open",
+      "source": "example_payload",
+      "payload": {
+        "companyName": "Example Fintech",
+        "rationale": "Empresa com sinais de funding gap e fit para estrutura de crédito."
+      }
+    }
+  ],
+  "pipelineHistoryRows": [
+    {
+      "pipelineId": "pipeline_company_example_fintech_1",
+      "companyId": "company_example_fintech_1",
+      "fromStageCode": null,
+      "toStageCode": "conversa_ventures",
+      "changedBy": "system",
+      "note": "Initial MVP bootstrap stage registration",
+      "payload": {
+        "companyName": "Example Fintech"
+      }
+    }
+  ],
+  "activityRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "ownerId": null,
+      "title": "Agendar conversa com fundador e time financeiro",
+      "activityType": "next_step",
+      "status": "open",
+      "dueAt": "2026-03-26T12:00:00.000Z",
+      "followUpAt": "2026-03-27T12:00:00.000Z",
+      "outcome": null,
+      "notes": "Empresa com sinais de funding gap e fit para estrutura de crédito.",
+      "payload": {
+        "companyName": "Example Fintech",
+        "source": "example_payload"
+      }
+    }
+  ],
+  "taskRows": [
+    {
+      "companyId": "company_example_fintech_1",
+      "ownerId": null,
+      "title": "Agendar conversa com fundador e time financeiro",
+      "status": "todo",
+      "dueAt": "2026-03-26T12:00:00.000Z",
+      "completedAt": null,
+      "activityId": null,
+      "priority": "high",
+      "taskType": "follow_up",
+      "followUpAt": "2026-03-27T12:00:00.000Z",
+      "payload": {
+        "companyName": "Example Fintech",
+        "stageCode": "conversa_ventures",
+        "source": "example_payload"
+      }
+    }
+  ]
+}
