@@ -7,6 +7,7 @@ import { dataIntelligenceAgents } from './modules/agentsDataIntelligence.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { createAgentLearningRouter } from './routes/agentLearningRouter.js';
 import { createAiRouter } from './routes/aiRouter.js';
+import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
 import { createCompanyDecisionMemoRouter } from './routes/companyDecisionMemoRouter.js';
 import { createCompanyIntelligenceRouter } from './routes/companyIntelligenceRouter.js';
 import { createDataIntelligenceRouter } from './routes/dataIntelligenceRouter.js';
@@ -71,6 +72,7 @@ app.use('/agent-learning', createAgentLearningRouter());
 app.use('/mvp', createMvpOrchestrationRouter(service));
 app.use('/mvp-readiness', createMvpReadinessRouter());
 app.use('/mvp-quick-actions', createMvpQuickActionsRouter());
+app.use('/abm', createAbmWarRoomRouter());
 
 app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
@@ -94,7 +96,7 @@ app.get('/activities', wrap(async (_req, res) => res.json(ok(platformMode, (awai
 app.get('/tasks', wrap((_req, res) => res.json(ok('partial', [{ id: 'tsk_1', title: 'Configurar variáveis Supabase', status: 'todo' }, { id: 'tsk_2', title: 'Acompanhar conectores adicionais', status: 'planned' }]))));
 app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: allAgentDefinitions }))));
 app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, {
-  auth: 'real', dashboard: 'real', companies: 'real', qualification: 'real', leadScore: 'real', sources: 'real', monitoring: 'real', dataIntelligence: 'real', companyIntelligence: 'real', companyDecisionMemo: 'real', qualificationIntelligenceBridge: 'real', mvpReadiness: 'real', mvpQuickActions: 'partial', agentLearning: 'real', agents: 'partial', pipeline: 'partial', frontendDataFallback: 'partial', persistence: platformMode,
+  auth: 'real', dashboard: 'real', companies: 'real', qualification: 'real', leadScore: 'real', sources: 'real', monitoring: 'real', dataIntelligence: 'real', companyIntelligence: 'real', companyDecisionMemo: 'real', qualificationIntelligenceBridge: 'real', mvpReadiness: 'real', mvpQuickActions: 'partial', abmWarRoom: 'partial', agentLearning: 'real', agents: 'partial', pipeline: 'partial', frontendDataFallback: 'partial', persistence: platformMode,
 }))));
 
 app.listen(env.port, () => {
