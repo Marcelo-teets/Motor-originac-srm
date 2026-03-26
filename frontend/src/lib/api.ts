@@ -11,6 +11,7 @@ import type {
   Dashboard,
   DataState,
   MonitoringSnapshot,
+  MvpQuickActionsResponse,
   PipelineSnapshot,
   PreCallBriefing,
   PreMortem,
@@ -73,6 +74,8 @@ export const api = {
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
   ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
+
+  getMvpQuickActions: (session: SessionData | null) => requestEnvelope<MvpQuickActionsResponse>('/mvp/ops/quick-actions', session),
 
   getAbmWeekly: (session: SessionData | null) => requestEnvelope<AbmWeeklyWarRoom>('/abm/war-room/weekly', session),
   getAbmStakeholders: (session: SessionData | null, companyId: string) => requestEnvelope<AbmStakeholder[]>(`/abm/companies/${companyId}/stakeholders`, session),

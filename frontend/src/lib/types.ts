@@ -161,6 +161,23 @@ export type PreMortem = {
   risks: Array<{ risk: string; evidence: string; mitigation: string }>;
 };
 
+
+export type MvpQuickAction = {
+  id: string;
+  title: string;
+  description?: string;
+  owner?: string;
+  priority?: 'high' | 'medium' | 'low' | string;
+  dueAt?: string;
+  companyId?: string;
+  companyName?: string;
+  status?: string;
+};
+
+export type MvpQuickActionsResponse = {
+  generatedAt?: string;
+  actions: MvpQuickAction[];
+};
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
