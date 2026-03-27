@@ -1,0 +1,14 @@
+*** Begin Patch
+*** Update File: backend/src/server.ts
+@@
+ import { createAgentLearningRouter } from './routes/agentLearningRouter.js';
+ import { createAiRouter } from './routes/aiRouter.js';
++import { registerMvpPersistenceBootstrap } from './bootstrap/registerMvpPersistenceBootstrap.js';
++import { registerMvpIntelligenceSnapshot } from './bootstrap/registerMvpIntelligenceSnapshot.js';
+@@
+ app.use('/mvp', createMvpOrchestrationRouter(service));
+ app.use('/mvp-readiness', createMvpReadinessRouter());
+ app.use('/mvp-quick-actions', createMvpQuickActionsRouter());
++registerMvpPersistenceBootstrap(app);
++registerMvpIntelligenceSnapshot(app);
+*** End Patch
