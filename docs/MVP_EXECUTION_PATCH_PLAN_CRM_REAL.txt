@@ -1,0 +1,304 @@
+ORIGINATION INTELLIGENCE PLATFORM
+PATCH PLAN — CRM REAL / PIPELINE / ACTIVITIES / TASKS
+VERSÃO TXT ÚNICA
+
+OBJETIVO
+Transformar a camada de CRM/Pipeline em um módulo real, persistido e operacional, conectado à inteligência da plataforma e ao frontend.
+
+ESCOPO DO BLOCO
+1. Persistência real de pipeline
+2. Persistência real de activities
+3. Persistência real de tasks
+4. next_action persistida
+5. Company Detail operacional
+6. Pipeline Page operacional
+7. Contratos backend/frontend alinhados
+
+ALINHAMENTO COM O CÉREBRO MESTRE
+Este patch plan existe para fechar a ligação entre descoberta, monitoramento, score, tese, ranking e CRM operacional, conforme a arquitetura institucional do projeto. O CRM/Pipeline é parte essencial do sistema porque a plataforma precisa conectar inteligência com execução comercial e transformar tese em pipeline real.
+
+ARQUIVOS-ALVO PRINCIPAIS
+BACKEND
+- backend/src/repositories/platformRepository.ts
+- backend/src/services/platformService.ts
+- backend/src/server.ts
+- backend/src/services/pipelineOpsService.ts (novo, se fizer sentido)
+
+FRONTEND
+- frontend/src/lib/api.ts
+- frontend/src/pages/PipelinePage.tsx
+- frontend/src/pages/CompanyDetailPage.tsx
+
+BANCO / MIGRATIONS
+- migration SQL para pipeline
+- migration SQL para activities
+- migration SQL para tasks
+
+PARTE 1 — MODELAGEM DE DADOS
+
+1. TABELA PIPELINE
+Campos mínimos:
+- id
+- company_id
+- stage
+- owner
+- next_action
+- created_at
+- updated_at
+
+Observações:
+- company_id precisa referenciar companies
+- stage deve refletir o funil comercial institucional atual
+- next_action deve ser um campo editável e também atualizável por inteligência
+
+2. TABELA ACTIVITIES
+Campos mínimos:
+- id
+- company_id
+- type
+- title
+- description
+- owner
+- status
+- due_date
+- created_at
+- updated_at
+
+Observações:
+- activity precisa poder representar follow-up, reunião, envio de material, validação interna etc.
+- status pode começar simples: open / done / canceled
+
+3. TABELA TASKS
+Campos mínimos:
+- id
+- company_id
+- title
+- description
+- owner
+- status
+- due_date
+- created_at
+- updated_at
+
+Observações:
+- task deve ser usada como item operacional de execução
+- status pode começar simples: open / in_progress / done / canceled
+
+4. ÍNDICES RECOMENDADOS
+- índice por company_id em pipeline
+- índice por company_id em activities
+- índice por company_id em tasks
+- opcional: índice por stage em pipeline
+
+PARTE 2 — REPOSITORY
+
+ARQUIVO
+- backend/src/repositories/platformRepository.ts
+
+OBJETIVO
+Expandir a interface principal do repository para suportar CRM real.
+
+MÉTODOS ESPERADOS
+1. listPipelineRows(): Promise<PipelineRow[]>
+2. getPipelineByCompany(companyId: string): Promise<PipelineRow | null>
+3. savePipelineRow(row: PipelineRow): Promise<void>
+4. movePipelineStage(companyId: string, stage: string): Promise<void>
+5. updateNextAction(companyId: string, nextAction: string): Promise<void>
+6. listActivities(companyId?: string): Promise<Activity[]>
+7. saveActivity(activity: Activity): Promise<void>
+8. listTasks(companyId?: string): Promise<Task[]>
+9. saveTask(task: Task): Promise<void>
+10. updateTask(taskId: string, updates: Partial<Task>): Promise<void>
+
+TIPOS RECOMENDADOS
+PipelineRow
+- id: string
+- company_id: string
+- stage: string
+- owner?: string
+- next_action?: string
+- created_at: string
+- updated_at: string
+
+Activity
+- id: string
+- company_id: string
+- type: string
+- title: string
+- description?: string
+- owner?: string
+- status?: string
+- due_date?: string
+- created_at: string
+- updated_at: string
+
+Task
+- id: string
+- company_id: string
+- title: string
+- description?: string
+- owner?: string
+- status: string
+- due_date?: string
+- created_at: string
+- updated_at: string
+
+IMPLEMENTAÇÃO NECESSÁRIA
+1. Implementar no MemoryPlatformRepository
+2. Implementar no SupabasePlatformRepository
+3. Seguir o padrão atual de fallback do projeto, sem reinventar a arquitetura do repository
+
+PARTE 3 — SERVICE OPERACIONAL DO CRM
+
+OBJETIVO
+Criar uma camada de serviço que centralize a lógica operacional do CRM.
+
+ARQUIVO RECOMENDADO
+- backend/src/services/pipelineOpsService.ts
+
+RESPONSABILIDADES DO SERVICE
+1. listar pipeline agregado
+2. listar pipeline por empresa
+3. mover estágio
+4. atualizar next_action
+5. listar activities
+6. criar activity
+7. listar tasks
+8. criar task
+9. atualizar task
+
+REGRAS IMPORTANTES
+- não deixar o frontend decidir regra de estágio
+- centralizar consistência de payloads no backend
+- manter integração simples com Company Detail e Pipeline Page
+
+PARTE 4 — ENDPOINTS BACKEND
+
+ARQUIVO
+- backend/src/server.ts
+ou rotas dedicadas, se já houver padrão consolidado
+
+ENDPOINTS MÍNIMOS
+1. GET /pipeline
+2. GET /pipeline/stages
+3. GET /pipeline/company/:id
+4. POST /pipeline/company/:id/move
+5. PATCH /pipeline/company/:id/next-action
+6. GET /activities
+7. GET /activities/company/:id
+8. POST /activities
+9. GET /tasks
+10. GET /tasks/company/:id
+11. POST /tasks
+12. PATCH /tasks/:id
+
+REGRAS DE IMPLEMENTAÇÃO
+- manter envelope oficial do projeto
+- validar payloads mínimos
+- retornar erros úteis
+- tipar request e response com clareza
+
+PARTE 5 — FRONTEND API CLIENT
+
+ARQUIVO
+- frontend/src/lib/api.ts
+
+IMPLEMENTAR MÉTODOS REAIS PARA
+1. listar pipeline
+2. listar stages
+3. obter pipeline por empresa
+4. mover estágio
+5. atualizar next_action
+6. listar activities por empresa
+7. criar activity
+8. listar tasks por empresa
+9. criar task
+10. atualizar task
+
+OBJETIVO
+Eliminar dependência do frontend em dados derivados/fake para o bloco de CRM.
+
+PARTE 6 — PIPELINE PAGE
+
+ARQUIVO
+- frontend/src/pages/PipelinePage.tsx
+
+AJUSTES NECESSÁRIOS
+1. parar de depender exclusivamente de snapshot heurístico
+2. carregar distribuição real por estágio
+3. mostrar activities reais recentes
+4. opcionalmente mostrar tasks abertas
+5. permitir navegação consistente para Company Detail
+
+CRITÉRIO DE PRONTO DA TELA
+A página deixa de ser um painel ilustrativo e vira uma tela de operação comercial.
+
+PARTE 7 — COMPANY DETAIL PAGE
+
+ARQUIVO
+- frontend/src/pages/CompanyDetailPage.tsx
+
+AJUSTES NECESSÁRIOS
+1. substituir bloco de activities derivadas por activities reais
+2. exibir pipeline real da empresa
+3. exibir tasks reais
+4. adicionar UI mínima para mover estágio
+5. adicionar UI mínima para criar activity
+6. adicionar UI mínima para criar task
+7. adicionar UI mínima para atualizar next_action
+
+REGRA IMPORTANTE
+Não quebrar os blocos fortes já existentes da tela, como:
+- qualification
+- patterns
+- thesis
+- score history
+- monitoring/signals
+
+CRITÉRIO DE PRONTO DA TELA
+A Company Detail passa a ser cockpit de decisão + execução comercial.
+
+PARTE 8 — VALIDAÇÃO FUNCIONAL
+
+VALIDAR COM UMA EMPRESA REAL DE TESTE
+1. empresa aparece com estágio
+2. estágio pode ser alterado
+3. next_action pode ser atualizada
+4. activity pode ser criada
+5. task pode ser criada
+6. task pode ser atualizada
+7. frontend reflete as mudanças
+8. Company Detail e Pipeline Page ficam consistentes entre si
+
+PARTE 9 — CRITÉRIO DE ACEITE DO BLOCO
+
+O bloco CRM REAL só está pronto quando:
+- pipeline persiste
+- activity persiste
+- task persiste
+- next_action persiste
+- Company Detail lê dados reais
+- Pipeline Page lê dados reais
+- uma empresa pode ser operada comercialmente no sistema
+
+PARTE 10 — ORDEM DE IMPLEMENTAÇÃO RECOMENDADA
+1. migrations SQL
+2. platformRepository.ts
+3. pipelineOpsService.ts
+4. server.ts / rotas
+5. api.ts
+6. CompanyDetailPage.tsx
+7. PipelinePage.tsx
+8. validação funcional
+
+PARTE 11 — RELAÇÃO COM O MVP
+
+Este bloco é P0 absoluto porque fecha a ponte entre:
+- score
+- tese
+- ranking
+- e execução comercial
+
+Sem este bloco, o sistema continua forte em inteligência, mas fraco em operação.
+
+FIM DO PATCH PLAN TXT
