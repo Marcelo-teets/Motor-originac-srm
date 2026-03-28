@@ -3,6 +3,7 @@ import express from 'express';
 import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
+import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
 import { PlatformService } from './services/platformService.js';
@@ -25,6 +26,7 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
     res.status(500).json(fail(500, error instanceof Error ? error.message : 'Unexpected error'));
   }
 };
+const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
 
 await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
@@ -207,11 +209,29 @@ app.get('/pipeline', wrap(async (_req, res) => res.json(ok(platformMode, await s
 app.get('/pipeline/stages', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPipelineStages()))));
 app.get('/pipeline/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.getPipelineByCompany(param(req.params.id))))));
 app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
-  const moved = await service.movePipelineStage(param(req.params.id), String(req.body?.stage ?? 'Qualified'));
+  const stage = String(req.body?.stage ?? '');
+  if (!isPipelineStage(stage)) {
+    res.status(400).json(fail(400, `Invalid stage: ${stage}`));
+    return;
+  }
+  const moved = await service.movePipelineStage(param(req.params.id), stage);
+  if (!moved) {
+    res.status(404).json(fail(404, 'Pipeline row not found for company.'));
+    return;
+  }
   res.json(ok(platformMode, moved));
 }));
 app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
-  const updated = await service.updateNextAction(param(req.params.id), String(req.body?.nextAction ?? req.body?.next_action ?? ''));
+  const nextAction = String(req.body?.nextAction ?? req.body?.next_action ?? '').trim();
+  if (!nextAction) {
+    res.status(400).json(fail(400, 'nextAction is required.'));
+    return;
+  }
+  const updated = await service.updateNextAction(param(req.params.id), nextAction);
+  if (!updated) {
+    res.status(404).json(fail(404, 'Pipeline row not found for company.'));
+    return;
+  }
   res.json(ok(platformMode, updated));
 }));
 app.get('/pipeline/snapshot', wrap(async (_req, res) => {
@@ -219,43 +239,101 @@ app.get('/pipeline/snapshot', wrap(async (_req, res) => {
   res.json(ok(platformMode, { rows, stages, recentActivities: activities.slice(0, 12) }));
 }));
 app.get('/activities', wrap(async (_req, res) => res.json(ok(platformMode, await service.listActivities()))));
-app.post('/activities', wrap(async (req, res) => res.status(201).json(ok(platformMode, await service.saveActivity({
-  companyId: String(req.body?.companyId ?? req.body?.company_id ?? ''),
-  type: String(req.body?.type ?? 'general'),
-  title: String(req.body?.title ?? ''),
-  description: String(req.body?.description ?? ''),
-  owner: String(req.body?.owner ?? 'Origination'),
-  status: String(req.body?.status ?? 'open'),
-  dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
-})))));
+app.post('/activities', wrap(async (req, res) => {
+  const companyId = String(req.body?.companyId ?? req.body?.company_id ?? '').trim();
+  const title = String(req.body?.title ?? '').trim();
+  const rawType = String(req.body?.type ?? 'other');
+  const rawStatus = String(req.body?.status ?? 'open');
+  if (!assertNonEmpty(companyId)) {
+    res.status(400).json(fail(400, 'companyId is required.'));
+    return;
+  }
+  if (!assertNonEmpty(title)) {
+    res.status(400).json(fail(400, 'title is required.'));
+    return;
+  }
+  if (!isActivityType(rawType)) {
+    res.status(400).json(fail(400, `Invalid activity type: ${rawType}`));
+    return;
+  }
+  if (!isActivityStatus(rawStatus)) {
+    res.status(400).json(fail(400, `Invalid activity status: ${rawStatus}`));
+    return;
+  }
+  const created = await service.saveActivity({
+    companyId,
+    type: rawType,
+    title,
+    description: String(req.body?.description ?? ''),
+    owner: asOwner(req.body?.owner ?? 'Unknown'),
+    status: rawStatus,
+    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+  });
+  res.status(201).json(ok(platformMode, created));
+}));
 app.get('/activities/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listActivities(param(req.params.id))))));
 app.get('/tasks', wrap(async (_req, res) => res.json(ok(platformMode, await service.listTasks()))));
 app.get('/tasks/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listTasks(param(req.params.id))))));
-app.post('/tasks', wrap(async (req, res) => res.status(201).json(ok(platformMode, await service.saveTask({
-  companyId: String(req.body?.companyId ?? req.body?.company_id ?? ''),
-  title: String(req.body?.title ?? ''),
-  description: String(req.body?.description ?? ''),
-  owner: String(req.body?.owner ?? 'Origination'),
-  status: String(req.body?.status ?? 'todo'),
-  dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
-})))));
-app.patch('/tasks/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.updateTask(param(req.params.id), {
-  title: req.body?.title,
-  description: req.body?.description,
-  owner: req.body?.owner,
-  status: req.body?.status,
-  dueDate: req.body?.dueDate ?? req.body?.due_date,
-})))));
+app.post('/tasks', wrap(async (req, res) => {
+  const companyId = String(req.body?.companyId ?? req.body?.company_id ?? '').trim();
+  const title = String(req.body?.title ?? '').trim();
+  const rawStatus = String(req.body?.status ?? 'todo');
+  if (!assertNonEmpty(companyId)) {
+    res.status(400).json(fail(400, 'companyId is required.'));
+    return;
+  }
+  if (!assertNonEmpty(title)) {
+    res.status(400).json(fail(400, 'title is required.'));
+    return;
+  }
+  if (!isTaskStatus(rawStatus)) {
+    res.status(400).json(fail(400, `Invalid task status: ${rawStatus}`));
+    return;
+  }
+  const created = await service.saveTask({
+    companyId,
+    title,
+    description: String(req.body?.description ?? ''),
+    owner: asOwner(req.body?.owner ?? 'Unknown'),
+    status: rawStatus,
+    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+  });
+  res.status(201).json(ok(platformMode, created));
+}));
+app.patch('/tasks/:id', wrap(async (req, res) => {
+  if (req.body?.status && !isTaskStatus(String(req.body.status))) {
+    res.status(400).json(fail(400, `Invalid task status: ${String(req.body.status)}`));
+    return;
+  }
+  if (req.body?.title !== undefined && !assertNonEmpty(String(req.body.title))) {
+    res.status(400).json(fail(400, 'title cannot be empty.'));
+    return;
+  }
+  const updated = await service.updateTask(param(req.params.id), {
+    title: req.body?.title,
+    description: req.body?.description,
+    owner: req.body?.owner ? asOwner(req.body.owner) : undefined,
+    status: req.body?.status,
+    dueDate: req.body?.dueDate ?? req.body?.due_date,
+  });
+  if (!updated) {
+    res.status(404).json(fail(404, 'Task not found.'));
+    return;
+  }
+  res.json(ok(platformMode, updated));
+}));
 app.get('/monitoring/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { monitoring: (await service.getDashboard()).monitoring, latestOutputs: (await service.listMonitoringOutputsAll()).slice(0, 12) }))));
 app.get('/agents/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { agents: (await service.getDashboard()).agents }))));
 app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
   const [rankings, pipelineRows] = await Promise.all([service.getRankings(), service.listPipelineRows()]);
   const top = rankings[0];
-  const stalled = pipelineRows.find((row) => row.stage === 'Identified');
+  const stalled = pipelineRows.find((row) => row.stage === 'Identified' || row.stage === 'Recycled');
+  const stalledName = stalled ? rankings.find((row) => row.companyId === stalled.companyId)?.companyName ?? stalled.companyId : null;
+  const stalledAction = stalled?.nextAction || 'Definir próxima ação comercial';
   res.json(ok(platformMode, {
     items: [
       { id: 'qa_top_lead', title: top ? `Abordar ${top.companyName}` : 'Abordar top lead', owner: 'Origination', priority: 'high' },
-      { id: 'qa_stalled', title: stalled ? `Mover ${stalled.companyId} de Identified` : 'Revisar pipeline Identified', owner: 'Coverage', priority: 'medium' },
+      { id: 'qa_stalled', title: stalledName ? `Destravar ${stalledName}: ${stalledAction}` : 'Revisar pipeline stalled', owner: 'Coverage', priority: 'medium' },
     ],
   }));
 }));

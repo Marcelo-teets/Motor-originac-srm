@@ -1,5 +1,6 @@
 import { agentDefinitions } from '../modules/agents.js';
 import { ingestCompanyMonitoring } from '../lib/connectors.js';
+import { PIPELINE_STAGES } from '../lib/crm.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
@@ -17,6 +18,7 @@ import type {
   LeadScoreSnapshot,
   MonitoringOutput,
   PatternCatalogEntry,
+  PipelineStage,
   QualificationSnapshot,
   RankingRow,
   ScoreSnapshot,
@@ -510,10 +512,10 @@ export class PlatformService {
       acc.set(row.stage, (acc.get(row.stage) ?? 0) + 1);
       return acc;
     }, new Map<string, number>());
-    return Array.from(grouped.entries()).map(([stage, count]) => ({ stage, count }));
+    return PIPELINE_STAGES.map((stage) => ({ stage, count: grouped.get(stage) ?? 0 }));
   }
   async getPipelineByCompany(companyId: string) { return this.repository.getPipelineByCompany(companyId); }
-  async movePipelineStage(companyId: string, stage: string) { return this.repository.movePipelineStage(companyId, stage); }
+  async movePipelineStage(companyId: string, stage: PipelineStage) { return this.repository.movePipelineStage(companyId, stage); }
   async updateNextAction(companyId: string, nextAction: string) { return this.repository.updateNextAction(companyId, nextAction); }
   async listActivities(companyId?: string) { return this.repository.listActivities(companyId); }
   async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveActivity(activity); }

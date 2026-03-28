@@ -101,9 +101,10 @@ export class SearchProfileCaptureService {
 
         if (match) dedupedAgainstExisting += 1;
 
+        const candidateStatus: 'deduped' | 'captured' = match ? 'deduped' : 'captured';
         return {
           searchProfileRunId: run.id,
-          candidateStatus: match ? 'deduped' : 'captured',
+          candidateStatus,
           companyId: match?.companyId,
           promotedAt: undefined,
           ...candidate,

@@ -13,6 +13,12 @@ export type DataState<T> = {
   note: string;
 };
 
+export type PipelineStage = 'Identified' | 'Qualified' | 'Approach' | 'Structuring' | 'Mandated' | 'ClosedWon' | 'ClosedLost' | 'Recycled';
+export type ActivityType = 'follow_up' | 'meeting' | 'email' | 'call' | 'research' | 'committee' | 'other';
+export type ActivityStatus = 'open' | 'done' | 'cancelled';
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+export type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
+
 export type Dashboard = {
   summary: Array<{ label: string; value: string; tone: string; helper: string }>;
   topLeads: Array<{ companyId: string; companyName: string; qualificationScore: number; leadScore: number; triggerStrength: number; suggestedStructure: string; bucket: string; rankingScore?: number }>;
@@ -222,8 +228,8 @@ export type PipelineSnapshot = {
 export type PipelineRow = {
   id: string;
   companyId: string;
-  stage: string;
-  owner: string;
+  stage: PipelineStage;
+  owner: Owner;
   nextAction: string;
   createdAt: string;
   updatedAt: string;
@@ -232,11 +238,11 @@ export type PipelineRow = {
 export type ActivityRecord = {
   id: string;
   companyId: string;
-  type: string;
+  type: ActivityType;
   title: string;
   description: string;
-  owner: string;
-  status: string;
+  owner: Owner;
+  status: ActivityStatus;
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;
@@ -247,8 +253,8 @@ export type TaskRecord = {
   companyId: string;
   title: string;
   description: string;
-  owner: string;
-  status: string;
+  owner: Owner;
+  status: TaskStatus;
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;

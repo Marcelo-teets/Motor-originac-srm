@@ -12,11 +12,14 @@ import type {
   MonitoringOutput,
   PatternCatalogEntry,
   PipelineRow,
+  PipelineStage,
   QualificationSnapshot,
   ScoreSnapshot,
   SearchProfile,
   SearchProfileFilter,
   SourceCatalogEntry,
+  Owner,
+  ActivityStatus,
   TaskRecord,
 } from '../types/platform.js';
 
@@ -44,7 +47,7 @@ export interface PlatformRepository {
   listPipelineRows(): Promise<PipelineRow[]>;
   getPipelineByCompany(companyId: string): Promise<PipelineRow | null>;
   savePipelineRow(row: Omit<PipelineRow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<PipelineRow>;
-  movePipelineStage(companyId: string, stage: string): Promise<PipelineRow | null>;
+  movePipelineStage(companyId: string, stage: PipelineStage): Promise<PipelineRow | null>;
   updateNextAction(companyId: string, nextAction: string): Promise<PipelineRow | null>;
   listActivities(companyId?: string): Promise<ActivityRecord[]>;
   saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ActivityRecord>;
@@ -101,6 +104,18 @@ const mergeProfilePayload = (profile: SearchProfile, filters: SearchProfileFilte
     return acc;
   }, {}),
 });
+const asPipelineStage = (value: string): PipelineStage => {
+  const allowed: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
+  return allowed.includes(value as PipelineStage) ? value as PipelineStage : 'Identified';
+};
+const asOwner = (value: string): Owner => {
+  const allowed: Owner[] = ['Origination', 'Coverage', 'Analytics', 'Intelligence', 'Credit', 'Unknown'];
+  return allowed.includes(value as Owner) ? value as Owner : 'Unknown';
+};
+const asActivityStatus = (value: string): ActivityStatus => {
+  const allowed: ActivityStatus[] = ['open', 'done', 'cancelled'];
+  return allowed.includes(value as ActivityStatus) ? value as ActivityStatus : 'open';
+};
 
 class MemoryPlatformRepository implements PlatformRepository {
   private companies = structuredClone(seededCompanies);
@@ -136,8 +151,8 @@ class MemoryPlatformRepository implements PlatformRepository {
   private pipelineRows: PipelineRow[] = this.companies.map((company, index) => ({
     id: `pipeline_${company.id}`,
     companyId: company.id,
-    stage: ['Identified', 'Qualified', 'Approach', 'Structuring'][index % 4],
-    owner: company.activities[0]?.owner ?? 'Origination',
+    stage: asPipelineStage(['Identified', 'Qualified', 'Approach', 'Structuring'][index % 4]),
+    owner: asOwner(company.activities[0]?.owner ?? 'Origination'),
     nextAction: company.activities[0]?.title ?? 'Executar abordagem comercial',
     createdAt: company.monitoring.lastRunAt,
     updatedAt: company.monitoring.lastRunAt,
@@ -148,8 +163,8 @@ class MemoryPlatformRepository implements PlatformRepository {
     type: 'follow_up',
     title: activity.title,
     description: activity.title,
-    owner: activity.owner,
-    status: activity.status,
+    owner: asOwner(activity.owner),
+    status: asActivityStatus(activity.status),
     dueDate: activity.dueDate,
     createdAt: company.monitoring.lastRunAt,
     updatedAt: company.monitoring.lastRunAt,
@@ -237,7 +252,7 @@ class MemoryPlatformRepository implements PlatformRepository {
     return structuredClone(saved);
   }
 
-  async movePipelineStage(companyId: string, stage: string) {
+  async movePipelineStage(companyId: string, stage: PipelineStage) {
     const current = await this.getPipelineByCompany(companyId);
     if (!current) return null;
     return this.savePipelineRow({ ...current, stage });
@@ -255,7 +270,7 @@ class MemoryPlatformRepository implements PlatformRepository {
 
   async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     const now = new Date().toISOString();
-    const saved: ActivityRecord = { ...activity, id: activity.id ?? `activity_${Date.now()}`, createdAt: now, updatedAt: now };
+    const saved: ActivityRecord = { ...activity, id: activity.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now };
     this.activities.unshift(saved);
     return structuredClone(saved);
   }
@@ -266,7 +281,7 @@ class MemoryPlatformRepository implements PlatformRepository {
 
   async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     const now = new Date().toISOString();
-    const saved: TaskRecord = { ...task, id: task.id ?? `task_${Date.now()}`, createdAt: now, updatedAt: now };
+    const saved: TaskRecord = { ...task, id: task.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now };
     this.tasks.unshift(saved);
     return structuredClone(saved);
   }
@@ -309,6 +324,10 @@ class SupabasePlatformRepository implements PlatformRepository {
     } catch {
       await fallback();
     }
+  }
+
+  private shouldUseFallbackForRuntime() {
+    return !this.client;
   }
 
   async listCompanies() {
@@ -683,52 +702,54 @@ class SupabasePlatformRepository implements PlatformRepository {
   }
 
   async listPipelineRows() {
-    return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('pipeline', { select: '*', orderBy: { column: 'updated_at', ascending: false } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        stage: row.stage,
-        owner: row.owner ?? row.owner_id ?? 'Origination',
-        nextAction: row.next_action ?? '',
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      } satisfies PipelineRow));
-    }, () => this.fallback.listPipelineRows());
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.listPipelineRows();
+    const client = this.ensureClient();
+    const data = await client.select('pipeline', { select: '*', orderBy: { column: 'updated_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      stage: asPipelineStage(row.stage),
+      owner: asOwner(row.owner ?? row.owner_id ?? 'Unknown'),
+      nextAction: row.next_action ?? '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    } satisfies PipelineRow));
   }
 
   async getPipelineByCompany(companyId: string) {
     const rows = await this.listPipelineRows();
-    return rows.find((item) => item.companyId === companyId) ?? null;
+    return rows.find((item: PipelineRow) => item.companyId === companyId) ?? null;
   }
 
   async savePipelineRow(row: Omit<PipelineRow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     const now = new Date().toISOString();
+    const current = await this.getPipelineByCompany(row.companyId);
     const saved: PipelineRow = {
-      id: row.id ?? `pipeline_${row.companyId}`,
+      id: row.id ?? current?.id ?? crypto.randomUUID(),
       companyId: row.companyId,
       stage: row.stage,
       owner: row.owner,
       nextAction: row.nextAction,
-      createdAt: now,
+      createdAt: current?.createdAt ?? now,
       updatedAt: now,
     };
-    await this.writeWithFallback(async () => {
-      const client = this.ensureClient();
-      await client.upsert('pipeline', [{
-        id: saved.id,
-        company_id: saved.companyId,
-        stage: saved.stage,
-        owner: saved.owner,
-        next_action: saved.nextAction,
-        updated_at: saved.updatedAt,
-      }], 'id');
-    }, async () => { await this.fallback.savePipelineRow(row); });
+    if (this.shouldUseFallbackForRuntime()) {
+      return this.fallback.savePipelineRow(row);
+    }
+    const client = this.ensureClient();
+    await client.upsert('pipeline', [{
+      id: saved.id,
+      company_id: saved.companyId,
+      stage: saved.stage,
+      owner: saved.owner,
+      next_action: saved.nextAction,
+      created_at: saved.createdAt,
+      updated_at: saved.updatedAt,
+    }], 'company_id');
     return (await this.getPipelineByCompany(row.companyId)) ?? saved;
   }
 
-  async movePipelineStage(companyId: string, stage: string) {
+  async movePipelineStage(companyId: string, stage: PipelineStage) {
     const current = await this.getPipelineByCompany(companyId);
     if (!current) return null;
     return this.savePipelineRow({ ...current, stage });
@@ -741,100 +762,95 @@ class SupabasePlatformRepository implements PlatformRepository {
   }
 
   async listActivities(companyId?: string) {
-    return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('activities', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        type: row.type ?? row.activity_type ?? 'general',
-        title: row.title,
-        description: row.description ?? '',
-        owner: row.owner ?? row.owner_id ?? 'Origination',
-        status: row.status ?? 'open',
-        dueDate: row.due_date ?? row.due_at ?? null,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at ?? row.created_at,
-      } satisfies ActivityRecord));
-    }, () => this.fallback.listActivities(companyId));
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.listActivities(companyId);
+    const client = this.ensureClient();
+    const data = await client.select('activities', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      type: row.type ?? row.activity_type ?? 'other',
+      title: row.title,
+      description: row.description ?? '',
+      owner: asOwner(row.owner ?? row.owner_id ?? 'Unknown'),
+      status: asActivityStatus(row.status ?? 'open'),
+      dueDate: row.due_date ?? row.due_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at ?? row.created_at,
+    } satisfies ActivityRecord));
   }
 
   async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     const now = new Date().toISOString();
-    const saved: ActivityRecord = { ...activity, id: activity.id ?? `activity_${Date.now()}`, createdAt: now, updatedAt: now };
-    await this.writeWithFallback(async () => {
-      const client = this.ensureClient();
-      await client.insert('activities', [{
-        id: saved.id,
-        company_id: saved.companyId,
-        type: saved.type,
-        activity_type: saved.type,
-        title: saved.title,
-        description: saved.description,
-        owner: saved.owner,
-        status: saved.status,
-        due_date: saved.dueDate,
-        due_at: saved.dueDate,
-        created_at: saved.createdAt,
-        updated_at: saved.updatedAt,
-      }]);
-    }, async () => { await this.fallback.saveActivity(activity); });
+    const saved: ActivityRecord = { ...activity, id: activity.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now };
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.saveActivity(activity);
+    const client = this.ensureClient();
+    await client.insert('activities', [{
+      id: saved.id,
+      company_id: saved.companyId,
+      type: saved.type,
+      activity_type: saved.type,
+      title: saved.title,
+      description: saved.description,
+      owner: saved.owner,
+      status: saved.status,
+      due_date: saved.dueDate,
+      due_at: saved.dueDate,
+      created_at: saved.createdAt,
+      updated_at: saved.updatedAt,
+    }]);
     return saved;
   }
 
   async listTasks(companyId?: string) {
-    return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('tasks', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        title: row.title,
-        description: row.description ?? row.payload?.description ?? '',
-        owner: row.owner ?? row.owner_id ?? 'Origination',
-        status: row.status ?? 'todo',
-        dueDate: row.due_date ?? row.payload?.due_date ?? null,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at ?? row.created_at,
-      } satisfies TaskRecord));
-    }, () => this.fallback.listTasks(companyId));
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.listTasks(companyId);
+    const client = this.ensureClient();
+    const data = await client.select('tasks', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      companyId: row.company_id,
+      title: row.title,
+      description: row.description ?? row.payload?.description ?? '',
+      owner: asOwner(row.owner ?? row.owner_id ?? 'Unknown'),
+      status: row.status ?? 'todo',
+      dueDate: row.due_date ?? row.payload?.due_date ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at ?? row.created_at,
+    } satisfies TaskRecord));
   }
 
   async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
     const now = new Date().toISOString();
-    const saved: TaskRecord = { ...task, id: task.id ?? `task_${Date.now()}`, createdAt: now, updatedAt: now };
-    await this.writeWithFallback(async () => {
-      const client = this.ensureClient();
-      await client.insert('tasks', [{
-        id: saved.id,
-        company_id: saved.companyId,
-        title: saved.title,
-        description: saved.description,
-        owner: saved.owner,
-        status: saved.status,
-        due_date: saved.dueDate,
-        payload: { description: saved.description, due_date: saved.dueDate },
-        created_at: saved.createdAt,
-        updated_at: saved.updatedAt,
-      }]);
-    }, async () => { await this.fallback.saveTask(task); });
+    const saved: TaskRecord = { ...task, id: task.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now };
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.saveTask(task);
+    const client = this.ensureClient();
+    await client.insert('tasks', [{
+      id: saved.id,
+      company_id: saved.companyId,
+      title: saved.title,
+      description: saved.description,
+      owner: saved.owner,
+      status: saved.status,
+      due_date: saved.dueDate,
+      payload: { description: saved.description, due_date: saved.dueDate },
+      created_at: saved.createdAt,
+      updated_at: saved.updatedAt,
+    }]);
     return saved;
   }
 
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) {
-    await this.writeWithFallback(async () => {
-      const client = this.ensureClient();
-      await client.update('tasks', {
-        ...(updates.title !== undefined ? { title: updates.title } : {}),
-        ...(updates.description !== undefined ? { description: updates.description } : {}),
-        ...(updates.owner !== undefined ? { owner: updates.owner } : {}),
-        ...(updates.status !== undefined ? { status: updates.status } : {}),
-        ...(updates.dueDate !== undefined ? { due_date: updates.dueDate } : {}),
-        updated_at: new Date().toISOString(),
-      }, [{ column: 'id', operator: 'eq', value: taskId }]);
-    }, async () => { await this.fallback.updateTask(taskId, updates); });
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.updateTask(taskId, updates);
+    const client = this.ensureClient();
+    await client.update('tasks', {
+      ...(updates.title !== undefined ? { title: updates.title } : {}),
+      ...(updates.description !== undefined ? { description: updates.description } : {}),
+      ...(updates.owner !== undefined ? { owner: updates.owner } : {}),
+      ...(updates.status !== undefined ? { status: updates.status } : {}),
+      ...(updates.dueDate !== undefined ? { due_date: updates.dueDate } : {}),
+      updated_at: new Date().toISOString(),
+    }, [{ column: 'id', operator: 'eq', value: taskId }]);
     const allTasks = await this.listTasks();
-    return allTasks.find((item) => item.id === taskId) ?? null;
+    return allTasks.find((item: TaskRecord) => item.id === taskId) ?? null;
   }
 
   async seedBaseData() {

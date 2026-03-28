@@ -14,6 +14,7 @@ import type {
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
   PipelineSnapshot,
+  PipelineStage,
   PipelineRow,
   PreCallBriefing,
   PreMortem,
@@ -80,7 +81,7 @@ export const api = {
   listPipeline: async (session: SessionData | null) => (await requestEnvelope<PipelineRow[]>('/pipeline', session)).data,
   getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<Array<{ stage: string; count: number }>>('/pipeline/stages', session)).data,
   getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}`, session)).data,
-  movePipelineStage: async (session: SessionData | null, companyId: string, stage: string) => (
+  movePipelineStage: async (session: SessionData | null, companyId: string, stage: PipelineStage) => (
     await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
   ).data,
   updateNextAction: async (session: SessionData | null, companyId: string, nextAction: string) => (
