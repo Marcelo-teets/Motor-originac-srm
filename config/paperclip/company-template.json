@@ -1,0 +1,76 @@
+{
+  "name": "Origination Intelligence Platform",
+  "mission": "Identificar, monitorar, qualificar e priorizar empresas com potencial real de operações de crédito estruturado.",
+  "control_plane_mode": "paperclip_scaffold",
+  "source_of_truth": {
+    "backend": "Motor backend HTTP API",
+    "database": "Supabase",
+    "frontend": "React Vite dashboard"
+  },
+  "guardrails": [
+    "Paperclip coordena o trabalho, nao substitui o backend do Motor.",
+    "Toda decisao relevante precisa apontar para sinais e snapshots rastreaveis.",
+    "Aprovacoes humanas continuam obrigatorias para mudancas sensiveis."
+  ],
+  "goals": [
+    {
+      "id": "monitoring_quality",
+      "title": "Aumentar qualidade do monitoring",
+      "success_definition": "refresh recorrente, sinais explicaveis e outputs rastreaveis"
+    },
+    {
+      "id": "credit_readiness",
+      "title": "Aumentar precisao de qualification e thesis",
+      "success_definition": "empresa priorizada com structure fit, rationale e next action"
+    },
+    {
+      "id": "pipeline_velocity",
+      "title": "Melhorar velocidade entre inteligencia e abordagem comercial",
+      "success_definition": "ranking e pipeline refletem claramente o que mudou e o que fazer agora"
+    }
+  ],
+  "agents": [
+    {
+      "id": "ceo_orchestrator",
+      "role": "CEO Orchestrator",
+      "runtime": "http",
+      "heartbeat_minutes": 15,
+      "approval_mode": "manual"
+    },
+    {
+      "id": "collection_motor",
+      "role": "Collection Motor",
+      "runtime": "http",
+      "heartbeat_minutes": 30,
+      "approval_mode": "automatic"
+    },
+    {
+      "id": "enrichment_supervisor",
+      "role": "Enrichment Supervisor",
+      "runtime": "http",
+      "heartbeat_minutes": 30,
+      "approval_mode": "automatic"
+    },
+    {
+      "id": "qualification_agent",
+      "role": "Qualification Agent",
+      "runtime": "http",
+      "heartbeat_minutes": 30,
+      "approval_mode": "automatic"
+    },
+    {
+      "id": "pattern_analyst",
+      "role": "Pattern Analyst",
+      "runtime": "http",
+      "heartbeat_minutes": 60,
+      "approval_mode": "automatic"
+    },
+    {
+      "id": "commercial_board",
+      "role": "Commercial Board",
+      "runtime": "http",
+      "heartbeat_minutes": 120,
+      "approval_mode": "manual"
+    }
+  ]
+}
