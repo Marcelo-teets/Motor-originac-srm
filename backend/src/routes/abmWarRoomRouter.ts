@@ -132,7 +132,7 @@ export const createAbmWarRoomRouter = () => {
 
   router.post('/data-engines/enrichment/run', async (req, res) => {
     const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId : undefined;
-    companies = await repository.listCompanies();
+    const companies = await repository.listCompanies();
     let outputs = await repository.listMonitoringOutputs();
     const targets = companyId ? companies.filter((item) => item.id === companyId) : companies;
 
