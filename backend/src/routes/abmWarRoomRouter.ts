@@ -9,6 +9,7 @@ import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js'
 import { DataTreatmentEngine } from '../modules/data-enrichment/dataTreatmentEngine.js';
 import { createPlatformRepository } from '../repositories/platformRepository.js';
 import { env } from '../lib/env.js';
+import { DataEnginesPersistence } from '../modules/data-engines/persistence.js';
 
 const ok = (data: unknown) => ({ status: 'real', generatedAt: new Date().toISOString(), data });
 
@@ -23,6 +24,7 @@ export const createAbmWarRoomRouter = () => {
   const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
   const captureEngine = new DataCaptureEngine();
   const treatmentEngine = new DataTreatmentEngine();
+  const persistence = new DataEnginesPersistence();
 
   router.get('/companies/:companyId/stakeholders', async (req, res) => {
     res.json(ok(await stakeholderService.listByCompany(req.params.companyId)));
@@ -108,6 +110,18 @@ export const createAbmWarRoomRouter = () => {
     await repository.saveMonitoringOutputs(captureResults.flatMap((item) => item.outputs));
     await repository.saveCompanySignals(captureResults.flatMap((item) => item.signals));
     await repository.saveEnrichments(captureResults.flatMap((item) => item.enrichments));
+    await persistence.saveCaptureArtifacts(captureResults);
+    await persistence.saveLearningEvent({
+      engineName: 'data_capture_engine',
+      eventType: 'capture_run_completed',
+      severity: 'info',
+      summary: `Capture run completed for ${captureResults.length} companies.`,
+      companyId,
+      payload: {
+        outputsWritten: captureResults.reduce((sum, item) => sum + item.outputs.length, 0),
+        signalsWritten: captureResults.reduce((sum, item) => sum + item.signals.length, 0),
+      },
+    });
 
     const outputs = await repository.listMonitoringOutputs();
     const enrichmentResults = treatmentEngine.run(
@@ -115,6 +129,7 @@ export const createAbmWarRoomRouter = () => {
       companyId ? companies.filter((item) => item.id === companyId) : companies,
       outputs,
     );
+    await persistence.saveAliases(enrichmentResults.flatMap((item) => item.aliases));
 
     res.json(ok({
       engine: 'data_capture_engine',
@@ -158,6 +173,7 @@ export const createAbmWarRoomRouter = () => {
       await repository.saveMonitoringOutputs(captureResults.flatMap((item) => item.outputs));
       await repository.saveCompanySignals(captureResults.flatMap((item) => item.signals));
       await repository.saveEnrichments(captureResults.flatMap((item) => item.enrichments));
+      await persistence.saveCaptureArtifacts(captureResults);
       outputs = await repository.listMonitoringOutputs();
 
       cooperativeCapture = {
@@ -171,6 +187,20 @@ export const createAbmWarRoomRouter = () => {
       targets,
       outputs,
     );
+
+    await persistence.saveAliases(enrichmentResults.flatMap((item) => item.aliases));
+    await persistence.saveLearningEvent({
+      engineName: 'data_enrichment_engine',
+      eventType: needsCapture.length ? 'enrichment_with_cooperative_capture' : 'enrichment_run_completed',
+      severity: needsCapture.length ? 'warning' : 'info',
+      summary: `Enrichment run completed for ${enrichmentResults.length} companies.`,
+      companyId,
+      payload: {
+        aliasesGenerated: enrichmentResults.reduce((sum, item) => sum + item.aliases.length, 0),
+        captureRequestsCreated: enrichmentResults.reduce((sum, item) => sum + item.requestsCreated, 0),
+        requestedCaptureFor: needsCapture,
+      },
+    });
 
     res.json(ok({
       engine: 'data_enrichment_engine',
