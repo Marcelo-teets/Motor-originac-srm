@@ -1,8 +1,11 @@
-import type { CompanySeed, MonitoringOutput, SourceCatalogEntry } from '../../types/platform.js';
+import type { CompanySeed, SourceCatalogEntry } from '../../types/platform.js';
 import { ingestCompanyMonitoring } from '../../lib/connectors.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 
-const toCanonicalDocuments = (companyId: string, outputs: MonitoringOutput[]): CanonicalSourceDocument[] =>
+const toCanonicalDocuments = (
+  companyId: string,
+  outputs: CaptureEngineResult['outputs'],
+): CanonicalSourceDocument[] =>
   outputs.map((output) => ({
     id: `doc_${output.id}`,
     companyId,
@@ -30,13 +33,16 @@ export class DataCaptureEngine {
           triggerType: request.triggerType,
           companyId: company.id,
           sourceId: request.sourceId,
-          status: 'completed',
+          status: result.outputs.some((item) => item.connectorStatus !== 'real') ? 'partial' : 'completed',
           itemsCollected: result.outputs.length,
           outputsWritten: result.outputs.length,
           signalsWritten: result.signals.length,
           enrichmentsWritten: result.enrichments.length,
         },
         documents: toCanonicalDocuments(company.id, result.outputs),
+        outputs: result.outputs,
+        signals: result.signals,
+        enrichments: result.enrichments,
       } satisfies CaptureEngineResult;
     }));
   }
