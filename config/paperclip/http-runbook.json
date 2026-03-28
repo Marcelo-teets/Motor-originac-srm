@@ -1,0 +1,54 @@
+{
+  "base_url_placeholder": "http://localhost:4000",
+  "flow": [
+    {
+      "step": 1,
+      "name": "monitoring_refresh",
+      "endpoint": "/monitoring/run/company/:id",
+      "expected_outcome": "novos monitoring_outputs e sinais"
+    },
+    {
+      "step": 2,
+      "name": "qualification_refresh",
+      "endpoint": "/companies/:id/qualification/recalculate",
+      "expected_outcome": "qualification, lead score, thesis e ranking atualizados"
+    },
+    {
+      "step": 3,
+      "name": "ranking_explainability",
+      "endpoint": "/companies/:id/ranking",
+      "expected_outcome": "prioridade explicada por sinais, patterns e confidence"
+    },
+    {
+      "step": 4,
+      "name": "commercial_followup",
+      "endpoint": "/activities",
+      "expected_outcome": "next action registrada para coverage ou origination"
+    }
+  ],
+  "agents_to_existing_motor_endpoints": {
+    "collection_motor": [
+      "/monitoring/run",
+      "/monitoring/run/company/:id",
+      "/monitoring/outputs"
+    ],
+    "enrichment_supervisor": [
+      "/companies/:id/signals",
+      "/companies/:id/monitoring"
+    ],
+    "qualification_agent": [
+      "/companies/:id/qualification/recalculate",
+      "/score/company/:id/recalculate",
+      "/rankings/v2/recalculate"
+    ],
+    "pattern_analyst": [
+      "/companies/:id/patterns",
+      "/companies/:id/ranking"
+    ],
+    "commercial_board": [
+      "/dashboard/summary",
+      "/pipeline",
+      "/activities"
+    ]
+  }
+}
