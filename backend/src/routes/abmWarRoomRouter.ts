@@ -10,6 +10,7 @@ import { DataTreatmentEngine } from '../modules/data-enrichment/dataTreatmentEng
 import { createPlatformRepository } from '../repositories/platformRepository.js';
 import { env } from '../lib/env.js';
 import { DataEnginesPersistence } from '../modules/data-engines/persistence.js';
+import { PaperclipBrainService } from '../modules/paperclip/paperclipBrainService.js';
 
 const ok = (data: unknown) => ({ status: 'real', generatedAt: new Date().toISOString(), data });
 
@@ -25,6 +26,7 @@ export const createAbmWarRoomRouter = () => {
   const captureEngine = new DataCaptureEngine();
   const treatmentEngine = new DataTreatmentEngine();
   const persistence = new DataEnginesPersistence();
+  const paperclip = new PaperclipBrainService();
 
   router.get('/companies/:companyId/stakeholders', async (req, res) => {
     res.json(ok(await stakeholderService.listByCompany(req.params.companyId)));
@@ -89,6 +91,18 @@ export const createAbmWarRoomRouter = () => {
     }));
   });
 
+  router.get('/data-engines/learning-events', async (_req, res) => {
+    res.json(ok(await persistence.listLearningEvents()));
+  });
+
+  router.get('/data-engines/requests', async (_req, res) => {
+    res.json(ok(await persistence.listEngineRequests()));
+  });
+
+  router.get('/data-engines/improvement-proposals', async (_req, res) => {
+    res.json(ok(await persistence.listImprovementProposals()));
+  });
+
   router.post('/data-engines/capture/run', async (req, res) => {
     const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId : undefined;
     const [companies, sources] = await Promise.all([
@@ -131,6 +145,21 @@ export const createAbmWarRoomRouter = () => {
     );
     await persistence.saveAliases(enrichmentResults.flatMap((item) => item.aliases));
 
+    const lowConfidenceOutputs = captureResults.flatMap((item) => item.outputs).filter((item) => item.confidenceScore < 0.65);
+    if (lowConfidenceOutputs.length) {
+      await persistence.saveImprovementProposal({
+        engineName: 'data_capture_engine',
+        proposalType: 'connector_upgrade',
+        title: 'Improve low-confidence capture outputs',
+        rationale: 'Capture run generated low-confidence outputs that should be improved with better parsing or source-specific extraction.',
+        targetModule: 'backend/src/lib/connectors.ts',
+        proposalPayload: {
+          lowConfidenceOutputs: lowConfidenceOutputs.length,
+          companies: [...new Set(lowConfidenceOutputs.map((item) => item.companyId))],
+        },
+      });
+    }
+
     res.json(ok({
       engine: 'data_capture_engine',
       companiesProcessed: captureResults.length,
@@ -157,6 +186,17 @@ export const createAbmWarRoomRouter = () => {
         return companyOutputs.length === 0 || companyOutputs.some((item) => item.confidenceScore < 0.65);
       })
       .map((item) => item.id);
+
+    await persistence.saveEngineRequests(needsCapture.map((id) => ({
+      requesterEngine: 'data_enrichment_engine',
+      targetEngine: 'data_capture_engine',
+      companyId: id,
+      requestType: 'recheck_website',
+      priority: 'high',
+      status: 'queued',
+      reason: 'Enrichment detected missing or low-confidence evidence and requested cooperative capture.',
+      evidencePayload: { requestedBy: 'enrichment_run' },
+    })));
 
     let cooperativeCapture = null;
     if (needsCapture.length) {
@@ -202,6 +242,20 @@ export const createAbmWarRoomRouter = () => {
       },
     });
 
+    if (needsCapture.length) {
+      await persistence.saveImprovementProposal({
+        engineName: 'data_enrichment_engine',
+        proposalType: 'evidence_gap',
+        title: 'Improve evidence coverage for enrichment',
+        rationale: 'Enrichment repeatedly required cooperative capture to fill missing evidence.',
+        targetModule: 'backend/src/modules/data-enrichment/dataTreatmentEngine.ts',
+        proposalPayload: {
+          requestedCaptureFor: needsCapture,
+          companiesProcessed: enrichmentResults.length,
+        },
+      });
+    }
+
     res.json(ok({
       engine: 'data_enrichment_engine',
       companiesProcessed: enrichmentResults.length,
@@ -211,6 +265,10 @@ export const createAbmWarRoomRouter = () => {
       cooperativeCapture,
       results: enrichmentResults,
     }));
+  });
+
+  router.get('/paperclip/snapshot', async (_req, res) => {
+    res.json(ok(await paperclip.snapshot()));
   });
 
   return router;
