@@ -203,22 +203,62 @@ app.get('/market-map/company/:id', wrap(async (req, res) => {
   res.json(ok(platformMode, { companyId: param(req.params.id), peers: detail?.marketMap ?? [] }));
 }));
 
-app.get('/pipeline', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).pipeline))));
-app.get('/pipeline/stages', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).pipeline.map((item) => item.stage)))));
-app.get('/pipeline/company/:id', wrap(async (req, res) => {
-  const ranking = await service.getCompanyRanking(param(req.params.id));
-  res.json(ok(platformMode, { companyId: param(req.params.id), stage: ranking?.leadScore && ranking.leadScore >= 75 ? 'Approach' : 'Qualified' }));
+app.get('/pipeline', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPipelineRows()))));
+app.get('/pipeline/stages', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPipelineStages()))));
+app.get('/pipeline/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.getPipelineByCompany(param(req.params.id))))));
+app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
+  const moved = await service.movePipelineStage(param(req.params.id), String(req.body?.stage ?? 'Qualified'));
+  res.json(ok(platformMode, moved));
 }));
-app.post('/pipeline/company/:id/move', wrap((req, res) => res.json(ok(platformMode, { companyId: param(req.params.id), movedTo: req.body?.stage ?? 'Qualified' }))));
-app.get('/activities', wrap(async (_req, res) => res.json(ok(platformMode, (await Promise.all((await service.listCompanies()).map((company) => service.getCompanyDetail(company.id)))).flatMap((detail) => detail?.activities ?? [])))));
-app.post('/activities', wrap((req, res) => res.status(201).json(ok(platformMode, { id: 'act_created', ...req.body }))));
-app.get('/activities/company/:id', wrap(async (req, res) => {
-  const detail = await service.getCompanyDetail(param(req.params.id));
-  res.json(ok(platformMode, detail?.activities ?? []));
+app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
+  const updated = await service.updateNextAction(param(req.params.id), String(req.body?.nextAction ?? req.body?.next_action ?? ''));
+  res.json(ok(platformMode, updated));
 }));
-app.get('/tasks', wrap((_req, res) => res.json(ok('partial', [{ id: 'tsk_1', title: 'Configurar variáveis Supabase', status: 'todo' }, { id: 'tsk_2', title: 'Acompanhar conectores adicionais', status: 'planned' }]))));
-app.post('/tasks', wrap((req, res) => res.status(201).json(ok('partial', { id: 'tsk_created', ...req.body }))));
-app.patch('/tasks/:id', wrap((req, res) => res.json(ok('partial', { id: param(req.params.id), ...req.body }))));
+app.get('/pipeline/snapshot', wrap(async (_req, res) => {
+  const [rows, stages, activities] = await Promise.all([service.listPipelineRows(), service.listPipelineStages(), service.listActivities()]);
+  res.json(ok(platformMode, { rows, stages, recentActivities: activities.slice(0, 12) }));
+}));
+app.get('/activities', wrap(async (_req, res) => res.json(ok(platformMode, await service.listActivities()))));
+app.post('/activities', wrap(async (req, res) => res.status(201).json(ok(platformMode, await service.saveActivity({
+  companyId: String(req.body?.companyId ?? req.body?.company_id ?? ''),
+  type: String(req.body?.type ?? 'general'),
+  title: String(req.body?.title ?? ''),
+  description: String(req.body?.description ?? ''),
+  owner: String(req.body?.owner ?? 'Origination'),
+  status: String(req.body?.status ?? 'open'),
+  dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+})))));
+app.get('/activities/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listActivities(param(req.params.id))))));
+app.get('/tasks', wrap(async (_req, res) => res.json(ok(platformMode, await service.listTasks()))));
+app.get('/tasks/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listTasks(param(req.params.id))))));
+app.post('/tasks', wrap(async (req, res) => res.status(201).json(ok(platformMode, await service.saveTask({
+  companyId: String(req.body?.companyId ?? req.body?.company_id ?? ''),
+  title: String(req.body?.title ?? ''),
+  description: String(req.body?.description ?? ''),
+  owner: String(req.body?.owner ?? 'Origination'),
+  status: String(req.body?.status ?? 'todo'),
+  dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+})))));
+app.patch('/tasks/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.updateTask(param(req.params.id), {
+  title: req.body?.title,
+  description: req.body?.description,
+  owner: req.body?.owner,
+  status: req.body?.status,
+  dueDate: req.body?.dueDate ?? req.body?.due_date,
+})))));
+app.get('/monitoring/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { monitoring: (await service.getDashboard()).monitoring, latestOutputs: (await service.listMonitoringOutputsAll()).slice(0, 12) }))));
+app.get('/agents/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { agents: (await service.getDashboard()).agents }))));
+app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
+  const [rankings, pipelineRows] = await Promise.all([service.getRankings(), service.listPipelineRows()]);
+  const top = rankings[0];
+  const stalled = pipelineRows.find((row) => row.stage === 'Identified');
+  res.json(ok(platformMode, {
+    items: [
+      { id: 'qa_top_lead', title: top ? `Abordar ${top.companyName}` : 'Abordar top lead', owner: 'Origination', priority: 'high' },
+      { id: 'qa_stalled', title: stalled ? `Mover ${stalled.companyId} de Identified` : 'Revisar pipeline Identified', owner: 'Coverage', priority: 'medium' },
+    ],
+  }));
+}));
 
 app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, {
   auth: 'real',

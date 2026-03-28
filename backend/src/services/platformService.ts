@@ -7,6 +7,7 @@ import { buildRankingRow } from '../lib/ranking.js';
 import { computeLeadScore } from '../lib/scoring.js';
 import { buildThesisOutput } from '../lib/thesis.js';
 import type {
+  ActivityRecord,
   CompanyDetailView,
   CompanyPattern,
   CompanySeed,
@@ -19,6 +20,7 @@ import type {
   QualificationSnapshot,
   RankingRow,
   ScoreSnapshot,
+  TaskRecord,
   PriorityBucket,
 } from '../types/platform.js';
 import type { PlatformRepository } from '../repositories/platformRepository.js';
@@ -375,6 +377,10 @@ export class PlatformService {
     const lead = leadScores.get(id);
     const ranking = rankingRows.find((item) => item.companyId === id);
     if (!companySeed || !company || !qualification || !lead || !ranking) return null;
+    const [activityRows, pipelineRow] = await Promise.all([
+      this.repository.listActivities(id),
+      this.repository.getPipelineByCompany(id),
+    ]);
 
     const historyDates = Array.from(new Set([
       ...scoreSnapshots.filter((item) => item.companyId === id).map((item) => item.createdAt),
@@ -392,9 +398,10 @@ export class PlatformService {
         ...company,
         description: companySeed.description,
         currentFundingStructure: companySeed.currentFundingStructure,
-        stage: companySeed.stage,
+        stage: pipelineRow?.stage ?? companySeed.stage,
         cnpj: companySeed.cnpj,
         website: companySeed.website,
+        nextAction: pipelineRow?.nextAction || company.nextAction,
       },
       qualification: {
         ...qualification,
@@ -406,7 +413,23 @@ export class PlatformService {
       monitoring: companySeed.monitoring,
       signals: companySeed.signals,
       sources,
-      activities: companySeed.activities,
+      activities: (activityRows.length ? activityRows : companySeed.activities.map((activity, index) => ({
+        id: `${id}_seed_${index}`,
+        companyId: id,
+        type: 'follow_up',
+        title: activity.title,
+        description: activity.title,
+        owner: activity.owner,
+        status: activity.status,
+        dueDate: activity.dueDate,
+        createdAt: '',
+        updatedAt: '',
+      }))).map((activity) => ({
+        title: activity.title,
+        owner: activity.owner,
+        status: activity.status,
+        dueDate: activity.dueDate ?? '-',
+      })),
       scores: {
         qualification: qualification.qualification_score_total,
         lead: lead.leadScore,
@@ -480,4 +503,21 @@ export class PlatformService {
   async listSources() { return this.repository.listSources(); }
   async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
+  async listPipelineRows() { return this.repository.listPipelineRows(); }
+  async listPipelineStages() {
+    const rows = await this.repository.listPipelineRows();
+    const grouped = rows.reduce((acc, row) => {
+      acc.set(row.stage, (acc.get(row.stage) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>());
+    return Array.from(grouped.entries()).map(([stage, count]) => ({ stage, count }));
+  }
+  async getPipelineByCompany(companyId: string) { return this.repository.getPipelineByCompany(companyId); }
+  async movePipelineStage(companyId: string, stage: string) { return this.repository.movePipelineStage(companyId, stage); }
+  async updateNextAction(companyId: string, nextAction: string) { return this.repository.updateNextAction(companyId, nextAction); }
+  async listActivities(companyId?: string) { return this.repository.listActivities(companyId); }
+  async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveActivity(activity); }
+  async listTasks(companyId?: string) { return this.repository.listTasks(companyId); }
+  async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveTask(task); }
+  async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) { return this.repository.updateTask(taskId, updates); }
 }

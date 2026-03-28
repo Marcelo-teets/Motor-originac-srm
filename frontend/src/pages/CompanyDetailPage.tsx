@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { useState } from 'react';
 import { Card, DataStatusBanner, KeyValueList, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -35,13 +36,12 @@ export function CompanyDetailPage() {
     };
   }, [session?.access_token, id]);
 
-  if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
+  const [stage, setStage] = useState('Qualified');
+  const [nextActionDraft, setNextActionDraft] = useState('');
+  const [activityTitle, setActivityTitle] = useState('');
+  const [taskTitle, setTaskTitle] = useState('');
 
-  const detail: any = data.data;
-
-  const handleRecalculate = async () => {
-    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
+  const reloadDetail = async () => {
     const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
       api.getCompany(session, id),
       api.getAbmStakeholders(session, id),
@@ -57,6 +57,16 @@ export function CompanyDetailPage() {
         abm: { stakeholders: stakeholders.data, touchpoints: touchpoints.data, objections: objections.data, preCall: preCall.data, preMortem: preMortem.data },
       },
     });
+  };
+
+  if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
+  if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
+
+  const detail: any = data.data;
+
+  const handleRecalculate = async () => {
+    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
+    await reloadDetail();
   };
 
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
@@ -229,6 +239,36 @@ export function CompanyDetailPage() {
               </li>
             ))}
           </ul>
+          <div className="top-gap">
+            <div className="row-between">
+              <select value={stage} onChange={(event) => setStage(event.target.value)}>
+                <option>Identified</option>
+                <option>Qualified</option>
+                <option>Approach</option>
+                <option>Structuring</option>
+              </select>
+              <button type="button" onClick={async () => { await api.movePipelineStage(session, id, stage); await reloadDetail(); }}>Mover estágio</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={nextActionDraft} onChange={(event) => setNextActionDraft(event.target.value)} placeholder="Atualizar próxima ação" />
+              <button type="button" onClick={async () => { await api.updateNextAction(session, id, nextActionDraft); setNextActionDraft(''); await reloadDetail(); }}>Salvar ação</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={activityTitle} onChange={(event) => setActivityTitle(event.target.value)} placeholder="Nova activity" />
+              <button type="button" onClick={async () => {
+                await api.createActivity(session, { companyId: id, type: 'follow_up', title: activityTitle, description: activityTitle, owner: 'Origination', status: 'open', dueDate: null });
+                setActivityTitle('');
+                await reloadDetail();
+              }}>Criar activity</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="Nova task" />
+              <button type="button" onClick={async () => {
+                await api.createTask(session, { companyId: id, title: taskTitle, description: taskTitle, owner: 'Origination', status: 'todo', dueDate: null });
+                setTaskTitle('');
+              }}>Criar task</button>
+            </div>
+          </div>
         </Card>
 
         <Card title="Score History" subtitle="Evolução de qualification e lead ao longo do tempo" className="dense-card">

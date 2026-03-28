@@ -218,3 +218,38 @@ export type PipelineSnapshot = {
   stages: Array<{ stage: string; count: number; note: string }>;
   recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
 };
+
+export type PipelineRow = {
+  id: string;
+  companyId: string;
+  stage: string;
+  owner: string;
+  nextAction: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ActivityRecord = {
+  id: string;
+  companyId: string;
+  type: string;
+  title: string;
+  description: string;
+  owner: string;
+  status: string;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskRecord = {
+  id: string;
+  companyId: string;
+  title: string;
+  description: string;
+  owner: string;
+  status: string;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
