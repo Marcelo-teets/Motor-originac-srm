@@ -1,0 +1,38 @@
+name: paperclip-sidecar-validate
+
+on:
+  push:
+    branches:
+      - feat/paperclip-control-plane-integration
+  workflow_dispatch:
+
+jobs:
+  validate-paperclip-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build backend
+        run: npm run build --workspace backend
+
+      - name: Validate sidecar entrypoint exists
+        run: test -f backend/src/server.paperclip.ts
+
+      - name: Validate sidecar dockerfile exists
+        run: test -f backend/Dockerfile.paperclip-sidecar
+
+      - name: Validate Railway config exists
+        run: test -f backend/railway.paperclip.json
+
+      - name: Validate env example exists
+        run: test -f backend/.env.paperclip-sidecar.example
