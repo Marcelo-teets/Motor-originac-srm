@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json ./package.json
+COPY backend/package.json ./backend/package.json
+COPY backend/tsconfig.json ./backend/tsconfig.json
+COPY backend/src ./backend/src
+COPY config ./config
+
+RUN npm install
+RUN npm run build --workspace backend
+
+ENV PAPERCLIP_PORT=4010
+EXPOSE 4010
+
+CMD ["node", "backend/dist/src/server.paperclip.js"]
