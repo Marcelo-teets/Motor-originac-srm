@@ -12,9 +12,18 @@ export class DataEngineScheduler {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
+  getStatus() {
+    return {
+      enabled: process.env.ENABLE_DATA_ENGINE_SCHEDULER === 'true',
+      intervalMs: Number(process.env.DATA_ENGINE_SCHEDULER_INTERVAL_MS ?? 900000),
+      started: Boolean(this.timer),
+      running: this.running,
+    };
+  }
+
   start() {
-    if (!process.env.ENABLE_DATA_ENGINE_SCHEDULER || process.env.ENABLE_DATA_ENGINE_SCHEDULER !== 'true' || this.timer) return;
-    const intervalMs = Number(process.env.DATA_ENGINE_SCHEDULER_INTERVAL_MS ?? 900000);
+    const { enabled, intervalMs } = this.getStatus();
+    if (!enabled || this.timer) return;
     this.timer = setInterval(() => {
       void this.tick('scheduled');
     }, intervalMs);
@@ -28,7 +37,7 @@ export class DataEngineScheduler {
   }
 
   async tick(reason: 'scheduled' | 'manual' = 'scheduled') {
-    if (this.running) return { skipped: true, reason: 'already_running' };
+    if (this.running) return { skipped: true, reason: 'already_running', ...this.getStatus() };
     this.running = true;
     const startedAt = new Date().toISOString();
 
@@ -47,21 +56,23 @@ export class DataEngineScheduler {
       await this.repository.saveMonitoringOutputs(captureResults.flatMap((item) => item.outputs));
       await this.repository.saveCompanySignals(captureResults.flatMap((item) => item.signals));
       await this.repository.saveEnrichments(captureResults.flatMap((item) => item.enrichments));
-      await this.opsStore.saveSourceDocuments(captureResults.flatMap((item) => item.documents).map((doc) => ({
-        id: doc.id,
-        company_id: doc.companyId,
-        source_id: doc.sourceId,
-        document_type: doc.documentType,
-        external_id: doc.externalId,
-        canonical_url: doc.canonicalUrl,
-        title: doc.title,
-        published_at: doc.publishedAt,
-        observed_at: doc.observedAt,
-        content_hash: doc.contentHash,
-        raw_payload: doc.rawPayload,
-        normalized_payload: doc.normalizedPayload,
-        extraction_status: doc.extractionStatus,
-      })));
+      await this.opsStore.saveSourceDocuments(
+        captureResults.flatMap((item) => item.documents).map((doc) => ({
+          id: doc.id,
+          company_id: doc.companyId,
+          source_id: doc.sourceId,
+          document_type: doc.documentType,
+          external_id: doc.externalId,
+          canonical_url: doc.canonicalUrl,
+          title: doc.title,
+          published_at: doc.publishedAt,
+          observed_at: doc.observedAt,
+          content_hash: doc.contentHash,
+          raw_payload: doc.rawPayload,
+          normalized_payload: doc.normalizedPayload,
+          extraction_status: doc.extractionStatus,
+        })),
+      );
 
       const outputs = await this.repository.listMonitoringOutputs();
       const enrichmentResults = this.treatmentEngine.run({ reason, companyId: undefined }, companies, outputs);
@@ -95,6 +106,7 @@ export class DataEngineScheduler {
 
       return {
         skipped: false,
+        ...this.getStatus(),
         companiesProcessed: captureResults.length,
         outputsWritten: captureResults.reduce((sum, item) => sum + item.outputs.length, 0),
         signalsWritten: captureResults.reduce((sum, item) => sum + item.signals.length, 0),

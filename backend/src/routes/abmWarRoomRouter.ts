@@ -1,1 +1,258 @@
-import{Router}from'express';import{AccountStakeholderService}from'../services/accountStakeholderService.js';import{CommercialMomentumService}from'../services/commercialMomentumService.js';import{CommercialPriorityService}from'../services/commercialPriorityService.js';import{ObjectionIntelligenceService}from'../services/objectionIntelligenceService.js';import{PreCallBriefingService}from'../services/preCallBriefingService.js';import{TouchpointService}from'../services/touchpointService.js';import{DataCaptureEngine}from'../modules/data-capture/dataCaptureEngine.js';import{DataTreatmentEngine}from'../modules/data-enrichment/dataTreatmentEngine.js';import{createPlatformRepository}from'../repositories/platformRepository.js';import{DataEngineOpsStore}from'../services/dataEngineOpsStore.js';import{classifyImprovementMode}from'../modules/self-improvement/policy.js';import{env}from'../lib/env.js';const ok=(data:unknown)=>({status:'real',generatedAt:new Date().toISOString(),data});const now=()=>new Date().toISOString();export const createAbmWarRoomRouter=()=>{const r=Router(),ss=new AccountStakeholderService(),ts=new TouchpointService(),os=new ObjectionIntelligenceService(),ms=new CommercialMomentumService(),ps=new CommercialPriorityService(),bs=new PreCallBriefingService(),repo=createPlatformRepository(env.useSupabase?'supabase':'memory'),cap=new DataCaptureEngine(),tr=new DataTreatmentEngine(),store=new DataEngineOpsStore();r.get('/companies/:companyId/stakeholders',async(q,s)=>s.json(ok(await ss.listByCompany(q.params.companyId))));r.post('/companies/:companyId/stakeholders',async(q,s)=>s.status(201).json(ok(await ss.create(q.params.companyId,q.body??{}))));r.get('/companies/:companyId/touchpoints',async(q,s)=>s.json(ok(await ts.listByCompany(q.params.companyId))));r.post('/companies/:companyId/touchpoints',async(q,s)=>s.status(201).json(ok(await ts.create(q.params.companyId,q.body??{}))));r.get('/companies/:companyId/objections',async(q,s)=>s.json(ok(await os.listByCompany(q.params.companyId))));r.post('/companies/:companyId/objections',async(q,s)=>s.status(201).json(ok(await os.create(q.params.companyId,q.body??{}))));r.get('/war-room/weekly',async(_q,s)=>s.json(ok(await bs.weeklyWarRoom())));r.get('/companies/:companyId/pre-call-briefing',async(q,s)=>s.json(ok(await bs.build(q.params.companyId))));r.get('/companies/:companyId/pre-mortem',async(q,s)=>s.json(ok(await bs.buildPreMortem(q.params.companyId))));r.post('/companies/:companyId/recalculate-commercial-layer',async(q,s)=>{const id=q.params.companyId,[momentum,priority]=await Promise.all([ms.compute(id),ps.compute(id)]);s.json(ok({companyId:id,momentum,priority,reason:q.body?.reason??'manual'}))});r.get('/data-engines/health',async(_q,s)=>{const[companies,sources,outputs,requests,events]=await Promise.all([repo.listCompanies(),repo.listSources(),repo.listMonitoringOutputs(),store.listEngineRequests(20),store.listLearningEvents(20)]);s.json(ok({engines:['data_capture_engine','data_enrichment_engine'],companies:companies.length,sources:sources.length,monitoringOutputs:outputs.length,engineRequests:requests.length,learningEvents:events.length}))});r.get('/data-engines/requests',async(_q,s)=>s.json(ok(await store.listEngineRequests(100))));r.get('/data-engines/learning',async(_q,s)=>s.json(ok(await store.listLearningEvents(100))));r.get('/data-engines/source-documents',async(_q,s)=>s.json(ok(await store.listSourceDocuments(100))));r.post('/data-engines/improvements/propose',async(q,s)=>{const targetModule=typeof q.body?.targetModule==='string'?q.body.targetModule:'backend/src/lib/connectors.ts';const rows=[{engine_name:typeof q.body?.engineName==='string'?q.body.engineName:'data_capture_engine',proposal_type:typeof q.body?.proposalType==='string'?q.body.proposalType:'connector_upgrade',title:typeof q.body?.title==='string'?q.body.title:'Improve connector behavior',rationale:typeof q.body?.rationale==='string'?q.body.rationale:'Proposal generated from data engine runtime observations.',target_module:targetModule,status:'draft',risk_level:classifyImprovementMode(targetModule)==='branch_and_pr'?'medium':'low',proposal_payload:q.body?.proposalPayload??{},test_plan:q.body?.testPlan??[],created_at:now(),updated_at:now()}];s.status(201).json(ok(await store.saveCodeImprovementProposals(rows)))});r.post('/data-engines/capture/run',async(q,s)=>{const companyId=typeof q.body?.companyId==='string'?q.body.companyId:undefined,[companies,sources]=await Promise.all([repo.listCompanies(),repo.listSources()]),cr=await cap.run({companyId,sourceId:typeof q.body?.sourceId==='string'?q.body.sourceId:undefined,scopeType:companyId?'company':'global',triggerType:'manual'},companies,sources);await repo.saveMonitoringOutputs(cr.flatMap(i=>i.outputs));await repo.saveCompanySignals(cr.flatMap(i=>i.signals));await repo.saveEnrichments(cr.flatMap(i=>i.enrichments));await store.saveSourceDocuments(cr.flatMap(i=>i.documents).map(d=>({id:d.id,company_id:d.companyId,source_id:d.sourceId,document_type:d.documentType,external_id:d.externalId,canonical_url:d.canonicalUrl,title:d.title,published_at:d.publishedAt,observed_at:d.observedAt,content_hash:d.contentHash,raw_payload:d.rawPayload,normalized_payload:d.normalizedPayload,extraction_status:d.extractionStatus})));const outputs=await repo.listMonitoringOutputs(),er=tr.run({companyId,reason:'orchestrated'},companyId?companies.filter(i=>i.id===companyId):companies,outputs);const requests=er.filter(i=>i.requestsCreated>0).map(i=>({requester_engine:'data_enrichment_engine',target_engine:'data_capture_engine',company_id:i.companyId,request_type:'confirm_signal',priority:'medium',status:'completed',reason:'Low-confidence outputs requested corroboration during cooperative enrichment.',evidence_payload:{requestsCreated:i.requestsCreated},response_payload:{handledBy:'capture_run'},created_at:now(),updated_at:now()}));const learn=[{engine_name:'data_capture_engine',company_id:companyId??null,event_type:'capture_run_completed',severity:'info',summary:`Capture run completed for ${cr.length} company scopes.`,payload:{companiesProcessed:cr.length,outputsWritten:cr.reduce((a,i)=>a+i.outputs.length,0)},created_at:now()}];await store.saveEngineRequests(requests);await store.saveLearningEvents(learn);s.json(ok({engine:'data_capture_engine',companiesProcessed:cr.length,outputsWritten:cr.reduce((a,i)=>a+i.outputs.length,0),signalsWritten:cr.reduce((a,i)=>a+i.signals.length,0),enrichmentsWritten:cr.reduce((a,i)=>a+i.enrichments.length,0),sourceDocumentsWritten:cr.reduce((a,i)=>a+i.documents.length,0),cooperativeEnrichment:{companiesProcessed:er.length,aliasesGenerated:er.reduce((a,i)=>a+i.aliases.length,0),captureRequestsCreated:er.reduce((a,i)=>a+i.requestsCreated,0)}}))});r.post('/data-engines/enrichment/run',async(q,s)=>{const companyId=typeof q.body?.companyId==='string'?q.body.companyId:undefined,companies=await repo.listCompanies();let outputs=await repo.listMonitoringOutputs();const targets=companyId?companies.filter(i=>i.id===companyId):companies,needs=targets.filter(c=>{const o=outputs.filter(i=>i.companyId===c.id);return o.length===0||o.some(i=>i.confidenceScore<.65)}).map(i=>i.id);let coop=null;if(needs.length){await store.saveEngineRequests(needs.map(id=>({requester_engine:'data_enrichment_engine',target_engine:'data_capture_engine',company_id:id,request_type:'confirm_signal',priority:'medium',status:'running',reason:'Missing or low-confidence evidence before enrichment.',evidence_payload:{reason:'low_confidence_or_missing_outputs'},response_payload:{},created_at:now(),updated_at:now()})));const sources=await repo.listSources(),cr=await cap.run({scopeType:companyId?'company':'global',triggerType:'orchestrated'},companies.filter(i=>needs.includes(i.id)),sources);await repo.saveMonitoringOutputs(cr.flatMap(i=>i.outputs));await repo.saveCompanySignals(cr.flatMap(i=>i.signals));await repo.saveEnrichments(cr.flatMap(i=>i.enrichments));await store.saveSourceDocuments(cr.flatMap(i=>i.documents).map(d=>({id:d.id,company_id:d.companyId,source_id:d.sourceId,document_type:d.documentType,external_id:d.externalId,canonical_url:d.canonicalUrl,title:d.title,published_at:d.publishedAt,observed_at:d.observedAt,content_hash:d.contentHash,raw_payload:d.rawPayload,normalized_payload:d.normalizedPayload,extraction_status:d.extractionStatus})));outputs=await repo.listMonitoringOutputs();coop={companiesProcessed:cr.length,outputsWritten:cr.reduce((a,i)=>a+i.outputs.length,0),sourceDocumentsWritten:cr.reduce((a,i)=>a+i.documents.length,0)}}const er=tr.run({companyId,reason:needs.length?'orchestrated':'manual'},targets,outputs);await store.saveLearningEvents([{engine_name:'data_enrichment_engine',company_id:companyId??null,event_type:'enrichment_run_completed',severity:'info',summary:`Enrichment run completed for ${er.length} company scopes.`,payload:{companiesProcessed:er.length,aliasesGenerated:er.reduce((a,i)=>a+i.aliases.length,0),captureRequestsCreated:er.reduce((a,i)=>a+i.requestsCreated,0)},created_at:now()}]);await store.saveCodeImprovementProposals(er.filter(i=>i.requestsCreated>=2).map(i=>({engine_name:'data_enrichment_engine',proposal_type:'confidence_upgrade',title:`Increase capture confidence coverage for ${i.companyId}`,rationale:'Repeated capture requests indicate weak corroboration and justify connector/parser improvement.',target_module:'backend/src/lib/connectors.ts',status:'draft',risk_level:'medium',proposal_payload:{companyId:i.companyId,requestsCreated:i.requestsCreated},test_plan:['Improve corroboration across website and news sources','Re-run capture and compare confidence uplift'],created_at:now(),updated_at:now()})));s.json(ok({engine:'data_enrichment_engine',companiesProcessed:er.length,aliasesGenerated:er.reduce((a,i)=>a+i.aliases.length,0),captureRequestsCreated:er.reduce((a,i)=>a+i.requestsCreated,0),requestedCaptureFor:needs,cooperativeCapture:coop,results:er}))});return r};
+import { Router } from 'express';
+import { AccountStakeholderService } from '../services/accountStakeholderService.js';
+import { CommercialMomentumService } from '../services/commercialMomentumService.js';
+import { CommercialPriorityService } from '../services/commercialPriorityService.js';
+import { ObjectionIntelligenceService } from '../services/objectionIntelligenceService.js';
+import { PreCallBriefingService } from '../services/preCallBriefingService.js';
+import { TouchpointService } from '../services/touchpointService.js';
+import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
+import { DataTreatmentEngine } from '../modules/data-enrichment/dataTreatmentEngine.js';
+import { createPlatformRepository } from '../repositories/platformRepository.js';
+import { DataEngineOpsStore } from '../services/dataEngineOpsStore.js';
+import { DataEngineScheduler } from '../services/dataEngineScheduler.js';
+import { classifyImprovementMode } from '../modules/self-improvement/policy.js';
+import { env } from '../lib/env.js';
+
+const ok = (data: unknown) => ({ status: 'real', generatedAt: new Date().toISOString(), data });
+const now = () => new Date().toISOString();
+
+export const createAbmWarRoomRouter = () => {
+  const router = Router();
+  const stakeholderService = new AccountStakeholderService();
+  const touchpointService = new TouchpointService();
+  const objectionService = new ObjectionIntelligenceService();
+  const momentumService = new CommercialMomentumService();
+  const priorityService = new CommercialPriorityService();
+  const briefingService = new PreCallBriefingService();
+  const repo = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+  const cap = new DataCaptureEngine();
+  const tr = new DataTreatmentEngine();
+  const store = new DataEngineOpsStore();
+  const scheduler = new DataEngineScheduler();
+
+  scheduler.start();
+
+  router.get('/companies/:companyId/stakeholders', async (q, s) => s.json(ok(await stakeholderService.listByCompany(q.params.companyId))));
+  router.post('/companies/:companyId/stakeholders', async (q, s) => s.status(201).json(ok(await stakeholderService.create(q.params.companyId, q.body ?? {}))));
+  router.get('/companies/:companyId/touchpoints', async (q, s) => s.json(ok(await touchpointService.listByCompany(q.params.companyId))));
+  router.post('/companies/:companyId/touchpoints', async (q, s) => s.status(201).json(ok(await touchpointService.create(q.params.companyId, q.body ?? {}))));
+  router.get('/companies/:companyId/objections', async (q, s) => s.json(ok(await objectionService.listByCompany(q.params.companyId))));
+  router.post('/companies/:companyId/objections', async (q, s) => s.status(201).json(ok(await objectionService.create(q.params.companyId, q.body ?? {}))));
+  router.get('/war-room/weekly', async (_q, s) => s.json(ok(await briefingService.weeklyWarRoom())));
+  router.get('/companies/:companyId/pre-call-briefing', async (q, s) => s.json(ok(await briefingService.build(q.params.companyId))));
+  router.get('/companies/:companyId/pre-mortem', async (q, s) => s.json(ok(await briefingService.buildPreMortem(q.params.companyId))));
+  router.post('/companies/:companyId/recalculate-commercial-layer', async (q, s) => {
+    const id = q.params.companyId;
+    const [momentum, priority] = await Promise.all([momentumService.compute(id), priorityService.compute(id)]);
+    s.json(ok({ companyId: id, momentum, priority, reason: q.body?.reason ?? 'manual' }));
+  });
+
+  router.get('/data-engines/health', async (_q, s) => {
+    const [companies, sources, outputs, requests, events] = await Promise.all([
+      repo.listCompanies(),
+      repo.listSources(),
+      repo.listMonitoringOutputs(),
+      store.listEngineRequests(20),
+      store.listLearningEvents(20),
+    ]);
+    s.json(ok({
+      engines: ['data_capture_engine', 'data_enrichment_engine'],
+      companies: companies.length,
+      sources: sources.length,
+      monitoringOutputs: outputs.length,
+      engineRequests: requests.length,
+      learningEvents: events.length,
+      scheduler: scheduler.getStatus(),
+    }));
+  });
+
+  router.get('/data-engines/scheduler', async (_q, s) => s.json(ok(scheduler.getStatus())));
+  router.post('/data-engines/scheduler/tick', async (_q, s) => s.json(ok(await scheduler.tick('manual'))));
+
+  router.get('/data-engines/requests', async (_q, s) => s.json(ok(await store.listEngineRequests(100))));
+  router.get('/data-engines/learning', async (_q, s) => s.json(ok(await store.listLearningEvents(100))));
+  router.get('/data-engines/source-documents', async (_q, s) => s.json(ok(await store.listSourceDocuments(100))));
+  router.post('/data-engines/improvements/propose', async (q, s) => {
+    const targetModule = typeof q.body?.targetModule === 'string' ? q.body.targetModule : 'backend/src/lib/connectors.ts';
+    const rows = [{
+      engine_name: typeof q.body?.engineName === 'string' ? q.body.engineName : 'data_capture_engine',
+      proposal_type: typeof q.body?.proposalType === 'string' ? q.body.proposalType : 'connector_upgrade',
+      title: typeof q.body?.title === 'string' ? q.body.title : 'Improve connector behavior',
+      rationale: typeof q.body?.rationale === 'string' ? q.body.rationale : 'Proposal generated from data engine runtime observations.',
+      target_module: targetModule,
+      status: 'draft',
+      risk_level: classifyImprovementMode(targetModule) === 'branch_and_pr' ? 'medium' : 'low',
+      proposal_payload: q.body?.proposalPayload ?? {},
+      test_plan: q.body?.testPlan ?? [],
+      created_at: now(),
+      updated_at: now(),
+    }];
+    s.status(201).json(ok(await store.saveCodeImprovementProposals(rows)));
+  });
+
+  router.post('/data-engines/capture/run', async (q, s) => {
+    const companyId = typeof q.body?.companyId === 'string' ? q.body.companyId : undefined;
+    const [companies, sources] = await Promise.all([repo.listCompanies(), repo.listSources()]);
+    const cr = await cap.run({
+      companyId,
+      sourceId: typeof q.body?.sourceId === 'string' ? q.body.sourceId : undefined,
+      scopeType: companyId ? 'company' : 'global',
+      triggerType: 'manual',
+    }, companies, sources);
+
+    await repo.saveMonitoringOutputs(cr.flatMap((i) => i.outputs));
+    await repo.saveCompanySignals(cr.flatMap((i) => i.signals));
+    await repo.saveEnrichments(cr.flatMap((i) => i.enrichments));
+    await store.saveSourceDocuments(cr.flatMap((i) => i.documents).map((d) => ({
+      id: d.id,
+      company_id: d.companyId,
+      source_id: d.sourceId,
+      document_type: d.documentType,
+      external_id: d.externalId,
+      canonical_url: d.canonicalUrl,
+      title: d.title,
+      published_at: d.publishedAt,
+      observed_at: d.observedAt,
+      content_hash: d.contentHash,
+      raw_payload: d.rawPayload,
+      normalized_payload: d.normalizedPayload,
+      extraction_status: d.extractionStatus,
+    })));
+
+    const outputs = await repo.listMonitoringOutputs();
+    const er = tr.run({ companyId, reason: 'orchestrated' }, companyId ? companies.filter((i) => i.id === companyId) : companies, outputs);
+    const requests = er.filter((i) => i.requestsCreated > 0).map((i) => ({
+      requester_engine: 'data_enrichment_engine',
+      target_engine: 'data_capture_engine',
+      company_id: i.companyId,
+      request_type: 'confirm_signal',
+      priority: 'medium',
+      status: 'completed',
+      reason: 'Low-confidence outputs requested corroboration during cooperative enrichment.',
+      evidence_payload: { requestsCreated: i.requestsCreated },
+      response_payload: { handledBy: 'capture_run' },
+      created_at: now(),
+      updated_at: now(),
+    }));
+    const learn = [{
+      engine_name: 'data_capture_engine',
+      company_id: companyId ?? null,
+      event_type: 'capture_run_completed',
+      severity: 'info',
+      summary: `Capture run completed for ${cr.length} company scopes.`,
+      payload: { companiesProcessed: cr.length, outputsWritten: cr.reduce((a, i) => a + i.outputs.length, 0) },
+      created_at: now(),
+    }];
+    await store.saveEngineRequests(requests);
+    await store.saveLearningEvents(learn);
+
+    s.json(ok({
+      engine: 'data_capture_engine',
+      companiesProcessed: cr.length,
+      outputsWritten: cr.reduce((a, i) => a + i.outputs.length, 0),
+      signalsWritten: cr.reduce((a, i) => a + i.signals.length, 0),
+      enrichmentsWritten: cr.reduce((a, i) => a + i.enrichments.length, 0),
+      sourceDocumentsWritten: cr.reduce((a, i) => a + i.documents.length, 0),
+      cooperativeEnrichment: {
+        companiesProcessed: er.length,
+        aliasesGenerated: er.reduce((a, i) => a + i.aliases.length, 0),
+        captureRequestsCreated: er.reduce((a, i) => a + i.requestsCreated, 0),
+      },
+    }));
+  });
+
+  router.post('/data-engines/enrichment/run', async (q, s) => {
+    const companyId = typeof q.body?.companyId === 'string' ? q.body.companyId : undefined;
+    const companies = await repo.listCompanies();
+    let outputs = await repo.listMonitoringOutputs();
+    const targets = companyId ? companies.filter((i) => i.id === companyId) : companies;
+    const needs = targets.filter((c) => {
+      const o = outputs.filter((i) => i.companyId === c.id);
+      return o.length === 0 || o.some((i) => i.confidenceScore < 0.65);
+    }).map((i) => i.id);
+
+    let coop = null;
+    if (needs.length) {
+      await store.saveEngineRequests(needs.map((id) => ({
+        requester_engine: 'data_enrichment_engine',
+        target_engine: 'data_capture_engine',
+        company_id: id,
+        request_type: 'confirm_signal',
+        priority: 'medium',
+        status: 'running',
+        reason: 'Missing or low-confidence evidence before enrichment.',
+        evidence_payload: { reason: 'low_confidence_or_missing_outputs' },
+        response_payload: {},
+        created_at: now(),
+        updated_at: now(),
+      })));
+
+      const sources = await repo.listSources();
+      const cr = await cap.run({ scopeType: companyId ? 'company' : 'global', triggerType: 'orchestrated' }, companies.filter((i) => needs.includes(i.id)), sources);
+      await repo.saveMonitoringOutputs(cr.flatMap((i) => i.outputs));
+      await repo.saveCompanySignals(cr.flatMap((i) => i.signals));
+      await repo.saveEnrichments(cr.flatMap((i) => i.enrichments));
+      await store.saveSourceDocuments(cr.flatMap((i) => i.documents).map((d) => ({
+        id: d.id,
+        company_id: d.companyId,
+        source_id: d.sourceId,
+        document_type: d.documentType,
+        external_id: d.externalId,
+        canonical_url: d.canonicalUrl,
+        title: d.title,
+        published_at: d.publishedAt,
+        observed_at: d.observedAt,
+        content_hash: d.contentHash,
+        raw_payload: d.rawPayload,
+        normalized_payload: d.normalizedPayload,
+        extraction_status: d.extractionStatus,
+      })));
+      outputs = await repo.listMonitoringOutputs();
+      coop = {
+        companiesProcessed: cr.length,
+        outputsWritten: cr.reduce((a, i) => a + i.outputs.length, 0),
+        sourceDocumentsWritten: cr.reduce((a, i) => a + i.documents.length, 0),
+      };
+    }
+
+    const er = tr.run({ companyId, reason: needs.length ? 'orchestrated' : 'manual' }, targets, outputs);
+    await store.saveLearningEvents([{
+      engine_name: 'data_enrichment_engine',
+      company_id: companyId ?? null,
+      event_type: 'enrichment_run_completed',
+      severity: 'info',
+      summary: `Enrichment run completed for ${er.length} company scopes.`,
+      payload: {
+        companiesProcessed: er.length,
+        aliasesGenerated: er.reduce((a, i) => a + i.aliases.length, 0),
+        captureRequestsCreated: er.reduce((a, i) => a + i.requestsCreated, 0),
+      },
+      created_at: now(),
+    }]);
+    await store.saveCodeImprovementProposals(er.filter((i) => i.requestsCreated >= 2).map((i) => ({
+      engine_name: 'data_enrichment_engine',
+      proposal_type: 'confidence_upgrade',
+      title: `Increase capture confidence coverage for ${i.companyId}`,
+      rationale: 'Repeated capture requests indicate weak corroboration and justify connector/parser improvement.',
+      target_module: 'backend/src/lib/connectors.ts',
+      status: 'draft',
+      risk_level: 'medium',
+      proposal_payload: { companyId: i.companyId, requestsCreated: i.requestsCreated },
+      test_plan: ['Improve corroboration across website and news sources', 'Re-run capture and compare confidence uplift'],
+      created_at: now(),
+      updated_at: now(),
+    })));
+
+    s.json(ok({
+      engine: 'data_enrichment_engine',
+      companiesProcessed: er.length,
+      aliasesGenerated: er.reduce((a, i) => a + i.aliases.length, 0),
+      captureRequestsCreated: er.reduce((a, i) => a + i.requestsCreated, 0),
+      requestedCaptureFor: needs,
+      cooperativeCapture: coop,
+      results: er,
+    }));
+  });
+
+  return router;
+};
