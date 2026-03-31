@@ -1,0 +1,21 @@
+name: paperclip-runtime-deploy-template
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-paperclip-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Explain required secrets
+        run: |
+          echo "Configure deployment secrets before enabling this workflow in production."
+          echo "Expected secrets: RAILWAY_TOKEN, RAILWAY_PROJECT_ID, RAILWAY_SERVICE_ID"
+
+      - name: Placeholder
+        run: |
+          echo "Use backend/railway.paperclip-runtime.json with backend/Dockerfile.paperclip-runtime-sidecar"
+          echo "This template is intentionally non-destructive until deployment credentials are available."
