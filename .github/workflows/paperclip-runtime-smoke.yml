@@ -1,0 +1,51 @@
+name: paperclip-runtime-smoke
+
+on:
+  push:
+    branches:
+      - feat/paperclip-control-plane-integration
+  workflow_dispatch:
+
+jobs:
+  smoke-paperclip-runtime:
+    runs-on: ubuntu-latest
+    env:
+      PORT: 4000
+      PAPERCLIP_PORT: 4010
+      USE_SUPABASE: false
+      BOOTSTRAP_SUPABASE: false
+      PAPERCLIP_TARGET_API_BASE_URL: http://127.0.0.1:4000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Start paperclip runtime
+        run: |
+          npx tsx backend/src/server.paperclip.runtime.ts > paperclip-runtime.log 2>&1 &
+          echo $! > paperclip-runtime.pid
+          sleep 8
+
+      - name: Check health endpoint
+        run: curl --fail http://127.0.0.1:4010/health
+
+      - name: Check platform status endpoint
+        run: curl --fail http://127.0.0.1:4010/platform/status
+
+      - name: Check paperclip status endpoint
+        run: curl --fail http://127.0.0.1:4010/paperclip/status
+
+      - name: Check paperclip agents endpoint
+        run: curl --fail http://127.0.0.1:4010/paperclip/agents
+
+      - name: Print runtime log
+        if: always()
+        run: cat paperclip-runtime.log
