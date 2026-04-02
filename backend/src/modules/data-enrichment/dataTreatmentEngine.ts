@@ -1,13 +1,14 @@
 import type { CompanySeed, MonitoringOutput } from '../../types/platform.js';
 import type { EnrichmentRunInput, EnrichmentRunOutput, AliasRecord } from './types.js';
+import { buildCompanyAliases } from './companyAliasBuilder.js';
 
-const buildAliases = (company: CompanySeed): AliasRecord[] => {
-  const aliases: AliasRecord[] = [];
-  if (company.legalName) aliases.push({ companyId: company.id, aliasType: 'legal_name', aliasValue: company.legalName, confidenceScore: 0.95 });
-  if (company.tradeName) aliases.push({ companyId: company.id, aliasType: 'trade_name', aliasValue: company.tradeName, confidenceScore: 0.92 });
-  if (company.website) aliases.push({ companyId: company.id, aliasType: 'domain', aliasValue: company.website.replace(/^https?:\/\//, '').replace(/\/$/, ''), confidenceScore: 0.88 });
-  return aliases;
-};
+const buildAliases = (company: CompanySeed): AliasRecord[] =>
+  buildCompanyAliases(company).map((alias) => ({
+    companyId: company.id,
+    aliasType: alias.aliasType as AliasRecord['aliasType'],
+    aliasValue: alias.aliasValue,
+    confidenceScore: alias.confidenceScore,
+  }));
 
 export class DataTreatmentEngine {
   run(input: EnrichmentRunInput, companies: CompanySeed[], monitoringOutputs: MonitoringOutput[]): EnrichmentRunOutput[] {
