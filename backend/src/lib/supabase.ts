@@ -92,6 +92,16 @@ class SupabaseRestClient {
     return response.json().catch(() => []);
   }
 
+  async update(table: string, payload: Record<string, unknown>, filters: NonNullable<QueryOptions['filters']>) {
+    const response = await fetch(this.buildUrl(table, { filters }), {
+      method: 'PATCH',
+      headers: this.headers({ Prefer: 'return=representation' }),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`Supabase update failed for ${table}: ${response.status} ${await response.text()}`);
+    return response.json().catch(() => []);
+  }
+
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>) {
     const response = await fetch(`${this.baseUrl}/rest/v1/rpc/${fn}`, {
       method: 'POST',
