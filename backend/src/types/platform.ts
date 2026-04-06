@@ -1,6 +1,11 @@
 export type ApiStatus = 'real' | 'partial' | 'mock';
 
 export type PriorityBucket = 'immediate_priority' | 'high_priority' | 'monitor_closely' | 'watchlist' | 'low_priority';
+export type PipelineStage = 'Identified' | 'Qualified' | 'Approach' | 'Structuring' | 'Mandated' | 'ClosedWon' | 'ClosedLost' | 'Recycled';
+export type ActivityType = 'follow_up' | 'meeting' | 'email' | 'call' | 'research' | 'committee' | 'other';
+export type ActivityStatus = 'open' | 'done' | 'cancelled';
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+export type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
 
 export type CompanySeed = {
   id: string;
@@ -208,6 +213,41 @@ export type LeadScoreSnapshot = {
   triggerStrength: number;
   patternScore: number;
   createdAt: string;
+};
+
+export type PipelineRow = {
+  id: string;
+  companyId: string;
+  stage: PipelineStage;
+  owner: Owner;
+  nextAction: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ActivityRecord = {
+  id: string;
+  companyId: string;
+  type: ActivityType;
+  title: string;
+  description: string;
+  owner: Owner;
+  status: ActivityStatus;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskRecord = {
+  id: string;
+  companyId: string;
+  title: string;
+  description: string;
+  owner: Owner;
+  status: TaskStatus;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ThesisOutput = {

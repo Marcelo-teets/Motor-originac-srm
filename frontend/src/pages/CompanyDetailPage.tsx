@@ -1,12 +1,16 @@
 import { useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Card, DataStatusBanner, KeyValueList, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import type { PipelineStage } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 function booleanLabel(value: boolean | undefined) {
   return value ? 'Sim' : 'Não';
 }
+const PIPELINE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
+const toPipelineStage = (value: string): PipelineStage => (PIPELINE_STAGES.includes(value as PipelineStage) ? (value as PipelineStage) : 'Qualified');
 
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
@@ -35,13 +39,15 @@ export function CompanyDetailPage() {
     };
   }, [session?.access_token, id]);
 
-  if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
+  const [stage, setStage] = useState<PipelineStage>('Qualified');
+  const [nextActionDraft, setNextActionDraft] = useState('');
+  const [activityTitle, setActivityTitle] = useState('');
+  const [taskTitle, setTaskTitle] = useState('');
+  const [companyTasks, setCompanyTasks] = useState<any[]>([]);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string>('');
 
-  const detail: any = data.data;
-
-  const handleRecalculate = async () => {
-    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
+  const reloadDetail = async () => {
     const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
       api.getCompany(session, id),
       api.getAbmStakeholders(session, id),
@@ -57,6 +63,26 @@ export function CompanyDetailPage() {
         abm: { stakeholders: stakeholders.data, touchpoints: touchpoints.data, objections: objections.data, preCall: preCall.data, preMortem: preMortem.data },
       },
     });
+    setStage(toPipelineStage(companyState.data.company.stage ?? 'Qualified'));
+    setNextActionDraft(companyState.data.company.nextAction ?? '');
+    setCompanyTasks(await api.listTasks(session, id));
+  };
+
+  useEffect(() => {
+    if (!data) return;
+    setStage(toPipelineStage(data.data.company.stage ?? 'Qualified'));
+    setNextActionDraft(data.data.company.nextAction ?? '');
+    void api.listTasks(session, id).then(setCompanyTasks).catch(() => setCompanyTasks([]));
+  }, [data, id, session]);
+
+  if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
+  if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
+
+  const detail: any = data.data;
+
+  const handleRecalculate = async () => {
+    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
+    await reloadDetail();
   };
 
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
@@ -81,6 +107,7 @@ export function CompanyDetailPage() {
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
+      {feedback ? <div className="table-helper">{feedback}</div> : null}
 
       <section className="hero executive-hero">
         <div>
@@ -229,6 +256,73 @@ export function CompanyDetailPage() {
               </li>
             ))}
           </ul>
+          <div className="top-gap">
+            <div className="row-between">
+              <select value={stage} onChange={(event) => setStage(toPipelineStage(event.target.value))}>
+                {PIPELINE_STAGES.map((pipelineStage) => <option key={pipelineStage}>{pipelineStage}</option>)}
+              </select>
+              <button type="button" disabled={busyAction === 'move'} onClick={async () => {
+                if (!stage) return;
+                setBusyAction('move');
+                try {
+                  await api.movePipelineStage(session, id, stage);
+                  await reloadDetail();
+                  setFeedback('Estágio atualizado com sucesso.');
+                } catch (err: any) {
+                  setFeedback(err?.message ?? 'Falha ao mover estágio.');
+                } finally { setBusyAction(null); }
+              }}>Mover estágio</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={nextActionDraft} onChange={(event) => setNextActionDraft(event.target.value)} placeholder="Atualizar próxima ação" />
+              <button type="button" disabled={busyAction === 'next_action' || !nextActionDraft.trim()} onClick={async () => {
+                setBusyAction('next_action');
+                try {
+                  await api.updateNextAction(session, id, nextActionDraft.trim());
+                  await reloadDetail();
+                  setFeedback('Próxima ação atualizada.');
+                } catch (err: any) {
+                  setFeedback(err?.message ?? 'Falha ao atualizar próxima ação.');
+                } finally { setBusyAction(null); }
+              }}>Salvar ação</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={activityTitle} onChange={(event) => setActivityTitle(event.target.value)} placeholder="Nova activity" />
+              <button type="button" disabled={busyAction === 'activity' || !activityTitle.trim()} onClick={async () => {
+                setBusyAction('activity');
+                try {
+                  await api.createActivity(session, { companyId: id, type: 'follow_up', title: activityTitle.trim(), description: activityTitle.trim(), owner: 'Origination', status: 'open', dueDate: null });
+                  setActivityTitle('');
+                  await reloadDetail();
+                  setFeedback('Activity criada com sucesso.');
+                } catch (err: any) {
+                  setFeedback(err?.message ?? 'Falha ao criar activity.');
+                } finally { setBusyAction(null); }
+              }}>Criar activity</button>
+            </div>
+            <div className="row-between top-gap">
+              <input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="Nova task" />
+              <button type="button" disabled={busyAction === 'task' || !taskTitle.trim()} onClick={async () => {
+                setBusyAction('task');
+                try {
+                  await api.createTask(session, { companyId: id, title: taskTitle.trim(), description: taskTitle.trim(), owner: 'Origination', status: 'todo', dueDate: null });
+                  setTaskTitle('');
+                  await reloadDetail();
+                  setFeedback('Task criada com sucesso.');
+                } catch (err: any) {
+                  setFeedback(err?.message ?? 'Falha ao criar task.');
+                } finally { setBusyAction(null); }
+              }}>Criar task</button>
+            </div>
+            <div className="top-gap">
+              <div className="table-helper">Tasks da companhia</div>
+              <ul className="list">
+                {companyTasks.map((task) => (
+                  <li key={task.id}><strong>{task.title}</strong><span>{task.status} · {task.owner}</span></li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </Card>
 
         <Card title="Score History" subtitle="Evolução de qualification e lead ao longo do tempo" className="dense-card">

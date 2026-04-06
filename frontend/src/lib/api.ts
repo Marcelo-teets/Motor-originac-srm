@@ -5,6 +5,7 @@ import type {
   AbmTouchpoint,
   AbmWeeklyWarRoom,
   AgentsSnapshot,
+  ActivityRecord,
   ApiEnvelope,
   CompanyDetail,
   CompanyListItem,
@@ -13,11 +14,14 @@ import type {
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
   PipelineSnapshot,
+  PipelineStage,
+  PipelineRow,
   PreCallBriefing,
   PreMortem,
   SearchProfile,
   SessionData,
   SourceEntry,
+  TaskRecord,
 } from './types';
 
 const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
@@ -74,48 +78,38 @@ export const api = {
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
   ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
+  listPipeline: async (session: SessionData | null) => (await requestEnvelope<PipelineRow[]>('/pipeline', session)).data,
+  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<Array<{ stage: string; count: number }>>('/pipeline/stages', session)).data,
+  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}`, session)).data,
+  movePipelineStage: async (session: SessionData | null, companyId: string, stage: PipelineStage) => (
+    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
+  ).data,
+  updateNextAction: async (session: SessionData | null, companyId: string, nextAction: string) => (
+    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
+  ).data,
+  listActivities: async (session: SessionData | null, companyId?: string) => (
+    await requestEnvelope<ActivityRecord[]>(companyId ? `/activities/company/${companyId}` : '/activities', session)
+  ).data,
+  createActivity: async (session: SessionData | null, payload: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
+    await requestEnvelope<ActivityRecord>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
+  listTasks: async (session: SessionData | null, companyId?: string) => (
+    await requestEnvelope<TaskRecord[]>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
+  ).data,
+  createTask: async (session: SessionData | null, payload: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
+    await requestEnvelope<TaskRecord>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
+  updateTask: async (session: SessionData | null, taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) => (
+    await requestEnvelope<TaskRecord | null>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
+  ).data,
 
   getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
     try {
-      const [dashboard, companies] = await Promise.all([
-        requestEnvelope<Dashboard>('/dashboard/summary', session),
-        requestEnvelope<CompanyListItem[]>('/companies', session),
-      ]);
-
-      const highestLead = [...companies.data].sort((a, b) => b.leadScore - a.leadScore)[0];
-      const highestUrgency = [...companies.data].sort((a, b) => (b.urgencyScore ?? 0) - (a.urgencyScore ?? 0))[0];
-
+      const quick = await requestEnvelope<MvpQuickActionsSnapshot>('/mvp/ops/quick-actions', session);
       return {
-        source: dashboard.status === 'real' && companies.status === 'real' ? 'real' : 'partial',
-        note: 'Quick actions montadas a partir de dashboard e companies do backend oficial.',
-        data: {
-          items: [
-            {
-              id: 'qa_top_lead',
-              title: highestLead ? `Abordar ${highestLead.name}` : 'Revisar top lead',
-              owner: 'Origination',
-              priority: 'high',
-            },
-            {
-              id: 'qa_monitoring',
-              title: `Rodar monitoring prioritário (${dashboard.data.monitoring.outputs24h} outputs)`,
-              owner: 'Intelligence',
-              priority: 'medium',
-            },
-            {
-              id: 'qa_urgent_company',
-              title: highestUrgency ? `Validar timing de ${highestUrgency.name}` : 'Validar timing comercial',
-              owner: 'Coverage',
-              priority: 'high',
-            },
-            {
-              id: 'qa_pipeline',
-              title: 'Atualizar pipeline comercial',
-              owner: 'Origination',
-              priority: 'medium',
-            },
-          ],
-        },
+        source: quick.status,
+        note: 'Quick actions carregadas do backend.',
+        data: quick.data,
       };
     } catch {
       return {
@@ -191,23 +185,18 @@ export const api = {
   },
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
-      const companies = await requestEnvelope<CompanyListItem[]>('/companies', session);
+      const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);
       return {
-        source: 'partial',
-        note: 'Pipeline consolidado a partir de companies do backend oficial.',
+        source: snapshot.status,
+        note: 'Pipeline carregado de snapshot agregado do backend.',
         data: {
-          stages: [
-            { stage: 'Identified', count: companies.data.length, note: 'Base total monitorada' },
-            { stage: 'Qualified', count: companies.data.filter((item) => item.qualificationScore >= 70).length, note: 'Qualification >= 70' },
-            { stage: 'Approach', count: companies.data.filter((item) => item.leadScore >= 70).length, note: 'Lead >= 70' },
-            { stage: 'Structuring', count: companies.data.filter((item) => item.suggestedStructure.includes('FIDC')).length, note: 'Mandatos com fit de estrutura' },
-          ],
-          recentActivities: companies.data.slice(0, 4).map((company, index) => ({
-            company: company.name,
-            title: company.nextAction ?? 'Executar contato executivo',
-            owner: index % 2 === 0 ? 'Origination' : 'Coverage',
-            when: `${index + 1}d`,
-            status: company.leadScore >= 80 ? 'prioritário' : 'em andamento',
+          stages: snapshot.data.stages.map((stage) => ({ ...stage, note: 'Persistido no CRM' })),
+          recentActivities: snapshot.data.recentActivities.slice(0, 8).map((activity) => ({
+            company: activity.companyId,
+            title: activity.title,
+            owner: activity.owner,
+            when: activity.dueDate ? new Date(activity.dueDate).toLocaleDateString('pt-BR') : '-',
+            status: activity.status,
           })),
         },
       };
