@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Card, DataStatusBanner, KeyValueList, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { PipelineStage } from '../lib/types';
+import type { AbmObjection, AbmStakeholder, AbmTouchpoint, CompanyDetail, PipelineStage, PreCallBriefing, PreMortem, TaskRecord } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 function booleanLabel(value: boolean | undefined) {
@@ -11,6 +11,12 @@ function booleanLabel(value: boolean | undefined) {
 }
 const PIPELINE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
 const toPipelineStage = (value: string): PipelineStage => (PIPELINE_STAGES.includes(value as PipelineStage) ? (value as PipelineStage) : 'Qualified');
+const nextTaskStatus = (status: TaskRecord['status']): TaskRecord['status'] | null => {
+  if (status === 'todo') return 'in_progress';
+  if (status === 'in_progress') return 'done';
+  if (status === 'blocked') return 'in_progress';
+  return null;
+};
 
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
@@ -43,7 +49,7 @@ export function CompanyDetailPage() {
   const [nextActionDraft, setNextActionDraft] = useState('');
   const [activityTitle, setActivityTitle] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
-  const [companyTasks, setCompanyTasks] = useState<any[]>([]);
+  const [companyTasks, setCompanyTasks] = useState<TaskRecord[]>([]);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string>('');
 
@@ -78,7 +84,15 @@ export function CompanyDetailPage() {
   if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
 
-  const detail: any = data.data;
+  const detail = data.data as CompanyDetail & {
+    abm: {
+      stakeholders: AbmStakeholder[];
+      touchpoints: AbmTouchpoint[];
+      objections: AbmObjection[];
+      preCall: PreCallBriefing;
+      preMortem: PreMortem;
+    };
+  };
 
   const handleRecalculate = async () => {
     await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
@@ -169,7 +183,7 @@ export function CompanyDetailPage() {
 
         <Card title="Detected Patterns" subtitle="Padrões detectados, rationale e impacto na tese" className="dense-card">
           <div className="stack-blocks">
-            {detail.patterns.map((pattern: any) => (
+            {detail.patterns.map((pattern) => (
               <div key={pattern.id} className="pattern-card">
                 <div className="row-between">
                   <strong>{pattern.patternName}</strong>
@@ -201,7 +215,7 @@ export function CompanyDetailPage() {
               <tr><th>Sinal</th><th>Fonte</th><th>Força</th><th>Confidence</th></tr>
             </thead>
             <tbody>
-              {detail.signals.map((signal: any, index: number) => (
+              {detail.signals.map((signal, index: number) => (
                 <tr key={`${signal.type}-${index}`}>
                   <td><strong>{signal.type}</strong><div className="table-helper">{signal.note}</div></td>
                   <td>{signal.source}</td>
@@ -224,7 +238,7 @@ export function CompanyDetailPage() {
               ]} />
             </div>
             <div className="market-map-grid no-top">
-              {detail.sources.map((source: any) => (
+              {detail.sources.map((source) => (
                 <div key={source.id} className="mini-panel">
                   <strong>{source.name}</strong>
                   <span>{source.category}</span>
@@ -234,7 +248,7 @@ export function CompanyDetailPage() {
             </div>
           </div>
           <div className="market-map-grid">
-            {detail.monitoringOutputs.map((output: any) => (
+            {detail.monitoringOutputs.map((output) => (
               <div key={output.id} className="mini-panel">
                 <strong>{output.title}</strong>
                 <span>{output.connectorStatus}</span>
@@ -246,7 +260,7 @@ export function CompanyDetailPage() {
 
         <Card title="Pipeline / Activities" subtitle="Estágio atual, última atividade e próxima ação" className="dense-card">
           <ul className="list">
-            {detail.activities.map((activity: any) => (
+            {detail.activities.map((activity) => (
               <li key={`${activity.title}-${activity.dueDate}`}>
                 <div>
                   <strong>{activity.title}</strong>
@@ -268,8 +282,8 @@ export function CompanyDetailPage() {
                   await api.movePipelineStage(session, id, stage);
                   await reloadDetail();
                   setFeedback('Estágio atualizado com sucesso.');
-                } catch (err: any) {
-                  setFeedback(err?.message ?? 'Falha ao mover estágio.');
+                } catch (err: unknown) {
+                  setFeedback(err instanceof Error ? err.message : 'Falha ao mover estágio.');
                 } finally { setBusyAction(null); }
               }}>Mover estágio</button>
             </div>
@@ -281,8 +295,8 @@ export function CompanyDetailPage() {
                   await api.updateNextAction(session, id, nextActionDraft.trim());
                   await reloadDetail();
                   setFeedback('Próxima ação atualizada.');
-                } catch (err: any) {
-                  setFeedback(err?.message ?? 'Falha ao atualizar próxima ação.');
+                } catch (err: unknown) {
+                  setFeedback(err instanceof Error ? err.message : 'Falha ao atualizar próxima ação.');
                 } finally { setBusyAction(null); }
               }}>Salvar ação</button>
             </div>
@@ -295,8 +309,8 @@ export function CompanyDetailPage() {
                   setActivityTitle('');
                   await reloadDetail();
                   setFeedback('Activity criada com sucesso.');
-                } catch (err: any) {
-                  setFeedback(err?.message ?? 'Falha ao criar activity.');
+                } catch (err: unknown) {
+                  setFeedback(err instanceof Error ? err.message : 'Falha ao criar activity.');
                 } finally { setBusyAction(null); }
               }}>Criar activity</button>
             </div>
@@ -309,8 +323,8 @@ export function CompanyDetailPage() {
                   setTaskTitle('');
                   await reloadDetail();
                   setFeedback('Task criada com sucesso.');
-                } catch (err: any) {
-                  setFeedback(err?.message ?? 'Falha ao criar task.');
+                } catch (err: unknown) {
+                  setFeedback(err instanceof Error ? err.message : 'Falha ao criar task.');
                 } finally { setBusyAction(null); }
               }}>Criar task</button>
             </div>
@@ -318,7 +332,30 @@ export function CompanyDetailPage() {
               <div className="table-helper">Tasks da companhia</div>
               <ul className="list">
                 {companyTasks.map((task) => (
-                  <li key={task.id}><strong>{task.title}</strong><span>{task.status} · {task.owner}</span></li>
+                  <li key={task.id}>
+                    <strong>{task.title}</strong>
+                    <span>{task.status} · {task.owner}</span>
+                    {nextTaskStatus(task.status) ? (
+                      <button
+                        type="button"
+                        disabled={busyAction === `task_status_${task.id}`}
+                        onClick={async () => {
+                          const targetStatus = nextTaskStatus(task.status);
+                          if (!targetStatus) return;
+                          setBusyAction(`task_status_${task.id}`);
+                          try {
+                            await api.updateTask(session, task.id, { status: targetStatus });
+                            await reloadDetail();
+                            setFeedback(`Task atualizada para ${targetStatus}.`);
+                          } catch (err: unknown) {
+                            setFeedback(err instanceof Error ? err.message : 'Falha ao atualizar status da task.');
+                          } finally { setBusyAction(null); }
+                        }}
+                      >
+                        Mover para {nextTaskStatus(task.status)}
+                      </button>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -327,7 +364,7 @@ export function CompanyDetailPage() {
 
         <Card title="Score History" subtitle="Evolução de qualification e lead ao longo do tempo" className="dense-card">
           <div className="bars">
-            {detail.scoreHistory.map((entry: any) => (
+            {detail.scoreHistory.map((entry) => (
               <div key={entry.at}>
                 <div className="row-between"><span>{new Date(entry.at).toLocaleDateString('pt-BR')}</span><strong>{entry.qualification}/{entry.lead}</strong></div>
                 <ProgressBar value={entry.qualification} tone="default" />
@@ -341,7 +378,7 @@ export function CompanyDetailPage() {
           <table className="dense-table">
             <thead><tr><th>Nome</th><th>Papel</th><th>Champion</th><th>Blocker</th><th>Influence</th></tr></thead>
             <tbody>
-              {detail.abm.stakeholders.map((item: any) => (
+              {detail.abm.stakeholders.map((item) => (
                 <tr key={item.id}>
                   <td><strong>{item.name}</strong><div className="table-helper">{item.title ?? '-'}</div></td>
                   <td>{item.role_in_buying_committee ?? '-'}</td>
@@ -356,7 +393,7 @@ export function CompanyDetailPage() {
 
         <Card title="Touchpoint Timeline" subtitle="Interações externas recentes com próximos passos" className="dense-card">
           <ul className="list">
-            {detail.abm.touchpoints.map((item: any) => (
+            {detail.abm.touchpoints.map((item) => (
               <li key={item.id}><strong>{new Date(item.occurred_at).toLocaleDateString('pt-BR')} · {item.channel}</strong><span>{item.summary} · next: {item.agreed_next_step ?? '-'} </span></li>
             ))}
           </ul>
@@ -364,7 +401,7 @@ export function CompanyDetailPage() {
 
         <Card title="Objection Intelligence" subtitle="Objeções abertas e tratamento" className="dense-card">
           <ul className="list">
-            {detail.abm.objections.map((item: any) => (
+            {detail.abm.objections.map((item) => (
               <li key={item.id}><strong>{item.severity ?? 'n/a'} · {item.status}</strong><span>{item.objection_text}</span></li>
             ))}
           </ul>
@@ -382,7 +419,7 @@ export function CompanyDetailPage() {
 
         <Card title="Deal Risks / Pre-Mortem" subtitle="Leitura estruturada de riscos de perda" className="dense-card">
           <ul className="list">
-            {detail.abm.preMortem.risks.map((risk: any, index: number) => (
+            {detail.abm.preMortem.risks.map((risk, index: number) => (
               <li key={index}><strong>{risk.risk}</strong><span>{risk.evidence} · Mitigação: {risk.mitigation}</span></li>
             ))}
           </ul>

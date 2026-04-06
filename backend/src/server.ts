@@ -15,6 +15,7 @@ app.use(express.json());
 const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
 const service = new PlatformService(repository);
 const platformMode = env.useSupabase ? 'real' : 'partial';
+const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
 const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
 const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
@@ -205,9 +206,9 @@ app.get('/market-map/company/:id', wrap(async (req, res) => {
   res.json(ok(platformMode, { companyId: param(req.params.id), peers: detail?.marketMap ?? [] }));
 }));
 
-app.get('/pipeline', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPipelineRows()))));
-app.get('/pipeline/stages', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPipelineStages()))));
-app.get('/pipeline/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.getPipelineByCompany(param(req.params.id))))));
+app.get('/pipeline', wrap(async (_req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, rows: await service.listPipelineRows() }))));
+app.get('/pipeline/stages', wrap(async (_req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, stages: await service.listPipelineStages() }))));
+app.get('/pipeline/company/:id', wrap(async (req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: await service.getPipelineByCompany(param(req.params.id)) }))));
 app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
   const stage = String(req.body?.stage ?? '');
   if (!isPipelineStage(stage)) {
@@ -219,7 +220,7 @@ app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
     res.status(404).json(fail(404, 'Pipeline row not found for company.'));
     return;
   }
-  res.json(ok(platformMode, moved));
+  res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: moved }));
 }));
 app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
   const nextAction = String(req.body?.nextAction ?? req.body?.next_action ?? '').trim();
@@ -232,13 +233,13 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
     res.status(404).json(fail(404, 'Pipeline row not found for company.'));
     return;
   }
-  res.json(ok(platformMode, updated));
+  res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: updated }));
 }));
 app.get('/pipeline/snapshot', wrap(async (_req, res) => {
   const [rows, stages, activities] = await Promise.all([service.listPipelineRows(), service.listPipelineStages(), service.listActivities()]);
-  res.json(ok(platformMode, { rows, stages, recentActivities: activities.slice(0, 12) }));
+  res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, rows, stages, recentActivities: activities.slice(0, 12) }));
 }));
-app.get('/activities', wrap(async (_req, res) => res.json(ok(platformMode, await service.listActivities()))));
+app.get('/activities', wrap(async (_req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, items: await service.listActivities() }))));
 app.post('/activities', wrap(async (req, res) => {
   const companyId = String(req.body?.companyId ?? req.body?.company_id ?? '').trim();
   const title = String(req.body?.title ?? '').trim();
@@ -269,11 +270,11 @@ app.post('/activities', wrap(async (req, res) => {
     status: rawStatus,
     dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
   });
-  res.status(201).json(ok(platformMode, created));
+  res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
-app.get('/activities/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listActivities(param(req.params.id))))));
-app.get('/tasks', wrap(async (_req, res) => res.json(ok(platformMode, await service.listTasks()))));
-app.get('/tasks/company/:id', wrap(async (req, res) => res.json(ok(platformMode, await service.listTasks(param(req.params.id))))));
+app.get('/activities/company/:id', wrap(async (req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, items: await service.listActivities(param(req.params.id)) }))));
+app.get('/tasks', wrap(async (_req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, items: await service.listTasks() }))));
+app.get('/tasks/company/:id', wrap(async (req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, items: await service.listTasks(param(req.params.id)) }))));
 app.post('/tasks', wrap(async (req, res) => {
   const companyId = String(req.body?.companyId ?? req.body?.company_id ?? '').trim();
   const title = String(req.body?.title ?? '').trim();
@@ -298,7 +299,7 @@ app.post('/tasks', wrap(async (req, res) => {
     status: rawStatus,
     dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
   });
-  res.status(201).json(ok(platformMode, created));
+  res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
 app.patch('/tasks/:id', wrap(async (req, res) => {
   if (req.body?.status && !isTaskStatus(String(req.body.status))) {
@@ -320,7 +321,7 @@ app.patch('/tasks/:id', wrap(async (req, res) => {
     res.status(404).json(fail(404, 'Task not found.'));
     return;
   }
-  res.json(ok(platformMode, updated));
+  res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: updated }));
 }));
 app.get('/monitoring/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { monitoring: (await service.getDashboard()).monitoring, latestOutputs: (await service.listMonitoringOutputsAll()).slice(0, 12) }))));
 app.get('/agents/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { agents: (await service.getDashboard()).agents }))));
@@ -330,10 +331,24 @@ app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
   const stalled = pipelineRows.find((row) => row.stage === 'Identified' || row.stage === 'Recycled');
   const stalledName = stalled ? rankings.find((row) => row.companyId === stalled.companyId)?.companyName ?? stalled.companyId : null;
   const stalledAction = stalled?.nextAction || 'Definir próxima ação comercial';
+  const topPipeline = top ? pipelineRows.find((row) => row.companyId === top.companyId) : null;
+  const topAction = topPipeline?.nextAction || top?.rationale || 'Executar contato inicial com sponsor financeiro';
   res.json(ok(platformMode, {
     items: [
-      { id: 'qa_top_lead', title: top ? `Abordar ${top.companyName}` : 'Abordar top lead', owner: 'Origination', priority: 'high' },
-      { id: 'qa_stalled', title: stalledName ? `Destravar ${stalledName}: ${stalledAction}` : 'Revisar pipeline stalled', owner: 'Coverage', priority: 'medium' },
+      {
+        id: 'qa_top_lead',
+        title: top ? `Abordar ${top.companyName} | stage: ${topPipeline?.stage ?? 'Qualified'} | next: ${topAction}` : 'Abordar top lead com tese mais forte',
+        owner: 'Origination',
+        priority: 'high',
+      },
+      {
+        id: 'qa_stalled',
+        title: stalledName
+          ? `Destravar ${stalledName} | stage: ${stalled?.stage} | ${stalled?.nextAction ? `next: ${stalledAction}` : 'motivo: sem próxima ação definida'}`
+          : 'Revisar contas stalled sem próxima ação',
+        owner: 'Coverage',
+        priority: 'medium',
+      },
     ],
   }));
 }));

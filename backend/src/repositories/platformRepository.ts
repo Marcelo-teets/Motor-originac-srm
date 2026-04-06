@@ -725,7 +725,7 @@ class SupabasePlatformRepository implements PlatformRepository {
     const now = new Date().toISOString();
     const current = await this.getPipelineByCompany(row.companyId);
     const saved: PipelineRow = {
-      id: row.id ?? current?.id ?? crypto.randomUUID(),
+      id: current?.id ?? row.id ?? crypto.randomUUID(),
       companyId: row.companyId,
       stage: row.stage,
       owner: row.owner,
@@ -737,15 +737,24 @@ class SupabasePlatformRepository implements PlatformRepository {
       return this.fallback.savePipelineRow(row);
     }
     const client = this.ensureClient();
-    await client.upsert('pipeline', [{
-      id: saved.id,
-      company_id: saved.companyId,
-      stage: saved.stage,
-      owner: saved.owner,
-      next_action: saved.nextAction,
-      created_at: saved.createdAt,
-      updated_at: saved.updatedAt,
-    }], 'company_id');
+    if (current) {
+      await client.update('pipeline', {
+        stage: saved.stage,
+        owner: saved.owner,
+        next_action: saved.nextAction,
+        updated_at: saved.updatedAt,
+      }, [{ column: 'company_id', operator: 'eq', value: saved.companyId }]);
+    } else {
+      await client.insert('pipeline', [{
+        id: saved.id,
+        company_id: saved.companyId,
+        stage: saved.stage,
+        owner: saved.owner,
+        next_action: saved.nextAction,
+        created_at: saved.createdAt,
+        updated_at: saved.updatedAt,
+      }]);
+    }
     return (await this.getPipelineByCompany(row.companyId)) ?? saved;
   }
 

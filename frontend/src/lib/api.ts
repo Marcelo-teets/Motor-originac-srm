@@ -78,30 +78,30 @@ export const api = {
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
   ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
-  listPipeline: async (session: SessionData | null) => (await requestEnvelope<PipelineRow[]>('/pipeline', session)).data,
-  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<Array<{ stage: string; count: number }>>('/pipeline/stages', session)).data,
-  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}`, session)).data,
+  listPipeline: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; rows: PipelineRow[] }>('/pipeline', session)).data.rows,
+  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; stages: Array<{ stage: string; count: number }> }>('/pipeline/stages', session)).data.stages,
+  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}`, session)).data.row,
   movePipelineStage: async (session: SessionData | null, companyId: string, stage: PipelineStage) => (
-    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
-  ).data,
+    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
+  ).data.row,
   updateNextAction: async (session: SessionData | null, companyId: string, nextAction: string) => (
-    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
-  ).data,
+    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
+  ).data.row,
   listActivities: async (session: SessionData | null, companyId?: string) => (
-    await requestEnvelope<ActivityRecord[]>(companyId ? `/activities/company/${companyId}` : '/activities', session)
-  ).data,
+    await requestEnvelope<{ mode: string; items: ActivityRecord[] }>(companyId ? `/activities/company/${companyId}` : '/activities', session)
+  ).data.items,
   createActivity: async (session: SessionData | null, payload: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
-    await requestEnvelope<ActivityRecord>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
-  ).data,
+    await requestEnvelope<{ mode: string; item: ActivityRecord }>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data.item,
   listTasks: async (session: SessionData | null, companyId?: string) => (
-    await requestEnvelope<TaskRecord[]>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
-  ).data,
+    await requestEnvelope<{ mode: string; items: TaskRecord[] }>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
+  ).data.items,
   createTask: async (session: SessionData | null, payload: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
-    await requestEnvelope<TaskRecord>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
-  ).data,
+    await requestEnvelope<{ mode: string; item: TaskRecord }>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data.item,
   updateTask: async (session: SessionData | null, taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) => (
-    await requestEnvelope<TaskRecord | null>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
-  ).data,
+    await requestEnvelope<{ mode: string; item: TaskRecord | null }>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
+  ).data.item,
 
   getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
     try {
