@@ -325,6 +325,20 @@ app.patch('/tasks/:id', wrap(async (req, res) => {
 }));
 app.get('/monitoring/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { monitoring: (await service.getDashboard()).monitoring, latestOutputs: (await service.listMonitoringOutputsAll()).slice(0, 12) }))));
 app.get('/agents/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { agents: (await service.getDashboard()).agents }))));
+app.get('/mvp-readiness', wrap(async (_req, res) => {
+  const [dashboard, sources, pipelineRows] = await Promise.all([service.getDashboard(), service.listSources(), service.listPipelineRows()]);
+  const degradedSources = sources.filter((source) => source.health !== 'healthy').length;
+  res.json(ok(platformMode, {
+    auth: { status: 'real', provider: 'supabase' },
+    database: { status: env.useSupabase ? 'real' : 'partial', mode: env.useSupabase ? 'supabase' : 'memory_fallback' },
+    sources: { total: sources.length, degraded: degradedSources, status: degradedSources ? 'attention' : 'healthy' },
+    monitoring: { outputs24h: dashboard.monitoring.outputs24h, triggers24h: dashboard.monitoring.triggers24h, status: dashboard.monitoring.outputs24h > 0 ? 'active' : 'idle' },
+    qualification: { topLeads: dashboard.topLeads.length, status: dashboard.topLeads.length ? 'active' : 'empty' },
+    pipeline: { rows: pipelineRows.length, stages: dashboard.pipeline, status: pipelineRows.length ? 'active' : 'empty' },
+    frontend_runtime: { status: 'ready', stack: 'react_vite' },
+    deploy_health: { status: 'unknown', note: 'Use Vercel health checks for deploy-level confirmation.' },
+  }));
+}));
 app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
   const [rankings, pipelineRows] = await Promise.all([service.getRankings(), service.listPipelineRows()]);
   const top = rankings[0];

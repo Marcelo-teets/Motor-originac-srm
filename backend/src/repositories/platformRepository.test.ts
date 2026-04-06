@@ -50,3 +50,25 @@ test('saveTask + updateTask update task lifecycle', async () => {
   assert.ok(updated);
   assert.equal(updated.status, 'in_progress');
 });
+
+test('savePipelineRow preserves id/createdAt when updating company pipeline row', async () => {
+  const repo = createPlatformRepository('memory');
+  const first = await repo.savePipelineRow({
+    companyId: 'cmp_neon_receivables',
+    stage: 'Qualified',
+    owner: 'Origination',
+    nextAction: 'Atualizar tese',
+  });
+
+  const second = await repo.savePipelineRow({
+    companyId: 'cmp_neon_receivables',
+    stage: 'Approach',
+    owner: 'Coverage',
+    nextAction: 'Agendar call com CFO',
+  });
+
+  assert.equal(first.id, second.id);
+  assert.equal(first.createdAt, second.createdAt);
+  assert.equal(second.stage, 'Approach');
+  assert.equal(second.owner, 'Coverage');
+});

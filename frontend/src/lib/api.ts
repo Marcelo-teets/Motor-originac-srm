@@ -13,6 +13,7 @@ import type {
   DataState,
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
+  MvpReadiness,
   PipelineSnapshot,
   PipelineStage,
   PipelineRow,
@@ -124,6 +125,9 @@ export const api = {
       };
     }
   },
+  getMvpReadiness: async (session: SessionData | null): Promise<DataState<MvpReadiness>> => (
+    toState('MVP readiness', await requestEnvelope<MvpReadiness>('/mvp-readiness', session))
+  ),
 
   getAbmWeekly: (session: SessionData | null) => requestEnvelope<AbmWeeklyWarRoom>('/abm/war-room/weekly', session),
   getAbmStakeholders: (session: SessionData | null, companyId: string) => requestEnvelope<AbmStakeholder[]>(`/abm/companies/${companyId}/stakeholders`, session),

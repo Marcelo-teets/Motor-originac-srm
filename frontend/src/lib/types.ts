@@ -178,6 +178,16 @@ export type MvpQuickAction = {
 export type MvpQuickActionsSnapshot = {
   items: MvpQuickAction[];
 };
+export type MvpReadiness = {
+  auth: { status: string; provider: string };
+  database: { status: string; mode: string };
+  sources: { total: number; degraded: number; status: string };
+  monitoring: { outputs24h: number; triggers24h: number; status: string };
+  qualification: { topLeads: number; status: string };
+  pipeline: { rows: number; stages: Array<{ stage: string; count: number; coverage?: string }>; status: string };
+  frontend_runtime: { status: string; stack: string };
+  deploy_health: { status: string; note: string };
+};
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
