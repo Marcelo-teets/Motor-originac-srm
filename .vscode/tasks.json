@@ -1,0 +1,65 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "motor: install",
+      "type": "shell",
+      "command": "npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "motor: backend dev",
+      "type": "shell",
+      "command": "npm run dev:backend",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Listening|localhost|ready|running"
+        }
+      }
+    },
+    {
+      "label": "motor: frontend dev",
+      "type": "shell",
+      "command": "npm run dev:frontend -- --host 0.0.0.0",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "ready in|localhost|Network"
+        }
+      }
+    },
+    {
+      "label": "motor: build",
+      "type": "shell",
+      "command": "npm run build",
+      "problemMatcher": []
+    },
+    {
+      "label": "motor: typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "problemMatcher": []
+    },
+    {
+      "label": "motor: dev stack",
+      "dependsOn": [
+        "motor: backend dev",
+        "motor: frontend dev"
+      ],
+      "dependsOrder": "parallel"
+    }
+  ]
+}
