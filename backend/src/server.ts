@@ -10,6 +10,8 @@ import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
 import { AbaService } from './services/abaService.js';
 import { PlatformService } from './services/platformService.js';
+import { SearchProfileCaptureService } from './services/searchProfileCaptureService.js';
+import { SearchProfileCaptureRuntime } from './services/searchProfileCaptureRuntime.js';
 
 const app = express();
 app.use(cors());
@@ -18,6 +20,11 @@ app.use(express.json());
 const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
 const service = new PlatformService(repository);
 const abaService = new AbaService();
+const searchCaptureRuntime = new SearchProfileCaptureRuntime(repository);
+const searchCaptureService = new SearchProfileCaptureService(searchCaptureRuntime, {
+  refreshMonitoring: async (companyId) => service.refreshMonitoring(companyId),
+  recomputeDerivedData: async (companyId) => service.recomputeDerivedData(companyId),
+});
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
@@ -32,7 +39,6 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
-const discoveredCandidates: Array<Record<string, unknown>> = [];
 
 await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
@@ -86,50 +92,15 @@ app.post('/search-profiles', wrap(async (req, res) => {
   res.status(201).json(ok(platformMode, profile));
 }));
 app.post('/search-profiles/:id/run', wrap(async (req, res) => {
-  const profileId = param(req.params.id);
-  const profiles = await service.listSearchProfiles();
-  const profile = profiles.find((item) => item.id === profileId);
-  if (!profile) {
-    res.status(404).json(fail(404, 'Search profile not found.'));
-    return;
-  }
-
-  const hits = await runSearchProfileDiscovery(profile);
-  const runAt = new Date().toISOString();
-  const candidates = hits.map((hit) => {
-    const candidate = discoveryHitToCandidateDraft(profile, hit);
-    const saved = {
-      ...candidate,
-      id: crypto.randomUUID(),
-      searchProfileId: profile.id,
-      status: 'captured',
-      promoted: false,
-      capturedAt: runAt,
-    };
-    discoveredCandidates.unshift(saved);
-    return saved;
-  });
-
-  res.json(ok(platformMode, {
-    run: { profileId: profile.id, profileName: profile.name, runAt, candidatesFound: candidates.length },
-    candidates,
-  }));
+  const result = await searchCaptureService.runCapture(param(req.params.id), 'manual');
+  res.json(ok(platformMode, result));
 }));
 app.get('/search-profiles/:id/candidates', wrap(async (req, res) => {
   const profileId = param(req.params.id);
-  res.json(ok(platformMode, discoveredCandidates.filter((item) => item.searchProfileId === profileId)));
+  res.json(ok(platformMode, await searchCaptureRuntime.listCandidates(profileId)));
 }));
 app.post('/search-profiles/candidates/:id/promote', wrap(async (req, res) => {
-  const candidateId = param(req.params.id);
-  const candidate = discoveredCandidates.find((item) => item.id === candidateId);
-  if (!candidate) {
-    res.status(404).json(fail(404, 'Candidate not found.'));
-    return;
-  }
-  candidate.status = 'promoted';
-  candidate.promoted = true;
-  candidate.promotedAt = new Date().toISOString();
-  res.json(ok(platformMode, candidate));
+  res.json(ok(platformMode, await searchCaptureService.promoteCandidate(param(req.params.id))));
 }));
 app.get('/companies', wrap(async (_req, res) => res.json(ok(platformMode, await service.listCompanies()))));
 app.get('/companies/:id', wrap(async (req, res) => {
