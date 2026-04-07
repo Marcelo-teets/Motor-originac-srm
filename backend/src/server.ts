@@ -8,6 +8,7 @@ import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
+import { AbaService } from './services/abaService.js';
 import { PlatformService } from './services/platformService.js';
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(express.json());
 
 const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
 const service = new PlatformService(repository);
+const abaService = new AbaService();
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
@@ -215,6 +217,39 @@ app.post('/agents/orchestrate/company/:id', wrap(async (req, res) => {
   res.json(ok(platformMode, { companyId: param(req.params.id), orchestrated: true, runCount: 3 }));
 }));
 app.get('/agents/health', wrap((_req, res) => res.json(ok(platformMode, { healthy: 4, degraded: 1, mocked: 0 }))));
+app.get('/aba/status', wrap(async (_req, res) => {
+  const dashboard = await service.getDashboard();
+  res.json(ok(platformMode, abaService.getStatus(dashboard)));
+}));
+app.post('/aba/command', wrap(async (req, res) => {
+  const target = String(req.body?.target ?? 'aba');
+  const action = String(req.body?.action ?? '').trim();
+  if (!action) {
+    res.status(400).json(fail(400, 'action is required.'));
+    return;
+  }
+  if (!['aba', 'paper_clip', 'adm'].includes(target)) {
+    res.status(400).json(fail(400, `Invalid target: ${target}`));
+    return;
+  }
+  res.status(201).json(ok(platformMode, abaService.runCommand(target as 'aba' | 'paper_clip' | 'adm', action, typeof req.body?.context === 'object' && req.body?.context ? req.body.context : {})));
+}));
+app.post('/agents/paper-clip/command', wrap(async (req, res) => {
+  const action = String(req.body?.action ?? '').trim();
+  if (!action) {
+    res.status(400).json(fail(400, 'action is required.'));
+    return;
+  }
+  res.status(201).json(ok(platformMode, abaService.runCommand('paper_clip', action, typeof req.body?.context === 'object' && req.body?.context ? req.body.context : {})));
+}));
+app.post('/agents/adm/command', wrap(async (req, res) => {
+  const action = String(req.body?.action ?? '').trim();
+  if (!action) {
+    res.status(400).json(fail(400, 'action is required.'));
+    return;
+  }
+  res.status(201).json(ok(platformMode, abaService.runCommand('adm', action, typeof req.body?.context === 'object' && req.body?.context ? req.body.context : {})));
+}));
 
 app.get('/score/company/:id/current', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));

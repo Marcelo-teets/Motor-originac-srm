@@ -1,6 +1,8 @@
 import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
 import type {
   AbmObjection,
+  AbaCommandRecord,
+  AbaStatus,
   AbmStakeholder,
   AbmTouchpoint,
   AbmWeeklyWarRoom,
@@ -197,6 +199,16 @@ export const api = {
       return { source: 'mock', note: 'Agents usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockAgentsSnapshot };
     }
   },
+  getAbaStatus: async (session: SessionData | null) => toState('ABA status', await requestEnvelope<AbaStatus>('/aba/status', session)),
+  commandAba: async (session: SessionData | null, target: 'aba' | 'paper_clip' | 'adm', action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/aba/command', session, { method: 'POST', body: JSON.stringify({ target, action, context }) })
+  ).data,
+  commandPaperClip: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/agents/paper-clip/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
+  ).data,
+  commandAdm: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/agents/adm/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
+  ).data,
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
       const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);

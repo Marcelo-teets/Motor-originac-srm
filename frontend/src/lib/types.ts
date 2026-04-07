@@ -245,6 +245,25 @@ export type AgentsSnapshot = {
   items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
 };
 
+export type AbaCommandRecord = {
+  id: string;
+  target: 'aba' | 'paper_clip' | 'adm';
+  action: string;
+  context: Record<string, unknown>;
+  status: string;
+  result: string;
+  createdAt: string;
+  finishedAt?: string;
+};
+
+export type AbaStatus = {
+  abaEnabled: boolean;
+  capabilities: string[];
+  commandTargets: string[];
+  lastCommands: AbaCommandRecord[];
+  suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
+};
+
 export type PipelineSnapshot = {
   stages: Array<{ stage: string; count: number; note: string }>;
   recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
