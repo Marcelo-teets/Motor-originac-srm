@@ -1,10 +1,13 @@
 import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
 import type {
   AbmObjection,
+  AbaCommandRecord,
+  AbaStatus,
   AbmStakeholder,
   AbmTouchpoint,
   AbmWeeklyWarRoom,
   AgentsSnapshot,
+  ActivityRecord,
   ApiEnvelope,
   CompanyDetail,
   CompanyListItem,
@@ -12,12 +15,17 @@ import type {
   DataState,
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
+  MvpReadiness,
   PipelineSnapshot,
+  PipelineStage,
+  PipelineRow,
   PreCallBriefing,
   PreMortem,
   SearchProfile,
+  SearchProfileCandidate,
   SessionData,
   SourceEntry,
+  TaskRecord,
 } from './types';
 
 const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
@@ -73,49 +81,48 @@ export const api = {
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
   ).data,
+  runSearchProfile: async (session: SessionData | null, profileId: string) => (
+    await requestEnvelope<{ run: { profileId: string; profileName: string; runAt: string; candidatesFound: number }; candidates: SearchProfileCandidate[] }>(`/search-profiles/${profileId}/run`, session, { method: 'POST' })
+  ).data,
+  getSearchProfileCandidates: async (session: SessionData | null, profileId: string) => (
+    await requestEnvelope<SearchProfileCandidate[]>(`/search-profiles/${profileId}/candidates`, session)
+  ).data,
+  promoteSearchCandidate: async (session: SessionData | null, candidateId: string) => (
+    await requestEnvelope<SearchProfileCandidate>(`/search-profiles/candidates/${candidateId}/promote`, session, { method: 'POST' })
+  ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
+  listPipeline: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; rows: PipelineRow[] }>('/pipeline', session)).data.rows,
+  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; stages: Array<{ stage: string; count: number }> }>('/pipeline/stages', session)).data.stages,
+  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}`, session)).data.row,
+  movePipelineStage: async (session: SessionData | null, companyId: string, stage: PipelineStage) => (
+    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
+  ).data.row,
+  updateNextAction: async (session: SessionData | null, companyId: string, nextAction: string) => (
+    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
+  ).data.row,
+  listActivities: async (session: SessionData | null, companyId?: string) => (
+    await requestEnvelope<{ mode: string; items: ActivityRecord[] }>(companyId ? `/activities/company/${companyId}` : '/activities', session)
+  ).data.items,
+  createActivity: async (session: SessionData | null, payload: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
+    await requestEnvelope<{ mode: string; item: ActivityRecord }>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data.item,
+  listTasks: async (session: SessionData | null, companyId?: string) => (
+    await requestEnvelope<{ mode: string; items: TaskRecord[] }>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
+  ).data.items,
+  createTask: async (session: SessionData | null, payload: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
+    await requestEnvelope<{ mode: string; item: TaskRecord }>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data.item,
+  updateTask: async (session: SessionData | null, taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) => (
+    await requestEnvelope<{ mode: string; item: TaskRecord | null }>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
+  ).data.item,
 
   getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
     try {
-      const [dashboard, companies] = await Promise.all([
-        requestEnvelope<Dashboard>('/dashboard/summary', session),
-        requestEnvelope<CompanyListItem[]>('/companies', session),
-      ]);
-
-      const highestLead = [...companies.data].sort((a, b) => b.leadScore - a.leadScore)[0];
-      const highestUrgency = [...companies.data].sort((a, b) => (b.urgencyScore ?? 0) - (a.urgencyScore ?? 0))[0];
-
+      const quick = await requestEnvelope<MvpQuickActionsSnapshot>('/mvp/ops/quick-actions', session);
       return {
-        source: dashboard.status === 'real' && companies.status === 'real' ? 'real' : 'partial',
-        note: 'Quick actions montadas a partir de dashboard e companies do backend oficial.',
-        data: {
-          items: [
-            {
-              id: 'qa_top_lead',
-              title: highestLead ? `Abordar ${highestLead.name}` : 'Revisar top lead',
-              owner: 'Origination',
-              priority: 'high',
-            },
-            {
-              id: 'qa_monitoring',
-              title: `Rodar monitoring prioritário (${dashboard.data.monitoring.outputs24h} outputs)`,
-              owner: 'Intelligence',
-              priority: 'medium',
-            },
-            {
-              id: 'qa_urgent_company',
-              title: highestUrgency ? `Validar timing de ${highestUrgency.name}` : 'Validar timing comercial',
-              owner: 'Coverage',
-              priority: 'high',
-            },
-            {
-              id: 'qa_pipeline',
-              title: 'Atualizar pipeline comercial',
-              owner: 'Origination',
-              priority: 'medium',
-            },
-          ],
-        },
+        source: quick.status,
+        note: 'Quick actions carregadas do backend.',
+        data: quick.data,
       };
     } catch {
       return {
@@ -130,6 +137,9 @@ export const api = {
       };
     }
   },
+  getMvpReadiness: async (session: SessionData | null): Promise<DataState<MvpReadiness>> => (
+    toState('MVP readiness', await requestEnvelope<MvpReadiness>('/mvp-readiness', session))
+  ),
 
   getAbmWeekly: (session: SessionData | null) => requestEnvelope<AbmWeeklyWarRoom>('/abm/war-room/weekly', session),
   getAbmStakeholders: (session: SessionData | null, companyId: string) => requestEnvelope<AbmStakeholder[]>(`/abm/companies/${companyId}/stakeholders`, session),
@@ -189,25 +199,33 @@ export const api = {
       return { source: 'mock', note: 'Agents usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockAgentsSnapshot };
     }
   },
+  getAbaStatus: async (session: SessionData | null) => toState('ABA status', await requestEnvelope<AbaStatus>('/aba/status', session)),
+  commandAba: async (session: SessionData | null, target: 'aba' | 'paper_clip' | 'adm', action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/aba/command', session, { method: 'POST', body: JSON.stringify({ target, action, context }) })
+  ).data,
+  commandPaperClip: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/agents/paper-clip/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
+  ).data,
+  commandAdm: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
+    await requestEnvelope<AbaCommandRecord>('/agents/adm/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
+  ).data,
+  runAbaAuto: async (session: SessionData | null) => (
+    await requestEnvelope<{ runCount: number; runs: AbaCommandRecord[] }>('/aba/auto-run', session, { method: 'POST' })
+  ).data,
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
-      const companies = await requestEnvelope<CompanyListItem[]>('/companies', session);
+      const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);
       return {
-        source: 'partial',
-        note: 'Pipeline consolidado a partir de companies do backend oficial.',
+        source: snapshot.status,
+        note: 'Pipeline carregado de snapshot agregado do backend.',
         data: {
-          stages: [
-            { stage: 'Identified', count: companies.data.length, note: 'Base total monitorada' },
-            { stage: 'Qualified', count: companies.data.filter((item) => item.qualificationScore >= 70).length, note: 'Qualification >= 70' },
-            { stage: 'Approach', count: companies.data.filter((item) => item.leadScore >= 70).length, note: 'Lead >= 70' },
-            { stage: 'Structuring', count: companies.data.filter((item) => item.suggestedStructure.includes('FIDC')).length, note: 'Mandatos com fit de estrutura' },
-          ],
-          recentActivities: companies.data.slice(0, 4).map((company, index) => ({
-            company: company.name,
-            title: company.nextAction ?? 'Executar contato executivo',
-            owner: index % 2 === 0 ? 'Origination' : 'Coverage',
-            when: `${index + 1}d`,
-            status: company.leadScore >= 80 ? 'prioritário' : 'em andamento',
+          stages: snapshot.data.stages.map((stage) => ({ ...stage, note: 'Persistido no CRM' })),
+          recentActivities: snapshot.data.recentActivities.slice(0, 8).map((activity) => ({
+            company: activity.companyId,
+            title: activity.title,
+            owner: activity.owner,
+            when: activity.dueDate ? new Date(activity.dueDate).toLocaleDateString('pt-BR') : '-',
+            status: activity.status,
           })),
         },
       };
