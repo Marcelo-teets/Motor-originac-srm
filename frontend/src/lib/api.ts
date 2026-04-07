@@ -20,6 +20,7 @@ import type {
   PreCallBriefing,
   PreMortem,
   SearchProfile,
+  SearchProfileCandidate,
   SessionData,
   SourceEntry,
   TaskRecord,
@@ -77,6 +78,15 @@ export const api = {
   getSearchProfiles: async (session: SessionData | null) => toState('Search profiles', await requestEnvelope<SearchProfile[]>('/search-profiles', session)),
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
+  runSearchProfile: async (session: SessionData | null, profileId: string) => (
+    await requestEnvelope<{ run: { profileId: string; profileName: string; runAt: string; candidatesFound: number }; candidates: SearchProfileCandidate[] }>(`/search-profiles/${profileId}/run`, session, { method: 'POST' })
+  ).data,
+  getSearchProfileCandidates: async (session: SessionData | null, profileId: string) => (
+    await requestEnvelope<SearchProfileCandidate[]>(`/search-profiles/${profileId}/candidates`, session)
+  ).data,
+  promoteSearchCandidate: async (session: SessionData | null, candidateId: string) => (
+    await requestEnvelope<SearchProfileCandidate>(`/search-profiles/candidates/${candidateId}/promote`, session, { method: 'POST' })
   ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
   listPipeline: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; rows: PipelineRow[] }>('/pipeline', session)).data.rows,

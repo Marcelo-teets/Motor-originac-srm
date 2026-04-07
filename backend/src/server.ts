@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
+import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
+import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { createAiRouter } from './routes/aiRouter.js';
@@ -28,6 +30,7 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+const discoveredCandidates: Array<Record<string, unknown>> = [];
 
 await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
@@ -79,6 +82,52 @@ app.post('/search-profiles', wrap(async (req, res) => {
     profilePayload: typeof req.body?.profilePayload === 'object' && req.body?.profilePayload ? req.body.profilePayload : {},
   });
   res.status(201).json(ok(platformMode, profile));
+}));
+app.post('/search-profiles/:id/run', wrap(async (req, res) => {
+  const profileId = param(req.params.id);
+  const profiles = await service.listSearchProfiles();
+  const profile = profiles.find((item) => item.id === profileId);
+  if (!profile) {
+    res.status(404).json(fail(404, 'Search profile not found.'));
+    return;
+  }
+
+  const hits = await runSearchProfileDiscovery(profile);
+  const runAt = new Date().toISOString();
+  const candidates = hits.map((hit) => {
+    const candidate = discoveryHitToCandidateDraft(profile, hit);
+    const saved = {
+      ...candidate,
+      id: crypto.randomUUID(),
+      searchProfileId: profile.id,
+      status: 'captured',
+      promoted: false,
+      capturedAt: runAt,
+    };
+    discoveredCandidates.unshift(saved);
+    return saved;
+  });
+
+  res.json(ok(platformMode, {
+    run: { profileId: profile.id, profileName: profile.name, runAt, candidatesFound: candidates.length },
+    candidates,
+  }));
+}));
+app.get('/search-profiles/:id/candidates', wrap(async (req, res) => {
+  const profileId = param(req.params.id);
+  res.json(ok(platformMode, discoveredCandidates.filter((item) => item.searchProfileId === profileId)));
+}));
+app.post('/search-profiles/candidates/:id/promote', wrap(async (req, res) => {
+  const candidateId = param(req.params.id);
+  const candidate = discoveredCandidates.find((item) => item.id === candidateId);
+  if (!candidate) {
+    res.status(404).json(fail(404, 'Candidate not found.'));
+    return;
+  }
+  candidate.status = 'promoted';
+  candidate.promoted = true;
+  candidate.promotedAt = new Date().toISOString();
+  res.json(ok(platformMode, candidate));
 }));
 app.get('/companies', wrap(async (_req, res) => res.json(ok(platformMode, await service.listCompanies()))));
 app.get('/companies/:id', wrap(async (req, res) => {
