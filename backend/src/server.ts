@@ -232,7 +232,39 @@ app.post('/aba/command', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid target: ${target}`));
     return;
   }
-  res.status(201).json(ok(platformMode, abaService.runCommand(target as 'aba' | 'paper_clip' | 'adm', action, typeof req.body?.context === 'object' && req.body?.context ? req.body.context : {})));
+  const context = typeof req.body?.context === 'object' && req.body?.context ? req.body.context : {};
+  const command = abaService.runCommand(target as 'aba' | 'paper_clip' | 'adm', action, context);
+
+  if (context.companyId && typeof context.companyId === 'string') {
+    if (target === 'paper_clip') {
+      await service.saveTask({
+        companyId: context.companyId,
+        title: `ABA/Paper Clip · ${action}`,
+        description: `Comando automático: ${action}`,
+        owner: 'Origination',
+        status: 'todo',
+        dueDate: null,
+      }).catch(() => undefined);
+    }
+    if (target === 'adm') {
+      await service.saveActivity({
+        companyId: context.companyId,
+        type: 'committee',
+        title: `ABA/ADM · ${action}`,
+        description: `Comando administrativo: ${action}`,
+        owner: 'Coverage',
+        status: 'open',
+        dueDate: null,
+      }).catch(() => undefined);
+    }
+  }
+
+  res.status(201).json(ok(platformMode, command));
+}));
+app.post('/aba/auto-run', wrap(async (_req, res) => {
+  const dashboard = await service.getDashboard();
+  const runs = abaService.runSuggestedImprovements(dashboard);
+  res.status(201).json(ok(platformMode, { runCount: runs.length, runs }));
 }));
 app.post('/agents/paper-clip/command', wrap(async (req, res) => {
   const action = String(req.body?.action ?? '').trim();

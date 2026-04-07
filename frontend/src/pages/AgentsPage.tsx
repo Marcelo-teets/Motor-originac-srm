@@ -10,6 +10,7 @@ export function AgentsPage() {
   const { data: abaData } = useAsyncData(() => api.getAbaStatus(session), [session?.access_token]);
   const [commandText, setCommandText] = useState('');
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
 
   if (loading) return <div className="page"><Card title="Agents Control" subtitle="Carregando agents">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Agents Control" subtitle="Falha ao carregar agents">{error}</Card></div>;
@@ -55,10 +56,25 @@ export function AgentsPage() {
             setCommandMessage(`ADM: ${result.result ?? 'executado'}`);
             setCommandText('');
           }}>Comandar ADM</button>
+          <button type="button" disabled={autoRunning} onClick={async () => {
+            setAutoRunning(true);
+            try {
+              const result = await api.runAbaAuto(session);
+              setCommandMessage(`ABA auto-run executado (${result.runCount} comando(s)).`);
+            } finally {
+              setAutoRunning(false);
+            }
+          }}>{autoRunning ? 'Rodando...' : 'Rodar automelhoria'}</button>
         </div>
         <ul className="list top-gap">
           {(abaData?.data.suggestedImprovements ?? []).map((item) => (
             <li key={item.id}><strong>{item.title}</strong><span>{item.reason} · owner {item.owner} · {item.priority}</span></li>
+          ))}
+        </ul>
+        <div className="top-gap table-helper">Últimos comandos ABA</div>
+        <ul className="list">
+          {(abaData?.data.lastCommands ?? []).map((command) => (
+            <li key={command.id}><strong>{command.target}</strong><span>{command.action} · {command.status}</span></li>
           ))}
         </ul>
       </Card>

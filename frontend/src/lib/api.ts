@@ -209,6 +209,9 @@ export const api = {
   commandAdm: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
     await requestEnvelope<AbaCommandRecord>('/agents/adm/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
   ).data,
+  runAbaAuto: async (session: SessionData | null) => (
+    await requestEnvelope<{ runCount: number; runs: AbaCommandRecord[] }>('/aba/auto-run', session, { method: 'POST' })
+  ).data,
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
       const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);

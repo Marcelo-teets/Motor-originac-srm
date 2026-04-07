@@ -69,4 +69,13 @@ export class AbaService {
       suggestedImprovements: this.buildAutoImprovements(dashboard),
     };
   }
+
+  runSuggestedImprovements(dashboard: DashboardView) {
+    const suggestions = this.buildAutoImprovements(dashboard);
+    return suggestions.map((suggestion) => this.runCommand(
+      suggestion.owner === 'paper_clip' ? 'paper_clip' : suggestion.owner === 'adm' ? 'adm' : 'aba',
+      suggestion.title,
+      { reason: suggestion.reason, priority: suggestion.priority, improvementId: suggestion.id },
+    ));
+  }
 }
