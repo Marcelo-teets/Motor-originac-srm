@@ -1,8 +1,6 @@
 import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
 import type {
   AbmObjection,
-  AbaCommandRecord,
-  AbaStatus,
   AbmStakeholder,
   AbmTouchpoint,
   AbmWeeklyWarRoom,
@@ -15,14 +13,12 @@ import type {
   DataState,
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
-  MvpReadiness,
   PipelineSnapshot,
   PipelineStage,
   PipelineRow,
   PreCallBriefing,
   PreMortem,
   SearchProfile,
-  SearchProfileCandidate,
   SessionData,
   SourceEntry,
   TaskRecord,
@@ -81,40 +77,31 @@ export const api = {
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
   ).data,
-  runSearchProfile: async (session: SessionData | null, profileId: string) => (
-    await requestEnvelope<{ run: { profileId: string; profileName: string; runAt: string; candidatesFound: number }; candidates: SearchProfileCandidate[] }>(`/search-profiles/${profileId}/run`, session, { method: 'POST' })
-  ).data,
-  getSearchProfileCandidates: async (session: SessionData | null, profileId: string) => (
-    await requestEnvelope<SearchProfileCandidate[]>(`/search-profiles/${profileId}/candidates`, session)
-  ).data,
-  promoteSearchCandidate: async (session: SessionData | null, candidateId: string) => (
-    await requestEnvelope<SearchProfileCandidate>(`/search-profiles/candidates/${candidateId}/promote`, session, { method: 'POST' })
-  ).data,
   recalculateCompany: (session: SessionData | null, id: string) => requestEnvelope(`/companies/${id}/qualification/recalculate`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
-  listPipeline: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; rows: PipelineRow[] }>('/pipeline', session)).data.rows,
-  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<{ mode: string; stages: Array<{ stage: string; count: number }> }>('/pipeline/stages', session)).data.stages,
-  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}`, session)).data.row,
+  listPipeline: async (session: SessionData | null) => (await requestEnvelope<PipelineRow[]>('/pipeline', session)).data,
+  getPipelineStages: async (session: SessionData | null) => (await requestEnvelope<Array<{ stage: string; count: number }>>('/pipeline/stages', session)).data,
+  getPipelineCompany: async (session: SessionData | null, companyId: string) => (await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}`, session)).data,
   movePipelineStage: async (session: SessionData | null, companyId: string, stage: PipelineStage) => (
-    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
-  ).data.row,
+    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/move`, session, { method: 'POST', body: JSON.stringify({ stage }) })
+  ).data,
   updateNextAction: async (session: SessionData | null, companyId: string, nextAction: string) => (
-    await requestEnvelope<{ mode: string; row: PipelineRow | null }>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
-  ).data.row,
+    await requestEnvelope<PipelineRow | null>(`/pipeline/company/${companyId}/next-action`, session, { method: 'PATCH', body: JSON.stringify({ nextAction }) })
+  ).data,
   listActivities: async (session: SessionData | null, companyId?: string) => (
-    await requestEnvelope<{ mode: string; items: ActivityRecord[] }>(companyId ? `/activities/company/${companyId}` : '/activities', session)
-  ).data.items,
+    await requestEnvelope<ActivityRecord[]>(companyId ? `/activities/company/${companyId}` : '/activities', session)
+  ).data,
   createActivity: async (session: SessionData | null, payload: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
-    await requestEnvelope<{ mode: string; item: ActivityRecord }>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
-  ).data.item,
+    await requestEnvelope<ActivityRecord>('/activities', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
   listTasks: async (session: SessionData | null, companyId?: string) => (
-    await requestEnvelope<{ mode: string; items: TaskRecord[] }>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
-  ).data.items,
+    await requestEnvelope<TaskRecord[]>(companyId ? `/tasks/company/${companyId}` : '/tasks', session)
+  ).data,
   createTask: async (session: SessionData | null, payload: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>) => (
-    await requestEnvelope<{ mode: string; item: TaskRecord }>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
-  ).data.item,
+    await requestEnvelope<TaskRecord>('/tasks', session, { method: 'POST', body: JSON.stringify(payload) })
+  ).data,
   updateTask: async (session: SessionData | null, taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) => (
-    await requestEnvelope<{ mode: string; item: TaskRecord | null }>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
-  ).data.item,
+    await requestEnvelope<TaskRecord | null>(`/tasks/${taskId}`, session, { method: 'PATCH', body: JSON.stringify(updates) })
+  ).data,
 
   getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
     try {
@@ -137,9 +124,6 @@ export const api = {
       };
     }
   },
-  getMvpReadiness: async (session: SessionData | null): Promise<DataState<MvpReadiness>> => (
-    toState('MVP readiness', await requestEnvelope<MvpReadiness>('/mvp-readiness', session))
-  ),
 
   getAbmWeekly: (session: SessionData | null) => requestEnvelope<AbmWeeklyWarRoom>('/abm/war-room/weekly', session),
   getAbmStakeholders: (session: SessionData | null, companyId: string) => requestEnvelope<AbmStakeholder[]>(`/abm/companies/${companyId}/stakeholders`, session),
@@ -199,19 +183,6 @@ export const api = {
       return { source: 'mock', note: 'Agents usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockAgentsSnapshot };
     }
   },
-  getAbaStatus: async (session: SessionData | null) => toState('ABA status', await requestEnvelope<AbaStatus>('/aba/status', session)),
-  commandAba: async (session: SessionData | null, target: 'aba' | 'paper_clip' | 'adm', action: string, context: Record<string, unknown> = {}) => (
-    await requestEnvelope<AbaCommandRecord>('/aba/command', session, { method: 'POST', body: JSON.stringify({ target, action, context }) })
-  ).data,
-  commandPaperClip: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
-    await requestEnvelope<AbaCommandRecord>('/agents/paper-clip/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
-  ).data,
-  commandAdm: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
-    await requestEnvelope<AbaCommandRecord>('/agents/adm/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
-  ).data,
-  runAbaAuto: async (session: SessionData | null) => (
-    await requestEnvelope<{ runCount: number; runs: AbaCommandRecord[] }>('/aba/auto-run', session, { method: 'POST' })
-  ).data,
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
     try {
       const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);

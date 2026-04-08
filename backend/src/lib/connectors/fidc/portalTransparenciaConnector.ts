@@ -13,7 +13,7 @@ export class PortalTransparenciaConnector {
   private buildHeaders() {
     return {
       accept: 'application/json',
-      'chave-api-dados': this.token,
+      chave-api-dados: this.token,
     };
   }
 

@@ -178,16 +178,6 @@ export type MvpQuickAction = {
 export type MvpQuickActionsSnapshot = {
   items: MvpQuickAction[];
 };
-export type MvpReadiness = {
-  auth: { status: string; provider: string };
-  database: { status: string; mode: string };
-  sources: { total: number; degraded: number; status: string };
-  monitoring: { outputs24h: number; triggers24h: number; status: string };
-  qualification: { topLeads: number; status: string };
-  pipeline: { rows: number; stages: Array<{ stage: string; count: number; coverage?: string }>; status: string };
-  frontend_runtime: { status: string; stack: string };
-  deploy_health: { status: string; note: string };
-};
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
@@ -205,21 +195,6 @@ export type SearchProfile = {
   timeWindowDays: number;
   status: 'active' | 'paused';
   profilePayload: Record<string, unknown>;
-};
-
-export type SearchProfileCandidate = {
-  id: string;
-  searchProfileId: string;
-  companyName: string;
-  website?: string;
-  segment: string;
-  sourceRef: string;
-  evidenceSummary: string;
-  confidence: number;
-  status: 'captured' | 'promoted';
-  promoted: boolean;
-  capturedAt: string;
-  promotedAt?: string;
 };
 
 export type SearchProfileDraft = {
@@ -243,25 +218,6 @@ export type MonitoringSnapshot = {
 
 export type AgentsSnapshot = {
   items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
-};
-
-export type AbaCommandRecord = {
-  id: string;
-  target: 'aba' | 'paper_clip' | 'adm';
-  action: string;
-  context: Record<string, unknown>;
-  status: string;
-  result: string;
-  createdAt: string;
-  finishedAt?: string;
-};
-
-export type AbaStatus = {
-  abaEnabled: boolean;
-  capabilities: string[];
-  commandTargets: string[];
-  lastCommands: AbaCommandRecord[];
-  suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
 };
 
 export type PipelineSnapshot = {

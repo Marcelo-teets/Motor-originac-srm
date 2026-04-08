@@ -3,7 +3,7 @@ import { Card, DataStatusBanner, PageIntro, Pill } from '../components/UI';
 import { defaultSearchProfileDraft, searchProfilePresets } from '../mocks/data';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
+import type { SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 const profileGroups: Array<{ title: string; fields: Array<{ key: keyof SearchProfileDraft; label: string; options: string[] }> }> = [
@@ -34,9 +34,6 @@ export function SearchProfilesPage() {
   const [draft, setDraft] = useState<SearchProfileDraft>(defaultSearchProfileDraft);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>('');
-  const [running, setRunning] = useState(false);
-  const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
   const { data, loading, error, setData } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const summary = useMemo(() => ([
@@ -77,35 +74,6 @@ export function SearchProfilesPage() {
       setSaveMessage(saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleRun = async () => {
-    if (!selectedProfileId) {
-      setSaveMessage('Selecione um perfil persistido para rodar a busca.');
-      return;
-    }
-    setRunning(true);
-    setSaveMessage(null);
-    try {
-      const result = await api.runSearchProfile(session, selectedProfileId);
-      setCandidates(result.candidates);
-      setSaveMessage(`Busca executada: ${result.candidates.length} candidato(s) capturado(s).`);
-    } catch (runError) {
-      setSaveMessage(runError instanceof Error ? runError.message : 'Falha ao rodar busca.');
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const handlePromote = async (candidateId: string) => {
-    try {
-      await api.promoteSearchCandidate(session, candidateId);
-      const refreshed = await api.getSearchProfileCandidates(session, selectedProfileId);
-      setCandidates(refreshed);
-      setSaveMessage('Candidato promovido com sucesso.');
-    } catch (promoteError) {
-      setSaveMessage(promoteError instanceof Error ? promoteError.message : 'Falha ao promover candidato.');
     }
   };
 
@@ -151,9 +119,7 @@ export function SearchProfilesPage() {
           {saveMessage ? <p className="table-helper">{saveMessage}</p> : null}
           <div className="actions sticky-actions">
             <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar perfil'}</button>
-            <button type="button" className="secondary" onClick={() => void handleRun()} disabled={running || !selectedProfileId}>
-              {running ? 'Rodando...' : 'Rodar busca'}
-            </button>
+            <button type="button" className="secondary">Rodar busca</button>
           </div>
         </Card>
       </section>
@@ -166,13 +132,7 @@ export function SearchProfilesPage() {
           <tbody>
             {data.data.map((profile) => (
               <tr key={profile.id}>
-                <td>
-                  <label className="row-between">
-                    <strong>{profile.name}</strong>
-                    <input type="radio" name="selected_profile" checked={selectedProfileId === profile.id} onChange={() => setSelectedProfileId(profile.id)} />
-                  </label>
-                  <div className="table-helper">{profile.companyType} · {profile.geography}</div>
-                </td>
+                <td><strong>{profile.name}</strong><div className="table-helper">{profile.companyType} · {profile.geography}</div></td>
                 <td>{profile.segment} · {profile.subsegment}</td>
                 <td>{profile.targetStructure}</td>
                 <td>{profile.receivables.join(', ')}</td>
@@ -181,33 +141,6 @@ export function SearchProfilesPage() {
             ))}
           </tbody>
         </table>
-      </Card>
-
-      <Card title="Discovery candidates" subtitle="Candidatos retornados pelo run selecionado" className="dense-card">
-        {candidates.length === 0 ? (
-          <div className="table-helper">Nenhum candidato carregado.</div>
-        ) : (
-          <table className="dense-table">
-            <thead>
-              <tr><th>Empresa</th><th>Fonte</th><th>Confidence</th><th>Status</th><th>Ação</th></tr>
-            </thead>
-            <tbody>
-              {candidates.map((candidate) => (
-                <tr key={candidate.id}>
-                  <td><strong>{candidate.companyName}</strong><div className="table-helper">{candidate.segment} · {candidate.website ?? 'sem site'}</div></td>
-                  <td>{candidate.sourceRef}</td>
-                  <td>{Math.round(candidate.confidence * 100)}%</td>
-                  <td>{candidate.status}</td>
-                  <td>
-                    <button type="button" disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
-                      {candidate.status === 'promoted' ? 'Promovido' : 'Promover'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </Card>
     </div>
   );

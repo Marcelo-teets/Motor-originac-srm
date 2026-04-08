@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -7,10 +6,6 @@ import { useAsyncData } from '../lib/useAsyncData';
 export function AgentsPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(() => api.getAgentsSnapshot(session), [session?.access_token]);
-  const { data: abaData } = useAsyncData(() => api.getAbaStatus(session), [session?.access_token]);
-  const [commandText, setCommandText] = useState('');
-  const [commandMessage, setCommandMessage] = useState<string | null>(null);
-  const [autoRunning, setAutoRunning] = useState(false);
 
   if (loading) return <div className="page"><Card title="Agents Control" subtitle="Carregando agents">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Agents Control" subtitle="Falha ao carregar agents">{error}</Card></div>;
@@ -38,45 +33,6 @@ export function AgentsPage() {
             </div>
           ))}
         </div>
-      </Card>
-      <Card title="ABA (Agents Build Agents)" subtitle="Automelhoria + comandos para Paper Clip e ADM" className="dense-card">
-        <div className="table-helper">Capabilities: {abaData?.data.capabilities.join(', ') ?? 'carregando...'}</div>
-        {commandMessage ? <div className="table-helper">{commandMessage}</div> : null}
-        <div className="actions">
-          <input value={commandText} placeholder="Comando operacional (ex.: gerar playbook top lead)" onChange={(event) => setCommandText(event.target.value)} />
-          <button type="button" onClick={async () => {
-            if (!commandText.trim()) return;
-            const result = await api.commandPaperClip(session, commandText.trim(), { source: 'agents_page' });
-            setCommandMessage(`Paper Clip: ${result.result ?? 'executado'}`);
-            setCommandText('');
-          }}>Comandar Paper Clip</button>
-          <button type="button" onClick={async () => {
-            if (!commandText.trim()) return;
-            const result = await api.commandAdm(session, commandText.trim(), { source: 'agents_page' });
-            setCommandMessage(`ADM: ${result.result ?? 'executado'}`);
-            setCommandText('');
-          }}>Comandar ADM</button>
-          <button type="button" disabled={autoRunning} onClick={async () => {
-            setAutoRunning(true);
-            try {
-              const result = await api.runAbaAuto(session);
-              setCommandMessage(`ABA auto-run executado (${result.runCount} comando(s)).`);
-            } finally {
-              setAutoRunning(false);
-            }
-          }}>{autoRunning ? 'Rodando...' : 'Rodar automelhoria'}</button>
-        </div>
-        <ul className="list top-gap">
-          {(abaData?.data.suggestedImprovements ?? []).map((item) => (
-            <li key={item.id}><strong>{item.title}</strong><span>{item.reason} · owner {item.owner} · {item.priority}</span></li>
-          ))}
-        </ul>
-        <div className="top-gap table-helper">Últimos comandos ABA</div>
-        <ul className="list">
-          {(abaData?.data.lastCommands ?? []).map((command) => (
-            <li key={command.id}><strong>{command.target}</strong><span>{command.action} · {command.status}</span></li>
-          ))}
-        </ul>
       </Card>
     </div>
   );
