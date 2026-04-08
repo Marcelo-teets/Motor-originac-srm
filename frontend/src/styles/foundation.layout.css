@@ -1,0 +1,4 @@
+.page-tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+.page-tab { padding: 10px 12px; border-radius: 999px; border: 1px solid rgba(109, 143, 255, 0.18); background: rgba(109, 143, 255, 0.08); }
+.kpi-strip { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpi-tile { padding: 16px; border-radius: 18px; border: 1px solid rgba(165, 186, 223, 0.12); background: rgba(10, 20, 35, 0.9); }
