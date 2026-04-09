@@ -1,4 +1,3 @@
-import { mockAgentsSnapshot, mockMonitoringSnapshot, mockPipelineSnapshot } from '../mocks/data';
 import type {
   AbmObjection,
   AbaCommandRecord,
@@ -150,54 +149,20 @@ export const api = {
   recalculateCommercialLayer: (session: SessionData | null, companyId: string) => requestEnvelope(`/abm/companies/${companyId}/recalculate-commercial-layer`, session, { method: 'POST', body: JSON.stringify({ reason: 'manual_frontend' }) }),
 
   getMonitoringSnapshot: async (session: SessionData | null): Promise<DataState<MonitoringSnapshot>> => {
-    try {
-      const [dashboard, companies, sources] = await Promise.all([
-        requestEnvelope<Dashboard>('/dashboard/summary', session),
-        requestEnvelope<CompanyListItem[]>('/companies', session),
-        requestEnvelope<SourceEntry[]>('/sources/catalog', session),
-      ]);
-      return {
-        source: dashboard.status === 'real' && companies.status === 'real' ? 'partial' : dashboard.status,
-        note: 'Monitoring consolidado a partir de dashboard, companies e sources do backend oficial.',
-        data: {
-          recentTriggers: companies.data
-            .sort((a, b) => b.triggerStrength - a.triggerStrength)
-            .slice(0, 4)
-            .map((company, index) => ({
-              company: company.name,
-              signal: company.topPatterns[0] ?? 'Sinal de funding gap identificado',
-              source: company.monitoringStatus ?? 'monitoring stack',
-              strength: company.triggerStrength,
-              when: `${index + 1}h atrás`,
-            })),
-          latestRuns: dashboard.data.agents.map((agent) => ({ workflow: agent.name, status: agent.status, detail: agent.note, when: new Date(agent.lastRun).toLocaleString('pt-BR') })),
-          activeSources: sources.data.map((source) => ({ name: source.name, status: source.status, health: source.health, coverage: source.category })),
-        },
-      };
-    } catch {
-      return { source: 'mock', note: 'Monitoring usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockMonitoringSnapshot };
-    }
+    const monitoring = await requestEnvelope<MonitoringSnapshot>('/monitoring/snapshot', session);
+    return {
+      source: monitoring.status,
+      note: 'Monitoring carregado do endpoint dedicado do backend.',
+      data: monitoring.data,
+    };
   },
   getAgentsSnapshot: async (session: SessionData | null): Promise<DataState<AgentsSnapshot>> => {
-    try {
-      const dashboard = await requestEnvelope<Dashboard>('/dashboard/summary', session);
-      return {
-        source: 'partial',
-        note: 'Agents consolidados a partir do dashboard oficial.',
-        data: {
-          items: dashboard.data.agents.map((agent, index) => ({
-            name: agent.name,
-            status: agent.status,
-            failures: agent.status === 'real' ? 0 : 1,
-            confidence: Math.max(58, 88 - index * 6),
-            focus: agent.note,
-            updatedAt: new Date(agent.lastRun).toLocaleString('pt-BR'),
-          })),
-        },
-      };
-    } catch {
-      return { source: 'mock', note: 'Agents usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockAgentsSnapshot };
-    }
+    const agents = await requestEnvelope<AgentsSnapshot>('/agents/snapshot', session);
+    return {
+      source: agents.status,
+      note: 'Agents carregados do snapshot dedicado do backend.',
+      data: agents.data,
+    };
   },
   getAbaStatus: async (session: SessionData | null) => toState('ABA status', await requestEnvelope<AbaStatus>('/aba/status', session)),
   commandAba: async (session: SessionData | null, target: 'aba' | 'paper_clip' | 'adm', action: string, context: Record<string, unknown> = {}) => (
@@ -213,24 +178,23 @@ export const api = {
     await requestEnvelope<{ runCount: number; runs: AbaCommandRecord[] }>('/aba/auto-run', session, { method: 'POST' })
   ).data,
   getPipelineSnapshot: async (session: SessionData | null): Promise<DataState<PipelineSnapshot>> => {
-    try {
-      const snapshot = await requestEnvelope<{ stages: Array<{ stage: string; count: number }>; recentActivities: ActivityRecord[] }>('/pipeline/snapshot', session);
-      return {
-        source: snapshot.status,
-        note: 'Pipeline carregado de snapshot agregado do backend.',
-        data: {
-          stages: snapshot.data.stages.map((stage) => ({ ...stage, note: 'Persistido no CRM' })),
-          recentActivities: snapshot.data.recentActivities.slice(0, 8).map((activity) => ({
-            company: activity.companyId,
-            title: activity.title,
-            owner: activity.owner,
-            when: activity.dueDate ? new Date(activity.dueDate).toLocaleDateString('pt-BR') : '-',
-            status: activity.status,
-          })),
-        },
-      };
-    } catch {
-      return { source: 'mock', note: 'Pipeline usando fallback centralizado em frontend/src/mocks/data.ts.', data: mockPipelineSnapshot };
-    }
+    const snapshot = await requestEnvelope<{
+      stages: Array<{ stage: string; count: number }>;
+      recentActivities: Array<{ companyId: string; companyName: string; title: string; owner: string; dueDate: string | null; status: string }>;
+    }>('/pipeline/snapshot', session);
+    return {
+      source: snapshot.status,
+      note: 'Pipeline carregado de snapshot agregado do backend.',
+      data: {
+        stages: snapshot.data.stages.map((stage) => ({ ...stage, note: 'Persistido no CRM' })),
+        recentActivities: snapshot.data.recentActivities.slice(0, 8).map((activity) => ({
+          company: activity.companyName,
+          title: activity.title,
+          owner: activity.owner,
+          when: activity.dueDate ? new Date(activity.dueDate).toLocaleDateString('pt-BR') : '-',
+          status: activity.status,
+        })),
+      },
+    };
   },
 };
