@@ -28,6 +28,14 @@ export type CanonicalSourceDocument = {
   confidenceScore: number;
 };
 
+export type CaptureRunDiagnostics = {
+  sourcesObserved: number;
+  duplicatesDiscarded: number;
+  partialConnectors: number;
+  corroboratedThemes: string[];
+  averageConfidence: number;
+};
+
 export type CaptureEngineResult = {
   run: {
     scopeType: CaptureScopeType;
@@ -39,6 +47,7 @@ export type CaptureEngineResult = {
     outputsWritten: number;
     signalsWritten: number;
     enrichmentsWritten: number;
+    diagnostics?: CaptureRunDiagnostics;
   };
   documents: CanonicalSourceDocument[];
   outputs: MonitoringOutput[];
