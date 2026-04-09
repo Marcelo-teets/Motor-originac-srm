@@ -22,7 +22,7 @@ Plataforma de **Origination Intelligence** para originação de crédito estrutu
 ## O que continua parcial
 - Pipeline operacional avançado, tasks e agentes mais sofisticados continuam com respostas parciais/controladas.
 - Monitoring health mais profundo e conectores além dos prioritários ainda não foram expandidos nesta PR.
-- Monitoring/agents/pipeline no frontend ainda consolidam parte da visão a partir de endpoints reais + derivação local leve.
+- Quick actions no frontend ainda possuem fallback sintético quando endpoint de operações estiver indisponível.
 
 ## Como rodar localmente
 1. Copie o arquivo de ambiente.

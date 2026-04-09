@@ -1,0 +1,66 @@
+name: Supabase Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  supabase-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PORT: ${{ secrets.PORT }}
+      USE_SUPABASE: ${{ secrets.USE_SUPABASE }}
+      BOOTSTRAP_SUPABASE: ${{ secrets.BOOTSTRAP_SUPABASE }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Bootstrap .env from GitHub secrets
+        run: bash scripts/bootstrap-github-env.sh
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Start backend with Supabase env
+        run: |
+          nohup npm run dev:backend > /tmp/motor-backend.log 2>&1 &
+          echo $! > /tmp/motor-backend.pid
+
+      - name: Wait for /health
+        run: |
+          PORT_VALUE="${PORT:-4000}"
+          for i in {1..30}; do
+            if curl -fsS "http://127.0.0.1:${PORT_VALUE}/health"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend health check failed"
+          cat /tmp/motor-backend.log || true
+          exit 1
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [[ -f /tmp/motor-backend.pid ]]; then
+            kill "$(cat /tmp/motor-backend.pid)" || true
+          fi
