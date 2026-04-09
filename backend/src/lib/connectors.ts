@@ -127,20 +127,23 @@ const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, 
 
 export async function ingestCompanyMonitoring(company: CompanySeed, sources: SourceCatalogEntry[]) {
   const collectedAt = nowIso();
+  const enabledSourceIds = new Set(sources.map((item) => item.id));
+  const hasSource = (sourceId: string) => enabledSourceIds.has(sourceId);
+
   const rssSources = [
     { id: 'src_google_news_rss', url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName)}` },
     { id: 'src_cvm_rss', url: 'https://www.gov.br/cvm/pt-br/assuntos/noticias/rss' },
     { id: 'src_valor_rss', url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName + ' funding OR crédito')}&hl=pt-BR&gl=BR&ceid=BR:pt-419` },
-  ].filter((source) => sources.some((item) => item.id === source.id) || source.id !== 'src_valor_rss');
+  ].filter((source) => hasSource(source.id));
 
   const [website, brasilApi, ...rssResults] = await Promise.all([
-    monitorCompanyWebsite(company.website),
-    fetchBrasilApiCompany(company.cnpj),
+    hasSource('src_company_website') ? monitorCompanyWebsite(company.website) : Promise.resolve(null),
+    hasSource('src_brasilapi_cnpj') ? fetchBrasilApiCompany(company.cnpj) : Promise.resolve(null),
     ...rssSources.map((source) => fetchRssFeed(source.url)),
   ]);
 
   const outputs: MonitoringOutput[] = [
-    {
+    ...(website ? [{
       id: `${company.id}_website`,
       companyId: company.id,
       sourceId: 'src_company_website',
@@ -153,8 +156,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
         ...website,
         ...connectorMetadata(website.sourceUrl, collectedAt, website.status === 'real' ? 0.74 : 0.42),
       },
-    },
-    {
+    }] : []),
+    ...(brasilApi ? [{
       id: `${company.id}_brasilapi`,
       companyId: company.id,
       sourceId: 'src_brasilapi_cnpj',
@@ -168,7 +171,7 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
         endpoint: brasilApi.endpoint,
         ...connectorMetadata(brasilApi.endpoint, collectedAt, brasilApi.status === 'real' ? 0.88 : 0.5),
       },
-    },
+    }] : []),
     ...rssResults.map((rss, index) => ({
       id: `${company.id}_${rssSources[index].id}`,
       companyId: company.id,
@@ -186,12 +189,34 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
   ];
 
   const signals: CompanySignal[] = [
-    buildSignal(company, 'src_company_website', 'website', website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`, collectedAt, website.status, website.sourceUrl),
-    buildSignal(company, 'src_brasilapi_cnpj', 'brasilapi', brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`, collectedAt, brasilApi.status, brasilApi.endpoint),
+    ...(website ? [
+      buildSignal(
+        company,
+        'src_company_website',
+        'website',
+        website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`,
+        collectedAt,
+        website.status,
+        website.sourceUrl,
+      ),
+    ] : []),
+    ...(brasilApi ? [
+      buildSignal(
+        company,
+        'src_brasilapi_cnpj',
+        'brasilapi',
+        brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`,
+        collectedAt,
+        brasilApi.status,
+        brasilApi.endpoint,
+      ),
+    ] : []),
     ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(company, rssSources[index].id, `rss_${itemIndex + 1}`, `${item.title}. ${item.description}`.trim(), collectedAt, rss.status, item.link || rss.sourceUrl))),
   ];
 
-  const enrichments: EnrichmentRecord[] = [buildBrasilApiEnrichment(company, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)];
+  const enrichments: EnrichmentRecord[] = brasilApi
+    ? [buildBrasilApiEnrichment(company, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)]
+    : [];
 
   return { outputs, signals, enrichments };
 }
