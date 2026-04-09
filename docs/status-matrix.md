@@ -10,6 +10,6 @@
 | Sources | Real | `source_catalog` seedado e lido do backend com status explícito por fonte. |
 | Agents | Real/Parcial | Qualification, patterns e lead score estão reais; backlog/health avançado seguem simplificados. |
 | Database | Real | DDL canônico sincronizado, seeds úteis e bootstrap em Supabase. |
-| Frontend fallback | Parcial | Dashboard/companies/detail/search profiles usam backend real; monitoring/agents/pipeline ainda possuem fallback controlado. |
+| Frontend fallback | Parcial | Dashboard/companies/detail/search profiles/monitoring/agents/pipeline usam backend real; fallback mock permanece apenas em quick actions. |
 
 | ABM War Room | Real/Parcial | Camada comercial operacional adicionada com stakeholders, touchpoints, objeções, momentum/priority e briefing; evolução de governança/completude segue parcial. |

@@ -323,8 +323,8 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
   res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: updated }));
 }));
 app.get('/pipeline/snapshot', wrap(async (_req, res) => {
-  const [rows, stages, activities] = await Promise.all([service.listPipelineRows(), service.listPipelineStages(), service.listActivities()]);
-  res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, rows, stages, recentActivities: activities.slice(0, 12) }));
+  const snapshot = await service.getPipelineSnapshot();
+  res.json(ok(crmRuntimeMode, snapshot));
 }));
 app.get('/activities', wrap(async (_req, res) => res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, items: await service.listActivities() }))));
 app.post('/activities', wrap(async (req, res) => {
@@ -410,8 +410,12 @@ app.patch('/tasks/:id', wrap(async (req, res) => {
   }
   res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: updated }));
 }));
-app.get('/monitoring/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { monitoring: (await service.getDashboard()).monitoring, latestOutputs: (await service.listMonitoringOutputsAll()).slice(0, 12) }))));
-app.get('/agents/snapshot', wrap(async (_req, res) => res.json(ok(platformMode, { agents: (await service.getDashboard()).agents }))));
+app.get('/monitoring/snapshot', wrap(async (_req, res) => {
+  res.json(ok(platformMode, await service.getMonitoringSnapshot()));
+}));
+app.get('/agents/snapshot', wrap(async (_req, res) => {
+  res.json(ok(platformMode, await service.getAgentsSnapshot()));
+}));
 app.get('/mvp-readiness', wrap(async (_req, res) => {
   const [dashboard, sources, pipelineRows] = await Promise.all([service.getDashboard(), service.listSources(), service.listPipelineRows()]);
   const degradedSources = sources.filter((source) => source.health !== 'healthy').length;

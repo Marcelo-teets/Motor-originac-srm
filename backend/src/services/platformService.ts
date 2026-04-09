@@ -506,6 +506,85 @@ export class PlatformService {
   async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
   async listPipelineRows() { return this.repository.listPipelineRows(); }
+  async getMonitoringSnapshot() {
+    const [dashboard, companies, sources, signals] = await Promise.all([
+      this.getDashboard(),
+      this.listCompanies(),
+      this.listSources(),
+      this.repository.listCompanySignals(),
+    ]);
+
+    const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
+    const sourceById = new Map(sources.map((source) => [source.id, source]));
+
+    const recentTriggers = [...signals]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 8)
+      .map((signal) => ({
+        company: companyNameById.get(signal.companyId) ?? signal.companyId,
+        signal: signal.signalType,
+        source: sourceById.get(signal.sourceId ?? '')?.name ?? signal.sourceId ?? 'unknown_source',
+        strength: signal.signalStrength,
+        when: new Date(signal.createdAt).toLocaleString('pt-BR'),
+      }));
+
+    const latestRuns = dashboard.agents.map((agent) => ({
+      workflow: agent.name,
+      status: agent.status,
+      detail: agent.note,
+      when: new Date(agent.lastRun).toLocaleString('pt-BR'),
+    }));
+
+    const activeSources = sources.map((source) => ({
+      name: source.name,
+      status: source.status,
+      health: source.health,
+      coverage: source.category,
+    }));
+
+    return { recentTriggers, latestRuns, activeSources };
+  }
+
+  async getAgentsSnapshot() {
+    const dashboard = await this.getDashboard();
+    const confidenceByStatus: Record<string, number> = { real: 90, partial: 72, mock: 55 };
+    const failuresByStatus: Record<string, number> = { real: 0, partial: 1, mock: 2 };
+
+    return {
+      items: dashboard.agents.map((agent) => ({
+        name: agent.name,
+        status: agent.status,
+        failures: failuresByStatus[agent.status] ?? 1,
+        confidence: confidenceByStatus[agent.status] ?? 65,
+        focus: agent.note,
+        updatedAt: new Date(agent.lastRun).toLocaleString('pt-BR'),
+      })),
+    };
+  }
+
+  async getPipelineSnapshot() {
+    const [rows, stages, activities, companies] = await Promise.all([
+      this.listPipelineRows(),
+      this.listPipelineStages(),
+      this.listActivities(),
+      this.listCompanies(),
+    ]);
+    const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
+    const recentActivities = [...activities]
+      .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))
+      .slice(0, 12)
+      .map((activity) => ({
+        companyId: activity.companyId,
+        companyName: companyNameById.get(activity.companyId) ?? activity.companyId,
+        title: activity.title,
+        owner: activity.owner,
+        dueDate: activity.dueDate,
+        status: activity.status,
+      }));
+
+    return { mode: 'real' as const, rows, stages, recentActivities };
+  }
+
   async listPipelineStages() {
     const rows = await this.repository.listPipelineRows();
     const grouped = rows.reduce((acc, row) => {
