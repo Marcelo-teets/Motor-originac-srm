@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, DataStatusBanner, PageIntro, Pill, ScoreBadge } from '../components/UI';
+import { WatchListStar } from '../components/WatchListStar';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
@@ -94,12 +95,18 @@ export function CompaniesPage() {
           <thead>
             <tr>
               <th>Company</th>
+              <th>Watch</th>
               <th>Qualification Score</th>
               <th>Lead Score</th>
               <th>Pattern</th>
               <th>Suggested Structure</th>
               <th>Priority</th>
-              <th>Commercial Priority</th><th>Momentum</th><th>Next Step</th><th>Last Touchpoint</th><th>Champion</th><th>Last Signal</th>
+              <th>Commercial Priority</th>
+              <th>Momentum</th>
+              <th>Next Step</th>
+              <th>Last Touchpoint</th>
+              <th>Champion</th>
+              <th>Last Signal</th>
             </tr>
           </thead>
           <tbody>
@@ -109,6 +116,7 @@ export function CompaniesPage() {
                   <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
                   <div className="table-helper">{company.segment} · {company.subsegment}</div>
                 </td>
+                <td><WatchListStar companyId={company.id} companyName={company.name} /></td>
                 <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
                 <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
                 <td>
