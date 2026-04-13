@@ -8,6 +8,7 @@ import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
+import { createWatchlistRouter } from './routes/watchlistRouter.js';
 import { AbaService } from './services/abaService.js';
 import { PlatformService } from './services/platformService.js';
 import { SearchProfileCaptureService } from './services/searchProfileCaptureService.js';
@@ -61,6 +62,7 @@ app.post('/auth/login', wrap(async (req, res) => {
 app.use(authMiddleware);
 app.use('/ai', createAiRouter(service));
 app.use('/abm', createAbmWarRoomRouter());
+app.use('/watchlists', createWatchlistRouter(repository));
 
 app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
