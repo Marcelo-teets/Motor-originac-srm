@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Card, DataStatusBanner, KeyValueList, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
+import { WatchListStar } from '../components/WatchListStar';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AbmObjection, AbmStakeholder, AbmTouchpoint, CompanyDetail, PipelineStage, PreCallBriefing, PreMortem, TaskRecord } from '../lib/types';
@@ -117,7 +118,7 @@ export function CompanyDetailPage() {
         eyebrow="Company Detail"
         title={detail.company.name}
         description="Tela reorganizada como memo de crédito em forma de app: hierarquia executiva, recomendação clara, sinais, monitoramento e pipeline em uma leitura única."
-        actions={<button type="button" onClick={() => void handleRecalculate()}>Recalcular scores</button>}
+        actions={<div className="pill-row"><WatchListStar companyId={id} companyName={detail.company.name} /><button type="button" onClick={() => void handleRecalculate()}>Recalcular scores</button></div>}
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
