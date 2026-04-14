@@ -19,6 +19,42 @@ export type ActivityStatus = 'open' | 'done' | 'cancelled';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
 
+export type WatchList = {
+  id: string;
+  name: string;
+  description?: string;
+  isShared: boolean;
+  itemCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WatchListItem = {
+  id: string;
+  watchlistId: string;
+  companyId: string;
+  companyName?: string;
+  addedBy?: string;
+  priorityLabel?: string;
+  notes?: string;
+  addedAt: string;
+  qualificationScore?: number;
+  leadScore?: number;
+  suggestedStructure?: string;
+  topPattern?: string;
+  triggerStrength?: number;
+};
+
+export type WatchListUpdate = {
+  watchlistId: string;
+  companyId: string;
+  companyName: string;
+  updateType: string;
+  summary: string;
+  delta?: number;
+  observedAt: string;
+};
+
 export type Dashboard = {
   summary: Array<{ label: string; value: string; tone: string; helper: string }>;
   topLeads: Array<{ companyId: string; companyName: string; qualificationScore: number; leadScore: number; triggerStrength: number; suggestedStructure: string; bucket: string; rankingScore?: number }>;
@@ -101,8 +137,6 @@ export type CompanyDetail = {
   monitoringOutputs: Array<{ id: string; sourceId: string; title: string; summary: string; confidenceScore: number; connectorStatus: string; collectedAt: string }>;
 };
 
-
-
 export type AbmStakeholder = {
   id: string;
   company_id: string;
@@ -166,7 +200,6 @@ export type PreMortem = {
   companyId: string;
   risks: Array<{ risk: string; evidence: string; mitigation: string }>;
 };
-
 
 export type MvpQuickAction = {
   id: string;

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
+import { WatchListWidget } from '../components/WatchListWidget';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
@@ -95,6 +96,8 @@ export function DashboardPage() {
           </table>
         </Card>
 
+
+        <WatchListWidget />
 
         <Card title="ABM War Room" subtitle="Top contas da semana e pendências comerciais críticas" actions={<Pill tone="warning">novo</Pill>}>
           <ul className="list compact-list">

@@ -10,6 +10,7 @@ import { MonitoringPage } from './pages/MonitoringPage';
 import { PipelinePage } from './pages/PipelinePage';
 import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
+import { WatchListPage } from './pages/WatchListPage';
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="companies/:id" element={<CompanyDetailPage />} />
+        <Route path="watch-lists" element={<WatchListPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
