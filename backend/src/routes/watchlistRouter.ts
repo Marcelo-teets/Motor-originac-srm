@@ -27,6 +27,19 @@ const ok = (data: unknown) => ({ status: 'real' as const, generatedAt: new Date(
 const fail = (code: number, error: string) => ({ statusCode: code, error });
 const p = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
 
+const withClientFallback = async <T>(
+  operation: (client: NonNullable<ReturnType<typeof getSupabaseClient>>) => Promise<T>,
+  fallback: () => Promise<T> | T,
+): Promise<T> => {
+  const client = getSupabaseClient();
+  if (!client) return await fallback();
+  try {
+    return await operation(client);
+  } catch {
+    return await fallback();
+  }
+};
+
 const memory = {
   watchlists: [] as WatchList[],
   items: [] as WatchListItem[],
@@ -57,20 +70,18 @@ const mapWatchListItem = (row: any): WatchListItem => ({
 export const createWatchlistRouter = (repository: any) => {
   const router = Router();
 
-  router.get('/', async (req, res) => {
+  router.get('/', async (_req, res) => {
     try {
-      const client = getSupabaseClient();
-      if (!client) {
-        return res.json(ok(memory.watchlists.map((wl) => ({ ...wl, itemCount: memory.items.filter((item) => item.watchlistId === wl.id).length }))));
-      }
-
-      const [rows, items] = await Promise.all([
-        client.select('watchlists', { select: '*', orderBy: { column: 'created_at', ascending: false } }),
-        client.select('watchlist_items', { select: 'watchlist_id' }),
-      ]);
-      const counts = new Map<string, number>();
-      (items ?? []).forEach((row: any) => counts.set(row.watchlist_id, (counts.get(row.watchlist_id) ?? 0) + 1));
-      res.json(ok((rows ?? []).map((row: any) => mapWatchList(row, counts.get(row.id) ?? 0))));
+      const lists = await withClientFallback(async (client) => {
+        const [rows, items] = await Promise.all([
+          client.select('watchlists', { select: '*', orderBy: { column: 'created_at', ascending: false } }),
+          client.select('watchlist_items', { select: 'watchlist_id' }),
+        ]);
+        const counts = new Map<string, number>();
+        (items ?? []).forEach((row: any) => counts.set(row.watchlist_id, (counts.get(row.watchlist_id) ?? 0) + 1));
+        return (rows ?? []).map((row: any) => mapWatchList(row, counts.get(row.id) ?? 0));
+      }, () => memory.watchlists.map((wl) => ({ ...wl, itemCount: memory.items.filter((item) => item.watchlistId === wl.id).length })));
+      res.json(ok(lists));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao listar watch lists.'));
     }
@@ -84,8 +95,16 @@ export const createWatchlistRouter = (repository: any) => {
       const isShared = Boolean(req.body?.isShared);
       if (!name) return res.status(400).json(fail(400, 'name é obrigatório'));
 
-      const client = getSupabaseClient();
-      if (!client) {
+      const created = await withClientFallback(async (client) => {
+        const now = new Date().toISOString();
+        let inserted: any[] = [];
+        try {
+          inserted = await client.insert('watchlists', [{ name, description: description || null, is_shared: isShared, created_by: userId ?? null, created_at: now, updated_at: now }]);
+        } catch {
+          inserted = await client.insert('watchlists', [{ name, description: description || null, is_shared: isShared, created_by: null, created_at: now, updated_at: now }]);
+        }
+        return mapWatchList(inserted[0], 0);
+      }, () => {
         const now = new Date().toISOString();
         const watchList: WatchList = {
           id: crypto.randomUUID(),
@@ -98,17 +117,9 @@ export const createWatchlistRouter = (repository: any) => {
           updatedAt: now,
         };
         memory.watchlists.unshift(watchList);
-        return res.status(201).json(ok(watchList));
-      }
-
-      const now = new Date().toISOString();
-      let inserted: any[] = [];
-      try {
-        inserted = await client.insert('watchlists', [{ name, description: description || null, is_shared: isShared, created_by: userId ?? null, created_at: now, updated_at: now }]);
-      } catch {
-        inserted = await client.insert('watchlists', [{ name, description: description || null, is_shared: isShared, created_by: null, created_at: now, updated_at: now }]);
-      }
-      res.status(201).json(ok(mapWatchList(inserted[0], 0)));
+        return watchList;
+      });
+      res.status(201).json(ok(created));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao criar watch list.'));
     }
@@ -168,16 +179,17 @@ export const createWatchlistRouter = (repository: any) => {
   router.get('/company/:companyId', async (req, res) => {
     try {
       const companyId = p(req.params.companyId);
-      const client = getSupabaseClient();
-      if (!client) {
+      const companyLists = await withClientFallback(async (client) => {
+        const links = await client.select('watchlist_items', { select: 'watchlist_id', filters: [{ column: 'company_id', operator: 'eq', value: companyId }] });
+        const ids = [...new Set((links ?? []).map((row: any) => row.watchlist_id))];
+        if (!ids.length) return [] as WatchList[];
+        const rows = await client.select('watchlists', { select: '*', filters: [{ column: 'id', operator: 'in', value: ids }] });
+        return (rows ?? []).map((row: any) => mapWatchList(row));
+      }, () => {
         const watchlistIds = new Set(memory.items.filter((item) => item.companyId === companyId).map((item) => item.watchlistId));
-        return res.json(ok(memory.watchlists.filter((item) => watchlistIds.has(item.id))));
-      }
-      const links = await client.select('watchlist_items', { select: 'watchlist_id', filters: [{ column: 'company_id', operator: 'eq', value: companyId }] });
-      const ids = [...new Set((links ?? []).map((row: any) => row.watchlist_id))];
-      if (!ids.length) return res.json(ok([]));
-      const rows = await client.select('watchlists', { select: '*', filters: [{ column: 'id', operator: 'in', value: ids }] });
-      res.json(ok((rows ?? []).map((row: any) => mapWatchList(row))));
+        return memory.watchlists.filter((item) => watchlistIds.has(item.id));
+      });
+      res.json(ok(companyLists));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao listar listas da empresa.'));
     }
@@ -188,12 +200,11 @@ export const createWatchlistRouter = (repository: any) => {
       const watchlistId = p(req.params.id);
       const companies = await repository.listCompanies();
       const companyNames = new Map((companies ?? []).map((company: any) => [company.id, company.tradeName ?? company.name ?? company.id]));
-      const client = getSupabaseClient();
-      if (!client) {
-        return res.json(ok(memory.items.filter((item) => item.watchlistId === watchlistId).map((item) => ({ ...item, companyName: companyNames.get(item.companyId) ?? item.companyId }))));
-      }
-      const rows = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }], orderBy: { column: 'added_at', ascending: false } });
-      res.json(ok((rows ?? []).map((row: any) => ({ ...mapWatchListItem(row), companyName: companyNames.get(row.company_id) ?? row.company_id }))));
+      const listItems = await withClientFallback(async (client) => {
+        const rows = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }], orderBy: { column: 'added_at', ascending: false } });
+        return (rows ?? []).map((row: any) => ({ ...mapWatchListItem(row), companyName: companyNames.get(row.company_id) ?? row.company_id }));
+      }, () => memory.items.filter((item) => item.watchlistId === watchlistId).map((item) => ({ ...item, companyName: companyNames.get(item.companyId) ?? item.companyId })));
+      res.json(ok(listItems));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao listar empresas da watch list.'));
     }
@@ -208,25 +219,25 @@ export const createWatchlistRouter = (repository: any) => {
       const userId = (req as any).authUser?.id;
       if (!companyId) return res.status(400).json(fail(400, 'companyId é obrigatório'));
 
-      const client = getSupabaseClient();
-      if (!client) {
+      const createdItem = await withClientFallback(async (client) => {
+        const existing = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }], limit: 1 });
+        if (existing?.length) return mapWatchListItem(existing[0]);
+
+        let inserted: any[] = [];
+        try {
+          inserted = await client.insert('watchlist_items', [{ watchlist_id: watchlistId, company_id: companyId, added_by: userId ?? null, priority_label: priorityLabel, notes }]);
+        } catch {
+          inserted = await client.insert('watchlist_items', [{ watchlist_id: watchlistId, company_id: companyId, added_by: null, priority_label: priorityLabel, notes }]);
+        }
+        return mapWatchListItem(inserted[0]);
+      }, () => {
         const existing = memory.items.find((item) => item.watchlistId === watchlistId && item.companyId === companyId);
-        if (existing) return res.status(201).json(ok(existing));
+        if (existing) return existing;
         const item: WatchListItem = { id: crypto.randomUUID(), watchlistId, companyId, addedBy: userId, priorityLabel: priorityLabel ?? undefined, notes: notes ?? undefined, addedAt: new Date().toISOString() };
         memory.items.unshift(item);
-        return res.status(201).json(ok(item));
-      }
-
-      const existing = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }], limit: 1 });
-      if (existing?.length) return res.status(201).json(ok(mapWatchListItem(existing[0])));
-
-      let inserted: any[] = [];
-      try {
-        inserted = await client.insert('watchlist_items', [{ watchlist_id: watchlistId, company_id: companyId, added_by: userId ?? null, priority_label: priorityLabel, notes }]);
-      } catch {
-        inserted = await client.insert('watchlist_items', [{ watchlist_id: watchlistId, company_id: companyId, added_by: null, priority_label: priorityLabel, notes }]);
-      }
-      res.status(201).json(ok(mapWatchListItem(inserted[0])));
+        return item;
+      });
+      res.status(201).json(ok(createdItem));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao adicionar empresa na watch list.'));
     }
@@ -236,14 +247,13 @@ export const createWatchlistRouter = (repository: any) => {
     try {
       const watchlistId = p(req.params.id);
       const companyId = p(req.params.companyId);
-      const client = getSupabaseClient();
-      if (!client) {
+      await withClientFallback(async (client) => {
+        await client.delete('watchlist_items', [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }]);
+      }, () => {
         const before = memory.items.length;
         memory.items = memory.items.filter((item) => !(item.watchlistId === watchlistId && item.companyId === companyId));
-        if (memory.items.length === before) return res.status(404).json(fail(404, 'Item não encontrado.'));
-        return res.json(ok({ removed: true }));
-      }
-      await client.delete('watchlist_items', [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }]);
+        if (memory.items.length === before) throw new Error('Item não encontrado.');
+      });
       res.json(ok({ removed: true }));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao remover empresa da watch list.'));
@@ -253,12 +263,10 @@ export const createWatchlistRouter = (repository: any) => {
   router.get('/:id/updates', async (req, res) => {
     try {
       const watchlistId = p(req.params.id);
-      const items = getSupabaseClient()
-        ? await (async () => {
-            const rows = await getSupabaseClient()!.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }] });
-            return (rows ?? []).map((row: any) => mapWatchListItem(row));
-          })()
-        : memory.items.filter((item) => item.watchlistId === watchlistId);
+      const items = await withClientFallback(async (client) => {
+        const rows = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }] });
+        return (rows ?? []).map((row: any) => mapWatchListItem(row));
+      }, () => memory.items.filter((item) => item.watchlistId === watchlistId));
 
       const companyIds = new Set(items.map((item) => item.companyId));
       const [signals, scores, companies] = await Promise.all([
