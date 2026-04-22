@@ -304,11 +304,9 @@ app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid stage: ${stage}`));
     return;
   }
-  const moved = await service.movePipelineStage(param(req.params.id), stage);
-  if (!moved) {
-    res.status(404).json(fail(404, 'Pipeline row not found for company.'));
-    return;
-  }
+  const companyId = param(req.params.id);
+  const moved = await service.movePipelineStage(companyId, stage)
+    ?? await repository.savePipelineRow({ companyId, stage, owner: 'Unknown', nextAction: '' });
   res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: moved }));
 }));
 app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
@@ -317,11 +315,9 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
     res.status(400).json(fail(400, 'nextAction is required.'));
     return;
   }
-  const updated = await service.updateNextAction(param(req.params.id), nextAction);
-  if (!updated) {
-    res.status(404).json(fail(404, 'Pipeline row not found for company.'));
-    return;
-  }
+  const companyId = param(req.params.id);
+  const updated = await service.updateNextAction(companyId, nextAction)
+    ?? await repository.savePipelineRow({ companyId, stage: 'Identified', owner: 'Unknown', nextAction });
   res.json(ok(crmRuntimeMode, { mode: crmRuntimeMode, row: updated }));
 }));
 app.get('/pipeline/snapshot', wrap(async (_req, res) => {
