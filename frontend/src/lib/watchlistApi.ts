@@ -1,7 +1,6 @@
+import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 import type { WatchList, WatchListItem, WatchListUpdate } from './watchlistTypes';
-
-const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
 type ApiEnvelope<T> = {
   status: 'real' | 'partial' | 'mock';
@@ -23,7 +22,7 @@ const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
 };
 
 async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
-  const response = await fetch(apiUrl + path, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers: {
       'Content-Type': 'application/json',
