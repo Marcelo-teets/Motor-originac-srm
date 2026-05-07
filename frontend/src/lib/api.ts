@@ -26,8 +26,7 @@ import type {
   SourceEntry,
   TaskRecord,
 } from './types';
-
-const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+import { buildApiUrl } from './runtimeConfig';
 
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
@@ -36,7 +35,7 @@ const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
 };
 
 async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -57,7 +56,7 @@ const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
 
 export const api = {
   login: async (email: string, password: string) => {
-    const response = await fetch(`${apiUrl}/auth/login`, {
+    const response = await fetch(buildApiUrl('/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
