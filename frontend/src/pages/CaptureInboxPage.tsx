@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, DataStatusBanner, PageIntro, Pill, Stat } from '../components/UI';
 import { useAuth } from '../lib/auth';
-
-const apiUrl = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+import { buildApiUrl } from '../lib/runtimeConfig';
 
 type SearchProfileRun = {
   id: string;
@@ -48,8 +47,8 @@ export function CaptureInboxPage() {
     try {
       setLoading(true);
       const [runsResponse, candidatesResponse] = await Promise.all([
-        fetch(`${apiUrl}/search-profile-runs`, { headers }),
-        fetch(`${apiUrl}/discovered-candidates`, { headers }),
+        fetch(buildApiUrl('/search-profile-runs'), { headers }),
+        fetch(buildApiUrl('/discovered-candidates'), { headers }),
       ]);
 
       const runsPayload = await runsResponse.json();
@@ -72,7 +71,7 @@ export function CaptureInboxPage() {
   const handlePromote = async (candidateId: string) => {
     try {
       setPromotingId(candidateId);
-      const response = await fetch(`${apiUrl}/discovered-candidates/${candidateId}/promote`, {
+      const response = await fetch(buildApiUrl(`/discovered-candidates/${candidateId}/promote`), {
         method: 'POST',
         headers,
       });
