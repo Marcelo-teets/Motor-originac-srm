@@ -470,6 +470,15 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   persistence: platformMode,
 }))));
 
-app.listen(env.port, () => {
-  console.log(`Motor backend listening on http://localhost:${env.port}`);
-});
+// ── Exportação para Vercel serverless ──────────────────────────────────────
+export { app };
+
+// ── Servidor local (desenvolvimento apenas) ────────────────────────────────
+// Em produção no Vercel, VERCEL=1 é setado automaticamente pelo runtime.
+if (!process.env.VERCEL) {
+  const port = env.port ?? 4000;
+  app.listen(port, () => {
+    console.log(`[motor-backend] listening on http://localhost:${port}`);
+    console.log(`[motor-backend] mode: ${platformMode} | supabase: ${env.useSupabase}`);
+  });
+}
