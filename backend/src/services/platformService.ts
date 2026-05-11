@@ -1,6 +1,7 @@
 import { agentDefinitions } from '../modules/agents.js';
 import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { PIPELINE_STAGES } from '../lib/crm.js';
+import { env } from '../lib/env.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
@@ -257,11 +258,11 @@ export class PlatformService {
     const latestScores = latestByCompany(scoreSnapshots.filter((item) => item.scoreType === 'qualification'));
     const patternByCompany = groupByCompany(companyPatterns);
     const outputsByCompany = groupByCompany(monitoringOutputs);
-    const theses = companies.map((company) => {
+    const thesisByCompany = new Map(companies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
       const patterns = patternByCompany.get(company.id) ?? [];
-      return buildThesisOutput(company, qualification, patterns);
-    });
+      return [company.id, buildThesisOutput(company, qualification, patterns)] as const;
+    }));
 
     const rankingRows = companies
       .map((company) => buildRankingRow({
@@ -277,7 +278,7 @@ export class PlatformService {
     const companyViews = companies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
       const lead = latestLeads.get(company.id)!;
-      const thesis = theses.find((item) => item.summary.includes(company.tradeName))!;
+      const thesis = thesisByCompany.get(company.id)!;
       const patterns = (patternByCompany.get(company.id) ?? []).slice(0, 3).map((item) => item.patternName);
       return {
         id: company.id,
@@ -307,7 +308,7 @@ export class PlatformService {
       companyViews,
       qualifications: latestQualifications,
       patterns: patternByCompany,
-      theses,
+      thesisByCompany,
       leadScores: latestLeads,
       rankingRows,
       sources,
@@ -372,7 +373,7 @@ export class PlatformService {
   }
 
   async getCompanyDetail(id: string): Promise<CompanyDetailView | null> {
-    const { companies, companyViews, qualifications, patterns, theses, leadScores, rankingRows, sources, monitoringOutputs, scoreSnapshots, leadScoreSnapshots } = await this.assembleViews();
+    const { companies, companyViews, qualifications, patterns, thesisByCompany, leadScores, rankingRows, sources, monitoringOutputs, scoreSnapshots, leadScoreSnapshots } = await this.assembleViews();
     const companySeed = companies.find((item) => item.id === id);
     const company = companyViews.find((item) => item.id === id);
     const qualification = qualifications.get(id);
@@ -410,7 +411,7 @@ export class PlatformService {
         pattern_summary: (patterns.get(id) ?? []).map((item) => item.patternName),
       },
       patterns: patterns.get(id) ?? [],
-      thesis: theses.find((item) => item.summary.includes(companySeed.tradeName))!,
+      thesis: thesisByCompany.get(id) ?? buildThesisOutput(companySeed, qualification, patterns.get(id) ?? []),
       marketMap: companySeed.marketMapPeers,
       monitoring: companySeed.monitoring,
       signals: companySeed.signals,
@@ -582,7 +583,7 @@ export class PlatformService {
         status: activity.status,
       }));
 
-    return { mode: 'real' as const, rows, stages, recentActivities };
+    return { mode: (env.useSupabase ? 'real' : 'mock') as const, rows, stages, recentActivities };
   }
 
   async listPipelineStages() {
