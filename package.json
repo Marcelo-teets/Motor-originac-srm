@@ -7,11 +7,11 @@
     "backend"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace backend",
-    "dev:frontend": "npm run dev --workspace frontend",
-    "dev:backend": "npm run dev --workspace backend",
-    "build": "npm run build --workspace backend && npm run build --workspace frontend",
-    "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
-    "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend"
+    "dev": "npm run dev --workspace @motor/backend",
+    "dev:frontend": "npm run dev --workspace @motor/frontend",
+    "dev:backend": "npm run dev --workspace @motor/backend",
+    "build": "npm run build --workspace @motor/backend && npm run build --workspace @motor/frontend",
+    "lint": "npm run lint --workspace @motor/backend && npm run lint --workspace @motor/frontend",
+    "typecheck": "npm run typecheck --workspace @motor/backend && npm run typecheck --workspace @motor/frontend"
   }
 }
