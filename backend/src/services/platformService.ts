@@ -583,7 +583,7 @@ export class PlatformService {
         status: activity.status,
       }));
 
-    return { mode: (env.useSupabase ? 'real' : 'mock') as const, rows, stages, recentActivities };
+    return { mode: env.useSupabase ? 'real' : 'mock', rows, stages, recentActivities };
   }
 
   async listPipelineStages() {
