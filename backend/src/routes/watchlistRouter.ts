@@ -194,7 +194,7 @@ export const createWatchlistRouter = (repository: any) => {
         const links = await client.select('watchlist_items', { select: 'watchlist_id', filters: [{ column: 'company_id', operator: 'eq', value: companyId }] });
         const ids = [...new Set((links ?? []).map((row: any) => row.watchlist_id))];
         if (!ids.length) return [] as WatchList[];
-        const rows = await client.select('watchlists', { select: '*', filters: [{ column: 'id', operator: 'in', value: ids }] });
+        const rows = await client.select('watchlists', { select: '*', filters: [{ column: 'id', operator: 'in', value: ids as (string | number)[] }] });
         return (rows ?? []).map((row: any) => mapWatchList(row));
       }, () => {
         const watchlistIds = new Set(memory.items.filter((item) => item.companyId === companyId).map((item) => item.watchlistId));
