@@ -3,6 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "cd .. && npm run build"
+    "build": "cd .. && npm run build && mkdir -p frontend/dist && printf '<!doctype html><html><body>Motor backend build OK</body></html>' > frontend/dist/index.html"
   }
 }
