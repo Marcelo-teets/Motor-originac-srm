@@ -1,4 +1,4 @@
-export type ScraperConnectorStatus = 'real' | 'partial' | 'mock';
+export type ScraperConnectorStatus = 'real' | 'partial';
 
 export type ScrapedPage = {
   url: string;
