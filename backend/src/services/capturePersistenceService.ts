@@ -16,16 +16,29 @@ const pickString = (...values: unknown[]) => {
   return undefined;
 };
 
+const firstItemLink = (value: unknown) => {
+  if (!Array.isArray(value)) return undefined;
+  const first = value[0];
+  if (!first || typeof first !== 'object') return undefined;
+  return pickString((first as Record<string, unknown>).link, (first as Record<string, unknown>).url);
+};
+
+const evidenceArrayText = (value: unknown) => {
+  if (!Array.isArray(value)) return undefined;
+  const text = value.map((item) => String(item)).filter(Boolean).join(' | ');
+  return text || undefined;
+};
+
 const sourceUrlFromOutput = (output: MonitoringOutput) => pickString(
   output.normalizedPayload?.sourceUrl,
   output.normalizedPayload?.endpoint,
-  Array.isArray(output.normalizedPayload?.items) ? (output.normalizedPayload.items[0] as any)?.link : undefined,
+  firstItemLink(output.normalizedPayload?.items),
 );
 
 const signalEvidenceText = (signal: CompanySignal) => pickString(
   signal.evidencePayload?.note,
   signal.evidencePayload?.summary,
-  Array.isArray(signal.evidencePayload?.evidence) ? signal.evidencePayload.evidence.join(' | ') : undefined,
+  evidenceArrayText(signal.evidencePayload?.evidence),
   signal.signalType,
 ) ?? signal.signalType;
 
