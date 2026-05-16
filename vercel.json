@@ -10,6 +10,12 @@
       "memory": 512
     }
   },
+  "crons": [
+    {
+      "path": "/api/data-capture/cron/run",
+      "schedule": "0 */6 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",
