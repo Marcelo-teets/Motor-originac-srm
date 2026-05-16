@@ -87,6 +87,7 @@ export type SearchProfileFilter = {
 export type SourceCatalogEntry = {
   id: string;
   name: string;
+  url?: string;
   sourceType: string;
   category: string;
   status: ApiStatus | 'planned';
