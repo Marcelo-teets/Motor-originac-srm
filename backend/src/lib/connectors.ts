@@ -4,12 +4,44 @@ const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/
 const nowIso = () => new Date().toISOString();
 const toConfidence = (status: 'real' | 'partial') => (status === 'real' ? 0.82 : 0.45);
 
-const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceScore: number) => ({
+const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceScore: number, sourceCode: string) => ({
   sourceUrl,
   collectedAt,
   timestamp: collectedAt,
   confidenceScore,
+  sourceCode,
 });
+
+const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+export const inferSourceCode = (source: SourceCatalogEntry) => {
+  const explicit = typeof source.metadata?.code === 'string' ? source.metadata.code : undefined;
+  if (explicit) return explicit;
+
+  const name = normalizeText(source.name ?? '');
+  const category = normalizeText(source.category ?? '');
+  const tags = Array.isArray(source.metadata?.tags) ? source.metadata.tags.map((tag) => normalizeText(String(tag))).join(' ') : '';
+  const blob = `${name} ${category} ${tags}`;
+
+  if (blob.includes('company websites') || blob.includes('site_empresa') || blob.includes('company_site')) return 'src_company_website';
+  if (blob.includes('receita') || blob.includes('cnpj')) return 'src_brasilapi_cnpj';
+  if (blob.includes('cvm') || blob.includes('fidc')) return 'src_cvm_rss';
+  if (blob.includes('pipeline valor') || blob.includes('brazil journal') || blob.includes('capital')) return 'src_valor_rss';
+  if (blob.includes('startup') || blob.includes('fintech') || blob.includes('noticia') || blob.includes('credito')) return 'src_google_news_rss';
+  return `src_${name.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || source.id}`;
+};
+
+type RuntimeSource = SourceCatalogEntry & { runtimeCode: string };
+
+const buildRuntimeSources = (sources: SourceCatalogEntry[]) => sources
+  .filter((source) => source.status !== 'planned')
+  .map((source) => ({ ...source, runtimeCode: inferSourceCode(source) } satisfies RuntimeSource));
+
+const firstSource = (sources: RuntimeSource[], code: string) => sources.find((source) => source.runtimeCode === code);
+
+const sourceUrlFor = (source: RuntimeSource | undefined, fallback: string) => typeof source?.metadata?.feedUrl === 'string'
+  ? source.metadata.feedUrl
+  : source?.url || fallback;
 
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
@@ -77,28 +109,54 @@ const signalStrengthFromText = (text: string) => {
 
 const buildSignal = (
   company: CompanySeed,
-  sourceId: string,
+  source: RuntimeSource,
   idSuffix: string,
   text: string,
   collectedAt: string,
   status: 'real' | 'partial',
   sourceUrl: string,
 ): CompanySignal => ({
-  id: `${company.id}_${sourceId}_${idSuffix}`,
+  id: crypto.randomUUID(),
   companyId: company.id,
-  sourceId,
+  sourceId: source.id,
   signalType: deriveSignalType(text),
   signalStrength: signalStrengthFromText(text),
   confidenceScore: toConfidence(status),
-  evidencePayload: { note: text, source: sourceId, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status) },
+  evidencePayload: { note: text, source: source.id, sourceCode: source.runtimeCode, sourceName: source.name, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status), idSuffix },
   observedVsInferred: 'observed',
   createdAt: collectedAt,
 });
 
-const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, any>, collectedAt: string, sourceUrl: string): EnrichmentRecord => {
+const buildOutput = (
+  company: CompanySeed,
+  source: RuntimeSource,
+  title: string,
+  summary: string,
+  collectedAt: string,
+  status: 'real' | 'partial',
+  confidenceScore: number,
+  payload: Record<string, unknown>,
+): MonitoringOutput => ({
+  id: crypto.randomUUID(),
+  companyId: company.id,
+  sourceId: source.id,
+  title,
+  summary,
+  collectedAt,
+  confidenceScore,
+  connectorStatus: status,
+  normalizedPayload: {
+    ...payload,
+    sourceCode: source.runtimeCode,
+    sourceName: source.name,
+    sourceCategory: source.category,
+  },
+});
+
+const buildBrasilApiEnrichment = (company: CompanySeed, source: RuntimeSource, payload: Record<string, any>, collectedAt: string, sourceUrl: string): EnrichmentRecord => {
   const sourceConfidence = payload.fallback ? 0.52 : 0.84;
   return {
-    id: `${company.id}_enrichment_brasilapi`,
+    id: crypto.randomUUID(),
     companyId: company.id,
     enrichmentType: 'brasilapi_cnpj',
     provider: 'BrasilAPI',
@@ -112,6 +170,8 @@ const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, 
       concentrationRisk: company.enrichment.concentrationRisk,
       delinquencySignal: company.enrichment.delinquencySignal,
       sourceConfidence,
+      sourceId: source.id,
+      sourceCode: source.runtimeCode,
       sourceNotes: [
         `CNPJ consultado via BrasilAPI (${payload.razao_social ?? company.tradeName}).`,
         payload.capital_social ? `Capital social público: ${payload.capital_social}.` : 'Capital social não disponível publicamente.',
@@ -127,95 +187,93 @@ const buildBrasilApiEnrichment = (company: CompanySeed, payload: Record<string, 
 
 export async function ingestCompanyMonitoring(company: CompanySeed, sources: SourceCatalogEntry[]) {
   const collectedAt = nowIso();
-  const enabledSourceIds = new Set(sources.map((item) => item.id));
-  const hasSource = (sourceId: string) => enabledSourceIds.has(sourceId);
+  const runtimeSources = buildRuntimeSources(sources);
+  const websiteSource = firstSource(runtimeSources, 'src_company_website');
+  const brasilApiSource = firstSource(runtimeSources, 'src_brasilapi_cnpj');
+  const cvmSource = firstSource(runtimeSources, 'src_cvm_rss');
+  const valorSource = firstSource(runtimeSources, 'src_valor_rss');
+  const googleNewsSource = firstSource(runtimeSources, 'src_google_news_rss');
 
   const rssSources = [
-    { id: 'src_google_news_rss', url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName)}` },
-    { id: 'src_cvm_rss', url: 'https://www.gov.br/cvm/pt-br/assuntos/noticias/rss' },
-    { id: 'src_valor_rss', url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName + ' funding OR crédito')}&hl=pt-BR&gl=BR&ceid=BR:pt-419` },
-  ].filter((source) => hasSource(source.id));
+    googleNewsSource ? { source: googleNewsSource, url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName)}&hl=pt-BR&gl=BR&ceid=BR:pt-419` } : null,
+    cvmSource ? { source: cvmSource, url: sourceUrlFor(cvmSource, 'https://www.gov.br/cvm/pt-br/assuntos/noticias/rss') } : null,
+    valorSource ? { source: valorSource, url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName + ' funding OR crédito OR FIDC OR debênture')}&hl=pt-BR&gl=BR&ceid=BR:pt-419` } : null,
+  ].filter((item): item is { source: RuntimeSource; url: string } => Boolean(item));
 
   const [website, brasilApi, ...rssResults] = await Promise.all([
-    hasSource('src_company_website') ? monitorCompanyWebsite(company.website) : Promise.resolve(null),
-    hasSource('src_brasilapi_cnpj') ? fetchBrasilApiCompany(company.cnpj) : Promise.resolve(null),
+    websiteSource ? monitorCompanyWebsite(company.website) : Promise.resolve(null),
+    brasilApiSource ? fetchBrasilApiCompany(company.cnpj) : Promise.resolve(null),
     ...rssSources.map((source) => fetchRssFeed(source.url)),
   ]);
 
   const outputs: MonitoringOutput[] = [
-    ...(website ? [{
-      id: `${company.id}_website`,
-      companyId: company.id,
-      sourceId: 'src_company_website',
-      title: `Website monitor · ${website.title}`,
-      summary: website.headings.join(' | ') || website.bodyText.slice(0, 180) || 'Sem conteúdo capturado.',
+    ...(website && websiteSource ? [buildOutput(
+      company,
+      websiteSource,
+      `Website monitor · ${website.title}`,
+      website.headings.join(' | ') || website.bodyText.slice(0, 180) || 'Sem conteúdo capturado.',
       collectedAt,
-      confidenceScore: website.status === 'real' ? 0.74 : 0.42,
-      connectorStatus: website.status,
-      normalizedPayload: {
-        ...website,
-        ...connectorMetadata(website.sourceUrl, collectedAt, website.status === 'real' ? 0.74 : 0.42),
-      },
-    }] : []),
-    ...(brasilApi ? [{
-      id: `${company.id}_brasilapi`,
-      companyId: company.id,
-      sourceId: 'src_brasilapi_cnpj',
-      title: `BrasilAPI CNPJ · ${company.tradeName}`,
-      summary: brasilApi.data.razao_social ? `${brasilApi.data.razao_social} · ${brasilApi.data.descricao_situacao_cadastral ?? 'situação consultada'}` : `Consulta ${brasilApi.status} para ${company.cnpj}`,
+      website.status,
+      website.status === 'real' ? 0.74 : 0.42,
+      { ...website, ...connectorMetadata(website.sourceUrl, collectedAt, website.status === 'real' ? 0.74 : 0.42, websiteSource.runtimeCode) },
+    )] : []),
+    ...(brasilApi && brasilApiSource ? [buildOutput(
+      company,
+      brasilApiSource,
+      `BrasilAPI CNPJ · ${company.tradeName}`,
+      brasilApi.data.razao_social ? `${brasilApi.data.razao_social} · ${brasilApi.data.descricao_situacao_cadastral ?? 'situação consultada'}` : `Consulta ${brasilApi.status} para ${company.cnpj}`,
       collectedAt,
-      confidenceScore: brasilApi.status === 'real' ? 0.88 : 0.5,
-      connectorStatus: brasilApi.status,
-      normalizedPayload: {
-        payload: brasilApi.data as Record<string, unknown>,
-        endpoint: brasilApi.endpoint,
-        ...connectorMetadata(brasilApi.endpoint, collectedAt, brasilApi.status === 'real' ? 0.88 : 0.5),
-      },
-    }] : []),
-    ...rssResults.map((rss, index) => ({
-      id: `${company.id}_${rssSources[index].id}`,
-      companyId: company.id,
-      sourceId: rssSources[index].id,
-      title: `${rssSources[index].id} · ${company.tradeName}`,
-      summary: rss.items.map((item) => item.title).join(' | '),
-      collectedAt,
-      confidenceScore: rss.status === 'real' ? 0.7 : 0.4,
-      connectorStatus: rss.status,
-      normalizedPayload: {
-        items: rss.items,
-        ...connectorMetadata(rss.sourceUrl, collectedAt, rss.status === 'real' ? 0.7 : 0.4),
-      },
-    })),
+      brasilApi.status,
+      brasilApi.status === 'real' ? 0.88 : 0.5,
+      { payload: brasilApi.data as Record<string, unknown>, endpoint: brasilApi.endpoint, ...connectorMetadata(brasilApi.endpoint, collectedAt, brasilApi.status === 'real' ? 0.88 : 0.5, brasilApiSource.runtimeCode) },
+    )] : []),
+    ...rssResults.map((rss, index) => {
+      const runtime = rssSources[index];
+      return buildOutput(
+        company,
+        runtime.source,
+        `${runtime.source.name} · ${company.tradeName}`,
+        rss.items.map((item) => item.title).join(' | '),
+        collectedAt,
+        rss.status,
+        rss.status === 'real' ? 0.7 : 0.4,
+        { items: rss.items, ...connectorMetadata(rss.sourceUrl, collectedAt, rss.status === 'real' ? 0.7 : 0.4, runtime.source.runtimeCode) },
+      );
+    }),
   ];
 
   const signals: CompanySignal[] = [
-    ...(website ? [
-      buildSignal(
-        company,
-        'src_company_website',
-        'website',
-        website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`,
-        collectedAt,
-        website.status,
-        website.sourceUrl,
-      ),
-    ] : []),
-    ...(brasilApi ? [
-      buildSignal(
-        company,
-        'src_brasilapi_cnpj',
-        'brasilapi',
-        brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`,
-        collectedAt,
-        brasilApi.status,
-        brasilApi.endpoint,
-      ),
-    ] : []),
-    ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(company, rssSources[index].id, `rss_${itemIndex + 1}`, `${item.title}. ${item.description}`.trim(), collectedAt, rss.status, item.link || rss.sourceUrl))),
+    ...(website && websiteSource ? [buildSignal(
+      company,
+      websiteSource,
+      'website',
+      website.headings.join(' | ') || website.bodyText || `Website update ${company.tradeName}`,
+      collectedAt,
+      website.status,
+      website.sourceUrl,
+    )] : []),
+    ...(brasilApi && brasilApiSource ? [buildSignal(
+      company,
+      brasilApiSource,
+      'brasilapi',
+      brasilApi.data.porte ? `${brasilApi.data.porte} ${brasilApi.data.cnae_fiscal_descricao ?? ''}` : `Consulta cadastral ${company.tradeName}`,
+      collectedAt,
+      brasilApi.status,
+      brasilApi.endpoint,
+    )] : []),
+    ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(
+      company,
+      rssSources[index].source,
+      `rss_${itemIndex + 1}`,
+      `${item.title}. ${item.description}`.trim(),
+      collectedAt,
+      rss.status,
+      item.link || rss.sourceUrl,
+    ))),
   ];
 
-  const enrichments: EnrichmentRecord[] = brasilApi
-    ? [buildBrasilApiEnrichment(company, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)]
+  const enrichments: EnrichmentRecord[] = brasilApi && brasilApiSource
+    ? [buildBrasilApiEnrichment(company, brasilApiSource, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)]
     : [];
 
   return { outputs, signals, enrichments };

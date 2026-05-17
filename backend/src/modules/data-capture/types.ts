@@ -1,7 +1,7 @@
 import type { CompanySignal, EnrichmentRecord, MonitoringOutput } from '../../types/platform.js';
 
 export type CaptureScopeType = 'global' | 'company' | 'source' | 'backfill';
-export type CaptureTriggerType = 'manual' | 'scheduled' | 'orchestrated';
+export type CaptureTriggerType = 'manual' | 'scheduled' | 'cron' | 'orchestrated';
 export type CaptureRunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
 
 export type CaptureRunRequest = {
