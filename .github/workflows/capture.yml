@@ -1,9 +1,12 @@
 name: Capture Data
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/capture.yml
   schedule:
-    # Roda todos os dias às 08:00 UTC
-    # No horário de Brasília, normalmente equivale a 05:00.
     - cron: "0 8 * * *"
   workflow_dispatch: {}
 
@@ -15,14 +18,17 @@ jobs:
     steps:
       - name: Run data capture endpoint
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CAPTURE_TOKEN: ${{ secrets.CRON_SECRET }}
           CAPTURE_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/data-capture/run
         run: |
-          test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1)
-          test -n "$CAPTURE_URL" || (echo "CAPTURE_URL is missing" && exit 1)
+          test -n "$CAPTURE_TOKEN" || (echo "capture token is missing" && exit 1)
+          test -n "$CAPTURE_URL" || (echo "capture url is missing" && exit 1)
+
+          HEADER_NAME="Authorization"
+          HEADER_VALUE="Bearer ${CAPTURE_TOKEN}"
 
           RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" \
-            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "${HEADER_NAME}: ${HEADER_VALUE}" \
             "$CAPTURE_URL")
 
           echo "$RESPONSE"
