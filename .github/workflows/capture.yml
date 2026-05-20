@@ -1,0 +1,33 @@
+name: Capture Data
+
+on:
+  schedule:
+    # Roda todos os dias às 08:00 UTC
+    # No horário de Brasília, normalmente equivale a 05:00.
+    - cron: "0 8 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run_capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Run data capture endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1)
+
+          RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://motor-originac-srm-backend.vercel.app/api/data-capture/run)
+
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+            echo "Capture failed with status $STATUS"
+            exit 1
+          fi
