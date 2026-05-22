@@ -1,14 +1,13 @@
 name: Capture Data
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/capture.yml
   schedule:
     - cron: "0 8 * * *"
-  workflow_dispatch: {}
+       workflow_dispatch: {}
+    push:
+      branches:
+        - main
+
 
 jobs:
   run_capture:
@@ -37,4 +36,3 @@ jobs:
           fi
           echo "$BODY" | grep -q 'companiesProcessed' || (echo "Capture endpoint did not return the expected runtime payload" && exit 1)
           echo "$BODY" | grep -q 'persisted' || (echo "Capture endpoint did not return persistence summary" && exit 1)
-          # trigger: run workflow
