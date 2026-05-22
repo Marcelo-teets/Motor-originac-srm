@@ -43,3 +43,5 @@ jobs:
 
           echo "$BODY" | grep -q 'companiesProcessed' || (echo "Capture endpoint did not return the expected runtime payload" && exit 1)
           echo "$BODY" | grep -q 'persisted' || (echo "Capture endpoint did not return persistence summary" && exit 1)
+
+  # trigger: run workflow
