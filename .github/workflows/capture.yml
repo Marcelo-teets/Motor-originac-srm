@@ -23,25 +23,18 @@ jobs:
         run: |
           test -n "$CAPTURE_TOKEN" || (echo "capture token is missing" && exit 1)
           test -n "$CAPTURE_URL" || (echo "capture url is missing" && exit 1)
-
           HEADER_NAME="Authorization"
           HEADER_VALUE="Bearer ${CAPTURE_TOKEN}"
-
           RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" \
             -H "${HEADER_NAME}: ${HEADER_VALUE}" \
             "$CAPTURE_URL")
-
           echo "$RESPONSE"
-
           STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
-
           if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
             echo "Capture failed with status $STATUS"
             exit 1
           fi
-
           echo "$BODY" | grep -q 'companiesProcessed' || (echo "Capture endpoint did not return the expected runtime payload" && exit 1)
           echo "$BODY" | grep -q 'persisted' || (echo "Capture endpoint did not return persistence summary" && exit 1)
-
-  # trigger: run workflow
+          # trigger: run workflow
