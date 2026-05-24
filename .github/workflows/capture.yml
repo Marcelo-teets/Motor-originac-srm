@@ -19,7 +19,7 @@ jobs:
       - name: Run data capture endpoint
         env:
           CAPTURE_TOKEN: ${{ secrets.CRON_SECRET }}
-           CAPTURE_URL: https://motor-originac-srm-backend.vercel.app/api/data-capture/run
+          CAPTURE_URL: https://motor-originac-srm-backend.vercel.app/api/data-capture/run
         run: |
           test -n "$CAPTURE_TOKEN" || (echo "capture token is missing" && exit 1)
           test -n "$CAPTURE_URL" || (echo "capture url is missing" && exit 1)
