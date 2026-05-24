@@ -34,6 +34,13 @@ export type CaptureRunDiagnostics = {
   partialConnectors: number;
   corroboratedThemes: string[];
   averageConfidence: number;
+  treatment?: {
+    treatmentVersion: string;
+    highRelevanceOutputs: number;
+    treatmentGeneratedSignals: number;
+    suggestedStructures: string[];
+    dominantSignalFamilies: string[];
+  };
 };
 
 export type CaptureEngineResult = {
