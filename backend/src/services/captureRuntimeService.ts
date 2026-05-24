@@ -1,6 +1,7 @@
 import type { PlatformRepository } from '../repositories/platformRepository.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
 import { CapturePersistenceService } from './capturePersistenceService.js';
+import { CaptureDerivedSyncService } from './captureDerivedSyncService.js';
 
 export type CaptureRuntimeOptions = {
   companyId?: string;
@@ -12,13 +13,15 @@ export type CaptureRuntimeOptions = {
 export class CaptureRuntimeService {
   private readonly engine = new DataCaptureEngine();
   private readonly persistence = new CapturePersistenceService();
+  private readonly derivedSync = new CaptureDerivedSyncService();
 
   constructor(private readonly repository: PlatformRepository) {}
 
   async run(options: CaptureRuntimeOptions = {}) {
-    const [companies, sources] = await Promise.all([
+    const [companies, sources, patternCatalog] = await Promise.all([
       this.repository.listCompanies(),
       this.repository.listSources(),
+      this.repository.listPatternCatalog(),
     ]);
 
     const targetCompanies = options.companyId
@@ -36,7 +39,14 @@ export class CaptureRuntimeService {
       triggerType: options.triggerType ?? 'manual',
     }, targetCompanies, targetSources);
 
-    const persisted = await this.persistence.persist(captureResults, options.reason ?? options.triggerType ?? 'manual');
+    const reason = options.reason ?? options.triggerType ?? 'manual';
+    const persisted = await this.persistence.persist(captureResults, reason);
+    const derived = await this.derivedSync.sync({
+      companies: targetCompanies,
+      patternCatalog,
+      captureResults,
+      reason,
+    });
 
     return {
       requested: {
@@ -46,11 +56,14 @@ export class CaptureRuntimeService {
       },
       companiesAvailable: companies.length,
       sourcesAvailable: sources.length,
+      patternCatalogAvailable: patternCatalog.length,
       companiesProcessed: captureResults.length,
       outputsCollected: captureResults.reduce((sum, result) => sum + result.outputs.length, 0),
       signalsCollected: captureResults.reduce((sum, result) => sum + result.signals.length, 0),
+      enrichmentsCollected: captureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
       documentsCollected: captureResults.reduce((sum, result) => sum + result.documents.length, 0),
       persisted,
+      derived,
     };
   }
 }
