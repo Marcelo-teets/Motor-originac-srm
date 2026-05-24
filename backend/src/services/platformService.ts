@@ -1,4 +1,5 @@
 import { agentDefinitions } from '../modules/agents.js';
+import { treatCaptureOutputs } from '../modules/data-capture/captureTreatment.js';
 import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
@@ -104,11 +105,26 @@ export class PlatformService {
   async refreshMonitoring(companyId?: string) {
     const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
     const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
-    const ingestions = await Promise.all(targetCompanies.map((company) => ingestCompanyMonitoring(company, sources)));
+    const collectedAt = isoNow();
+    const ingestions = await Promise.all(targetCompanies.map(async (company) => {
+      const raw = await ingestCompanyMonitoring(company, sources);
+      const treatment = treatCaptureOutputs(company, raw.outputs, collectedAt);
+      return {
+        outputs: treatment.outputs,
+        signals: [...raw.signals, ...treatment.signals],
+        enrichments: [...raw.enrichments, ...treatment.enrichments],
+        diagnostics: treatment.diagnostics,
+      };
+    }));
     await this.repository.saveMonitoringOutputs(ingestions.flatMap((item) => item.outputs));
     await this.repository.saveCompanySignals(ingestions.flatMap((item) => item.signals));
     await this.repository.saveEnrichments(ingestions.flatMap((item) => item.enrichments));
-    return { companyCount: targetCompanies.length, outputCount: ingestions.reduce((sum, item) => sum + item.outputs.length, 0) };
+    return {
+      companyCount: targetCompanies.length,
+      outputCount: ingestions.reduce((sum, item) => sum + item.outputs.length, 0),
+      treatmentHighRelevanceOutputs: ingestions.reduce((sum, item) => sum + item.diagnostics.highRelevanceOutputs, 0),
+      treatmentGeneratedSignals: ingestions.reduce((sum, item) => sum + item.diagnostics.treatmentGeneratedSignals, 0),
+    };
   }
 
   private buildSnapshots(companies: CompanySeed[], monitoringOutputs: MonitoringOutput[], patternCatalog: PatternCatalogEntry[]) {
