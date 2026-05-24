@@ -1,6 +1,7 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../../types/platform.js';
 import { ingestCompanyMonitoring } from '../../lib/connectors.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
+import { treatCaptureOutputs } from './captureTreatment.js';
 
 const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_brasilapi_cnpj: 0.1,
@@ -41,6 +42,16 @@ const normalizeUrl = (url: string) => {
   }
 };
 
+const sourceCodeFor = (output: MonitoringOutput) => {
+  const sourceCode = output.normalizedPayload?.sourceCode;
+  return typeof sourceCode === 'string' && sourceCode.trim() ? sourceCode : output.sourceId;
+};
+
+const enrichmentSourceId = (enrichment: EnrichmentRecord) => {
+  const value = enrichment.payload?.sourceId;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+};
+
 const dedupeOutputs = (outputs: MonitoringOutput[]): { deduped: MonitoringOutput[]; duplicatesDiscarded: number } => {
   const seen = new Set<string>();
   const deduped = outputs.filter((output) => {
@@ -68,7 +79,7 @@ const dedupeSignals = (signals: CompanySignal[]): CompanySignal[] => {
 const dedupeEnrichments = (enrichments: EnrichmentRecord[]): EnrichmentRecord[] => {
   const seen = new Set<string>();
   return enrichments.filter((enrichment) => {
-    const key = `${enrichment.companyId}|${enrichment.enrichmentType}|${enrichment.provider ?? ''}|${String(enrichment.payload?.summary ?? '').slice(0, 80)}`;
+    const key = `${enrichment.companyId}|${enrichment.enrichmentType}|${enrichment.provider ?? ''}|${String(enrichment.payload?.summary ?? enrichment.payload?.treatmentVersion ?? '').slice(0, 80)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -82,7 +93,7 @@ const calibrateConfidence = (output: MonitoringOutput): number => {
   const hasSourceUrl = typeof payload.sourceUrl === 'string' || typeof payload.endpoint === 'string';
   const completeness = (hasSummary ? 0.04 : -0.05) + (hasSourceUrl ? 0.02 : -0.04);
   const statusPenalty = output.connectorStatus === 'real' ? 0.03 : -0.18;
-  const sourceBonus = SOURCE_CONFIDENCE_BONUS[output.sourceId] ?? 0;
+  const sourceBonus = SOURCE_CONFIDENCE_BONUS[sourceCodeFor(output)] ?? 0;
 
   return clamp(output.confidenceScore + statusPenalty + completeness + sourceBonus + agePenalty(publishedAt));
 };
@@ -90,7 +101,7 @@ const calibrateConfidence = (output: MonitoringOutput): number => {
 const toCanonicalDocuments = (companyId: string, outputs: MonitoringOutput[]): CanonicalSourceDocument[] =>
   outputs.map((output) => {
     const payload = output.normalizedPayload as Record<string, unknown>;
-    const canonicalUrl = normalizeUrl(String(payload?.sourceUrl ?? payload?.endpoint ?? ''));
+    const canonicalUrl = normalizeUrl(String(payload?.sourceUrl ?? payload?.canonicalUrl ?? payload?.endpoint ?? ''));
 
     return {
       id: `doc_${output.id}`,
@@ -126,9 +137,8 @@ const extractThemes = (outputs: MonitoringOutput[]) => {
 
 const buildCrossSignals = (company: CompanySeed, themes: string[], collectedAt: string): CompanySignal[] =>
   themes.map((theme) => ({
-    id: `${company.id}_cross_${theme}_${collectedAt}`,
+    id: crypto.randomUUID(),
     companyId: company.id,
-    sourceId: 'cross_source',
     signalType: `cross_${theme}`,
     signalStrength: 84,
     confidenceScore: 0.86,
@@ -140,7 +150,7 @@ const buildCrossSignals = (company: CompanySeed, themes: string[], collectedAt: 
 const buildCrossEnrichment = (company: CompanySeed, themes: string[], collectedAt: string): EnrichmentRecord[] => {
   if (!themes.length) return [];
   return [{
-    id: `${company.id}_cross_enrichment_${collectedAt}`,
+    id: crypto.randomUUID(),
     companyId: company.id,
     enrichmentType: 'cross_source_corroboration',
     provider: 'data_capture_engine',
@@ -161,7 +171,7 @@ const filterByRequestedSource = (request: CaptureRunRequest, outputs: Monitoring
   return {
     outputs: outputs.filter((item) => item.sourceId === request.sourceId),
     signals: signals.filter((item) => item.sourceId === request.sourceId),
-    enrichments: request.sourceId === 'src_brasilapi_cnpj' ? enrichments : [],
+    enrichments: enrichments.filter((item) => enrichmentSourceId(item) === request.sourceId),
   };
 };
 
@@ -176,15 +186,17 @@ export class DataCaptureEngine {
       const filtered = filterByRequestedSource(request, ingested.outputs, ingested.signals, ingested.enrichments);
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
 
-      const outputs = deduped
+      const calibratedOutputs = deduped
         .map((output) => ({ ...output, confidenceScore: calibrateConfidence(output) }))
         .sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
 
+      const treatment = treatCaptureOutputs(company, calibratedOutputs, collectedAt);
+      const outputs = treatment.outputs.sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
       const corroboratedThemes = extractThemes(outputs);
       const crossSignals = buildCrossSignals(company, corroboratedThemes, collectedAt);
       const crossEnrichments = buildCrossEnrichment(company, corroboratedThemes, collectedAt);
-      const allSignals = dedupeSignals([...filtered.signals, ...crossSignals]);
-      const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...crossEnrichments]);
+      const allSignals = dedupeSignals([...filtered.signals, ...treatment.signals, ...crossSignals]);
+      const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...treatment.enrichments, ...crossEnrichments]);
 
       const runStatus = outputs.length === 0
         ? 'failed'
@@ -211,6 +223,7 @@ export class DataCaptureEngine {
             averageConfidence: outputs.length
               ? Number((outputs.reduce((sum, item) => sum + item.confidenceScore, 0) / outputs.length).toFixed(4))
               : 0,
+            treatment: treatment.diagnostics,
           },
         },
         documents: toCanonicalDocuments(company.id, outputs),
