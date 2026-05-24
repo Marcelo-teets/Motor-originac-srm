@@ -12,6 +12,12 @@ function priorityTone(bucket: string) {
   return 'info';
 }
 
+function momentumTone(momentum: string) {
+  if (momentum === 'cooling') return 'warning';
+  if (momentum === 'accelerating') return 'success';
+  return 'info';
+}
+
 export function CompaniesPage() {
   const { session } = useAuth();
   const [query, setQuery] = useState('');
@@ -53,17 +59,42 @@ export function CompaniesPage() {
   if (error || !data) return <div className="page"><Card title="Leads" subtitle="Falha ao carregar lista">{error}</Card></div>;
 
   const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure)));
+  const immediateCount = filtered.filter((company) => company.leadBucket.includes('immediate')).length;
+  const fidcCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('fidc')).length;
+  const dcmCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('dcm')).length;
+  const strongSignalCount = filtered.filter((company) => company.triggerStrength >= 70).length;
+  const leadSummary = [
+    { label: 'Prioridade imediata', value: immediateCount, helper: 'empresas para abordagem agora', tone: 'success' as const },
+    { label: 'Fit FIDC', value: fidcCount, helper: 'estrutura sugerida com FIDC', tone: 'warning' as const },
+    { label: 'Fit DCM', value: dcmCount, helper: 'potencial de dívida corporativa', tone: 'info' as const },
+    { label: 'Sinal forte', value: strongSignalCount, helper: 'trigger strength acima de 70', tone: 'default' as const },
+  ];
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Leads / Companies"
         title="Tabela operacional de originação"
-        description="A lista foi convertida em uma tabela mais clara, filtrável e orientada a decisão, com destaque para score, prioridade, estrutura sugerida e último sinal relevante."
-        actions={<Pill tone="success">clique direto para detalhe</Pill>}
+        description="Ranking filtrável para separar esforço comercial real: prioridade, estrutura sugerida, momentum, champion, próximo passo e último sinal observado."
+        actions={(
+          <div className="pill-row">
+            <Pill tone="success">{filtered.length} na visão atual</Pill>
+            <Link to="/pipeline" className="button secondary">Abrir pipeline</Link>
+          </div>
+        )}
       />
 
       <DataStatusBanner source={data.companiesState.source} note={data.companiesState.note} />
+
+      <section className="decision-strip">
+        {leadSummary.map((item) => (
+          <div key={item.label} className="decision-card">
+            <Pill tone={item.tone}>{item.label}</Pill>
+            <strong>{item.value}</strong>
+            <small>{item.helper}</small>
+          </div>
+        ))}
+      </section>
 
       <Card title="Filters" subtitle="Busca rápida, filtros de prioridade e estrutura" className="dense-card">
         <div className="toolbar-grid">
@@ -91,50 +122,60 @@ export function CompaniesPage() {
       </Card>
 
       <Card title="Leads Table" subtitle={`${filtered.length} companhias na visão atual`} actions={<Pill tone="info">desktop-first</Pill>} className="dense-card">
-        <table className="dense-table">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Watch</th>
-              <th>Qualification Score</th>
-              <th>Lead Score</th>
-              <th>Pattern</th>
-              <th>Suggested Structure</th>
-              <th>Priority</th>
-              <th>Commercial Priority</th>
-              <th>Momentum</th>
-              <th>Next Step</th>
-              <th>Last Touchpoint</th>
-              <th>Champion</th>
-              <th>Last Signal</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((company) => (
-              <tr key={company.id}>
-                <td>
-                  <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
-                  <div className="table-helper">{company.segment} · {company.subsegment}</div>
-                </td>
-                <td><WatchListStar companyId={company.id} companyName={company.name} /></td>
-                <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
-                <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
-                <td>
-                  <strong>{company.topPatterns[0] ?? 'Sem pattern dominante'}</strong>
-                  <div className="table-helper">trigger {company.triggerStrength}</div>
-                </td>
-                <td>{company.suggestedStructure}</td>
-                <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
-                <td><Pill tone={priorityTone(company.commercialPriority)}>{company.commercialPriority}</Pill></td>
-                <td><Pill tone={company.momentum === 'cooling' ? 'warning' : company.momentum === 'accelerating' ? 'success' : 'info'}>{company.momentum}</Pill></td>
-                <td>{company.nextStep}</td>
-                <td>{company.lastTouchpoint}</td>
-                <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
-                <td>{company.lastSignal}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {filtered.length ? (
+          <div className="table-scroll">
+            <table className="dense-table">
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Watch</th>
+                  <th>Qualification Score</th>
+                  <th>Lead Score</th>
+                  <th>Pattern</th>
+                  <th>Suggested Structure</th>
+                  <th>Priority</th>
+                  <th>Commercial Priority</th>
+                  <th>Momentum</th>
+                  <th>Next Step</th>
+                  <th>Last Touchpoint</th>
+                  <th>Champion</th>
+                  <th>Last Signal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((company) => (
+                  <tr key={company.id}>
+                    <td>
+                      <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
+                      <div className="table-helper">{company.segment} · {company.subsegment}</div>
+                    </td>
+                    <td><WatchListStar companyId={company.id} companyName={company.name} /></td>
+                    <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
+                    <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
+                    <td>
+                      <strong>{company.topPatterns[0] ?? 'Sem pattern dominante'}</strong>
+                      <div className="table-helper">trigger {company.triggerStrength}</div>
+                    </td>
+                    <td>{company.suggestedStructure}</td>
+                    <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
+                    <td><Pill tone={priorityTone(company.commercialPriority)}>{company.commercialPriority}</Pill></td>
+                    <td><Pill tone={momentumTone(company.momentum)}>{company.momentum}</Pill></td>
+                    <td>{company.nextStep}</td>
+                    <td>{company.lastTouchpoint}</td>
+                    <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
+                    <td>{company.lastSignal}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <Pill tone="warning">sem resultado</Pill>
+            <strong>Nenhuma empresa encontrada com os filtros atuais.</strong>
+            <span>Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional.</span>
+          </div>
+        )}
       </Card>
     </div>
   );
