@@ -6,6 +6,14 @@ on:
       - main
     paths:
       - .github/workflows/capture.yml
+      - api/index.ts
+      - backend/src/modules/data-capture/**
+      - backend/src/services/capture*Service.ts
+      - backend/src/lib/connectors.ts
+      - backend/src/lib/qualification.ts
+      - backend/src/lib/patterns.ts
+      - backend/src/lib/scoring.ts
+      - db/migrations/**
   schedule:
     - cron: "0 8 * * *"
   workflow_dispatch: {}
