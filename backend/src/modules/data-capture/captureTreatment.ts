@@ -2,7 +2,7 @@ import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput } f
 
 const TREATMENT_VERSION = 'capture_treatment_v1';
 
-type SignalFamily =
+export type SignalFamily =
   | 'credit_product'
   | 'receivables'
   | 'funding_need'
