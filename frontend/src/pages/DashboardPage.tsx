@@ -11,6 +11,10 @@ function priorityTone(bucket: string) {
   return 'info';
 }
 
+function formatBucket(bucket: string) {
+  return bucket.replace(/_/g, ' ');
+}
+
 export function DashboardPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(
@@ -40,14 +44,31 @@ export function DashboardPage() {
     };
   });
   const maxPipeline = Math.max(...dashboard.pipeline.map((entry) => entry.count), 1);
+  const bestNextLead = topLeads[0];
+  const immediateLeads = topLeads.filter((lead) => lead.bucket.includes('immediate')).length;
+  const highPriorityLeads = topLeads.filter((lead) => lead.bucket.includes('high') || lead.leadScore >= 80).length;
+  const strongTriggerLeads = topLeads.filter((lead) => lead.triggerStrength >= 70).length;
+  const averageLeadScore = topLeads.length > 0 ? Math.round(topLeads.reduce((sum, lead) => sum + lead.leadScore, 0) / topLeads.length) : 0;
+  const decisionCards: Array<{ label: string; value: string; helper: string; tone: 'success' | 'warning' | 'info' | 'default' }> = [
+    { label: 'Abordar agora', value: String(immediateLeads), helper: 'leads com prioridade imediata no ranking', tone: 'success' },
+    { label: 'Alta prioridade', value: String(highPriorityLeads), helper: 'lead score alto ou bucket high priority', tone: 'warning' },
+    { label: 'Triggers fortes', value: String(strongTriggerLeads), helper: 'empresas com mudança recente relevante', tone: 'info' },
+    { label: 'Lead score médio', value: String(averageLeadScore), helper: 'média dos leads priorizados no cockpit', tone: 'default' },
+  ];
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Dashboard"
         title="Cockpit executivo de originação"
-        description="O dashboard foi reorganizado para responder rápido quantos leads realmente importam, o que mudou recentemente e onde estão os gargalos operacionais ou de conversão."
-        actions={<Pill tone="success">Top leads no centro</Pill>}
+        description="Visão priorizada para decidir quem abordar, por que agora, qual estrutura sugerir e qual próxima ação executar no pipeline comercial."
+        actions={(
+          <div className="pill-row">
+            <Pill tone="success">Top leads no centro</Pill>
+            <Link to="/companies" className="button secondary">Abrir ranking</Link>
+            <Link to="/pipeline" className="button secondary">Ver pipeline</Link>
+          </div>
+        )}
       />
 
       <DataStatusBanner source={dashboardState.source} note={dashboardState.note} />
@@ -62,6 +83,34 @@ export function DashboardPage() {
         ))}
       </section>
 
+      <section className="decision-strip">
+        {decisionCards.map((item) => (
+          <div key={item.label} className="decision-card">
+            <Pill tone={item.tone}>{item.label}</Pill>
+            <strong>{item.value}</strong>
+            <small>{item.helper}</small>
+          </div>
+        ))}
+      </section>
+
+      {bestNextLead ? (
+        <Card title="Próxima melhor ação" subtitle="Lead mais relevante para ação comercial imediata" tone="accent" className="dashboard-decision-card">
+          <div className="next-best-action">
+            <div>
+              <p className="eyebrow">Conta sugerida</p>
+              <h3>{bestNextLead.companyName}</h3>
+              <p>{bestNextLead.nextAction}</p>
+            </div>
+            <div className="score-context">
+              <ScoreBadge value={bestNextLead.leadScore} kind="lead" />
+              <Pill tone={priorityTone(bestNextLead.bucket)}>{formatBucket(bestNextLead.bucket)}</Pill>
+              <span>{bestNextLead.suggestedStructure}</span>
+            </div>
+            <Link to={`/companies/${bestNextLead.companyId}`} className="button">Abrir memo</Link>
+          </div>
+        </Card>
+      ) : null}
+
       <section className="dashboard-grid">
         <Card title="Top Leads" subtitle="Shortlist central para decisão de cobertura e estruturação" actions={<Pill tone="success">peça central</Pill>} className="dashboard-main-table">
           <table className="dense-table">
@@ -70,6 +119,7 @@ export function DashboardPage() {
                 <th>Company</th>
                 <th>Qualification Score</th>
                 <th>Lead Score</th>
+                <th>Ranking</th>
                 <th>Main Pattern</th>
                 <th>Suggested Structure</th>
                 <th>Priority</th>
@@ -84,18 +134,18 @@ export function DashboardPage() {
                   </td>
                   <td><ScoreBadge value={row.qualificationScore} kind="qualification" /></td>
                   <td><ScoreBadge value={row.leadScore} kind="lead" /></td>
+                  <td><ScoreBadge value={row.rankingScore ?? row.leadScore} kind="priority" /></td>
                   <td>
                     <strong>{row.mainPattern}</strong>
                     <div className="table-helper">Trigger strength {row.triggerStrength}</div>
                   </td>
                   <td>{row.suggestedStructure}</td>
-                  <td><Pill tone={priorityTone(row.bucket)}>{row.bucket.replace(/_/g, ' ')}</Pill></td>
+                  <td><Pill tone={priorityTone(row.bucket)}>{formatBucket(row.bucket)}</Pill></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </Card>
-
 
         <WatchListWidget />
 
