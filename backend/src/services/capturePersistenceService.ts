@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '../lib/supabase.js';
-import type { CompanySignal, MonitoringOutput } from '../types/platform.js';
+import type { CompanySignal, EnrichmentRecord, MonitoringOutput } from '../types/platform.js';
 import type { CaptureEngineResult, CanonicalSourceDocument } from '../modules/data-capture/types.js';
 
 type RuntimeStatus = 'real' | 'partial';
@@ -31,6 +31,7 @@ const evidenceArrayText = (value: unknown) => {
 
 const sourceUrlFromOutput = (output: MonitoringOutput) => pickString(
   output.normalizedPayload?.sourceUrl,
+  output.normalizedPayload?.canonicalUrl,
   output.normalizedPayload?.endpoint,
   firstItemLink(output.normalizedPayload?.items),
 );
@@ -47,12 +48,15 @@ const signalEvidenceUrl = (signal: CompanySignal) => pickString(
   signal.evidencePayload?.canonicalUrl,
 );
 
+const sourceIdFromEnrichment = (enrichment: EnrichmentRecord) => pickString(enrichment.payload?.sourceId);
+
 export type CapturePersistenceSummary = {
   status: RuntimeStatus;
   companiesProcessed: number;
   runsWritten: number;
   outputsWritten: number;
   signalsWritten: number;
+  enrichmentsWritten: number;
   documentsWritten: number;
   learningEventsWritten: number;
   errors: string[];
@@ -69,6 +73,7 @@ export class CapturePersistenceService {
         runsWritten: 0,
         outputsWritten: 0,
         signalsWritten: 0,
+        enrichmentsWritten: 0,
         documentsWritten: 0,
         learningEventsWritten: 0,
         errors: ['Supabase client not configured.'],
@@ -129,7 +134,7 @@ export class CapturePersistenceService {
       company_id: signal.companyId,
       monitoring_output_id: signal.sourceId ? outputIdByCompanyAndSource.get(`${signal.companyId}|${signal.sourceId}`) ?? null : null,
       signal_type: signal.signalType,
-      signal_label: String(signal.signalType).replace(/_/g, ' '),
+      signal_label: String(signal.evidencePayload?.label ?? signal.signalType).replace(/_/g, ' '),
       strength: asPercent(signal.signalStrength),
       confidence: asPercent(signal.confidenceScore),
       is_explicit: signal.observedVsInferred === 'observed',
@@ -141,6 +146,21 @@ export class CapturePersistenceService {
         source_id: signal.sourceId,
         observedVsInferred: signal.observedVsInferred,
       },
+    }));
+
+    const allEnrichments = results.flatMap((result) => result.enrichments);
+    const enrichmentRows = allEnrichments.map((enrichment) => ({
+      id: enrichment.id,
+      company_id: enrichment.companyId,
+      enrichment_type: enrichment.enrichmentType,
+      provider: enrichment.provider ?? null,
+      payload: {
+        ...enrichment.payload,
+        source_id: sourceIdFromEnrichment(enrichment) ?? null,
+        observedVsInferred: enrichment.observedVsInferred,
+      },
+      observed_vs_inferred: enrichment.observedVsInferred,
+      created_at: enrichment.createdAt,
     }));
 
     const allDocuments = results.flatMap((result) => result.documents);
@@ -166,12 +186,13 @@ export class CapturePersistenceService {
       engine_name: 'data_capture_engine',
       event_type: 'capture_runtime_persisted',
       severity: 'info',
-      summary: `Capture runtime persisted ${outputRows.length} outputs and ${signalRows.length} signals.`,
+      summary: `Capture runtime persisted ${outputRows.length} outputs, ${signalRows.length} signals and ${enrichmentRows.length} enrichments.`,
       payload: {
         reason,
         companiesProcessed: results.length,
         outputsWritten: outputRows.length,
         signalsWritten: signalRows.length,
+        enrichmentsWritten: enrichmentRows.length,
         documentsWritten: documentRows.length,
       },
       created_at: now,
@@ -181,6 +202,7 @@ export class CapturePersistenceService {
     let runsWritten = 0;
     let outputsWritten = 0;
     let signalsWritten = 0;
+    let enrichmentsWritten = 0;
     let documentsWritten = 0;
     let learningEventsWritten = 0;
 
@@ -212,6 +234,15 @@ export class CapturePersistenceService {
     }
 
     try {
+      if (enrichmentRows.length) {
+        await this.client.upsert('enrichments', enrichmentRows, 'id');
+        enrichmentsWritten = enrichmentRows.length;
+      }
+    } catch (error) {
+      errors.push(`enrichments: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
       if (documentRows.length) {
         await this.client.upsert('source_documents', documentRows, 'id');
         documentsWritten = documentRows.length;
@@ -233,6 +264,7 @@ export class CapturePersistenceService {
       runsWritten,
       outputsWritten,
       signalsWritten,
+      enrichmentsWritten,
       documentsWritten,
       learningEventsWritten,
       errors,
