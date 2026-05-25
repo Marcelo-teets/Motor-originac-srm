@@ -54,6 +54,15 @@ const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
   note: stateNote(path, payload.status),
 });
 
+type SystemStatus = {
+  supabase: { connected: boolean; latency_ms: number };
+  auth: { working: boolean };
+  capture: { last_run: string | null; status: 'real' | 'partial' };
+  monitoring: { active_sources: number; outputs_24h: number };
+  pipeline: { rows: number };
+  watchlist: { count: number; items_count: number };
+};
+
 export const api = {
   login: async (email: string, password: string) => {
     const response = await fetch(buildApiUrl('/auth/login'), {
@@ -67,6 +76,7 @@ export const api = {
   },
   logout: (session: SessionData | null) => requestEnvelope<{ success: boolean }>('/auth/logout', session, { method: 'POST' }),
   getMe: async (session: SessionData | null) => (await requestEnvelope<SessionData['user']>('/auth/me', session)).data,
+  getSystemStatus: async (session: SessionData | null) => toState('System status', await requestEnvelope<SystemStatus>('/system/status', session)),
 
   getDashboardEnvelope: (session: SessionData | null) => requestEnvelope<Dashboard>('/dashboard/summary', session),
   getDashboard: async (session: SessionData | null) => toState('Dashboard', await requestEnvelope<Dashboard>('/dashboard/summary', session)),
