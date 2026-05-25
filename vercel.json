@@ -8,9 +8,17 @@
     "api/index.ts": {
       "maxDuration": 30,
       "memory": 512
+    },
+    "api/system/status.ts": {
+      "maxDuration": 30,
+      "memory": 512
     }
   },
   "rewrites": [
+    {
+      "source": "/api/system/status",
+      "destination": "/api/system/status"
+    },
     {
       "source": "/api/:path*",
       "destination": "/api/index"
