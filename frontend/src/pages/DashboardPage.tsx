@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { WatchListWidget } from '../components/WatchListWidget';
+import { SystemStatusMatrix } from '../components/SystemStatusMatrix';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
@@ -15,12 +16,13 @@ export function DashboardPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(
     async () => {
-      const [dashboardState, companiesState, abmWeekly] = await Promise.all([
+      const [dashboardState, companiesState, abmWeekly, systemStatus] = await Promise.all([
         api.getDashboard(session),
         api.getCompanies(session),
         api.getAbmWeekly(session),
+        api.getSystemStatus(session),
       ]);
-      return { dashboardState, companiesState, abmWeekly };
+      return { dashboardState, companiesState, abmWeekly, systemStatus };
     },
     [session?.access_token],
   );
@@ -28,7 +30,7 @@ export function DashboardPage() {
   if (loading) return <div className="page"><Card title="Dashboard" subtitle="Carregando visão executiva do backend oficial">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Dashboard" subtitle="Falha ao carregar dados do dashboard">{error}</Card></div>;
 
-  const { dashboardState, companiesState, abmWeekly } = data;
+  const { dashboardState, companiesState, abmWeekly, systemStatus } = data;
   const dashboard = dashboardState.data;
   const companies = companiesState.data;
   const topLeads = dashboard.topLeads.map((lead) => {
@@ -96,6 +98,7 @@ export function DashboardPage() {
           </table>
         </Card>
 
+        <SystemStatusMatrix state={systemStatus} />
 
         <WatchListWidget />
 
