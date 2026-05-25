@@ -123,8 +123,8 @@ export function CompaniesPage() {
 
       <Card title="Leads Table" subtitle={`${filtered.length} companhias na visão atual`} actions={<Pill tone="info">desktop-first</Pill>} className="dense-card">
         {filtered.length ? (
-          <div className="table-scroll">
-            <table className="dense-table">
+          <div style={{ overflowX: 'auto', width: '100%' }}>
+            <table className="dense-table" style={{ minWidth: 1180 }}>
               <thead>
                 <tr>
                   <th>Company</th>
@@ -170,10 +170,12 @@ export function CompaniesPage() {
             </table>
           </div>
         ) : (
-          <div className="empty-state">
-            <Pill tone="warning">sem resultado</Pill>
-            <strong>Nenhuma empresa encontrada com os filtros atuais.</strong>
-            <span>Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional.</span>
+          <div className="summary-item">
+            <div className="stack-blocks compact-gap">
+              <Pill tone="warning">sem resultado</Pill>
+              <strong>Nenhuma empresa encontrada com os filtros atuais.</strong>
+              <span>Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional.</span>
+            </div>
           </div>
         )}
       </Card>
