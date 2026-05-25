@@ -52,6 +52,6 @@ export const navItems = [
     to: '/pipeline',
     label: 'Pipeline / Activities',
     shortLabel: 'Pipeline',
-    description: 'CRM de originação, atividades, tarefas e próximos passos.',
+    description: 'CRM de originação, atividades, tarefas e próximos passos comerciais.',
   },
 ] satisfies readonly NavItem[];
