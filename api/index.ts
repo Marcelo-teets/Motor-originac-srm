@@ -44,6 +44,8 @@ const supabaseHost = () => {
 };
 
 const supabaseKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const asNullableUuid = (value: string | null | undefined) => (value && uuidPattern.test(value) ? value : null);
 
 async function supabaseCount(table: string) {
   const baseUrl = process.env.SUPABASE_URL;
@@ -75,6 +77,64 @@ async function supabaseCount(table: string) {
     return { table, ok: true, count, error: null };
   } catch (error) {
     return { table, ok: false, count: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+type CaptureAuditRunInput = {
+  triggerType: 'cron' | 'manual';
+  status: 'completed' | 'partial' | 'failed';
+  startedAt: string;
+  finishedAt: string;
+  companyId?: string | null;
+  sourceId?: string | null;
+  scopeType?: 'global' | 'company' | 'source';
+  itemsCollected?: number;
+  outputsWritten?: number;
+  signalsWritten?: number;
+  enrichmentsWritten?: number;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
+  const baseUrl = process.env.SUPABASE_URL;
+  const key = supabaseKey();
+  if (!baseUrl || !key) return;
+
+  const row = {
+    id: crypto.randomUUID(),
+    company_id: asNullableUuid(input.companyId),
+    source_id: asNullableUuid(input.sourceId),
+    scope_type: input.scopeType ?? (input.companyId ? 'company' : 'global'),
+    trigger_type: input.triggerType,
+    status: input.status,
+    started_at: input.startedAt,
+    finished_at: input.finishedAt,
+    items_collected: input.itemsCollected ?? 0,
+    outputs_written: input.outputsWritten ?? 0,
+    signals_written: input.signalsWritten ?? 0,
+    enrichments_written: input.enrichmentsWritten ?? 0,
+    error_message: input.errorMessage ?? null,
+    metadata: input.metadata ?? {},
+  };
+
+  try {
+    const response = await fetch(`${baseUrl}/rest/v1/source_connector_runs`, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(row),
+    });
+
+    if (!response.ok) {
+      console.warn(`Capture audit insert failed: ${response.status} ${await response.text()}`);
+    }
+  } catch (error) {
+    console.warn('Capture audit insert failed:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -127,8 +187,12 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
     return;
   }
 
+  const startedAt = new Date().toISOString();
+  const url = parseUrl(req);
+  const requestedCompanyId = url.searchParams.get('companyId');
+  const requestedSourceId = url.searchParams.get('sourceId');
+
   try {
-    const url = parseUrl(req);
     const [{ createPlatformRepository }, { CaptureRuntimeService }] = await Promise.all([
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/services/captureRuntimeService.js'),
@@ -136,17 +200,58 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
     const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await runtime.run({
-      companyId: url.searchParams.get('companyId') ?? undefined,
-      sourceId: url.searchParams.get('sourceId') ?? undefined,
+      companyId: requestedCompanyId ?? undefined,
+      sourceId: requestedSourceId ?? undefined,
       triggerType,
       reason: triggerType === 'cron' ? 'vercel_cron' : 'manual_serverless_runtime',
     });
+    const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
+    await insertCaptureAuditRun({
+      triggerType,
+      status: result.persisted.status === 'real' ? 'completed' : 'partial',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      companyId: requestedCompanyId,
+      sourceId: requestedSourceId,
+      scopeType: requestedCompanyId ? 'company' : requestedSourceId ? 'source' : 'global',
+      itemsCollected: result.outputsCollected,
+      outputsWritten: result.persisted.outputsWritten,
+      signalsWritten: result.persisted.signalsWritten,
+      enrichmentsWritten: result.persisted.enrichmentsWritten,
+      errorMessage: persistedErrors.length ? persistedErrors.slice(0, 3).join(' | ') : null,
+      metadata: {
+        auditVersion: 'capture_runtime_serverless_v1',
+        reason: triggerType === 'cron' ? 'vercel_cron' : 'manual_serverless_runtime',
+        requested: result.requested,
+        companiesAvailable: result.companiesAvailable,
+        sourcesAvailable: result.sourcesAvailable,
+        companiesProcessed: result.companiesProcessed,
+        documentsCollected: result.documentsCollected,
+        persisted: result.persisted,
+      },
+    });
     writeJson(res, result.persisted.status === 'real' ? 200 : 207, { status: result.persisted.status, generatedAt: new Date().toISOString(), data: result });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await insertCaptureAuditRun({
+      triggerType,
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      companyId: requestedCompanyId,
+      sourceId: requestedSourceId,
+      scopeType: requestedCompanyId ? 'company' : requestedSourceId ? 'source' : 'global',
+      errorMessage,
+      metadata: {
+        auditVersion: 'capture_runtime_serverless_v1',
+        requestPath: url.pathname,
+        query: Object.fromEntries(url.searchParams.entries()),
+      },
+    });
     writeJson(res, 500, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
     });
   }
 }
