@@ -1,9 +1,13 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
 
 export function Layout() {
   const { logout, session } = useAuth();
+  const location = useLocation();
+  const activeItem = [...navItems]
+    .reverse()
+    .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? navItems[0];
 
   return (
     <div className="shell">
@@ -11,36 +15,39 @@ export function Layout() {
         <div className="sidebar-brand">
           <p className="eyebrow">Origination Intelligence Platform</p>
           <h1>Motor SRM</h1>
-          <p className="sidebar-copy">Plataforma institucional para qualificação, monitoramento e priorização executiva de oportunidades de crédito/originação.</p>
+          <p className="sidebar-copy">Plataforma institucional para encontrar, explicar e converter oportunidades reais de crédito estruturado.</p>
         </div>
 
         <div className="sidebar-section">
           <span className="sidebar-label">Workspace</span>
           <nav>
-            {navItems.map(([to, label]) => (
-              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={to === '/'}>
-                <span>{label}</span>
+            {navItems.map((item) => (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={item.to === '/'}>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.shortLabel}</small>
+                </span>
               </NavLink>
             ))}
           </nav>
         </div>
 
         <div className="sidebar-footer">
-          <span className="sidebar-label">Estado da stack</span>
-          <div className="sidebar-footnote">Frontend oficial da main consumindo auth e dados reais do backend; módulos avançados ainda podem operar em modo parcial.</div>
+          <span className="sidebar-label">Foco da plataforma</span>
+          <div className="sidebar-footnote">Brasil-only · fintechs · empresas com recebíveis · FIDC/DCM · pipeline comercial explicável.</div>
         </div>
       </aside>
 
       <main className="content">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Originação institucional</p>
-            <strong>{session?.user.email ?? 'Usuário autenticado'} · visão de crédito, monitoramento e priorização em um só lugar</strong>
+          <div className="topbar-title">
+            <p className="eyebrow">{activeItem.label}</p>
+            <strong>{activeItem.description}</strong>
           </div>
           <div className="topbar-meta">
-            <div className="badge">Desktop-first</div>
+            <div className="badge">{session?.user.email ?? 'Usuário autenticado'}</div>
             <div className="badge subtle">Main oficial</div>
-            <button type="button" className="secondary" onClick={() => void logout()}>Sair</button>
+            <button type="button" className="secondary compact-button" onClick={() => void logout()}>Sair</button>
           </div>
         </header>
         <Outlet />
