@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/capture.yml
       - api/index.ts
+      - backend/frontend/api/index.ts
       - backend/src/modules/data-capture/**
       - backend/src/services/capture*Service.ts
       - backend/src/lib/connectors.ts
