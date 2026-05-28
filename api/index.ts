@@ -44,7 +44,7 @@ const supabaseHost = () => {
 };
 
 const supabaseKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const asNullableUuid = (value: string | null | undefined) => (value && uuidPattern.test(value) ? value : null);
 
 async function supabaseCount(table: string) {
@@ -256,6 +256,28 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
   }
 }
 
+async function originationRuntime(req: IncomingMessage, res: ServerResponse) {
+  const pathname = parseUrl(req).pathname.replace(/^\/api/, '');
+  const mod = await import('../backend/src/modules/originationOperatingSystem.js');
+  const payload = (() => {
+    if (pathname === '/origination/os') return mod.getOriginationOperatingSystem();
+    if (pathname === '/origination/backlog') return mod.getOriginationBacklog();
+    if (pathname === '/origination/templates') return mod.getOriginationTemplates();
+    if (pathname === '/origination/checklist') return mod.getOriginationChecklist();
+    if (pathname === '/origination/execution-plan') return mod.getOriginationExecutionPlan();
+    if (pathname === '/origination/skills') return mod.getOriginationOperatingSystem().skills;
+    if (pathname === '/origination/flows') return mod.getOriginationOperatingSystem().flows;
+    return null;
+  })();
+
+  if (!payload) {
+    writeJson(res, 404, { error: 'Origination endpoint not found', path: pathname });
+    return;
+  }
+
+  writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: payload });
+}
+
 async function ensureApp(): Promise<void> {
   if (expressApp) return;
   if (loadingPromise) return loadingPromise;
@@ -290,6 +312,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (pathname === '/api/data-capture/run') {
     await runCaptureRuntime(req, res, 'manual');
+    return;
+  }
+
+  if (pathname.startsWith('/api/origination/')) {
+    await originationRuntime(req, res);
     return;
   }
 
