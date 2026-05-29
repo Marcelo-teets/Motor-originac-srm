@@ -2,6 +2,16 @@
 
 Plataforma de **Origination Intelligence** para originação de crédito estruturado, com foco em fintechs, recebíveis, FIDC, DCM, CRI, CRA, debêntures e debêntures incentivadas.
 
+## URL oficial de produção
+
+Enquanto o alias limpo `motor-originac-srm.vercel.app` não estiver disponível no Vercel, a URL canônica do front-end será:
+
+- Front-end / ferramenta: `https://motor-originac-srm-marcelo-teets-projects.vercel.app`
+- Login: `https://motor-originac-srm-marcelo-teets-projects.vercel.app/login`
+- Runtime real / API serverless: `https://motor-originac-srm-marcelo-teets-projects.vercel.app/api`
+
+O projeto `motor-originac-srm-backend` continua existindo como deploy separado, mas não deve ser tratado como URL canônica da aplicação enquanto responder apenas fallback estático. Workflows, smoke checks, materiais internos e variáveis de front-end devem apontar para a URL canônica acima.
+
 ## Estrutura oficial consolidada
 - `frontend/`: web app React/Vite.
 - `backend/`: API interna consolidada em Node/Express.
