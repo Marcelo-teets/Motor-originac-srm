@@ -15,6 +15,7 @@ import type {
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
   MvpReadiness,
+  OriginationOperatingSystem,
   PipelineSnapshot,
   PipelineStage,
   PipelineRow,
@@ -194,6 +195,14 @@ export const api = {
           status: activity.status,
         })),
       },
+    };
+  },
+  getOriginationOperatingSystem: async (session: SessionData | null): Promise<DataState<OriginationOperatingSystem>> => {
+    const os = await requestEnvelope<OriginationOperatingSystem>('/origination/os', session);
+    return {
+      source: os.status,
+      note: 'Origination Operating System carregado do backend versionado.',
+      data: os.data,
     };
   },
 };
