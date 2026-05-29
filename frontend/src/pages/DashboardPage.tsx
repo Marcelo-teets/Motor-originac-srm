@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
+import { VercelOpsPanel } from '../components/VercelOpsPanel';
 import { WatchListWidget } from '../components/WatchListWidget';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -92,6 +93,14 @@ export function DashboardPage() {
           </div>
         ))}
       </section>
+
+      <VercelOpsPanel
+        source={dashboardState.source}
+        note={dashboardState.note}
+        activeSources={dashboard.monitoring.activeSources}
+        outputs24h={dashboard.monitoring.outputs24h}
+        triggers24h={dashboard.monitoring.triggers24h}
+      />
 
       {bestNextLead ? (
         <Card title="Próxima melhor ação" subtitle="Lead mais relevante para ação comercial imediata" tone="accent" className="dashboard-decision-card">
