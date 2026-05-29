@@ -49,6 +49,12 @@ export const navItems = [
     description: 'Execução, diagnóstico e confiança dos agentes operacionais.',
   },
   {
+    to: '/origination-os',
+    label: 'Origination OS',
+    shortLabel: 'Sistema operacional',
+    description: 'Skills, scorecard, templates, checklist e backlog de originação.',
+  },
+  {
     to: '/pipeline',
     label: 'Pipeline / Activities',
     shortLabel: 'Pipeline',
