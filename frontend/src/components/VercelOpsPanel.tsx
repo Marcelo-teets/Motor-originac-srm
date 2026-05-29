@@ -1,22 +1,29 @@
 import { Link } from 'react-router-dom';
 import { Card, Pill, Stat } from './UI';
+import type { DataSourceKind } from '../lib/types';
 
 type VercelOpsPanelProps = {
-  readonly source: string;
+  readonly source: DataSourceKind;
   readonly note: string;
   readonly activeSources: number;
   readonly outputs24h: number;
   readonly triggers24h: number;
 };
 
-function apiTone(source: string): 'success' | 'warning' | 'info' {
-  if (source === 'supabase') return 'success';
-  if (source === 'mock') return 'warning';
+function apiTone(source: DataSourceKind): 'success' | 'warning' | 'info' {
+  if (source === 'real') return 'success';
+  if (source === 'partial') return 'warning';
   return 'info';
 }
 
+const apiStatusLabel: Record<DataSourceKind, string> = {
+  real: 'Backend real',
+  partial: 'Parcial / derivado',
+  mock: 'Fallback mock',
+};
+
 export function VercelOpsPanel({ source, note, activeSources, outputs24h, triggers24h }: VercelOpsPanelProps) {
-  const apiStatus = source === 'supabase' ? 'Supabase real' : source === 'mock' ? 'Fallback ativo' : source;
+  const apiStatus = apiStatusLabel[source];
 
   return (
     <Card
