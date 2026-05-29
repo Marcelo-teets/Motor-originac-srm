@@ -46,7 +46,7 @@ export function VercelOpsPanel({ source, note, activeSources, outputs24h, trigge
         </li>
         <li>
           <strong>Próxima validação operacional</strong>
-          <span>Login, ranking, company detail, criação de activity/task e navegação sem localhost.</span>
+          <span>Login, ranking, company detail, criação de activity/task e navegação sem chamadas localhost.</span>
         </li>
         <li>
           <strong>Critério de pronto para uso</strong>
