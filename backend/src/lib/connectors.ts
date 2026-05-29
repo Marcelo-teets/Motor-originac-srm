@@ -43,6 +43,39 @@ const sourceUrlFor = (source: RuntimeSource | undefined, fallback: string) => ty
   ? source.metadata.feedUrl
   : source?.url || fallback;
 
+const googleNewsRssUrl = (query: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
+
+const renderQueryTemplate = (template: string, company: CompanySeed) => template
+  .replace(/{company}/g, company.tradeName)
+  .replace(/{tradeName}/g, company.tradeName)
+  .replace(/{legalName}/g, company.legalName)
+  .replace(/{segment}/g, company.segment)
+  .replace(/{subsegment}/g, company.subsegment ?? '')
+  .replace(/{cnpj}/g, company.cnpj ?? '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const parametricRssSourcesFor = (sources: RuntimeSource[], company: CompanySeed) => sources
+  .filter((source) => source.sourceType === 'rss')
+  .map((source) => {
+    const template = typeof source.metadata?.queryTemplate === 'string' ? source.metadata.queryTemplate : '';
+    if (!template) return null;
+    const query = renderQueryTemplate(template, company);
+    if (!query) return null;
+    return { source, url: googleNewsRssUrl(query) };
+  })
+  .filter((item): item is { source: RuntimeSource; url: string } => Boolean(item));
+
+const dedupeRssSources = (sources: Array<{ source: RuntimeSource; url: string }>) => {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const key = `${source.source.id}|${source.url}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
   try {
@@ -194,11 +227,12 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
   const valorSource = firstSource(runtimeSources, 'src_valor_rss');
   const googleNewsSource = firstSource(runtimeSources, 'src_google_news_rss');
 
-  const rssSources = [
-    googleNewsSource ? { source: googleNewsSource, url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName)}&hl=pt-BR&gl=BR&ceid=BR:pt-419` } : null,
+  const rssSources = dedupeRssSources([
+    googleNewsSource ? { source: googleNewsSource, url: googleNewsRssUrl(company.tradeName) } : null,
     cvmSource ? { source: cvmSource, url: sourceUrlFor(cvmSource, 'https://www.gov.br/cvm/pt-br/assuntos/noticias/rss') } : null,
-    valorSource ? { source: valorSource, url: `https://news.google.com/rss/search?q=${encodeURIComponent(company.tradeName + ' funding OR crédito OR FIDC OR debênture')}&hl=pt-BR&gl=BR&ceid=BR:pt-419` } : null,
-  ].filter((item): item is { source: RuntimeSource; url: string } => Boolean(item));
+    valorSource ? { source: valorSource, url: googleNewsRssUrl(`${company.tradeName} funding OR crédito OR FIDC OR debênture`) } : null,
+    ...parametricRssSourcesFor(runtimeSources, company),
+  ].filter((item): item is { source: RuntimeSource; url: string } => Boolean(item)));
 
   const [website, brasilApi, ...rssResults] = await Promise.all([
     websiteSource ? monitorCompanyWebsite(company.website) : Promise.resolve(null),
