@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './lib/auth';
 import { AgentsPage } from './pages/AgentsPage';
@@ -14,27 +15,30 @@ import { WatchListPage } from './pages/WatchListPage';
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/"
-        element={(
-          <RequireAuth>
-            <Layout />
-          </RequireAuth>
-        )}
-      >
-        <Route index element={<DashboardPage />} />
-        <Route path="search-profiles" element={<SearchProfilesPage />} />
-        <Route path="companies" element={<CompaniesPage />} />
-        <Route path="companies/:id" element={<CompanyDetailPage />} />
-        <Route path="watch-lists" element={<WatchListPage />} />
-        <Route path="monitoring" element={<MonitoringPage />} />
-        <Route path="sources" element={<SourcesPage />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="pipeline" element={<PipelinePage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={(
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          )}
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="search-profiles" element={<SearchProfilesPage />} />
+          <Route path="companies" element={<CompaniesPage />} />
+          <Route path="companies/:id" element={<CompanyDetailPage />} />
+          <Route path="watch-lists" element={<WatchListPage />} />
+          <Route path="monitoring" element={<MonitoringPage />} />
+          <Route path="sources" element={<SourcesPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="pipeline" element={<PipelinePage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <SpeedInsights />
+    </>
   );
 }
