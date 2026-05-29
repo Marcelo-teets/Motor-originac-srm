@@ -336,3 +336,60 @@ export type TaskRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type OriginationProduct = {
+  product: string;
+  useCase: string;
+  idealCompanyProfile: string[];
+  qualificationSignals: string[];
+};
+
+export type OriginationSkill = {
+  id: string;
+  name: string;
+  objective: string;
+  inputs: string[];
+  outputs: string[];
+  tasks: string[];
+};
+
+export type OriginationFlow = {
+  id: string;
+  name: string;
+  steps: string[];
+};
+
+export type OriginationBacklogItem = {
+  id: string;
+  title: string;
+  priority: string;
+  status: 'implemented' | 'runtime_ready' | 'documented' | string;
+  implementation: string;
+};
+
+export type OriginationOperatingSystem = {
+  version: string;
+  thesis: string;
+  products: OriginationProduct[];
+  structures: Array<{ name: string; role: string }>;
+  skills: OriginationSkill[];
+  priorities: Array<{ priority: string; definition: string; action: string }>;
+  scorecard: Array<{ criterion: string; weight: number; evidence: string[] }>;
+  scoreActions: Array<{ range: string; action: string }>;
+  flows: OriginationFlow[];
+  modules: Array<{ id: string; name: string; purpose: string; implementedBy: string[] }>;
+  routines: { daily: string[]; weekly: string[]; monthly: string[] };
+  backlog: OriginationBacklogItem[];
+  hooks: Record<string, string[]>;
+  recyclingRules: Array<{ condition: string; action: string }>;
+  initialVerticals: string[];
+  checklist: string[];
+  templates: Record<string, string | string[]>;
+  commands: Array<{ command: string; output: string[] }>;
+  implementation: {
+    status: string;
+    completedAt: string;
+    layers: string[];
+    runtimeEndpoints: string[];
+  };
+};

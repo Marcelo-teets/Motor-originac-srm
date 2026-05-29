@@ -7,6 +7,7 @@ import { CompanyDetailPage } from './pages/CompanyDetailPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { OriginationOsPage } from './pages/OriginationOsPage';
 import { PipelinePage } from './pages/PipelinePage';
 import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="origination-os" element={<OriginationOsPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
