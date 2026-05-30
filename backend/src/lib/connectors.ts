@@ -55,8 +55,13 @@ const renderQueryTemplate = (template: string, company: CompanySeed) => template
   .replace(/\s+/g, ' ')
   .trim();
 
+const isRssRuntimeSource = (source: RuntimeSource) => source.sourceType === 'rss'
+  || source.metadata?.sourceType === 'rss'
+  || typeof source.metadata?.queryTemplate === 'string'
+  || source.runtimeCode.endsWith('_rss');
+
 const parametricRssSourcesFor = (sources: RuntimeSource[], company: CompanySeed) => sources
-  .filter((source) => source.sourceType === 'rss')
+  .filter(isRssRuntimeSource)
   .map((source) => {
     const template = typeof source.metadata?.queryTemplate === 'string' ? source.metadata.queryTemplate : '';
     if (!template) return null;
