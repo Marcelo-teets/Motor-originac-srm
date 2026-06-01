@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "frontend/api", "../api", "../config"],
+  "include": ["src", "../config"],
   "exclude": ["src/**/*.highSignal.ts"]
 }
