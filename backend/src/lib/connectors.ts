@@ -1,4 +1,5 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
+import { buildInstitutionalRssTargets } from './sourceAdapters.js';
 import { deriveOriginationSignalType, signalStrengthFromOriginationText } from './sourceTaxonomy.js';
 
 const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -25,10 +26,13 @@ export const inferSourceCode = (source: SourceCatalogEntry) => {
   const blob = `${name} ${category} ${tags}`;
 
   if (blob.includes('company websites') || blob.includes('site_empresa') || blob.includes('company_site')) return 'src_company_website';
+  if (blob.includes('receita federal') || blob.includes('cnpj dataset')) return 'src_receita_federal_cnpj_dataset';
   if (blob.includes('receita') || blob.includes('cnpj')) return 'src_brasilapi_cnpj';
+  if (blob.includes('cvm') && (blob.includes('dados abertos') || blob.includes('ofertas') || blob.includes('fundos'))) return 'src_cvm_open_data_funds_offers';
   if (blob.includes('cvm') || blob.includes('fidc')) return 'src_cvm_rss';
   if (blob.includes('anbima') || blob.includes('fundos estruturados')) return 'src_anbima_structured_funds';
   if (blob.includes('banco central') || blob.includes('ifdata') || blob.includes('bcb')) return 'src_bcb_ifdata_authorized_institutions';
+  if (blob.includes('b3') || blob.includes('fatos relevantes') || blob.includes('emissores')) return 'src_b3_issuers_material_facts';
   if (blob.includes('open finance')) return 'src_open_finance_participants';
   if (blob.includes('portfolio') || blob.includes('venture capital') || blob.includes('vc')) return 'src_vc_portfolio_monitor_br';
   if (blob.includes('jobs') || blob.includes('careers') || blob.includes('vagas')) return 'src_company_jobs_monitor';
@@ -225,8 +229,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
   const collectedAt = nowIso();
   const runtimeSources = buildRuntimeSources(sources);
   const websiteSource = firstSource(runtimeSources, 'src_company_website');
-  const brasilApiSource = firstSource(runtimeSources, 'src_brasilapi_cnpj');
-  const cvmSource = firstSource(runtimeSources, 'src_cvm_rss');
+  const brasilApiSource = firstSource(runtimeSources, 'src_brasilapi_cnpj') ?? firstSource(runtimeSources, 'src_receita_federal_cnpj_dataset');
+  const cvmSource = firstSource(runtimeSources, 'src_cvm_rss') ?? firstSource(runtimeSources, 'src_cvm_open_data_funds_offers');
   const valorSource = firstSource(runtimeSources, 'src_valor_rss');
   const googleNewsSource = firstSource(runtimeSources, 'src_google_news_rss');
 
@@ -235,6 +239,7 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
     cvmSource ? { source: cvmSource, url: sourceUrlFor(cvmSource, 'https://www.gov.br/cvm/pt-br/assuntos/noticias/rss') } : null,
     valorSource ? { source: valorSource, url: googleNewsRssUrl(`${company.tradeName} funding OR crédito OR FIDC OR debênture`) } : null,
     ...parametricRssSourcesFor(runtimeSources, company),
+    ...buildInstitutionalRssTargets(runtimeSources, company, googleNewsRssUrl),
   ].filter((item): item is { source: RuntimeSource; url: string } => Boolean(item)));
 
   const [website, brasilApi, ...rssResults] = await Promise.all([
