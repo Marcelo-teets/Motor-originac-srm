@@ -23,11 +23,11 @@ declare
   duplicate_count integer := 0;
   captured_timestamp timestamptz;
   age_hours numeric;
-  gate_result text := 'allow';
-  quality_status text := 'passed';
+  v_gate_result text := 'allow';
+  v_quality_status text := 'passed';
   failure_payload jsonb := '{}'::jsonb;
   drift_detected boolean := false;
-  quarantine_reason text;
+  v_quarantine_reason text;
 begin
   select
     sd.*,
@@ -56,8 +56,8 @@ begin
 
   if jsonb_array_length(required_fields) = 0 then
     drift_detected := true;
-    gate_result := 'review';
-    quality_status := 'review';
+    v_gate_result := 'review';
+    v_quality_status := 'review';
     failure_payload := failure_payload || jsonb_build_object(
       'contract', 'missing_required_fields_contract'
     );
@@ -126,21 +126,21 @@ begin
     or freshness_score < 0.40
     or uniqueness_score < 0.50
   then
-    gate_result := 'quarantine';
-    quality_status := 'quarantined';
-  elsif gate_result <> 'review' and freshness_score < 0.80 then
-    gate_result := 'review';
-    quality_status := 'review';
+    v_gate_result := 'quarantine';
+    v_quality_status := 'quarantined';
+  elsif v_gate_result <> 'review' and freshness_score < 0.80 then
+    v_gate_result := 'review';
+    v_quality_status := 'review';
   end if;
 
-  quarantine_reason := case
-    when gate_result = 'quarantine' then concat_ws('; ',
+  v_quarantine_reason := case
+    when v_gate_result = 'quarantine' then concat_ws('; ',
       case when completeness_score < 1.00 then 'missing required fields' end,
       case when validity_score < 0.70 then 'invalid document shape' end,
       case when freshness_score < 0.40 then 'freshness SLA failed' end,
       case when uniqueness_score < 0.50 then 'duplicate payload hash' end
     )
-    when gate_result = 'review' then 'manual review required'
+    when v_gate_result = 'review' then 'manual review required'
     else null
   end;
 
@@ -165,28 +165,28 @@ begin
     doc.source_code,
     doc.run_id,
     'source_document',
-    case when gate_result = 'allow' then 'passed' when gate_result = 'review' then 'warning' else 'failed' end,
+    case when v_gate_result = 'allow' then 'passed' when v_gate_result = 'review' then 'warning' else 'failed' end,
     1,
-    case when gate_result = 'allow' then 0 else 1 end,
+    case when v_gate_result = 'allow' then 0 else 1 end,
     completeness_score,
     validity_score,
     freshness_score,
     consistency_score,
     uniqueness_score,
     drift_detected,
-    gate_result,
+    v_gate_result,
     failure_payload,
     now(),
     now()
   );
 
-  update public.source_documents
-  set quality_status = quality_status,
-      quarantine_reason = quarantine_reason,
-      payload_hash = coalesce(payload_hash, effective_hash)
-  where id = p_source_document_id;
+  update public.source_documents sd
+  set quality_status = v_quality_status,
+      quarantine_reason = v_quarantine_reason,
+      payload_hash = coalesce(sd.payload_hash, effective_hash)
+  where sd.id = p_source_document_id;
 
-  if gate_result = 'quarantine'
+  if v_gate_result = 'quarantine'
     and not exists (
       select 1
       from public.source_quarantine sq
@@ -205,7 +205,7 @@ begin
       doc.source_code,
       doc.run_id,
       p_source_document_id,
-      coalesce(quarantine_reason, 'quality gate failed'),
+      coalesce(v_quarantine_reason, 'quality gate failed'),
       case when validity_score < 0.70 or completeness_score < 0.50 then 'high' else 'medium' end,
       coalesce(doc.raw_payload, '{}'::jsonb),
       jsonb_build_object(
@@ -235,12 +235,12 @@ begin
     doc.source_code,
     doc.source_name,
     doc.source_tier,
-    case when gate_result = 'allow' then 'healthy' when gate_result = 'review' then 'degraded' else 'unhealthy' end,
+    case when v_gate_result = 'allow' then 'healthy' when v_gate_result = 'review' then 'degraded' else 'unhealthy' end,
     coalesce(doc.source_reliability_score, 0.50),
     doc.source_freshness_sla_hours,
-    case when gate_result = 'allow' then now() else null end,
-    case when gate_result <> 'allow' then now() else null end,
-    case when gate_result = 'allow' then 0 else 1 end,
+    case when v_gate_result = 'allow' then now() else null end,
+    case when v_gate_result <> 'allow' then now() else null end,
+    case when v_gate_result = 'allow' then 0 else 1 end,
     case when drift_detected then now() else null end,
     now()
   )
@@ -260,8 +260,8 @@ begin
     updated_at = now();
 
   return jsonb_build_object(
-    'status', quality_status,
-    'gate_result', gate_result,
+    'status', v_quality_status,
+    'gate_result', v_gate_result,
     'source_document_id', p_source_document_id,
     'source_code', doc.source_code,
     'scores', jsonb_build_object(
@@ -272,7 +272,7 @@ begin
       'uniqueness', uniqueness_score
     ),
     'missing_fields', missing_fields,
-    'quarantine_reason', quarantine_reason,
+    'quarantine_reason', v_quarantine_reason,
     'drift_detected', drift_detected
   );
 end;
