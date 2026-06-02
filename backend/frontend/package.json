@@ -1,21 +1,9 @@
 {
-  "name": "@motor/backend-vercel-build-shim",
+  "name": "@motor/backend-vercel-api-shim",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "cd .. && npm run build && mkdir -p frontend/public frontend/dist-backend && cp -R dist/. frontend/dist-backend/ && printf '<!doctype html><html><body>Motor backend API host. Use /health or /api/* routes.</body></html>' > frontend/public/index.html"
-  },
-  "dependencies": {
-    "@motor/backend": "file:..",
-    "cors": "^2.8.5",
-    "express": "^4.21.2"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.1",
-    "@types/node": "^22.13.10",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "build": "echo backend-api-shim-ready"
   }
 }
