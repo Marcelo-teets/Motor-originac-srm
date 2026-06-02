@@ -1,4 +1,5 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
+import { deriveOriginationSignalType, signalStrengthFromOriginationText } from './sourceTaxonomy.js';
 
 const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 const nowIso = () => new Date().toISOString();
@@ -26,6 +27,11 @@ export const inferSourceCode = (source: SourceCatalogEntry) => {
   if (blob.includes('company websites') || blob.includes('site_empresa') || blob.includes('company_site')) return 'src_company_website';
   if (blob.includes('receita') || blob.includes('cnpj')) return 'src_brasilapi_cnpj';
   if (blob.includes('cvm') || blob.includes('fidc')) return 'src_cvm_rss';
+  if (blob.includes('anbima') || blob.includes('fundos estruturados')) return 'src_anbima_structured_funds';
+  if (blob.includes('banco central') || blob.includes('ifdata') || blob.includes('bcb')) return 'src_bcb_ifdata_authorized_institutions';
+  if (blob.includes('open finance')) return 'src_open_finance_participants';
+  if (blob.includes('portfolio') || blob.includes('venture capital') || blob.includes('vc')) return 'src_vc_portfolio_monitor_br';
+  if (blob.includes('jobs') || blob.includes('careers') || blob.includes('vagas')) return 'src_company_jobs_monitor';
   if (blob.includes('pipeline valor') || blob.includes('brazil journal') || blob.includes('capital')) return 'src_valor_rss';
   if (blob.includes('startup') || blob.includes('fintech') || blob.includes('noticia') || blob.includes('credito')) return 'src_google_news_rss';
   return `src_${name.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || source.id}`;
@@ -56,20 +62,28 @@ const renderQueryTemplate = (template: string, company: CompanySeed) => template
   .trim();
 
 const isRssRuntimeSource = (source: RuntimeSource) => source.sourceType === 'rss'
+  || source.sourceType === 'search_dork'
   || source.metadata?.sourceType === 'rss'
   || typeof source.metadata?.queryTemplate === 'string'
+  || Array.isArray(source.metadata?.queryTemplates)
   || source.runtimeCode.endsWith('_rss');
 
 const parametricRssSourcesFor = (sources: RuntimeSource[], company: CompanySeed) => sources
   .filter(isRssRuntimeSource)
-  .map((source) => {
-    const template = typeof source.metadata?.queryTemplate === 'string' ? source.metadata.queryTemplate : '';
-    if (!template) return null;
-    const query = renderQueryTemplate(template, company);
-    if (!query) return null;
-    return { source, url: googleNewsRssUrl(query) };
-  })
-  .filter((item): item is { source: RuntimeSource; url: string } => Boolean(item));
+  .flatMap((source) => {
+    const templates = [
+      typeof source.metadata?.queryTemplate === 'string' ? source.metadata.queryTemplate : null,
+      ...(Array.isArray(source.metadata?.queryTemplates) ? source.metadata.queryTemplates.map(String) : []),
+    ].filter((template): template is string => Boolean(template));
+
+    return templates
+      .map((template) => {
+        const query = renderQueryTemplate(template, company);
+        if (!query) return null;
+        return { source, url: googleNewsRssUrl(query) };
+      })
+      .filter((item): item is { source: RuntimeSource; url: string } => Boolean(item));
+  });
 
 const dedupeRssSources = (sources: Array<{ source: RuntimeSource; url: string }>) => {
   const seen = new Set<string>();
@@ -129,22 +143,6 @@ export async function monitorCompanyWebsite(url: string) {
   }
 }
 
-const deriveSignalType = (text: string) => {
-  const value = text.toLowerCase();
-  if (/expans|nova regi|novo canal|crescimento/.test(value)) return 'expansion_signal';
-  if (/fidc|funding|capital|deb[êe]nture|capta/.test(value)) return 'capital_mismatch';
-  if (/receb[ií]veis|cart[ãa]o|antecip/.test(value)) return 'receivables_strong';
-  if (/embedded|wallet|pix|checkout|pagamento/.test(value)) return 'embedded_finance';
-  if (/contrata|vaga|risk|cobran|underwriting/.test(value)) return 'growth_without_funding';
-  return 'market_signal';
-};
-
-const signalStrengthFromText = (text: string) => {
-  const value = text.toLowerCase();
-  if (/expans|funding|capital|receb[ií]veis|embedded|contrata/.test(value)) return 78;
-  return 62;
-};
-
 const buildSignal = (
   company: CompanySeed,
   source: RuntimeSource,
@@ -157,8 +155,8 @@ const buildSignal = (
   id: crypto.randomUUID(),
   companyId: company.id,
   sourceId: source.id,
-  signalType: deriveSignalType(text),
-  signalStrength: signalStrengthFromText(text),
+  signalType: deriveOriginationSignalType(text),
+  signalStrength: signalStrengthFromOriginationText(text),
   confidenceScore: toConfidence(status),
   evidencePayload: { note: text, source: source.id, sourceCode: source.runtimeCode, sourceName: source.name, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status), idSuffix },
   observedVsInferred: 'observed',
