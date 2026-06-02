@@ -1,5 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "framework": null,
@@ -9,12 +8,6 @@
       "memory": 512
     }
   },
-  "crons": [
-    {
-      "path": "/api/data-capture/cron/run",
-      "schedule": "30 10 * * *"
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/:path*",
