@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "cd .. && npm run build && mkdir -p frontend/public && printf '<!doctype html><html><body>Motor backend API host. Use /health or /api/* routes.</body></html>' > frontend/public/index.html"
+    "build": "cd .. && npm run build && mkdir -p frontend/public frontend/dist-backend && cp -R dist/. frontend/dist-backend/ && printf '<!doctype html><html><body>Motor backend API host. Use /health or /api/* routes.</body></html>' > frontend/public/index.html"
   },
   "dependencies": {
     "@motor/backend": "file:..",
