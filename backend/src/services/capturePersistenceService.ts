@@ -3,6 +3,15 @@ import type { CompanySignal, EnrichmentRecord, MonitoringOutput } from '../types
 import type { CaptureEngineResult, CanonicalSourceDocument } from '../modules/data-capture/types.js';
 
 type RuntimeStatus = 'real' | 'partial';
+type QualityGateStatus = 'allow' | 'review' | 'quarantine' | 'not_found' | 'error';
+
+type QualityGateResult = {
+  source_document_id?: string;
+  gate_result?: QualityGateStatus;
+  status?: string;
+  source_code?: string;
+  quarantine_reason?: string | null;
+};
 
 const asPercent = (value: number) => {
   if (!Number.isFinite(value)) return 0;
@@ -49,6 +58,8 @@ const signalEvidenceUrl = (signal: CompanySignal) => pickString(
 );
 
 const sourceIdFromEnrichment = (enrichment: EnrichmentRecord) => pickString(enrichment.payload?.sourceId);
+const companySourceKey = (companyId?: string | null, sourceId?: string | null) => `${companyId ?? ''}|${sourceId ?? ''}`;
+const gateStatusFromResult = (result: QualityGateResult): QualityGateStatus => result.gate_result ?? (result.status as QualityGateStatus | undefined) ?? 'error';
 
 export type CapturePersistenceSummary = {
   status: RuntimeStatus;
@@ -58,6 +69,10 @@ export type CapturePersistenceSummary = {
   signalsWritten: number;
   enrichmentsWritten: number;
   documentsWritten: number;
+  qualityGatesRun: number;
+  documentsAllowed: number;
+  documentsInReview: number;
+  documentsQuarantined: number;
   learningEventsWritten: number;
   errors: string[];
 };
@@ -75,6 +90,10 @@ export class CapturePersistenceService {
         signalsWritten: 0,
         enrichmentsWritten: 0,
         documentsWritten: 0,
+        qualityGatesRun: 0,
+        documentsAllowed: 0,
+        documentsInReview: 0,
+        documentsQuarantined: 0,
         learningEventsWritten: 0,
         errors: ['Supabase client not configured.'],
       };
@@ -125,43 +144,8 @@ export class CapturePersistenceService {
 
     const outputIdByCompanyAndSource = new Map<string, string>();
     allOutputs.forEach((output) => {
-      outputIdByCompanyAndSource.set(`${output.companyId}|${output.sourceId}`, output.id);
+      outputIdByCompanyAndSource.set(companySourceKey(output.companyId, output.sourceId), output.id);
     });
-
-    const allSignals = results.flatMap((result) => result.signals);
-    const signalRows = allSignals.map((signal) => ({
-      id: signal.id,
-      company_id: signal.companyId,
-      monitoring_output_id: signal.sourceId ? outputIdByCompanyAndSource.get(`${signal.companyId}|${signal.sourceId}`) ?? null : null,
-      signal_type: signal.signalType,
-      signal_label: String(signal.evidencePayload?.label ?? signal.signalType).replace(/_/g, ' '),
-      strength: asPercent(signal.signalStrength),
-      confidence: asPercent(signal.confidenceScore),
-      is_explicit: signal.observedVsInferred === 'observed',
-      evidence_url: signalEvidenceUrl(signal) ?? null,
-      evidence_text: signalEvidenceText(signal),
-      observed_at: signal.createdAt,
-      metadata: {
-        ...signal.evidencePayload,
-        source_id: signal.sourceId,
-        observedVsInferred: signal.observedVsInferred,
-      },
-    }));
-
-    const allEnrichments = results.flatMap((result) => result.enrichments);
-    const enrichmentRows = allEnrichments.map((enrichment) => ({
-      id: enrichment.id,
-      company_id: enrichment.companyId,
-      enrichment_type: enrichment.enrichmentType,
-      provider: enrichment.provider ?? null,
-      payload: {
-        ...enrichment.payload,
-        source_id: sourceIdFromEnrichment(enrichment) ?? null,
-        observedVsInferred: enrichment.observedVsInferred,
-      },
-      observed_vs_inferred: enrichment.observedVsInferred,
-      created_at: enrichment.createdAt,
-    }));
 
     const allDocuments = results.flatMap((result) => result.documents);
     const documentRows = allDocuments.map((doc: CanonicalSourceDocument) => ({
@@ -175,28 +159,19 @@ export class CapturePersistenceService {
       title: doc.title,
       published_at: doc.publishedAt ?? null,
       observed_at: doc.observedAt,
+      captured_at: doc.observedAt,
       content_hash: doc.contentHash,
+      payload_hash: doc.contentHash,
+      evidence_url: doc.canonicalUrl || null,
       raw_payload: doc.rawPayload,
       normalized_payload: doc.normalizedPayload,
       extraction_status: doc.extractionStatus,
       confidence_score: doc.confidenceScore ?? null,
+      confidence: doc.confidenceScore ?? null,
+      quality_status: 'pending',
     }));
 
-    const learningRows = [{
-      engine_name: 'data_capture_engine',
-      event_type: 'capture_runtime_persisted',
-      severity: 'info',
-      summary: `Capture runtime persisted ${outputRows.length} outputs, ${signalRows.length} signals and ${enrichmentRows.length} enrichments.`,
-      payload: {
-        reason,
-        companiesProcessed: results.length,
-        outputsWritten: outputRows.length,
-        signalsWritten: signalRows.length,
-        enrichmentsWritten: enrichmentRows.length,
-        documentsWritten: documentRows.length,
-      },
-      created_at: now,
-    }];
+    const documentById = new Map(allDocuments.map((doc) => [doc.id, doc]));
 
     const errors: string[] = [];
     let runsWritten = 0;
@@ -204,6 +179,10 @@ export class CapturePersistenceService {
     let signalsWritten = 0;
     let enrichmentsWritten = 0;
     let documentsWritten = 0;
+    let qualityGatesRun = 0;
+    let documentsAllowed = 0;
+    let documentsInReview = 0;
+    let documentsQuarantined = 0;
     let learningEventsWritten = 0;
 
     try {
@@ -224,6 +203,100 @@ export class CapturePersistenceService {
       errors.push(`monitoring_outputs: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    const allowedCompanySourcePairs = new Set<string>();
+    const blockedCompanySourcePairs = new Set<string>();
+    const qualityResults: QualityGateResult[] = [];
+
+    try {
+      if (documentRows.length) {
+        await this.client.upsert('source_documents', documentRows, 'id');
+        documentsWritten = documentRows.length;
+
+        for (const doc of documentRows) {
+          try {
+            const qualityResult = await this.client.rpc<QualityGateResult>('run_source_document_quality_gate', {
+              p_source_document_id: doc.id,
+            });
+            qualityResults.push(qualityResult);
+            qualityGatesRun += 1;
+
+            const gateStatus = gateStatusFromResult(qualityResult);
+            const sourceDocument = documentById.get(doc.id);
+            const key = companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId);
+
+            if (gateStatus === 'allow') {
+              documentsAllowed += 1;
+              allowedCompanySourcePairs.add(key);
+            } else if (gateStatus === 'review') {
+              documentsInReview += 1;
+              blockedCompanySourcePairs.add(key);
+            } else if (gateStatus === 'quarantine') {
+              documentsQuarantined += 1;
+              blockedCompanySourcePairs.add(key);
+            } else {
+              blockedCompanySourcePairs.add(key);
+            }
+          } catch (error) {
+            const sourceDocument = documentById.get(doc.id);
+            blockedCompanySourcePairs.add(companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId));
+            errors.push(`quality_gate:${doc.id}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+    } catch (error) {
+      errors.push(`source_documents: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const hasDocumentGateFor = (companyId?: string | null, sourceId?: string | null) => {
+      const key = companySourceKey(companyId, sourceId);
+      return allowedCompanySourcePairs.has(key) || blockedCompanySourcePairs.has(key);
+    };
+
+    const isAllowedByDocumentGate = (companyId?: string | null, sourceId?: string | null) => {
+      const key = companySourceKey(companyId, sourceId);
+      if (!hasDocumentGateFor(companyId, sourceId)) return true;
+      return allowedCompanySourcePairs.has(key) && !blockedCompanySourcePairs.has(key);
+    };
+
+    const allSignals = results.flatMap((result) => result.signals);
+    const signalRows = allSignals
+      .filter((signal) => isAllowedByDocumentGate(signal.companyId, signal.sourceId))
+      .map((signal) => ({
+        id: signal.id,
+        company_id: signal.companyId,
+        monitoring_output_id: signal.sourceId ? outputIdByCompanyAndSource.get(companySourceKey(signal.companyId, signal.sourceId)) ?? null : null,
+        signal_type: signal.signalType,
+        signal_label: String(signal.evidencePayload?.label ?? signal.signalType).replace(/_/g, ' '),
+        strength: asPercent(signal.signalStrength),
+        confidence: asPercent(signal.confidenceScore),
+        is_explicit: signal.observedVsInferred === 'observed',
+        evidence_url: signalEvidenceUrl(signal) ?? null,
+        evidence_text: signalEvidenceText(signal),
+        observed_at: signal.createdAt,
+        metadata: {
+          ...signal.evidencePayload,
+          source_id: signal.sourceId,
+          observedVsInferred: signal.observedVsInferred,
+        },
+      }));
+
+    const allEnrichments = results.flatMap((result) => result.enrichments);
+    const enrichmentRows = allEnrichments
+      .filter((enrichment) => isAllowedByDocumentGate(enrichment.companyId, sourceIdFromEnrichment(enrichment)))
+      .map((enrichment) => ({
+        id: enrichment.id,
+        company_id: enrichment.companyId,
+        enrichment_type: enrichment.enrichmentType,
+        provider: enrichment.provider ?? null,
+        payload: {
+          ...enrichment.payload,
+          source_id: sourceIdFromEnrichment(enrichment) ?? null,
+          observedVsInferred: enrichment.observedVsInferred,
+        },
+        observed_vs_inferred: enrichment.observedVsInferred,
+        created_at: enrichment.createdAt,
+      }));
+
     try {
       if (signalRows.length) {
         await this.client.upsert('company_signals', signalRows, 'id');
@@ -242,14 +315,30 @@ export class CapturePersistenceService {
       errors.push(`enrichments: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    try {
-      if (documentRows.length) {
-        await this.client.upsert('source_documents', documentRows, 'id');
-        documentsWritten = documentRows.length;
-      }
-    } catch (error) {
-      errors.push(`source_documents: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const blockedSignals = allSignals.length - signalRows.length;
+    const blockedEnrichments = allEnrichments.length - enrichmentRows.length;
+    const learningRows = [{
+      engine_name: 'data_capture_engine',
+      event_type: 'capture_runtime_persisted',
+      severity: errors.length ? 'warning' : 'info',
+      summary: `Capture runtime persisted ${outputRows.length} outputs, ${signalRows.length} signals, ${enrichmentRows.length} enrichments and quality-gated ${qualityGatesRun} source documents.`,
+      payload: {
+        reason,
+        companiesProcessed: results.length,
+        outputsWritten: outputRows.length,
+        signalsWritten: signalRows.length,
+        enrichmentsWritten: enrichmentRows.length,
+        documentsWritten: documentRows.length,
+        qualityGatesRun,
+        documentsAllowed,
+        documentsInReview,
+        documentsQuarantined,
+        blockedSignals,
+        blockedEnrichments,
+        qualityResults,
+      },
+      created_at: now,
+    }];
 
     try {
       await this.client.insert('engine_learning_events', learningRows);
@@ -266,6 +355,10 @@ export class CapturePersistenceService {
       signalsWritten,
       enrichmentsWritten,
       documentsWritten,
+      qualityGatesRun,
+      documentsAllowed,
+      documentsInReview,
+      documentsQuarantined,
       learningEventsWritten,
       errors,
     };
