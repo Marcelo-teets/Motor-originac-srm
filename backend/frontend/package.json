@@ -2,7 +2,20 @@
   "name": "@motor/backend-vercel-build-shim",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "build": "cd .. && npm run build && mkdir -p frontend/dist && printf '<!doctype html><html><body>Motor backend build OK</body></html>' > frontend/dist/index.html"
+    "build": "cd .. && npm run build"
+  },
+  "dependencies": {
+    "@motor/backend": "file:..",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
   }
 }
