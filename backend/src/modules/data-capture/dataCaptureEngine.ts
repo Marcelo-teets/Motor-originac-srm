@@ -1,5 +1,6 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../../types/platform.js';
 import { ingestCompanyMonitoring } from '../../lib/connectors.js';
+import { captureMaisRetorno } from '../../lib/maisRetornoCapture.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 import { treatCaptureOutputs } from './captureTreatment.js';
 
@@ -9,6 +10,7 @@ const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_cvm_rss: 0.08,
   src_google_news_rss: 0.03,
   src_valor_rss: 0.04,
+  src_mais_retorno_api: 0.02,
 };
 
 const THEME_RULES = [
@@ -16,6 +18,7 @@ const THEME_RULES = [
   { theme: 'receivables_strength', pattern: /receb[ií]veis|antecip|cart[ãa]o/i },
   { theme: 'expansion', pattern: /expans|crescimento|nova regi|novo canal/i },
   { theme: 'risk_signal', pattern: /inadimpl|provis|chargeback|risc|default/i },
+  { theme: 'market_data_context', pattern: /mais retorno|fundos|indices|índices|acoes|ações|fiis|tesouro direto|comparáveis/i },
 ] as const;
 
 const clamp = (value: number, min = 0.12, max = 0.99) => Math.min(max, Math.max(min, value));
@@ -182,8 +185,16 @@ export class DataCaptureEngine {
 
     return Promise.all(targetCompanies.map(async (company) => {
       const collectedAt = new Date().toISOString();
-      const ingested = await ingestCompanyMonitoring(company, targetSources);
-      const filtered = filterByRequestedSource(request, ingested.outputs, ingested.signals, ingested.enrichments);
+      const [ingested, maisRetorno] = await Promise.all([
+        ingestCompanyMonitoring(company, targetSources),
+        captureMaisRetorno(company, targetSources, collectedAt),
+      ]);
+      const combined = {
+        outputs: [...ingested.outputs, ...maisRetorno.outputs],
+        signals: [...ingested.signals, ...maisRetorno.signals],
+        enrichments: [...ingested.enrichments, ...maisRetorno.enrichments],
+      };
+      const filtered = filterByRequestedSource(request, combined.outputs, combined.signals, combined.enrichments);
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
 
       const calibratedOutputs = deduped
