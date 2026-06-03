@@ -2,7 +2,34 @@ import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, So
 
 const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 const nowIso = () => new Date().toISOString();
-const toConfidence = (status: 'real' | 'partial') => (status === 'real' ? 0.82 : 0.45);
+
+const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+const sourceConfidenceWeight = (source?: Pick<SourceCatalogEntry, 'category' | 'sourceType' | 'metadata'>) => {
+  if (!source) return 0.62;
+
+  const category = normalizeText(source.category ?? '');
+  const sourceType = normalizeText(source.sourceType ?? '');
+  const tags = Array.isArray(source.metadata?.tags) ? source.metadata.tags.map((tag) => normalizeText(String(tag))).join(' ') : '';
+  const blob = `${category} ${sourceType} ${tags}`;
+
+  if (/regulatory|oficial|cvm|bcb|receita|cnpj|capital_markets|fidc|dcm|anbima|judicial|fiscal|compliance|procurement|government/.test(blob)) return 0.92;
+  if (/company_site|site|empresa|website|primary/.test(blob)) return 0.86;
+  if (/vc_portfolio|venture|portfolio|investor|growth/.test(blob)) return 0.82;
+  if (/news_traditional|traditional|valor|estadao|exame|brazil journal|pipeline/.test(blob)) return 0.78;
+  if (/news_niche|newsletter|startup|fintech|rss/.test(blob)) return 0.70;
+  if (/jobs|hiring|linkedin|social_signal|technology_signal|github|app_store|reputation/.test(blob)) return 0.58;
+  if (/paid_vendor|contact|apollo|lusha/.test(blob)) return 0.45;
+  if (/search_dork|google|inferred/.test(blob)) return 0.42;
+
+  return 0.62;
+};
+
+const toConfidence = (status: 'real' | 'partial', source?: Pick<SourceCatalogEntry, 'category' | 'sourceType' | 'metadata'>) => {
+  const base = sourceConfidenceWeight(source);
+  const modifier = status === 'real' ? 1 : 0.62;
+  return Number(Math.min(0.98, Math.max(0.30, base * modifier)).toFixed(2));
+};
 
 const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceScore: number, sourceCode: string) => ({
   sourceUrl,
@@ -11,8 +38,6 @@ const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceSco
   confidenceScore,
   sourceCode,
 });
-
-const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 export const inferSourceCode = (source: SourceCatalogEntry) => {
   const explicit = typeof source.metadata?.code === 'string' ? source.metadata.code : undefined;
@@ -131,17 +156,23 @@ export async function monitorCompanyWebsite(url: string) {
 
 const deriveSignalType = (text: string) => {
   const value = text.toLowerCase();
-  if (/expans|nova regi|novo canal|crescimento/.test(value)) return 'expansion_signal';
-  if (/fidc|funding|capital|deb[êe]nture|capta/.test(value)) return 'capital_mismatch';
-  if (/receb[ií]veis|cart[ãa]o|antecip/.test(value)) return 'receivables_strong';
+  if (/recupera[cç][aã]o judicial|fal[êe]ncia|execu[cç][aã]o|protesto|d[ií]vida ativa|pgfn|processo judicial/.test(value)) return 'judicial_or_fiscal_stress';
+  if (/contrato p[uú]blico|licita[cç][aã]o|preg[aã]o|pncp|compras p[uú]blicas|empenho/.test(value)) return 'public_contract_receivables';
+  if (/fidc|securitiza[cç][aã]o|direitos credit[oó]rios|cess[aã]o de cr[eé]dito/.test(value)) return 'fidc_or_securitization_signal';
+  if (/deb[êe]nture|nota comercial|cri|cra|mercado de capitais|dcm/.test(value)) return 'dcm_signal';
+  if (/cr[eé]dito|empr[eé]stimo|financiamento|capital de giro|bnpl|seller financing|embedded finance/.test(value)) return 'credit_product_signal';
+  if (/receb[ií]veis|cart[ãa]o|antecip|duplicata|mensalidade|assinatura|contrato recorrente/.test(value)) return 'receivables_strong';
+  if (/rodada|series a|series b|venture capital|private equity|investimento|capta[cç][aã]o/.test(value)) return 'funding_event';
+  if (/expans|nova regi|novo canal|crescimento|aquis[ií]c[aã]o|m&a/.test(value)) return 'expansion_signal';
+  if (/contrata|vaga|risk|cobran|underwriting|tesouraria|capital markets|cfo/.test(value)) return 'growth_without_funding';
   if (/embedded|wallet|pix|checkout|pagamento/.test(value)) return 'embedded_finance';
-  if (/contrata|vaga|risk|cobran|underwriting/.test(value)) return 'growth_without_funding';
   return 'market_signal';
 };
 
 const signalStrengthFromText = (text: string) => {
   const value = text.toLowerCase();
-  if (/expans|funding|capital|receb[ií]veis|embedded|contrata/.test(value)) return 78;
+  if (/fidc|securitiza[cç][aã]o|deb[êe]nture|nota comercial|recupera[cç][aã]o judicial|d[ií]vida ativa|contrato p[uú]blico|capital de giro/.test(value)) return 86;
+  if (/funding|capta[cç][aã]o|rodada|receb[ií]veis|embedded|antecip|contrata|expans/.test(value)) return 78;
   return 62;
 };
 
@@ -153,17 +184,20 @@ const buildSignal = (
   collectedAt: string,
   status: 'real' | 'partial',
   sourceUrl: string,
-): CompanySignal => ({
-  id: crypto.randomUUID(),
-  companyId: company.id,
-  sourceId: source.id,
-  signalType: deriveSignalType(text),
-  signalStrength: signalStrengthFromText(text),
-  confidenceScore: toConfidence(status),
-  evidencePayload: { note: text, source: source.id, sourceCode: source.runtimeCode, sourceName: source.name, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status), idSuffix },
-  observedVsInferred: 'observed',
-  createdAt: collectedAt,
-});
+): CompanySignal => {
+  const confidenceScore = toConfidence(status, source);
+  return {
+    id: crypto.randomUUID(),
+    companyId: company.id,
+    sourceId: source.id,
+    signalType: deriveSignalType(text),
+    signalStrength: signalStrengthFromText(text),
+    confidenceScore,
+    evidencePayload: { note: text, source: source.id, sourceCode: source.runtimeCode, sourceName: source.name, sourceUrl, timestamp: collectedAt, confidenceScore, idSuffix },
+    observedVsInferred: 'observed',
+    createdAt: collectedAt,
+  };
+};
 
 const buildOutput = (
   company: CompanySeed,
@@ -188,6 +222,9 @@ const buildOutput = (
     sourceCode: source.runtimeCode,
     sourceName: source.name,
     sourceCategory: source.category,
+    sourceType: source.sourceType,
+    signalFocus: source.metadata?.signalFocus,
+    sourceConfidenceWeight: sourceConfidenceWeight(source),
   },
 });
 
@@ -253,8 +290,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       website.headings.join(' | ') || website.bodyText.slice(0, 180) || 'Sem conteúdo capturado.',
       collectedAt,
       website.status,
-      website.status === 'real' ? 0.74 : 0.42,
-      { ...website, ...connectorMetadata(website.sourceUrl, collectedAt, website.status === 'real' ? 0.74 : 0.42, websiteSource.runtimeCode) },
+      toConfidence(website.status, websiteSource),
+      { ...website, ...connectorMetadata(website.sourceUrl, collectedAt, toConfidence(website.status, websiteSource), websiteSource.runtimeCode) },
     )] : []),
     ...(brasilApi && brasilApiSource ? [buildOutput(
       company,
@@ -263,11 +300,12 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       brasilApi.data.razao_social ? `${brasilApi.data.razao_social} · ${brasilApi.data.descricao_situacao_cadastral ?? 'situação consultada'}` : `Consulta ${brasilApi.status} para ${company.cnpj}`,
       collectedAt,
       brasilApi.status,
-      brasilApi.status === 'real' ? 0.88 : 0.5,
-      { payload: brasilApi.data as Record<string, unknown>, endpoint: brasilApi.endpoint, ...connectorMetadata(brasilApi.endpoint, collectedAt, brasilApi.status === 'real' ? 0.88 : 0.5, brasilApiSource.runtimeCode) },
+      toConfidence(brasilApi.status, brasilApiSource),
+      { payload: brasilApi.data as Record<string, unknown>, endpoint: brasilApi.endpoint, ...connectorMetadata(brasilApi.endpoint, collectedAt, toConfidence(brasilApi.status, brasilApiSource), brasilApiSource.runtimeCode) },
     )] : []),
     ...rssResults.map((rss, index) => {
       const runtime = rssSources[index];
+      const confidenceScore = toConfidence(rss.status, runtime.source);
       return buildOutput(
         company,
         runtime.source,
@@ -275,8 +313,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
         rss.items.map((item) => item.title).join(' | '),
         collectedAt,
         rss.status,
-        rss.status === 'real' ? 0.7 : 0.4,
-        { items: rss.items, ...connectorMetadata(rss.sourceUrl, collectedAt, rss.status === 'real' ? 0.7 : 0.4, runtime.source.runtimeCode) },
+        confidenceScore,
+        { items: rss.items, ...connectorMetadata(rss.sourceUrl, collectedAt, confidenceScore, runtime.source.runtimeCode) },
       );
     }),
   ];
