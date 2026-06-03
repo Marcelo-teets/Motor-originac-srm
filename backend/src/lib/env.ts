@@ -31,4 +31,9 @@ export const env = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   useSupabase: process.env.USE_SUPABASE ? process.env.USE_SUPABASE === 'true' : hasSupabaseCredentials,
   bootstrapSupabase: process.env.BOOTSTRAP_SUPABASE === 'true',
+  maisRetornoApiKey: process.env.MAIS_RETORNO_API_KEY ?? '',
+  maisRetornoApiBaseUrl: process.env.MAIS_RETORNO_API_BASE_URL ?? '',
+  maisRetornoApiPath: process.env.MAIS_RETORNO_API_PATH ?? '',
+  maisRetornoMonthlyQuota: process.env.MAIS_RETORNO_MONTHLY_QUOTA ?? '500',
+  maisRetornoMonthlyTarget: process.env.MAIS_RETORNO_MONTHLY_TARGET ?? '500',
 };
