@@ -29,6 +29,44 @@ import type {
 } from './types';
 import { buildApiUrl } from './runtimeConfig';
 
+type MonitoringOutputRow = {
+  id: string;
+  companyId?: string;
+  sourceId: string;
+  title: string;
+  summary: string;
+  collectedAt: string;
+  confidenceScore: number;
+  connectorStatus: string;
+  normalizedPayload?: Record<string, unknown>;
+};
+
+type SourceHealthSnapshot = {
+  summary: {
+    totalSources: number;
+    healthySources: number;
+    degradedSources: number;
+    downSources: number;
+    activeSources: number;
+    totalOutputs: number;
+    realOutputs: number;
+    partialOutputs: number;
+    officialSourcesObserved: number;
+  };
+  sources: Array<SourceEntry & {
+    outputCount: number;
+    realOutputCount: number;
+    partialOutputCount: number;
+    averageConfidence: number;
+    lastOutputAt: string | null;
+    lastOutputTitle: string | null;
+    lastOutputStatus: string | null;
+    isOfficial: boolean;
+    decision: string;
+    nextAction: string;
+  }>;
+};
+
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
   if (status === 'partial') return `${path} carregado parcialmente; backend priorizou DB real e completou com fallback controlado.`;
@@ -55,6 +93,67 @@ const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
   note: stateNote(path, payload.status),
 });
 
+const isOfficialSource = (source: SourceEntry) => /cvm|bcb|ifdata|pncp|receita|anbima|fidc|central_bank|procurement|government/i.test(
+  `${source.id} ${source.name} ${source.sourceType} ${source.category}`,
+);
+
+const sourceDecision = (source: SourceEntry, outputs: MonitoringOutputRow[], isOfficial: boolean) => {
+  if (source.health === 'down') return { decision: 'Fonte indisponível', nextAction: 'Revisar adapter, URL ou credencial antes de usar no score.' };
+  if (source.status === 'planned') return { decision: 'Planejada', nextAction: 'Priorizar implementação somente se melhorar originação real.' };
+  if (!outputs.length) return { decision: 'Sem evidência recente', nextAction: isOfficial ? 'Rodar captura oficial e validar persistência no Supabase.' : 'Rodar captura e checar se há match por empresa.' };
+  const partialCount = outputs.filter((item) => item.connectorStatus !== 'real').length;
+  if (partialCount > outputs.length / 2) return { decision: 'Atenção', nextAction: 'Investigar conectores parciais e payloads de erro.' };
+  return { decision: 'Operacional', nextAction: 'Usar evidências em qualification, patterns e ranking.' };
+};
+
+const buildSourceHealthSnapshot = (sources: SourceEntry[], outputs: MonitoringOutputRow[]): SourceHealthSnapshot => {
+  const rows = sources.map((source) => {
+    const sourceOutputs = outputs
+      .filter((output) => output.sourceId === source.id)
+      .sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
+    const realOutputCount = sourceOutputs.filter((output) => output.connectorStatus === 'real').length;
+    const partialOutputCount = sourceOutputs.length - realOutputCount;
+    const averageConfidence = sourceOutputs.length
+      ? Math.round((sourceOutputs.reduce((sum, output) => sum + Number(output.confidenceScore ?? 0), 0) / sourceOutputs.length) * 100)
+      : 0;
+    const isOfficial = isOfficialSource(source);
+    const { decision, nextAction } = sourceDecision(source, sourceOutputs, isOfficial);
+
+    return {
+      ...source,
+      outputCount: sourceOutputs.length,
+      realOutputCount,
+      partialOutputCount,
+      averageConfidence,
+      lastOutputAt: sourceOutputs[0]?.collectedAt ?? null,
+      lastOutputTitle: sourceOutputs[0]?.title ?? null,
+      lastOutputStatus: sourceOutputs[0]?.connectorStatus ?? null,
+      isOfficial,
+      decision,
+      nextAction,
+    };
+  }).sort((a, b) => {
+    if (Number(b.isOfficial) !== Number(a.isOfficial)) return Number(b.isOfficial) - Number(a.isOfficial);
+    if (b.outputCount !== a.outputCount) return b.outputCount - a.outputCount;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    summary: {
+      totalSources: sources.length,
+      healthySources: sources.filter((source) => source.health === 'healthy').length,
+      degradedSources: sources.filter((source) => source.health === 'degraded').length,
+      downSources: sources.filter((source) => source.health === 'down').length,
+      activeSources: sources.filter((source) => source.status === 'real').length,
+      totalOutputs: outputs.length,
+      realOutputs: outputs.filter((output) => output.connectorStatus === 'real').length,
+      partialOutputs: outputs.filter((output) => output.connectorStatus !== 'real').length,
+      officialSourcesObserved: rows.filter((source) => source.isOfficial && source.outputCount > 0).length,
+    },
+    sources: rows,
+  };
+};
+
 export const api = {
   login: async (email: string, password: string) => {
     const response = await fetch(buildApiUrl('/auth/login'), {
@@ -76,6 +175,20 @@ export const api = {
   getCompanyEnvelope: (session: SessionData | null, id: string) => requestEnvelope<CompanyDetail>(`/companies/${id}`, session),
   getCompany: async (session: SessionData | null, id: string) => toState('Company detail', await requestEnvelope<CompanyDetail>(`/companies/${id}`, session)),
   getSources: async (session: SessionData | null) => toState('Sources catalog', await requestEnvelope<SourceEntry[]>('/sources/catalog', session)),
+  getSourceHealthSnapshot: async (session: SessionData | null): Promise<DataState<SourceHealthSnapshot>> => {
+    const [sources, outputs] = await Promise.all([
+      requestEnvelope<SourceEntry[]>('/sources/catalog', session),
+      requestEnvelope<MonitoringOutputRow[]>('/monitoring/outputs', session),
+    ]);
+    const status = sources.status === 'real' && outputs.status === 'real' ? 'real' : sources.status === 'mock' || outputs.status === 'mock' ? 'mock' : 'partial';
+    return {
+      source: status,
+      note: status === 'real'
+        ? 'Sources health calculado a partir do source_catalog e monitoring_outputs persistidos.'
+        : 'Sources health calculado com dados parciais; validar Supabase e captura antes de usar como métrica executiva.',
+      data: buildSourceHealthSnapshot(sources.data, outputs.data),
+    };
+  },
   getSearchProfiles: async (session: SessionData | null) => toState('Search profiles', await requestEnvelope<SearchProfile[]>('/search-profiles', session)),
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })
