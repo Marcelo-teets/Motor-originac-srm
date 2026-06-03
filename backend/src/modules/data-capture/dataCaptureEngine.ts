@@ -230,7 +230,6 @@ export class DataCaptureEngine {
             sourcesObserved: new Set(outputs.map((item) => item.sourceId)).size,
             duplicatesDiscarded,
             partialConnectors: outputs.filter((item) => item.connectorStatus !== 'real').length,
-            maisRetornoOutputs: maisRetorno.outputs.length,
             corroboratedThemes,
             averageConfidence: outputs.length
               ? Number((outputs.reduce((sum, item) => sum + item.confidenceScore, 0) / outputs.length).toFixed(4))
