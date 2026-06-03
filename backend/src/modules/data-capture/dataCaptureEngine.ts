@@ -2,6 +2,7 @@ import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, So
 import { ingestCompanyMonitoring } from '../../lib/connectors.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 import { treatCaptureOutputs } from './captureTreatment.js';
+import { runOfficialLoaders } from './officialLoaders.js';
 
 const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_brasilapi_cnpj: 0.1,
@@ -9,6 +10,9 @@ const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_cvm_rss: 0.08,
   src_google_news_rss: 0.03,
   src_valor_rss: 0.04,
+  src_cvm_fidc_informe_mensal: 0.1,
+  src_bcb_ifdata: 0.08,
+  src_pncp_contracts: 0.08,
 };
 
 const THEME_RULES = [
@@ -16,6 +20,8 @@ const THEME_RULES = [
   { theme: 'receivables_strength', pattern: /receb[ií]veis|antecip|cart[ãa]o/i },
   { theme: 'expansion', pattern: /expans|crescimento|nova regi|novo canal/i },
   { theme: 'risk_signal', pattern: /inadimpl|provis|chargeback|risc|default/i },
+  { theme: 'public_contract_receivables', pattern: /pncp|contrato p[uú]blico|licita|compras p[uú]blicas|sacado p[uú]blico/i },
+  { theme: 'regulated_financial_institution', pattern: /bcb|ifdata|institui[cç][aã]o financeira|regulada/i },
 ] as const;
 
 const clamp = (value: number, min = 0.12, max = 0.99) => Math.min(max, Math.max(min, value));
@@ -157,7 +163,7 @@ const buildCrossEnrichment = (company: CompanySeed, themes: string[], collectedA
     payload: {
       themes,
       summary: `Corroboração multi-fonte identificada para: ${themes.join(', ')}`,
-      confidenceModelVersion: 'v2.1',
+      confidenceModelVersion: 'v2.2_official_loaders',
       collectedAt,
     },
     observedVsInferred: 'inferred',
@@ -182,8 +188,16 @@ export class DataCaptureEngine {
 
     return Promise.all(targetCompanies.map(async (company) => {
       const collectedAt = new Date().toISOString();
-      const ingested = await ingestCompanyMonitoring(company, targetSources);
-      const filtered = filterByRequestedSource(request, ingested.outputs, ingested.signals, ingested.enrichments);
+      const [ingested, officialLoaded] = await Promise.all([
+        ingestCompanyMonitoring(company, targetSources),
+        runOfficialLoaders(company, targetSources),
+      ]);
+      const combined = {
+        outputs: [...ingested.outputs, ...officialLoaded.outputs],
+        signals: [...ingested.signals, ...officialLoaded.signals],
+        enrichments: [...ingested.enrichments, ...officialLoaded.enrichments],
+      };
+      const filtered = filterByRequestedSource(request, combined.outputs, combined.signals, combined.enrichments);
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
 
       const calibratedOutputs = deduped
@@ -219,6 +233,8 @@ export class DataCaptureEngine {
             sourcesObserved: new Set(outputs.map((item) => item.sourceId)).size,
             duplicatesDiscarded,
             partialConnectors: outputs.filter((item) => item.connectorStatus !== 'real').length,
+            officialOutputs: officialLoaded.outputs.length,
+            officialSignals: officialLoaded.signals.length,
             corroboratedThemes,
             averageConfidence: outputs.length
               ? Number((outputs.reduce((sum, item) => sum + item.confidenceScore, 0) / outputs.length).toFixed(4))
