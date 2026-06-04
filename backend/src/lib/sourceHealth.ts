@@ -81,12 +81,41 @@ const sourceDecision = (source: SourceCatalogEntry, outputs: MonitoringOutput[],
   return { decision: 'Operacional', nextAction: 'Usar evidências em qualification, patterns e ranking.' };
 };
 
-const runSourceId = (run: SourceConnectorRun) => {
+const stringValues = (...values: unknown[]) => values
+  .flatMap((value) => Array.isArray(value) ? value : [value])
+  .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  .map((value) => value.trim());
+
+const runSourceKeys = (run: SourceConnectorRun) => {
   const metadata = run.metadata ?? {};
   const requested = typeof metadata.requested === 'object' && metadata.requested ? metadata.requested as Record<string, unknown> : {};
-  return run.sourceId
-    ?? (typeof requested.sourceId === 'string' ? requested.sourceId : null)
-    ?? (typeof metadata.sourceId === 'string' ? metadata.sourceId : null);
+
+  return new Set(stringValues(
+    run.sourceId,
+    requested.sourceId,
+    metadata.sourceId,
+    metadata.sourceCode,
+    metadata.sourceCodes,
+  ));
+};
+
+const outputSourceKeys = (output: MonitoringOutput) => new Set(stringValues(
+  output.sourceId,
+  output.normalizedPayload?.sourceCode,
+  output.normalizedPayload?.code,
+));
+
+const sourceKeys = (source: SourceCatalogEntry) => new Set(stringValues(
+  source.id,
+  sourceCode(source),
+  source.metadata?.code,
+));
+
+const intersects = (left: Set<string>, right: Set<string>) => {
+  for (const value of left) {
+    if (right.has(value)) return true;
+  }
+  return false;
 };
 
 export async function listSourceConnectorRuns(limit = 250): Promise<SourceConnectorRun[]> {
@@ -126,11 +155,12 @@ export function buildSourceHealthSnapshot(
   runs: SourceConnectorRun[] = [],
 ): SourceHealthSnapshot {
   const rows = sources.map((source) => {
+    const keys = sourceKeys(source);
     const sourceOutputs = outputs
-      .filter((output) => output.sourceId === source.id)
+      .filter((output) => intersects(outputSourceKeys(output), keys))
       .sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
     const sourceRuns = runs
-      .filter((run) => runSourceId(run) === source.id || runSourceId(run) === sourceCode(source))
+      .filter((run) => intersects(runSourceKeys(run), keys))
       .sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')));
     const realOutputCount = sourceOutputs.filter((output) => output.connectorStatus === 'real').length;
     const partialOutputCount = sourceOutputs.length - realOutputCount;
