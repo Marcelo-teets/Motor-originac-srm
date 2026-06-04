@@ -206,9 +206,16 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       reason: triggerType === 'cron' ? 'vercel_cron' : 'manual_serverless_runtime',
     });
     const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
+    const operational = result.operational ?? {
+      status: result.persisted.status,
+      httpStatus: result.persisted.status === 'real' ? 200 : 207,
+      decision: result.persisted.status === 'real' ? 'Captura persistida' : 'Persistência parcial',
+      nextAction: persistedErrors.length ? 'Revisar erros de persistência.' : 'Validar Supabase e tabelas de runtime.',
+    };
+
     await insertCaptureAuditRun({
       triggerType,
-      status: result.persisted.status === 'real' ? 'completed' : 'partial',
+      status: operational.status === 'real' ? 'completed' : 'partial',
       startedAt,
       finishedAt: new Date().toISOString(),
       companyId: requestedCompanyId,
@@ -220,17 +227,24 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       enrichmentsWritten: result.persisted.enrichmentsWritten,
       errorMessage: persistedErrors.length ? persistedErrors.slice(0, 3).join(' | ') : null,
       metadata: {
-        auditVersion: 'capture_runtime_serverless_v1',
+        auditVersion: 'capture_runtime_serverless_v2_operational_diagnostics',
         reason: triggerType === 'cron' ? 'vercel_cron' : 'manual_serverless_runtime',
         requested: result.requested,
+        operational,
         companiesAvailable: result.companiesAvailable,
         sourcesAvailable: result.sourcesAvailable,
+        sourcesProcessed: result.sourcesProcessed,
         companiesProcessed: result.companiesProcessed,
         documentsCollected: result.documentsCollected,
         persisted: result.persisted,
       },
     });
-    writeJson(res, result.persisted.status === 'real' ? 200 : 207, { status: result.persisted.status, generatedAt: new Date().toISOString(), data: result });
+    writeJson(res, operational.httpStatus ?? 207, {
+      status: operational.status ?? result.status ?? result.persisted.status,
+      generatedAt: new Date().toISOString(),
+      operational,
+      data: result,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await insertCaptureAuditRun({
@@ -243,7 +257,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       scopeType: requestedCompanyId ? 'company' : requestedSourceId ? 'source' : 'global',
       errorMessage,
       metadata: {
-        auditVersion: 'capture_runtime_serverless_v1',
+        auditVersion: 'capture_runtime_serverless_v2_operational_diagnostics',
         requestPath: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
       },
@@ -251,6 +265,12 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
     writeJson(res, 500, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
+      operational: {
+        status: 'partial',
+        httpStatus: 500,
+        decision: 'Falha na execução da captura',
+        nextAction: 'Inspecionar logs do Vercel e source_connector_runs.error_message.',
+      },
       error: errorMessage,
     });
   }
