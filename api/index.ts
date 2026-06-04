@@ -276,6 +276,12 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
   }
 }
 
+const setRuntimeScope = (req: IncomingMessage, key: 'companyId' | 'sourceId', value: string) => {
+  const url = parseUrl(req);
+  url.searchParams.set(key, decodeURIComponent(value));
+  (req as any).url = `${url.pathname}${url.search}`;
+};
+
 async function originationRuntime(req: IncomingMessage, res: ServerResponse) {
   const pathname = parseUrl(req).pathname.replace(/^\/api/, '');
   const mod = await import('../backend/src/modules/originationOperatingSystem.js');
@@ -319,6 +325,8 @@ async function ensureApp(): Promise<void> {
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const originalUrl = (req as any).url ?? '/';
   const pathname = parseUrl(req).pathname;
+  const runtimeCompanyMatch = pathname.match(/^\/api\/monitoring\/runtime\/company\/([^/]+)$/);
+  const runtimeSourceMatch = pathname.match(/^\/api\/monitoring\/runtime\/source\/([^/]+)$/);
 
   if (pathname === '/api/data-capture/health') {
     await captureHealth(req, res);
@@ -330,7 +338,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  if (pathname === '/api/data-capture/run') {
+  if (pathname === '/api/data-capture/run' || pathname === '/api/monitoring/runtime/run') {
+    await runCaptureRuntime(req, res, 'manual');
+    return;
+  }
+
+  if (runtimeCompanyMatch?.[1]) {
+    setRuntimeScope(req, 'companyId', runtimeCompanyMatch[1]);
+    await runCaptureRuntime(req, res, 'manual');
+    return;
+  }
+
+  if (runtimeSourceMatch?.[1]) {
+    setRuntimeScope(req, 'sourceId', runtimeSourceMatch[1]);
     await runCaptureRuntime(req, res, 'manual');
     return;
   }
