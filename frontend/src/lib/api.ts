@@ -52,6 +52,8 @@ type SourceHealthSnapshot = {
     realOutputs: number;
     partialOutputs: number;
     officialSourcesObserved: number;
+    connectorRuns?: number;
+    failedRuns?: number;
   };
   sources: Array<SourceEntry & {
     outputCount: number;
@@ -61,6 +63,12 @@ type SourceHealthSnapshot = {
     lastOutputAt: string | null;
     lastOutputTitle: string | null;
     lastOutputStatus: string | null;
+    runCount?: number;
+    lastRunAt?: string | null;
+    lastRunStatus?: string | null;
+    lastRunError?: string | null;
+    runOutputsWritten?: number;
+    runSignalsWritten?: number;
     isOfficial: boolean;
     decision: string;
     nextAction: string;
@@ -128,6 +136,12 @@ const buildSourceHealthSnapshot = (sources: SourceEntry[], outputs: MonitoringOu
       lastOutputAt: sourceOutputs[0]?.collectedAt ?? null,
       lastOutputTitle: sourceOutputs[0]?.title ?? null,
       lastOutputStatus: sourceOutputs[0]?.connectorStatus ?? null,
+      runCount: 0,
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastRunError: null,
+      runOutputsWritten: 0,
+      runSignalsWritten: 0,
       isOfficial,
       decision,
       nextAction,
@@ -149,6 +163,8 @@ const buildSourceHealthSnapshot = (sources: SourceEntry[], outputs: MonitoringOu
       realOutputs: outputs.filter((output) => output.connectorStatus === 'real').length,
       partialOutputs: outputs.filter((output) => output.connectorStatus !== 'real').length,
       officialSourcesObserved: rows.filter((source) => source.isOfficial && source.outputCount > 0).length,
+      connectorRuns: 0,
+      failedRuns: 0,
     },
     sources: rows,
   };
@@ -176,18 +192,27 @@ export const api = {
   getCompany: async (session: SessionData | null, id: string) => toState('Company detail', await requestEnvelope<CompanyDetail>(`/companies/${id}`, session)),
   getSources: async (session: SessionData | null) => toState('Sources catalog', await requestEnvelope<SourceEntry[]>('/sources/catalog', session)),
   getSourceHealthSnapshot: async (session: SessionData | null): Promise<DataState<SourceHealthSnapshot>> => {
-    const [sources, outputs] = await Promise.all([
-      requestEnvelope<SourceEntry[]>('/sources/catalog', session),
-      requestEnvelope<MonitoringOutputRow[]>('/monitoring/outputs', session),
-    ]);
-    const status = sources.status === 'real' && outputs.status === 'real' ? 'real' : sources.status === 'mock' || outputs.status === 'mock' ? 'mock' : 'partial';
-    return {
-      source: status,
-      note: status === 'real'
-        ? 'Sources health calculado a partir do source_catalog e monitoring_outputs persistidos.'
-        : 'Sources health calculado com dados parciais; validar Supabase e captura antes de usar como métrica executiva.',
-      data: buildSourceHealthSnapshot(sources.data, outputs.data),
-    };
+    try {
+      const snapshot = await requestEnvelope<SourceHealthSnapshot>('/sources/health/snapshot', session);
+      return {
+        source: snapshot.status,
+        note: snapshot.status === 'real'
+          ? 'Sources health carregado do endpoint backend institucional com source_connector_runs quando disponível.'
+          : 'Sources health carregado do backend em modo parcial; validar Supabase/captura antes de usar como métrica executiva.',
+        data: snapshot.data,
+      };
+    } catch {
+      const [sources, outputs] = await Promise.all([
+        requestEnvelope<SourceEntry[]>('/sources/catalog', session),
+        requestEnvelope<MonitoringOutputRow[]>('/monitoring/outputs', session),
+      ]);
+      const status = sources.status === 'real' && outputs.status === 'real' ? 'real' : sources.status === 'mock' || outputs.status === 'mock' ? 'mock' : 'partial';
+      return {
+        source: status,
+        note: 'Sources health calculado localmente como fallback até o endpoint backend novo estar ativo no deploy.',
+        data: buildSourceHealthSnapshot(sources.data, outputs.data),
+      };
+    }
   },
   getSearchProfiles: async (session: SessionData | null) => toState('Search profiles', await requestEnvelope<SearchProfile[]>('/search-profiles', session)),
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
