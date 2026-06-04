@@ -61,6 +61,16 @@ const sourceIdFromEnrichment = (enrichment: EnrichmentRecord) => pickString(enri
 const companySourceKey = (companyId?: string | null, sourceId?: string | null) => `${companyId ?? ''}|${sourceId ?? ''}`;
 const gateStatusFromResult = (result: QualityGateResult): QualityGateStatus => result.gate_result ?? (result.status as QualityGateStatus | undefined) ?? 'error';
 
+const sourceCodeFromOutput = (output: MonitoringOutput) => pickString(
+  output.normalizedPayload?.sourceCode,
+  output.normalizedPayload?.code,
+);
+
+const sourceRunStatus = (sourceOutputs: MonitoringOutput[], fallbackStatus: string) => {
+  if (!sourceOutputs.length) return fallbackStatus;
+  return sourceOutputs.some((output) => output.connectorStatus !== 'real') ? 'partial' : 'completed';
+};
+
 export type CapturePersistenceSummary = {
   status: RuntimeStatus;
   companiesProcessed: number;
@@ -100,28 +110,64 @@ export class CapturePersistenceService {
     }
 
     const now = new Date().toISOString();
-    const runRows = results.map((result) => ({
-      id: crypto.randomUUID(),
-      company_id: result.run.companyId ?? null,
-      source_id: result.run.sourceId ?? null,
-      scope_type: result.run.scopeType,
-      trigger_type: result.run.triggerType,
-      status: result.run.status,
-      started_at: now,
-      finished_at: now,
-      items_collected: result.run.itemsCollected,
-      outputs_written: result.outputs.length,
-      signals_written: result.signals.length,
-      enrichments_written: result.enrichments.length,
-      metadata: result.run.diagnostics ?? {},
-    }));
+    const allOutputs = results.flatMap((result) => result.outputs);
+    const allSignals = results.flatMap((result) => result.signals);
+    const allEnrichments = results.flatMap((result) => result.enrichments);
 
-    const runIdByCompany = new Map<string, string>();
-    results.forEach((result, index) => {
-      if (result.run.companyId) runIdByCompany.set(result.run.companyId, runRows[index].id);
+    const runRows = results.flatMap((result) => {
+      const outputsBySource = new Map<string, MonitoringOutput[]>();
+      result.outputs.forEach((output) => {
+        const bucket = outputsBySource.get(output.sourceId) ?? [];
+        bucket.push(output);
+        outputsBySource.set(output.sourceId, bucket);
+      });
+
+      const observedSourceIds = outputsBySource.size ? [...outputsBySource.keys()] : [result.run.sourceId ?? null];
+
+      return observedSourceIds.map((sourceId) => {
+        const sourceOutputs = sourceId ? outputsBySource.get(sourceId) ?? [] : [];
+        const sourceSignals = result.signals.filter((signal) => (signal.sourceId ?? null) === sourceId);
+        const sourceEnrichments = result.enrichments.filter((enrichment) => (sourceIdFromEnrichment(enrichment) ?? null) === sourceId);
+        const sourceCodes = [...new Set(sourceOutputs.map(sourceCodeFromOutput).filter(Boolean))];
+        const status = sourceRunStatus(sourceOutputs, result.run.status);
+
+        return {
+          id: crypto.randomUUID(),
+          company_id: result.run.companyId ?? null,
+          source_id: sourceId,
+          scope_type: result.run.scopeType,
+          trigger_type: result.run.triggerType,
+          status,
+          started_at: now,
+          finished_at: now,
+          items_collected: sourceOutputs.length,
+          outputs_written: sourceOutputs.length,
+          signals_written: sourceSignals.length,
+          enrichments_written: sourceEnrichments.length,
+          error_message: status === 'failed' ? 'No outputs collected for requested source scope.' : null,
+          metadata: {
+            reason,
+            sourceCode: sourceCodes[0] ?? null,
+            sourceCodes,
+            aggregateRunStatus: result.run.status,
+            aggregateDiagnostics: result.run.diagnostics ?? {},
+            requested: {
+              companyId: result.run.companyId ?? null,
+              sourceId: result.run.sourceId ?? null,
+              scopeType: result.run.scopeType,
+              triggerType: result.run.triggerType,
+            },
+          },
+        };
+      });
     });
 
-    const allOutputs = results.flatMap((result) => result.outputs);
+    const runIdByCompanyAndSource = new Map<string, string>();
+    runRows.forEach((runRow) => {
+      if (!runRow.company_id) return;
+      runIdByCompanyAndSource.set(companySourceKey(runRow.company_id, runRow.source_id), runRow.id);
+    });
+
     const outputRows = allOutputs.map((output) => ({
       id: output.id,
       company_id: output.companyId,
@@ -150,7 +196,7 @@ export class CapturePersistenceService {
     const allDocuments = results.flatMap((result) => result.documents);
     const documentRows = allDocuments.map((doc: CanonicalSourceDocument) => ({
       id: doc.id,
-      run_id: doc.companyId ? runIdByCompany.get(doc.companyId) ?? null : null,
+      run_id: doc.companyId ? runIdByCompanyAndSource.get(companySourceKey(doc.companyId, doc.sourceId)) ?? null : null,
       company_id: doc.companyId,
       source_id: doc.sourceId,
       document_type: doc.documentType,
@@ -258,7 +304,6 @@ export class CapturePersistenceService {
       return allowedCompanySourcePairs.has(key) && !blockedCompanySourcePairs.has(key);
     };
 
-    const allSignals = results.flatMap((result) => result.signals);
     const signalRows = allSignals
       .filter((signal) => isAllowedByDocumentGate(signal.companyId, signal.sourceId))
       .map((signal) => ({
@@ -280,7 +325,6 @@ export class CapturePersistenceService {
         },
       }));
 
-    const allEnrichments = results.flatMap((result) => result.enrichments);
     const enrichmentRows = allEnrichments
       .filter((enrichment) => isAllowedByDocumentGate(enrichment.companyId, sourceIdFromEnrichment(enrichment)))
       .map((enrichment) => ({
@@ -321,10 +365,11 @@ export class CapturePersistenceService {
       engine_name: 'data_capture_engine',
       event_type: 'capture_runtime_persisted',
       severity: errors.length ? 'warning' : 'info',
-      summary: `Capture runtime persisted ${outputRows.length} outputs, ${signalRows.length} signals, ${enrichmentRows.length} enrichments and quality-gated ${qualityGatesRun} source documents.`,
+      summary: `Capture runtime persisted ${outputRows.length} outputs, ${signalRows.length} signals, ${enrichmentRows.length} enrichments and quality-gated ${qualityGatesRun} source documents across ${runRows.length} source runs.`,
       payload: {
         reason,
         companiesProcessed: results.length,
+        sourceRunsWritten: runRows.length,
         outputsWritten: outputRows.length,
         signalsWritten: signalRows.length,
         enrichmentsWritten: enrichmentRows.length,
