@@ -11,6 +11,14 @@ import type {
   VectorRetriever,
 } from './types.js';
 
+const DEFAULT_TOP_K = 3;
+const COPILOT_MODEL = 'motor-copilot';
+
+const buildConversationTitle = (question: string) => {
+  const compact = question.trim().replace(/\s+/g, ' ');
+  return compact.length ? compact.slice(0, 120) : 'Copilot conversation';
+};
+
 export class CopilotQueryEngine {
   private readonly client = getSupabaseClient();
 
@@ -25,13 +33,13 @@ export class CopilotQueryEngine {
   private composePrompt(baseContext: string, references: Array<{ id: string; content: string }>, question: string) {
     const refsBlock = references.length
       ? references.map((doc) => `- [${doc.id}] ${doc.content}`).join('\n')
-      : '- Nenhuma referência vetorial encontrada.';
+      : '- Nenhuma referencia vetorial encontrada.';
 
     return [
-      'Você é o Copilot institucional do Motor Originação SRM.',
-      'Use apenas o contexto fornecido e explicite limitações quando houver lacunas.',
+      'Voce e o Copilot institucional do Motor Originacao SRM.',
+      'Use apenas o contexto fornecido e explicite limitacoes quando houver lacunas.',
       baseContext,
-      `## Referências Vetoriais\n${refsBlock}`,
+      `## Referencias Vetoriais\n${refsBlock}`,
       `## Pergunta\n${question}`,
       '## Resposta',
     ].join('\n\n');
@@ -39,14 +47,16 @@ export class CopilotQueryEngine {
 
   async askCompanyQuestion(input: CopilotAskInput): Promise<CopilotAskOutput> {
     const { companyId, question, userId, topK } = input;
-    const sessionId = input.sessionId ?? randomUUID();
+    const conversationId = input.conversationId ?? randomUUID();
+    const normalizedTopK = topK ?? DEFAULT_TOP_K;
 
     const baseContext = await this.contextBuilder.buildCompanyContext(companyId);
-    const references = await this.vectorService.search(question, topK ?? 3);
+    const references = await this.vectorService.search(question, normalizedTopK);
+    const referenceIds = references.map((reference) => reference.id);
     const initialPrompt = this.composePrompt(baseContext, references, question);
 
     let agentContext: AgentContext = {
-      sessionId,
+      conversationId,
       companyId,
       userId,
       question,
@@ -58,17 +68,40 @@ export class CopilotQueryEngine {
     agentContext = await this.agentRegistry.runPreProcessors(agentContext);
 
     if (this.client) {
-      await this.client.upsert('ai_sessions', [{ id: sessionId, company_id: companyId, user_id: userId ?? null }], 'id');
+      const createdAt = new Date().toISOString();
+      await this.client.upsert('ai_conversations', [{
+        id: conversationId,
+        owner_name: userId ?? null,
+        context_type: 'company',
+        context_id: companyId,
+        title: buildConversationTitle(question),
+        metadata: {
+          source: 'copilot_query_engine',
+          topK: normalizedTopK,
+          referenceIds,
+        },
+        updated_at: createdAt,
+      }], 'id');
       await this.client.insert('ai_messages', [{
         id: randomUUID(),
-        session_id: sessionId,
+        conversation_id: conversationId,
         role: 'system',
         content: agentContext.baseContext,
+        tokens_in: 0,
+        tokens_out: 0,
+        model: 'context-builder',
+        metadata: { source: 'context_builder' },
+        created_at: createdAt,
       }, {
         id: randomUUID(),
-        session_id: sessionId,
+        conversation_id: conversationId,
         role: 'user',
         content: question,
+        tokens_in: 0,
+        tokens_out: 0,
+        model: 'user-input',
+        metadata: { ownerName: userId ?? null },
+        created_at: createdAt,
       }]);
     }
 
@@ -77,33 +110,54 @@ export class CopilotQueryEngine {
     agentContext = await this.agentRegistry.runPostProcessors(agentContext);
 
     if (this.client) {
+      const finishedAt = new Date().toISOString();
+      const plugins = this.agentRegistry.listIds();
+      const finalAnswer = agentContext.answer ?? answer;
+
       await this.client.insert('ai_messages', [{
         id: randomUUID(),
-        session_id: sessionId,
+        conversation_id: conversationId,
         role: 'assistant',
-        content: agentContext.answer ?? answer,
+        content: finalAnswer,
+        tokens_in: 0,
+        tokens_out: 0,
+        model: COPILOT_MODEL,
+        metadata: { referenceIds, plugins },
+        created_at: finishedAt,
       }]);
 
-      if (this.agentRegistry.listIds().length) {
+      if (plugins.length) {
         await this.client.insert('ai_agent_runs', [{
           id: randomUUID(),
-          session_id: sessionId,
-          company_id: companyId,
-          plugins: this.agentRegistry.listIds(),
-          created_at: new Date().toISOString(),
+          conversation_id: conversationId,
+          context_type: 'company',
+          context_id: companyId,
+          agent_key: 'copilot_query_engine',
+          plugins,
+          input: {
+            question,
+            topK: normalizedTopK,
+            referenceIds,
+          },
+          output: { answer: finalAnswer },
+          metadata: {
+            ownerName: userId ?? null,
+            source: 'copilot_query_engine',
+          },
+          created_at: finishedAt,
         }]).catch(() => undefined);
       }
     }
 
     return {
-      sessionId,
+      conversationId,
       answer: agentContext.answer ?? answer,
       references: agentContext.retrievedReferences,
       agentTrace: this.agentRegistry.listIds(),
     };
   }
 
-  async submitFeedback(sessionId: string, userId: string, text: string): Promise<void> {
-    await this.feedbackService.recordFeedback(sessionId, userId, text);
+  async submitFeedback(conversationId: string, userId: string, text: string): Promise<void> {
+    await this.feedbackService.recordFeedback(conversationId, userId, text);
   }
 }
