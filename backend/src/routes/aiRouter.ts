@@ -28,18 +28,18 @@ export const createAiRouter = (platformService: PlatformService) => {
         companyId,
         question,
         userId,
-        sessionId,
+        conversationId,
         topK,
       } = req.body as {
         companyId?: string;
         question?: string;
         userId?: string;
-        sessionId?: string;
+        conversationId?: string;
         topK?: number;
       };
 
       if (!companyId || !question) {
-        res.status(400).json({ error: 'companyId e question são obrigatórios' });
+        res.status(400).json({ error: 'companyId e question sao obrigatorios' });
         return;
       }
 
@@ -47,7 +47,7 @@ export const createAiRouter = (platformService: PlatformService) => {
         companyId,
         question,
         userId,
-        sessionId,
+        conversationId,
         topK,
       });
 
@@ -60,14 +60,14 @@ export const createAiRouter = (platformService: PlatformService) => {
 
   aiRouter.post('/feedback', async (req, res) => {
     try {
-      const { sessionId, userId, text } = req.body as { sessionId?: string; userId?: string; text?: string };
+      const { conversationId, userId, text } = req.body as { conversationId?: string; userId?: string; text?: string };
 
-      if (!sessionId || !userId || !text) {
-        res.status(400).json({ error: 'sessionId, userId e text são obrigatórios' });
+      if (!conversationId || !userId || !text) {
+        res.status(400).json({ error: 'conversationId, userId e text sao obrigatorios' });
         return;
       }
 
-      await queryEngine.submitFeedback(sessionId, userId, text);
+      await queryEngine.submitFeedback(conversationId, userId, text);
       res.status(200).json({ status: 'ok' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gravar feedback de IA';
