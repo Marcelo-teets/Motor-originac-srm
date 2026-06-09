@@ -1,6 +1,7 @@
 import { Card, DataStatusBanner, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { getConnectorBudgetStatus } from '../lib/connectorBudget';
 import { useAsyncData } from '../lib/useAsyncData';
 
 const healthTone = (health: string) => {
@@ -11,13 +12,13 @@ const healthTone = (health: string) => {
 };
 
 const statusTone = (status: string) => {
-  if (status === 'real') return 'success';
+  if (status === 'real' || status === 'allowed') return 'success';
   if (status === 'planned') return 'info';
-  if (status === 'partial') return 'warning';
+  if (status === 'partial' || status === 'blocked_budget_exhausted') return 'warning';
   return 'default';
 };
 
-const formatDate = (value: string | null) => {
+const formatDate = (value: string | null | undefined) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -27,6 +28,7 @@ const formatDate = (value: string | null) => {
 export function SourcesPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(() => api.getSourceHealthSnapshot(session), [session?.access_token]);
+  const { data: budget, loading: budgetLoading } = useAsyncData(() => getConnectorBudgetStatus(session, 'mais_retorno'), [session?.access_token]);
 
   if (loading) return <div className="page"><Card title="Sources" subtitle="Carregando saúde das fontes">Aguarde...</Card></div>;
   if (error || !data) return <div className="page"><Card title="Sources" subtitle="Falha ao carregar fontes">{error}</Card></div>;
@@ -34,6 +36,7 @@ export function SourcesPage() {
   const { summary, sources } = data.data;
   const officialSources = sources.filter((source) => source.isOfficial);
   const activeSources = sources.filter((source) => source.outputCount > 0);
+  const budgetData = budget?.data;
 
   return (
     <div className="page">
@@ -49,6 +52,42 @@ export function SourcesPage() {
           <Stat label="Outputs persistidos" value={String(summary.totalOutputs)} helper={`${summary.realOutputs} reais · ${summary.partialOutputs} parciais`} />
           <Stat label="Oficiais com evidência" value={String(summary.officialSourcesObserved)} helper="CVM, BCB, PNCP, Receita, ANBIMA etc." />
         </div>
+      </Card>
+
+      <Card
+        title="Connector Budget · Mais Retorno"
+        subtitle="Controle mensal para consumir o máximo possível sem ultrapassar o limite aprovado de requisições."
+      >
+        {budgetLoading || !budgetData ? (
+          <p className="page-copy">Carregando budget do conector...</p>
+        ) : (
+          <>
+            <DataStatusBanner source={budget.source} note={budget.note} />
+            <div className="grid cols-4">
+              <Stat label="Budget mensal" value={String(budgetData.monthlyBudget)} helper={`Período ${budgetData.periodMonth}`} />
+              <Stat label="Usado" value={`${budgetData.usedRequests}`} helper={`${budgetData.usagePct}% consumido`} />
+              <Stat label="Saldo" value={String(budgetData.remainingRequests)} helper={`${budgetData.reservedRequests} reservado(s)`} />
+              <Stat label="Pacing diário" value={String(budgetData.dailyPacingLimit)} helper={`${budgetData.daysRemainingInMonth} dia(s) restantes`} />
+            </div>
+            <div className="grid cols-2">
+              <Card title="Decisão operacional" subtitle="Como usar chamadas pagas neste momento.">
+                <div className="pill-row"><Pill tone={budgetData.remainingRequests > 0 ? 'success' : 'warning'}>{budgetData.decision}</Pill></div>
+                <p className="page-copy">{budgetData.nextAction}</p>
+              </Card>
+              <Card title="Eventos recentes" subtitle="Auditoria de uso e bloqueios do budget guard.">
+                <ul className="list">
+                  {(budgetData.recentEvents.length ? budgetData.recentEvents.slice(0, 5) : [{ event_type: 'sem_eventos', status: 'empty', request_cost: 0, created_at: null }]).map((event, index) => (
+                    <li key={`${event.event_type ?? 'event'}_${index}`}>
+                      <strong>{event.event_type ?? 'evento'}</strong>
+                      <span><Pill tone={statusTone(event.status ?? 'partial')}>{event.status ?? 'unknown'}</Pill> · custo {event.request_cost ?? 0}</span>
+                      <small>{formatDate(event.created_at)}</small>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </div>
+          </>
+        )}
       </Card>
 
       <div className="grid cols-2">
