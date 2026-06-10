@@ -2,7 +2,7 @@ export type CopilotAskInput = {
   companyId: string;
   question: string;
   userId?: string;
-  sessionId?: string;
+  conversationId?: string;
   topK?: number;
 };
 
@@ -12,14 +12,14 @@ export type RetrievedReference = {
 };
 
 export type CopilotAskOutput = {
-  sessionId: string;
+  conversationId: string;
   answer: string;
   references: RetrievedReference[];
   agentTrace: string[];
 };
 
 export type AgentContext = {
-  sessionId: string;
+  conversationId: string;
   companyId: string;
   userId?: string;
   question: string;
@@ -42,7 +42,7 @@ export interface VectorRetriever {
 }
 
 export interface AnalystFeedbackRecorder {
-  recordFeedback(sessionId: string, userId: string, text: string): Promise<void>;
+  recordFeedback(conversationId: string, userId: string, text: string): Promise<void>;
 }
 
 export interface AgentPlugin {
