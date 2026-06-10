@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { embedText, VoyageApiKeyMissingError } from './embeddingsService.js';
 import type { VectorRetriever } from './types.js';
 
 export type VectorDocument = {
@@ -13,6 +14,14 @@ export type VectorSearchResult = {
 };
 
 const EMBEDDING_DIMENSION = 1536;
+
+let warnedMissingVoyageApiKey = false;
+
+const warnMissingVoyageApiKeyOnce = () => {
+  if (warnedMissingVoyageApiKey) return;
+  warnedMissingVoyageApiKey = true;
+  console.warn('VOYAGE_API_KEY is not configured; falling back to local vector search.');
+};
 
 export class VectorIndexService implements VectorRetriever {
   private readonly client = getSupabaseClient();
@@ -63,15 +72,17 @@ export class VectorIndexService implements VectorRetriever {
 
     if (this.client) {
       try {
+        const queryEmbedding = await embedText(normalizedQuery);
         const rows = await this.client.rpc<Array<{ id: string; content: string }>>('match_vector_documents', {
-          query_embedding: this.buildMockEmbedding(normalizedQuery),
+          query_embedding: queryEmbedding,
           match_count: normalizedTopK,
         });
 
         if (Array.isArray(rows)) {
           return rows.map((row) => ({ id: row.id, content: row.content }));
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof VoyageApiKeyMissingError) warnMissingVoyageApiKeyOnce();
         // fallback local caso rpc/pgvector ainda não estejam ativos.
       }
     }
