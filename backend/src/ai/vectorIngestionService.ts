@@ -24,10 +24,12 @@ type CompanySignalRow = {
 type ThesisOutputRow = {
   id: string;
   companyId: string;
-  thesisSummary: string;
-  structureType: string | null;
-  marketMapSummary: string | null;
-  confidenceScore: number | null;
+  thesisVersion: number | null;
+  whyCredit: string | null;
+  whyNow: string | null;
+  suggestedStructure: string | null;
+  commercialAngle: string | null;
+  risksToValidate: string | null;
   createdAt: string | null;
 };
 
@@ -151,16 +153,20 @@ const toCompanySignalRow = (record: Record<string, unknown>): CompanySignalRow |
 const toThesisOutputRow = (record: Record<string, unknown>): ThesisOutputRow | null => {
   const id = getString(record, 'id');
   const companyId = getString(record, 'company_id');
-  const thesisSummary = getString(record, 'thesis_summary');
-  if (!id || !companyId || !thesisSummary) return null;
+  const whyCredit = getString(record, 'why_credit');
+  const whyNow = getString(record, 'why_now');
+  const suggestedStructure = getString(record, 'suggested_structure');
+  if (!id || !companyId || (!whyCredit && !whyNow && !suggestedStructure)) return null;
 
   return {
     id,
     companyId,
-    thesisSummary,
-    structureType: getString(record, 'structure_type'),
-    marketMapSummary: getString(record, 'market_map_summary'),
-    confidenceScore: getNumber(record, 'confidence_score'),
+    thesisVersion: getNumber(record, 'thesis_version'),
+    whyCredit,
+    whyNow,
+    suggestedStructure,
+    commercialAngle: getString(record, 'commercial_angle'),
+    risksToValidate: getString(record, 'risks_to_validate'),
     createdAt: getString(record, 'created_at'),
   };
 };
@@ -219,10 +225,12 @@ const signalToSourceDocument = (row: CompanySignalRow): SourceDocument => {
 const thesisToSourceDocument = (row: ThesisOutputRow): SourceDocument => {
   const content = compactLines([
     'Tabela: thesis_outputs',
-    `Tese: ${row.thesisSummary}`,
-    row.structureType ? `Estrutura sugerida: ${row.structureType}` : null,
-    row.marketMapSummary ? `Mapa de mercado: ${row.marketMapSummary}` : null,
-    row.confidenceScore === null ? null : `Confianca: ${row.confidenceScore}`,
+    `Versão: ${row.thesisVersion ?? 'n/a'}`,
+    row.whyCredit ? `Por que crédito: ${row.whyCredit}` : null,
+    row.whyNow ? `Por que agora: ${row.whyNow}` : null,
+    row.suggestedStructure ? `Estrutura sugerida: ${row.suggestedStructure}` : null,
+    row.commercialAngle ? `Ângulo comercial: ${row.commercialAngle}` : null,
+    row.risksToValidate ? `Riscos a validar: ${row.risksToValidate}` : null,
   ]);
 
   return {
@@ -234,10 +242,7 @@ const thesisToSourceDocument = (row: ThesisOutputRow): SourceDocument => {
     metadata: {
       source_table: 'thesis_outputs',
       source_id: row.id,
-      company_id: row.companyId,
-      structure_type: row.structureType,
-      confidence_score: row.confidenceScore,
-      source_created_at: row.createdAt,
+      thesis_version: row.thesisVersion,
     },
   };
 };
