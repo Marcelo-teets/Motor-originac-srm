@@ -1,0 +1,53 @@
+name: Historical Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset to backfill
+        required: true
+        default: all
+        type: choice
+        options:
+          - cvm_fidc
+          - bcb_sgs
+          - all
+      from:
+        description: Start month/date (YYYY-MM for CVM; YYYY-MM or YYYY-MM-DD for BCB)
+        required: true
+        type: string
+      to:
+        description: End month/date (YYYY-MM for CVM; YYYY-MM or YYYY-MM-DD for BCB)
+        required: true
+        type: string
+
+jobs:
+  historical-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck backfill loaders
+        run: npm run backfill:typecheck
+
+      - name: Run CVM FIDC backfill
+        if: ${{ inputs.dataset == 'cvm_fidc' || inputs.dataset == 'all' }}
+        run: npm run backfill:cvm-fidc -- --from "${{ inputs.from }}" --to "${{ inputs.to }}"
+
+      - name: Run BCB SGS backfill
+        if: ${{ inputs.dataset == 'bcb_sgs' || inputs.dataset == 'all' }}
+        run: npm run backfill:bcb-sgs -- --from "${{ inputs.from }}" --to "${{ inputs.to }}"
