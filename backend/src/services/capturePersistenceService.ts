@@ -4,6 +4,7 @@ import type { CaptureEngineResult, CanonicalSourceDocument } from '../modules/da
 
 type RuntimeStatus = 'real' | 'partial';
 type QualityGateStatus = 'allow' | 'review' | 'quarantine' | 'not_found' | 'error';
+type JsonObject = Record<string, unknown>;
 
 type QualityGateResult = {
   source_document_id?: string;
@@ -12,6 +13,15 @@ type QualityGateResult = {
   source_code?: string;
   quarantine_reason?: string | null;
 };
+
+const DATA_PLATFORM_QUALITY_GATE_LIMIT = 5_000;
+
+const asObjectMetadata = (value: unknown): JsonObject => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as JsonObject;
+  return {};
+};
+
+const toErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const asPercent = (value: number) => {
   if (!Number.isFinite(value)) return 0;
@@ -345,6 +355,30 @@ export class CapturePersistenceService {
       learningEventsWritten = learningRows.length;
     } catch (error) {
       errors.push(`engine_learning_events: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (!errors.length && runsWritten > 0) {
+      try {
+        const qualityGates = await this.client.rpc<JsonObject>('run_data_platform_quality_gates', {
+          p_limit: DATA_PLATFORM_QUALITY_GATE_LIMIT,
+        });
+        await Promise.all(runRows.map((run) => this.client!.update('source_connector_runs', {
+          metadata: {
+            ...asObjectMetadata(run.metadata),
+            qualityGates,
+          },
+        }, [{ column: 'id', value: run.id }])));
+        console.info(JSON.stringify({
+          event: 'data_platform_quality_gates_completed',
+          runCount: runRows.length,
+          qualityGates,
+        }));
+      } catch (error) {
+        console.warn(JSON.stringify({
+          event: 'data_platform_quality_gates_failed',
+          error: toErrorMessage(error),
+        }));
+      }
     }
 
     return {
