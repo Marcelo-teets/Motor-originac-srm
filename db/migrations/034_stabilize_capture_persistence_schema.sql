@@ -1,58 +1,72 @@
 -- Aplicada no banco vivo via Supabase MCP em 2026-06-11. Espelho de linhagem — não reexecutar.
--- DO NOT RUN from local migrations. This file documents the live capture persistence stabilization.
+alter table public.source_documents
+  add column if not exists captured_at timestamptz,
+  add column if not exists payload_hash text,
+  add column if not exists evidence_url text,
+  add column if not exists confidence numeric,
+  add column if not exists quality_status text not null default 'pending';
 
-begin;
+update public.source_documents set
+  captured_at = coalesce(captured_at, observed_at),
+  payload_hash = coalesce(payload_hash, content_hash),
+  evidence_url = coalesce(evidence_url, canonical_url),
+  confidence = coalesce(confidence, confidence_score)
+where captured_at is null or payload_hash is null or evidence_url is null or confidence is null;
 
-create table if not exists public.capture_runs (
-  id text primary key,
-  source_id text references public.source_catalog(id) on delete set null,
-  capture_type text not null default 'daily',
-  status text not null default 'running' check (status in ('running', 'completed', 'failed', 'partial')),
-  started_at timestamptz not null default now(),
-  finished_at timestamptz,
+create table if not exists public.search_profile_runs (
+  id uuid primary key default gen_random_uuid(),
+  search_profile_id uuid,
+  run_status text,
+  trigger_mode text,
+  source_count integer not null default 0,
+  candidates_found integer not null default 0,
+  candidates_inserted integer not null default 0,
+  candidates_promoted integer not null default 0,
+  notes text,
   metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists public.capture_run_records (
-  id bigserial primary key,
-  run_id text not null references public.capture_runs(id) on delete cascade,
-  record_type text not null,
-  record_key text not null,
-  payload jsonb not null default '{}'::jsonb,
-  content_hash text,
+  started_at timestamptz,
+  finished_at timestamptz,
   created_at timestamptz not null default now(),
-  unique (run_id, record_type, record_key)
+  updated_at timestamptz not null default now()
 );
 
-alter table public.monitoring_outputs
-  add column if not exists capture_run_id text references public.capture_runs(id) on delete set null;
+create table if not exists public.discovered_company_candidates (
+  id uuid primary key default gen_random_uuid(),
+  search_profile_run_id uuid,
+  search_profile_id uuid,
+  company_name text,
+  legal_name text,
+  website text,
+  normalized_domain text,
+  cnpj text,
+  geography text,
+  segment text,
+  subsegment text,
+  company_type text,
+  credit_product text,
+  target_structure text,
+  source_ref text,
+  source_url text,
+  evidence_summary text,
+  receivables jsonb,
+  confidence numeric,
+  candidate_status text,
+  company_id uuid,
+  dedupe_key text,
+  raw_payload jsonb,
+  captured_at timestamptz,
+  promoted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
-alter table public.company_signals
-  add column if not exists capture_run_id text references public.capture_runs(id) on delete set null;
+create index if not exists idx_spr_profile on public.search_profile_runs(search_profile_id, started_at desc);
+create index if not exists idx_dcc_run on public.discovered_company_candidates(search_profile_run_id);
+create index if not exists idx_dcc_dedupe on public.discovered_company_candidates(dedupe_key);
 
-create index if not exists capture_runs_source_started_idx
-  on public.capture_runs (source_id, started_at desc);
-
-create index if not exists capture_runs_status_started_idx
-  on public.capture_runs (status, started_at desc);
-
-create index if not exists capture_run_records_run_type_idx
-  on public.capture_run_records (run_id, record_type);
-
-create index if not exists capture_run_records_content_hash_idx
-  on public.capture_run_records (content_hash)
-  where content_hash is not null;
-
-create index if not exists monitoring_outputs_capture_run_idx
-  on public.monitoring_outputs (capture_run_id)
-  where capture_run_id is not null;
-
-create index if not exists company_signals_capture_run_idx
-  on public.company_signals (capture_run_id)
-  where capture_run_id is not null;
-
-alter table public.capture_runs enable row level security;
-alter table public.capture_run_records enable row level security;
-
-commit;
+alter table public.search_profile_runs enable row level security;
+alter table public.discovered_company_candidates enable row level security;
+create policy srv_all_search_profile_runs on public.search_profile_runs as permissive for all to service_role using (true) with check (true);
+create policy srv_all_discovered_company_candidates on public.discovered_company_candidates as permissive for all to service_role using (true) with check (true);
+create policy authenticated_select_search_profile_runs on public.search_profile_runs as permissive for select to authenticated using (true);
+create policy authenticated_select_discovered_company_candidates on public.discovered_company_candidates as permissive for select to authenticated using (true);

@@ -1,62 +1,186 @@
 -- Aplicada no banco vivo via Supabase MCP em 2026-06-11. Espelho de linhagem — não reexecutar.
--- DO NOT RUN from local migrations. This file documents the live source catalog seed for historical backfills.
-
-begin;
-
 insert into public.source_catalog (
-  id,
   name,
-  source_type,
+  url,
   category,
+  scope,
+  priority,
+  criticality,
+  frequency,
   status,
-  health,
-  auth_requirement,
+  validation_rule,
   metadata,
-  rate_limit_notes
+  source_type,
+  auth_requirement,
+  rate_limit_notes,
+  health
 ) values
   (
-    'cvm_fidc_inf_mensal',
-    'CVM FIDC Informe Mensal',
-    'public_file',
-    'historical_backfill',
-    'active',
-    'healthy',
-    null,
+    'CVM FIDC Informes Mensais (Historico)',
+    'https://dados.cvm.gov.br/dados/FIDC/DOC/INF_MENSAL/DADOS/',
+    'regulatory',
+    'BR',
+    1,
+    'high',
+    'monthly',
+    'planned',
+    'Validar layout CSV por competencia; chave = CNPJ do fundo + competencia; reconciliar PL, carteira e inadimplencia.',
     jsonb_build_object(
-      'country', 'BR',
-      'cadence', 'monthly',
-      'landing_table', 'bronze_historical_records',
-      'dataset_code', 'cvm_fidc_inf_mensal',
-      'source_url', 'https://dados.cvm.gov.br/dados/FIDC/DOC/INF_MENSAL/DADOS/'
+      'code', 'src_cvm_fidc_inf_mensal_hist',
+      'tier', 'tier_1_official_regulatory',
+      'format', 'csv_zip_monthly',
+      'signals', jsonb_build_array('fidc_market_benchmark', 'originator_history', 'default_rate_series'),
+      'backfill', true,
+      'historyStart', '2013-01'
     ),
-    'Public CVM ZIP files; retry transient download failures before failing the workflow.'
+    'open_data_files',
+    'none',
+    'Arquivos ZIP mensais; baixar incremental por competencia.',
+    'degraded'
   ),
   (
-    'bcb_sgs_macro',
-    'Banco Central SGS Macro Series',
-    'public_api',
-    'historical_backfill',
-    'active',
-    'healthy',
-    null,
+    'CVM Securitizadoras CRI/CRA Informes (Historico)',
+    'https://dados.cvm.gov.br/dados/SECURIT/',
+    'regulatory',
+    'BR',
+    1,
+    'high',
+    'monthly',
+    'planned',
+    'Validar emissor, lastro e series por CNPJ da securitizadora; reconciliar com ofertas registradas.',
     jsonb_build_object(
-      'country', 'BR',
-      'cadence', 'daily_or_monthly',
-      'landing_table', 'macro_series_observations',
-      'default_series', jsonb_build_array('20714', '21082', '21112', '25434'),
-      'source_url', 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados'
+      'code', 'src_cvm_securit_hist',
+      'tier', 'tier_1_official_regulatory',
+      'format', 'csv_zip',
+      'signals', jsonb_build_array('cri_cra_issuance_history', 'securitization_track_record'),
+      'backfill', true
     ),
-    'BCB SGS accepts date windows; loaders split long ranges into requests of at most 10 years.'
+    'open_data_files',
+    'none',
+    'Dados abertos CVM; layouts variam por ano.',
+    'degraded'
+  ),
+  (
+    'CVM Ofertas Publicas Registradas (Historico)',
+    'https://dados.cvm.gov.br/dados/OFERTA/DISTRIB/DADOS/',
+    'regulatory',
+    'BR',
+    1,
+    'high',
+    'weekly',
+    'planned',
+    'Validar emissor (CNPJ), instrumento, volume e data; usar como evidencia de acesso a mercado.',
+    jsonb_build_object(
+      'code', 'src_cvm_ofertas_hist',
+      'tier', 'tier_1_official_regulatory',
+      'signals', jsonb_build_array('debt_market_access_history', 'issuance_volume_series'),
+      'backfill', true
+    ),
+    'open_data_files',
+    'none',
+    'Dados abertos CVM.',
+    'degraded'
+  ),
+  (
+    'BCB SGS Series Temporais de Credito',
+    'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados',
+    'regulatory',
+    'BR',
+    1,
+    'high',
+    'monthly',
+    'planned',
+    'Validar codigo da serie e periodicidade; usar como features macro do modelo preditivo (spread, inadimplencia, concessoes por segmento).',
+    jsonb_build_object(
+      'code', 'src_bcb_sgs_credit_series',
+      'tier', 'tier_1_official_regulatory',
+      'format', 'json_api',
+      'signals', jsonb_build_array('macro_credit_cycle', 'segment_default_series'),
+      'backfill', true,
+      'series_hint', jsonb_build_array(20714, 21082, 21112, 25434),
+      'historyStart', '2000-01'
+    ),
+    'json_api',
+    'none',
+    'API publica SGS; respeitar paginacao por janela de datas.',
+    'degraded'
+  ),
+  (
+    'Receita Federal CNPJ Dados Abertos (Bulk Historico)',
+    'https://arquivos.receitafederal.gov.br/dados/cnpj/',
+    'regulatory',
+    'BR',
+    1,
+    'high',
+    'monthly',
+    'planned',
+    'Resolver entidade por CNPJ canonico (14 digitos); usar estabelecimentos, CNAE, porte e socios para enriquecimento cadastral.',
+    jsonb_build_object(
+      'code', 'src_rfb_cnpj_bulk',
+      'tier', 'tier_1_official_regulatory',
+      'format', 'csv_zip_large',
+      'signals', jsonb_build_array('entity_resolution', 'cnae_segmentation', 'corporate_structure'),
+      'backfill', true
+    ),
+    'open_data_files',
+    'none',
+    'Arquivos grandes (GB); processar via job batch, nunca em serverless.',
+    'degraded'
+  ),
+  (
+    'Diarios Oficiais (Querido Diario)',
+    'https://queridodiario.ok.org.br/api/gazettes',
+    'legal_risk',
+    'BR',
+    2,
+    'medium',
+    'daily',
+    'planned',
+    'Buscar mencoes por razao social/CNPJ; classificar evento (recuperacao judicial, falencia, edital, contrato publico).',
+    jsonb_build_object(
+      'code', 'src_querido_diario',
+      'tier', 'tier_2_risk_official',
+      'format', 'json_api',
+      'signals', jsonb_build_array('judicial_recovery_flag', 'public_contract_signal'),
+      'backfill', true
+    ),
+    'json_api',
+    'none',
+    'API publica do projeto Querido Diario.',
+    'degraded'
+  ),
+  (
+    'Uqbar / Mercado de Securitizacao (Historico Editorial)',
+    'https://www.uqbar.com.br/',
+    'news_niche',
+    'BR',
+    3,
+    'medium',
+    'weekly',
+    'planned',
+    'Validar instrumento, originador e volume citados; usar como contexto de mercado, nunca como fato primario.',
+    jsonb_build_object(
+      'code', 'src_uqbar_securitizacao',
+      'tier', 'tier_3_market_news',
+      'signals', jsonb_build_array('securitization_market_context'),
+      'backfill', true
+    ),
+    'website',
+    'none_or_paid',
+    'Conteudo editorial; respeitar paywall/ToS.',
+    'degraded'
   )
-on conflict (id) do update set
-  name = excluded.name,
-  source_type = excluded.source_type,
+on conflict (name, url) do update set
   category = excluded.category,
+  scope = excluded.scope,
+  priority = excluded.priority,
+  criticality = excluded.criticality,
+  frequency = excluded.frequency,
   status = excluded.status,
-  health = excluded.health,
-  auth_requirement = excluded.auth_requirement,
+  validation_rule = excluded.validation_rule,
   metadata = excluded.metadata,
+  source_type = excluded.source_type,
+  auth_requirement = excluded.auth_requirement,
   rate_limit_notes = excluded.rate_limit_notes,
+  health = excluded.health,
   updated_at = now();
-
-commit;
