@@ -14,6 +14,9 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
-    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck"
+    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run backfill:typecheck",
+    "backfill:cvm-fidc": "npm --workspace backend exec tsx -- ../scripts/backfill/cvmFidcInformes.ts",
+    "backfill:bcb-sgs": "npm --workspace backend exec tsx -- ../scripts/backfill/bcbSgsSeries.ts",
+    "backfill:typecheck": "npm --workspace backend exec tsc -- -p ../scripts/backfill/tsconfig.json --noEmit"
   }
 }
