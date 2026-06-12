@@ -28,4 +28,54 @@ declare module './types' {
     minimumConfidence: string;
     timeWindow: string;
   };
+
+  export type MonitoringSnapshot = {
+    recentTriggers: Array<{ company: string; signal: string; source: string; strength: number; when: string }>;
+    latestRuns: Array<{ workflow: string; status: string; detail: string; when: string }>;
+    activeSources: Array<{ name: string; status: string; health: string; coverage: string }>;
+  };
+
+  export type AgentsSnapshot = {
+    items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
+  };
+
+  export type PipelineSnapshot = {
+    stages: Array<{ stage: string; count: number; note: string }>;
+    recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
+  };
+
+  export type PipelineRow = {
+    id: string;
+    companyId: string;
+    stage: PipelineStage;
+    owner: Owner;
+    nextAction: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  export type ActivityRecord = {
+    id: string;
+    companyId: string;
+    type: ActivityType;
+    title: string;
+    description: string;
+    owner: Owner;
+    status: ActivityStatus;
+    dueDate: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  export type TaskRecord = {
+    id: string;
+    companyId: string;
+    title: string;
+    description: string;
+    owner: Owner;
+    status: TaskStatus;
+    dueDate: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
 }
