@@ -78,4 +78,51 @@ declare module './types' {
     createdAt: string;
     updatedAt: string;
   };
+
+  export type AbaCommandRecord = {
+    id: string;
+    target: 'aba' | 'paper_clip' | 'adm';
+    action: string;
+    context: Record<string, unknown>;
+    status: string;
+    result: string;
+    createdAt: string;
+    finishedAt?: string;
+  };
+
+  export type AbaStatus = {
+    abaEnabled: boolean;
+    capabilities: string[];
+    commandTargets: string[];
+    lastCommands: AbaCommandRecord[];
+    suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
+  };
+
+  export type OriginationProduct = {
+    product: string;
+    useCase: string;
+    idealCompanyProfile: string[];
+    qualificationSignals: string[];
+  };
+
+  export type OriginationSkill = {
+    id: string;
+    name: string;
+    objective: string;
+    inputs: string[];
+    outputs: string[];
+    tasks: string[];
+  };
+
+  export type OriginationFlow = {
+    id: string;
+    name: string;
+    steps: string[];
+  };
+
+  export type OriginationOperatingSystem = {
+    products: OriginationProduct[];
+    skills: OriginationSkill[];
+    flows: OriginationFlow[];
+  };
 }
