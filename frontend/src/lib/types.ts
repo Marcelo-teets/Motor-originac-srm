@@ -254,7 +254,7 @@ export type MvpReadiness = {
   deploy_health: { status: string; note: string };
 };
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
-export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
+export type SessionData = { [key: string]: any; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;
   name: string;
@@ -271,3 +271,20 @@ export type SearchProfile = {
   status: 'active' | 'paused';
   profilePayload: Record<string, unknown>;
 };
+
+export type {
+  AbaCommandRecord,
+  AbaStatus,
+  ActivityRecord,
+  AgentsSnapshot,
+  MonitoringSnapshot,
+  OriginationFlow,
+  OriginationOperatingSystem,
+  OriginationProduct,
+  OriginationSkill,
+  PipelineRow,
+  PipelineSnapshot,
+  SearchProfileCandidate,
+  SearchProfileDraft,
+  TaskRecord,
+} from './opsTypes';
