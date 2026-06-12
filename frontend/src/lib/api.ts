@@ -35,17 +35,49 @@ const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   return `${path} carregado via fallback mock.`;
 };
 
+const readJsonPayload = async <T>(response: Response, path: string): Promise<ApiEnvelope<T> & { error?: string }> => {
+  const raw = await response.text();
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!raw.trim()) {
+    return {
+      status: 'partial',
+      data: undefined as T,
+      error: response.ok ? undefined : `${response.status} ${response.statusText || 'Empty response'}`,
+    };
+  }
+
+  if (!contentType.includes('application/json')) {
+    const preview = raw.replace(/\s+/g, ' ').slice(0, 160);
+    throw new Error(`Resposta não-JSON em ${path}. Status ${response.status}. Isso costuma indicar rota protegida, HTML da Vercel ou backend indisponível. Preview: ${preview}`);
+  }
+
+  try {
+    return JSON.parse(raw) as ApiEnvelope<T> & { error?: string };
+  } catch {
+    throw new Error(`JSON inválido em ${path}. Status ${response.status}.`);
+  }
+};
+
 async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
-  const response = await fetch(buildApiUrl(path), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-  const payload = await response.json() as ApiEnvelope<T> & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? 'Request failed');
+  const url = buildApiUrl(path);
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(`Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponível'}`);
+  }
+
+  const payload = await readJsonPayload<T>(response, path);
+  if (!response.ok) throw new Error(payload.error ?? `${path} falhou com status ${response.status}`);
   return payload;
 }
 
@@ -62,7 +94,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const payload = await response.json() as ApiEnvelope<SessionData> & { error?: string };
+    const payload = await readJsonPayload<SessionData>(response, '/auth/login');
     if (!response.ok) throw new Error(payload.error ?? 'Falha ao autenticar.');
     return payload.data;
   },
