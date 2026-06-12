@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Navigate } from 'react-router-dom';
+import { LoadingState } from '../components/UI';
 import { api } from './api';
 import type { SessionData } from './types';
 
@@ -110,7 +111,7 @@ export const useAuth = () => {
 export function RequireAuth({ children }: PropsWithChildren) {
   const auth = useAuth();
 
-  if (auth.loading) return null;
+  if (auth.loading) return <LoadingState title="Autenticação" subtitle="Validando sessão Supabase antes de abrir a plataforma." />;
   if (!auth.isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

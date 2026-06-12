@@ -1,15 +1,16 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Card, DataStatusBanner, KeyValueList, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
+import { Card, DataStatusBanner, EmptyState, ErrorState, KeyValueList, LoadingState, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { WatchListStar } from '../components/WatchListStar';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { AbmObjection, AbmStakeholder, AbmTouchpoint, CompanyDetail, PipelineStage, PreCallBriefing, PreMortem, TaskRecord } from '../lib/types';
+import type { AbmObjection, AbmStakeholder, AbmTouchpoint, CompanyDetail, PipelineStage, PreCallBriefing, PreMortem, SessionData, TaskRecord } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 function booleanLabel(value: boolean | undefined) {
   return value ? 'Sim' : 'Não';
 }
+
 const PIPELINE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
 const toPipelineStage = (value: string): PipelineStage => (PIPELINE_STAGES.includes(value as PipelineStage) ? (value as PipelineStage) : 'Qualified');
 const nextTaskStatus = (status: TaskRecord['status']): TaskRecord['status'] | null => {
@@ -19,32 +20,106 @@ const nextTaskStatus = (status: TaskRecord['status']): TaskRecord['status'] | nu
   return null;
 };
 
+type AbmDetailPayload = {
+  stakeholders: AbmStakeholder[];
+  touchpoints: AbmTouchpoint[];
+  objections: AbmObjection[];
+  preCall: PreCallBriefing;
+  preMortem: PreMortem;
+};
+
+type CompanyDetailWithAbm = CompanyDetail & {
+  abm: AbmDetailPayload;
+  abmHealth: {
+    status: 'ok' | 'partial';
+    failedSections: string[];
+  };
+};
+
+type SafeSection<T> = {
+  label: string;
+  ok: boolean;
+  data: T;
+};
+
+async function safeSection<T>(label: string, loader: () => Promise<{ data: T }>, fallback: T): Promise<SafeSection<T>> {
+  try {
+    const result = await loader();
+    return { label, ok: true, data: result.data };
+  } catch {
+    return { label, ok: false, data: fallback };
+  }
+}
+
+function fallbackPreCall(detail: CompanyDetail): PreCallBriefing {
+  const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
+  return {
+    companyId: detail.company.id,
+    institutional_summary: detail.thesis.summary || detail.company.description,
+    thesis: detail.thesis.summary,
+    why_now: whyNow,
+    recent_signals: detail.signals.slice(0, 3).map((signal) => ({ type: signal.type, strength: signal.strength, observed_at: detail.monitoring.lastRunAt })),
+    stakeholders: [],
+    recent_touchpoints: [],
+    open_objections: [],
+    recommended_next_step: detail.company.nextAction || 'Definir próximo passo comercial',
+    conversation_risks: ['Camada ABM indisponível no momento; validar buying committee manualmente.'],
+    suggested_cta: 'Validar janela de funding, estrutura aderente e sponsor financeiro da operação.',
+  };
+}
+
+function fallbackPreMortem(detail: CompanyDetail): PreMortem {
+  return {
+    companyId: detail.company.id,
+    risks: [
+      {
+        risk: 'Camada comercial parcial',
+        evidence: 'Endpoint de pre-mortem ou ABM indisponível no carregamento.',
+        mitigation: 'Abrir contato com responsável comercial e registrar objeções antes do approach.',
+      },
+    ],
+  };
+}
+
+async function loadCompanyDetail(session: SessionData | null, id: string) {
+  const companyState = await api.getCompany(session, id);
+  const company = companyState.data;
+
+  const [stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
+    safeSection('stakeholders', () => api.getAbmStakeholders(session, id), [] as AbmStakeholder[]),
+    safeSection('touchpoints', () => api.getAbmTouchpoints(session, id), [] as AbmTouchpoint[]),
+    safeSection('objections', () => api.getAbmObjections(session, id), [] as AbmObjection[]),
+    safeSection('pre-call', () => api.getPreCallBriefing(session, id), fallbackPreCall(company)),
+    safeSection('pre-mortem', () => api.getPreMortem(session, id), fallbackPreMortem(company)),
+  ]);
+
+  const failedSections = [stakeholders, touchpoints, objections, preCall, preMortem]
+    .filter((section) => !section.ok)
+    .map((section) => section.label);
+
+  return {
+    ...companyState,
+    data: {
+      ...company,
+      abm: {
+        stakeholders: stakeholders.data,
+        touchpoints: touchpoints.data,
+        objections: objections.data,
+        preCall: preCall.data,
+        preMortem: preMortem.data,
+      },
+      abmHealth: {
+        status: failedSections.length ? 'partial' : 'ok',
+        failedSections,
+      },
+    },
+  };
+}
+
 export function CompanyDetailPage() {
   const { id = '' } = useParams();
   const { session } = useAuth();
-  const { data, loading, error, setData } = useAsyncData(async () => {
-    const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
-      api.getCompany(session, id),
-      api.getAbmStakeholders(session, id),
-      api.getAbmTouchpoints(session, id),
-      api.getAbmObjections(session, id),
-      api.getPreCallBriefing(session, id),
-      api.getPreMortem(session, id),
-    ]);
-    return {
-      ...companyState,
-      data: {
-        ...companyState.data,
-        abm: {
-          stakeholders: stakeholders.data,
-          touchpoints: touchpoints.data,
-          objections: objections.data,
-          preCall: preCall.data,
-          preMortem: preMortem.data,
-        },
-      },
-    };
-  }, [session?.access_token, id]);
+  const { data, loading, error, setData } = useAsyncData(() => loadCompanyDetail(session, id), [session?.access_token, id]);
 
   const [stage, setStage] = useState<PipelineStage>('Qualified');
   const [nextActionDraft, setNextActionDraft] = useState('');
@@ -55,49 +130,43 @@ export function CompanyDetailPage() {
   const [feedback, setFeedback] = useState<string>('');
 
   const reloadDetail = async () => {
-    const [companyState, stakeholders, touchpoints, objections, preCall, preMortem] = await Promise.all([
-      api.getCompany(session, id),
-      api.getAbmStakeholders(session, id),
-      api.getAbmTouchpoints(session, id),
-      api.getAbmObjections(session, id),
-      api.getPreCallBriefing(session, id),
-      api.getPreMortem(session, id),
-    ]);
-    setData({
-      ...companyState,
-      data: {
-        ...companyState.data,
-        abm: { stakeholders: stakeholders.data, touchpoints: touchpoints.data, objections: objections.data, preCall: preCall.data, preMortem: preMortem.data },
-      },
-    });
-    setStage(toPipelineStage(companyState.data.company.stage ?? 'Qualified'));
-    setNextActionDraft(companyState.data.company.nextAction ?? '');
-    setCompanyTasks(await api.listTasks(session, id));
+    const nextDetail = await loadCompanyDetail(session, id);
+    setData(nextDetail);
+    setStage(toPipelineStage(nextDetail.data.company.stage || 'Qualified'));
+    setNextActionDraft(nextDetail.data.company.nextAction || '');
+    setCompanyTasks(await api.listTasks(session, id).catch(() => []));
   };
 
   useEffect(() => {
     if (!data) return;
-    setStage(toPipelineStage(data.data.company.stage ?? 'Qualified'));
-    setNextActionDraft(data.data.company.nextAction ?? '');
+    setStage(toPipelineStage(data.data.company.stage || 'Qualified'));
+    setNextActionDraft(data.data.company.nextAction || '');
     void api.listTasks(session, id).then(setCompanyTasks).catch(() => setCompanyTasks([]));
   }, [data, id, session]);
 
-  if (loading) return <div className="page"><Card title="Company Detail" subtitle="Carregando memo executivo da companhia">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Company Detail" subtitle="Falha ao carregar company detail">{error}</Card></div>;
+  if (loading) return <LoadingState title="Company Detail" subtitle="Carregando memo executivo, sinais, tese, pipeline e camada comercial." />;
+  if (error || !data) return <ErrorState title="Company Detail" error={error} />;
 
-  const detail = data.data as CompanyDetail & {
-    abm: {
-      stakeholders: AbmStakeholder[];
-      touchpoints: AbmTouchpoint[];
-      objections: AbmObjection[];
-      preCall: PreCallBriefing;
-      preMortem: PreMortem;
-    };
-  };
+  const detail = data.data as CompanyDetailWithAbm;
 
   const handleRecalculate = async () => {
-    await Promise.all([api.recalculateCompany(session, id), api.recalculateCommercialLayer(session, id)]);
-    await reloadDetail();
+    setBusyAction('recalculate');
+    setFeedback('');
+    try {
+      const [qualification, commercial] = await Promise.allSettled([
+        api.recalculateCompany(session, id),
+        api.recalculateCommercialLayer(session, id),
+      ]);
+      if (qualification.status === 'rejected') throw qualification.reason;
+      await reloadDetail();
+      setFeedback(commercial.status === 'rejected'
+        ? 'Scores recalculados. Camada comercial ficou parcial e deve ser reprocessada depois.'
+        : 'Scores e camada comercial recalculados.');
+    } catch (err: unknown) {
+      setFeedback(err instanceof Error ? err.message : 'Falha ao recalcular scores.');
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
@@ -117,11 +186,20 @@ export function CompanyDetailPage() {
       <PageIntro
         eyebrow="Company Detail"
         title={detail.company.name}
-        description="Tela reorganizada como memo de crédito em forma de app: hierarquia executiva, recomendação clara, sinais, monitoramento e pipeline em uma leitura única."
-        actions={<div className="pill-row"><WatchListStar companyId={id} companyName={detail.company.name} /><button type="button" onClick={() => void handleRecalculate()}>Recalcular scores</button></div>}
+        description="Memo executivo de crédito: hierarquia clara, recomendação, sinais, monitoramento, pipeline e camada comercial sem derrubar a tela quando um endpoint auxiliar falha."
+        actions={<div className="pill-row"><WatchListStar companyId={id} companyName={detail.company.name} /><button type="button" disabled={busyAction === 'recalculate'} onClick={() => void handleRecalculate()}>Recalcular scores</button></div>}
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
+      {detail.abmHealth.status === 'partial' ? (
+        <div className="state-box state-error">
+          <Pill tone="warning">ABM parcial</Pill>
+          <div>
+            <strong>Memo de crédito carregado; camada comercial parcial.</strong>
+            <p>Seções afetadas: {detail.abmHealth.failedSections.join(', ')}. A tese, sinais, score e pipeline continuam disponíveis para decisão.</p>
+          </div>
+        </div>
+      ) : null}
       {feedback ? <div className="table-helper">{feedback}</div> : null}
 
       <section className="hero executive-hero">
@@ -183,18 +261,22 @@ export function CompanyDetailPage() {
         </Card>
 
         <Card title="Detected Patterns" subtitle="Padrões detectados, rationale e impacto na tese" className="dense-card">
-          <div className="stack-blocks">
-            {detail.patterns.map((pattern) => (
-              <div key={pattern.id} className="pattern-card">
-                <div className="row-between">
-                  <strong>{pattern.patternName}</strong>
-                  <Pill tone="warning">confidence {(pattern.confidenceScore * 100).toFixed(0)}%</Pill>
+          {detail.patterns.length ? (
+            <div className="stack-blocks">
+              {detail.patterns.map((pattern) => (
+                <div key={pattern.id} className="pattern-card">
+                  <div className="row-between">
+                    <strong>{pattern.patternName}</strong>
+                    <Pill tone="warning">confidence {(pattern.confidenceScore * 100).toFixed(0)}%</Pill>
+                  </div>
+                  <p>{pattern.rationale}</p>
+                  <div className="table-helper">Impacto: +{pattern.leadScoreImpact} lead / +{pattern.rankingImpact} ranking {pattern.thesisImpact ? `· ${pattern.thesisImpact}` : ''}</div>
                 </div>
-                <p>{pattern.rationale}</p>
-                <div className="table-helper">Impacto: +{pattern.leadScoreImpact} lead / +{pattern.rankingImpact} ranking {pattern.thesisImpact ? `· ${pattern.thesisImpact}` : ''}</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Nenhum pattern dominante detectado." description="A empresa pode seguir monitorada até surgirem sinais mais fortes de funding gap, recebíveis ou expansão." />
+          )}
         </Card>
 
         <Card title="Prediction" subtitle="Funding need, urgency, estrutura sugerida e próxima ação" className="dense-card">
@@ -211,21 +293,25 @@ export function CompanyDetailPage() {
         </Card>
 
         <Card title="Signals" subtitle="Sinais recentes, fonte e força" className="dense-card">
-          <table className="dense-table">
-            <thead>
-              <tr><th>Sinal</th><th>Fonte</th><th>Força</th><th>Confidence</th></tr>
-            </thead>
-            <tbody>
-              {detail.signals.map((signal, index: number) => (
-                <tr key={`${signal.type}-${index}`}>
-                  <td><strong>{signal.type}</strong><div className="table-helper">{signal.note}</div></td>
-                  <td>{signal.source}</td>
-                  <td>{signal.strength}</td>
-                  <td>{signal.confidence.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {detail.signals.length ? (
+            <table className="dense-table">
+              <thead>
+                <tr><th>Sinal</th><th>Fonte</th><th>Força</th><th>Confidence</th></tr>
+              </thead>
+              <tbody>
+                {detail.signals.map((signal, index: number) => (
+                  <tr key={`${signal.type}-${index}`}>
+                    <td><strong>{signal.type}</strong><div className="table-helper">{signal.note}</div></td>
+                    <td>{signal.source}</td>
+                    <td>{signal.strength}</td>
+                    <td>{signal.confidence.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <EmptyState title="Sem sinais recentes consolidados." description="Use monitoramento manual ou revise fontes da companhia antes de priorizar abordagem." />
+          )}
         </Card>
 
         <Card title="Monitoring / Sources" subtitle="Fontes monitoradas, últimas mudanças e status" className="dense-card">
@@ -260,17 +346,21 @@ export function CompanyDetailPage() {
         </Card>
 
         <Card title="Pipeline / Activities" subtitle="Estágio atual, última atividade e próxima ação" className="dense-card">
-          <ul className="list">
-            {detail.activities.map((activity) => (
-              <li key={`${activity.title}-${activity.dueDate}`}>
-                <div>
-                  <strong>{activity.title}</strong>
-                  <div className="table-helper">owner {activity.owner}</div>
-                </div>
-                <span>{activity.status} · {activity.dueDate}</span>
-              </li>
-            ))}
-          </ul>
+          {detail.activities.length ? (
+            <ul className="list">
+              {detail.activities.map((activity) => (
+                <li key={`${activity.title}-${activity.dueDate}`}>
+                  <div>
+                    <strong>{activity.title}</strong>
+                    <div className="table-helper">owner {activity.owner}</div>
+                  </div>
+                  <span>{activity.status} · {activity.dueDate}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="Sem atividades registradas." description="Crie uma activity ou task para transformar a tese em execução comercial." />
+          )}
           <div className="top-gap">
             <div className="row-between">
               <select value={stage} onChange={(event) => setStage(toPipelineStage(event.target.value))}>
@@ -331,81 +421,101 @@ export function CompanyDetailPage() {
             </div>
             <div className="top-gap">
               <div className="table-helper">Tasks da companhia</div>
-              <ul className="list">
-                {companyTasks.map((task) => (
-                  <li key={task.id}>
-                    <strong>{task.title}</strong>
-                    <span>{task.status} · {task.owner}</span>
-                    {nextTaskStatus(task.status) ? (
-                      <button
-                        type="button"
-                        disabled={busyAction === `task_status_${task.id}`}
-                        onClick={async () => {
-                          const targetStatus = nextTaskStatus(task.status);
-                          if (!targetStatus) return;
-                          setBusyAction(`task_status_${task.id}`);
-                          try {
-                            await api.updateTask(session, task.id, { status: targetStatus });
-                            await reloadDetail();
-                            setFeedback(`Task atualizada para ${targetStatus}.`);
-                          } catch (err: unknown) {
-                            setFeedback(err instanceof Error ? err.message : 'Falha ao atualizar status da task.');
-                          } finally { setBusyAction(null); }
-                        }}
-                      >
-                        Mover para {nextTaskStatus(task.status)}
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              {companyTasks.length ? (
+                <ul className="list">
+                  {companyTasks.map((task) => (
+                    <li key={task.id}>
+                      <strong>{task.title}</strong>
+                      <span>{task.status} · {task.owner}</span>
+                      {nextTaskStatus(task.status) ? (
+                        <button
+                          type="button"
+                          disabled={busyAction === `task_status_${task.id}`}
+                          onClick={async () => {
+                            const targetStatus = nextTaskStatus(task.status);
+                            if (!targetStatus) return;
+                            setBusyAction(`task_status_${task.id}`);
+                            try {
+                              await api.updateTask(session, task.id, { status: targetStatus });
+                              await reloadDetail();
+                              setFeedback(`Task atualizada para ${targetStatus}.`);
+                            } catch (err: unknown) {
+                              setFeedback(err instanceof Error ? err.message : 'Falha ao atualizar status da task.');
+                            } finally { setBusyAction(null); }
+                          }}
+                        >
+                          Mover para {nextTaskStatus(task.status)}
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState title="Nenhuma task criada." description="Cadastre a próxima diligência para manter a cobertura comercial rastreável." />
+              )}
             </div>
           </div>
         </Card>
 
         <Card title="Score History" subtitle="Evolução de qualification e lead ao longo do tempo" className="dense-card">
-          <div className="bars">
-            {detail.scoreHistory.map((entry) => (
-              <div key={entry.at}>
-                <div className="row-between"><span>{new Date(entry.at).toLocaleDateString('pt-BR')}</span><strong>{entry.qualification}/{entry.lead}</strong></div>
-                <ProgressBar value={entry.qualification} tone="default" />
-                <ProgressBar value={entry.lead} tone="success" />
-              </div>
-            ))}
-          </div>
+          {detail.scoreHistory.length ? (
+            <div className="bars">
+              {detail.scoreHistory.map((entry) => (
+                <div key={entry.at}>
+                  <div className="row-between"><span>{new Date(entry.at).toLocaleDateString('pt-BR')}</span><strong>{entry.qualification}/{entry.lead}</strong></div>
+                  <ProgressBar value={entry.qualification} tone="default" />
+                  <ProgressBar value={entry.lead} tone="success" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Sem histórico suficiente." description="Recalcule a companhia após novos sinais para criar memória temporal de score." />
+          )}
         </Card>
 
         <Card title="Stakeholder Map" subtitle="Mapa de buying committee com champion/blocker" className="dense-card">
-          <table className="dense-table">
-            <thead><tr><th>Nome</th><th>Papel</th><th>Champion</th><th>Blocker</th><th>Influence</th></tr></thead>
-            <tbody>
-              {detail.abm.stakeholders.map((item) => (
-                <tr key={item.id}>
-                  <td><strong>{item.name}</strong><div className="table-helper">{item.title ?? '-'}</div></td>
-                  <td>{item.role_in_buying_committee ?? '-'}</td>
-                  <td>{item.champion_score}</td>
-                  <td>{item.blocker_score}</td>
-                  <td>{item.influence_score}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {detail.abm.stakeholders.length ? (
+            <table className="dense-table">
+              <thead><tr><th>Nome</th><th>Papel</th><th>Champion</th><th>Blocker</th><th>Influence</th></tr></thead>
+              <tbody>
+                {detail.abm.stakeholders.map((item) => (
+                  <tr key={item.id}>
+                    <td><strong>{item.name}</strong><div className="table-helper">{item.title ?? '-'}</div></td>
+                    <td>{item.role_in_buying_committee ?? '-'}</td>
+                    <td>{item.champion_score}</td>
+                    <td>{item.blocker_score}</td>
+                    <td>{item.influence_score}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <EmptyState title="Buying committee ainda não mapeado." description="A tese pode avançar, mas o próximo passo comercial deve identificar CFO, founder, sponsor financeiro e possíveis blockers." />
+          )}
         </Card>
 
         <Card title="Touchpoint Timeline" subtitle="Interações externas recentes com próximos passos" className="dense-card">
-          <ul className="list">
-            {detail.abm.touchpoints.map((item) => (
-              <li key={item.id}><strong>{new Date(item.occurred_at).toLocaleDateString('pt-BR')} · {item.channel}</strong><span>{item.summary} · next: {item.agreed_next_step ?? '-'} </span></li>
-            ))}
-          </ul>
+          {detail.abm.touchpoints.length ? (
+            <ul className="list">
+              {detail.abm.touchpoints.map((item) => (
+                <li key={item.id}><strong>{new Date(item.occurred_at).toLocaleDateString('pt-BR')} · {item.channel}</strong><span>{item.summary} · next: {item.agreed_next_step ?? '-'} </span></li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="Nenhum touchpoint registrado." description="Registre a primeira interação para conectar inteligência de originação com execução comercial." />
+          )}
         </Card>
 
         <Card title="Objection Intelligence" subtitle="Objeções abertas e tratamento" className="dense-card">
-          <ul className="list">
-            {detail.abm.objections.map((item) => (
-              <li key={item.id}><strong>{item.severity ?? 'n/a'} · {item.status}</strong><span>{item.objection_text}</span></li>
-            ))}
-          </ul>
+          {detail.abm.objections.length ? (
+            <ul className="list">
+              {detail.abm.objections.map((item) => (
+                <li key={item.id}><strong>{item.severity ?? 'n/a'} · {item.status}</strong><span>{item.objection_text}</span></li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="Sem objeções registradas." description="Quando houver contato com founder ou CFO, registre objeções de custo, timing, governança, garantias e estrutura." />
+          )}
         </Card>
 
         <Card title="Pre-Call Briefing" subtitle="Resumo operacional para conversa comercial" className="dense-card">
@@ -419,11 +529,15 @@ export function CompanyDetailPage() {
         </Card>
 
         <Card title="Deal Risks / Pre-Mortem" subtitle="Leitura estruturada de riscos de perda" className="dense-card">
-          <ul className="list">
-            {detail.abm.preMortem.risks.map((risk, index: number) => (
-              <li key={index}><strong>{risk.risk}</strong><span>{risk.evidence} · Mitigação: {risk.mitigation}</span></li>
-            ))}
-          </ul>
+          {detail.abm.preMortem.risks.length ? (
+            <ul className="list">
+              {detail.abm.preMortem.risks.map((risk, index: number) => (
+                <li key={index}><strong>{risk.risk}</strong><span>{risk.evidence} · Mitigação: {risk.mitigation}</span></li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState title="Sem riscos comerciais mapeados." description="Antes da abordagem, valide sponsor, timing, alternativa bancária, governança e abertura para estruturação." />
+          )}
         </Card>
 
       </section>
