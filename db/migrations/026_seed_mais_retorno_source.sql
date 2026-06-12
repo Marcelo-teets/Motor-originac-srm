@@ -1,3 +1,4 @@
+-- OBSOLETO: substituído pela 039. O id de source_catalog é uuid no banco vivo; este arquivo inseria id texto e falharia.
 insert into public.source_catalog(
   id,
   name,
