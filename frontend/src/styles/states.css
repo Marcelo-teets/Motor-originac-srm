@@ -1,0 +1,46 @@
+.state-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(165, 186, 223, 0.1);
+  border-radius: 16px;
+  background: var(--panel-2);
+  color: #d9e5fb;
+}
+
+.state-box p,
+.empty-state span {
+  margin: 6px 0 0;
+  color: #bfd0ef;
+  line-height: 1.5;
+}
+
+.state-loading {
+  border-color: rgba(102, 209, 245, 0.2);
+}
+
+.state-error {
+  border-color: rgba(244, 99, 99, 0.28);
+}
+
+.loading-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--info);
+  box-shadow: 0 0 0 0 rgba(102, 209, 245, 0.35);
+  flex: 0 0 auto;
+  animation: state-pulse 1.4s infinite;
+}
+
+.empty-state {
+  min-height: 132px;
+}
+
+@keyframes state-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(102, 209, 245, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(102, 209, 245, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(102, 209, 245, 0); }
+}
