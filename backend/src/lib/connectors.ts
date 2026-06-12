@@ -14,6 +14,14 @@ const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceSco
 
 const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+const websiteDomain = (website: string) => {
+  try {
+    return new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '');
+  } catch {
+    return website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || website;
+  }
+};
+
 export const inferSourceCode = (source: SourceCatalogEntry) => {
   const explicit = typeof source.metadata?.code === 'string' ? source.metadata.code : undefined;
   if (explicit) return explicit;
@@ -32,6 +40,35 @@ export const inferSourceCode = (source: SourceCatalogEntry) => {
 };
 
 type RuntimeSource = SourceCatalogEntry & { runtimeCode: string };
+
+type SignalTreatmentRule = {
+  signalType: string;
+  strength: number;
+  pattern: RegExp;
+};
+
+const SIGNAL_TREATMENT_RULES: SignalTreatmentRule[] = [
+  { signalType: 'judicial_stress', strength: 95, pattern: /recuperacao judicial|falencia|execucao fiscal|processo credores|administrador judicial/ },
+  { signalType: 'legal_compliance_risk', strength: 86, pattern: /ceis|cnep|inidonea|suspensa|sancao|sancoes|portal da transparencia/ },
+  { signalType: 'liquidity_stress', strength: 84, pattern: /protesto|cartorio|cenprot|divida ativa|pgfn|cndt|regularidade fiscal|certidao negativa/ },
+  { signalType: 'public_contract_receivables', strength: 82, pattern: /pncp|licitacao|contrato publico|empenho|fornecedor|pregao|comprasnet|ata de registro/ },
+  { signalType: 'product_credit_terms', strength: 83, pattern: /termos de uso|politica de credito|limite de credito|financiamento|parcelamento|antecipacao de recebiveis|cessao de recebiveis/ },
+  { signalType: 'financial_infrastructure_signal', strength: 80, pattern: /open finance|instituicao de pagamento|iniciador|banco central|arranjo de pagamento|pix|wallet|checkout/ },
+  { signalType: 'regulatory_event', strength: 78, pattern: /diario oficial|dou|portaria|autorizacao|credenciamento|homologacao|ato declaratorio|resolucao|normativo/ },
+  { signalType: 'credit_team_hiring', strength: 77, pattern: /vaga|contrata|head de credito|risco de credito|underwriting|cobranca|collections|analista de credito|funding/ },
+  { signalType: 'vc_portfolio_signal', strength: 76, pattern: /portfolio|investida|venture capital|rodada|seed|series a|series b|growth capital|follow on/ },
+  { signalType: 'public_financing_signal', strength: 76, pattern: /bndes|finep|financiamento publico|capital de giro|inovacao/ },
+  { signalType: 'demand_quality_risk', strength: 73, pattern: /reclame aqui|chargeback|cancelamento|contestacao|inadimplencia|atraso|reclamacao/ },
+  { signalType: 'international_receivables_signal', strength: 70, pattern: /comexstat|exportacao|importacao|cambio|recebiveis internacionais|contrato internacional/ },
+  { signalType: 'technical_product_signal', strength: 70, pattern: /github|api|sdk|documentacao|developer|boleto|marketplace|webhook/ },
+  { signalType: 'market_education_signal', strength: 68, pattern: /youtube|webinar|live|evento online|aula|educacao de mercado/ },
+  { signalType: 'product_expansion_signal', strength: 66, pattern: /inpi|marca|patente|software|registro de marca|propriedade intelectual/ },
+  { signalType: 'expansion_signal', strength: 78, pattern: /expans|nova regi|novo canal|crescimento/ },
+  { signalType: 'capital_mismatch', strength: 78, pattern: /fidc|funding|capital|debenture|captacao|nota comercial|securitizacao|cri|cra/ },
+  { signalType: 'receivables_strong', strength: 78, pattern: /recebiveis|cartao|antecip/ },
+  { signalType: 'embedded_finance', strength: 76, pattern: /embedded|pagamento|credito as a service|bnpl|lending/ },
+  { signalType: 'growth_without_funding', strength: 74, pattern: /risk|cobran|underwriting|escala|operacao nacional/ },
+];
 
 const buildRuntimeSources = (sources: SourceCatalogEntry[]) => sources
   .filter((source) => source.status !== 'planned')
@@ -52,6 +89,8 @@ const renderQueryTemplate = (template: string, company: CompanySeed) => template
   .replace(/{segment}/g, company.segment)
   .replace(/{subsegment}/g, company.subsegment ?? '')
   .replace(/{cnpj}/g, company.cnpj ?? '')
+  .replace(/{website}/g, company.website ?? '')
+  .replace(/{websiteDomain}/g, websiteDomain(company.website ?? ''))
   .replace(/\s+/g, ' ')
   .trim();
 
@@ -129,21 +168,14 @@ export async function monitorCompanyWebsite(url: string) {
   }
 }
 
-const deriveSignalType = (text: string) => {
-  const value = text.toLowerCase();
-  if (/expans|nova regi|novo canal|crescimento/.test(value)) return 'expansion_signal';
-  if (/fidc|funding|capital|deb[êe]nture|capta/.test(value)) return 'capital_mismatch';
-  if (/receb[ií]veis|cart[ãa]o|antecip/.test(value)) return 'receivables_strong';
-  if (/embedded|wallet|pix|checkout|pagamento/.test(value)) return 'embedded_finance';
-  if (/contrata|vaga|risk|cobran|underwriting/.test(value)) return 'growth_without_funding';
-  return 'market_signal';
+const signalTreatmentFromText = (text: string) => {
+  const value = normalizeText(text);
+  return SIGNAL_TREATMENT_RULES.find((rule) => rule.pattern.test(value));
 };
 
-const signalStrengthFromText = (text: string) => {
-  const value = text.toLowerCase();
-  if (/expans|funding|capital|receb[ií]veis|embedded|contrata/.test(value)) return 78;
-  return 62;
-};
+const deriveSignalType = (text: string) => signalTreatmentFromText(text)?.signalType ?? 'market_signal';
+
+const signalStrengthFromText = (text: string) => signalTreatmentFromText(text)?.strength ?? 62;
 
 const buildSignal = (
   company: CompanySeed,
@@ -153,17 +185,30 @@ const buildSignal = (
   collectedAt: string,
   status: 'real' | 'partial',
   sourceUrl: string,
-): CompanySignal => ({
-  id: crypto.randomUUID(),
-  companyId: company.id,
-  sourceId: source.id,
-  signalType: deriveSignalType(text),
-  signalStrength: signalStrengthFromText(text),
-  confidenceScore: toConfidence(status),
-  evidencePayload: { note: text, source: source.id, sourceCode: source.runtimeCode, sourceName: source.name, sourceUrl, timestamp: collectedAt, confidenceScore: toConfidence(status), idSuffix },
-  observedVsInferred: 'observed',
-  createdAt: collectedAt,
-});
+): CompanySignal => {
+  const treatment = signalTreatmentFromText(text);
+  return {
+    id: crypto.randomUUID(),
+    companyId: company.id,
+    sourceId: source.id,
+    signalType: treatment?.signalType ?? 'market_signal',
+    signalStrength: treatment?.strength ?? 62,
+    confidenceScore: toConfidence(status),
+    evidencePayload: {
+      note: text,
+      source: source.id,
+      sourceCode: source.runtimeCode,
+      sourceName: source.name,
+      sourceUrl,
+      timestamp: collectedAt,
+      confidenceScore: toConfidence(status),
+      idSuffix,
+      treatmentRule: treatment?.signalType ?? 'market_signal',
+    },
+    observedVsInferred: 'observed',
+    createdAt: collectedAt,
+  };
+};
 
 const buildOutput = (
   company: CompanySeed,
