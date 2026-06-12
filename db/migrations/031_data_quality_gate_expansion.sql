@@ -1,4 +1,5 @@
 -- Mirror-only Data Platform Fase 2 / Frente D.
+-- Aplicada no banco vivo via Supabase MCP em 2026-06-11 (com estas correções).
 -- Apply separately through Supabase MCP. Codex did not execute this DDL.
 -- Purpose: consultable data quality violations for completeness, freshness and validity.
 
@@ -28,6 +29,7 @@ create or replace function public.source_frequency_to_interval(p_frequency text)
 returns interval
 language sql
 immutable
+set search_path = public
 as $$
   select case lower(coalesce(p_frequency, 'weekly'))
     when 'hourly' then interval '6 hours'
@@ -49,6 +51,7 @@ create or replace function public.record_data_quality_violation(
   p_observed_value jsonb default '{}'::jsonb
 ) returns void
 language plpgsql
+set search_path = public
 as $$
 begin
   insert into public.data_quality_violations(rule_code, entity_table, entity_id, source_id, severity, reason, observed_value)
@@ -67,6 +70,7 @@ $$;
 create or replace function public.run_data_platform_quality_gates(p_limit integer default 5000)
 returns jsonb
 language plpgsql
+set search_path = public
 as $$
 declare
   v_before integer;
@@ -152,3 +156,7 @@ end;
 $$;
 
 comment on table public.data_quality_violations is 'Consultable DQ failures for data platform gates; ingestion should continue while rows are marked for review.';
+
+alter table public.data_quality_violations enable row level security;
+create policy srv_all_data_quality_violations on public.data_quality_violations as permissive for all to service_role using (true) with check (true);
+create policy authenticated_select_data_quality_violations on public.data_quality_violations as permissive for select to authenticated using (true);

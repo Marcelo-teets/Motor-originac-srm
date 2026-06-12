@@ -1,4 +1,5 @@
 -- Mirror-only Data Platform Fase 2 / Frente D.
+-- Aplicada no banco vivo via Supabase MCP em 2026-06-11 (com estas correções).
 -- Apply separately through Supabase MCP. Codex did not execute this DDL.
 -- Purpose: formal bronze -> silver -> gold mapping for capture data.
 
@@ -160,7 +161,8 @@ select
   c.id as company_id,
   regexp_replace(coalesce(c.cnpj, ''), '\D', '', 'g') as canonical_cnpj,
   coalesce(c.trade_name, c.legal_name) as company_name,
-  count(g.signal_type)::integer as signal_count,
+  -- Corrigido no vivo em 11/jun: count(g.signal_type) referenciava coluna inexistente.
+  coalesce(sum(g.signal_count), 0)::integer as signal_count,
   count(distinct g.source_id)::integer as source_count,
   coalesce(sum(g.document_count), 0)::integer as document_count,
   max(g.last_observed_at) as latest_evidence_at,
