@@ -1,4 +1,8 @@
-import type { ActivityStatus, ActivityType, Owner, PipelineStage, TaskStatus } from './types';
+type PipelineStage = 'Identified' | 'Qualified' | 'Approach' | 'Structuring' | 'Mandated' | 'ClosedWon' | 'ClosedLost' | 'Recycled';
+type ActivityType = 'follow_up' | 'meeting' | 'email' | 'call' | 'research' | 'committee' | 'other';
+type ActivityStatus = 'open' | 'done' | 'cancelled';
+type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
 
 export type SearchProfileCandidate = {
   id: string;
