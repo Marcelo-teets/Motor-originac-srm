@@ -2,12 +2,30 @@ import { thesisRationales } from '../../../config/heuristics.js';
 import { qualificationWeights } from '../../../config/scoring.js';
 import { average, clamp, levelFromScore, maturityToScore } from './helpers.js';
 import { qualificationWeightTotal } from './scoring.js';
+import { computeSourceTreatmentImpact } from './sourceTreatment.js';
 import type { CompanySeed, MonitoringOutput, QualificationSnapshot } from '../types/platform.js';
 
 const receivablesRecurrence = (receivables: string[]) => (receivables.length >= 2 ? 'high' : 'medium');
 const receivablesPredictability = (receivables: string[]) => (receivables.some((item) => ['Cartão', 'Folha', 'Mensalidades', 'Assinaturas', 'Boletos', 'Pix parcelado', 'CPR'].includes(item)) ? 'medium_high' : 'medium');
 
-const monitoringSignalTerms = [/receb/i, /cart/i, /funding/i, /capital/i, /expans/i, /contrat/i, /fidc/i, /warehouse/i];
+const monitoringSignalTerms = [
+  /receb/i,
+  /cart/i,
+  /funding/i,
+  /capital/i,
+  /expans/i,
+  /contrat/i,
+  /fidc/i,
+  /warehouse/i,
+  /pncp/i,
+  /protest/i,
+  /pgfn/i,
+  /recupera[cç][aã]o judicial/i,
+  /open finance/i,
+  /cr[eé]dito/i,
+  /bndes/i,
+  /comex/i,
+];
 
 const scoreFromMonitoring = (outputs: MonitoringOutput[]) => {
   if (!outputs.length) return 45;
@@ -42,19 +60,23 @@ export const buildQualificationSnapshot = ({
   generatedAt: string;
 }): QualificationSnapshot => {
   const monitoringScore = scoreFromMonitoring(monitoringOutputs);
-  const timingScore = scoreFromSignals(company, monitoringOutputs);
+  const sourceTreatmentImpact = computeSourceTreatmentImpact(company.signals);
+  const timingScoreBase = scoreFromSignals(company, monitoringOutputs);
+  const timingScore = clamp(timingScoreBase + sourceTreatmentImpact.timingScoreDelta);
   const fundingStructurePenalty = scoreFromFundingStructure(company.currentFundingStructure);
   const recurringReceivablesBonus = company.receivables.length >= 2 ? 20 : 10;
   const structuredFundingPresent = /fidc|securit|warehouse|deb[êe]nture|nota comercial|linhas bilaterais/i.test(company.currentFundingStructure);
   const balanceSheetOnly = /balanço próprio|caixa/i.test(company.currentFundingStructure);
   const strongReceivables = company.receivables.some((item) => ['Cartão', 'Mensalidades', 'Assinaturas', 'Duplicatas', 'Pix parcelado', 'CPR', 'Folha'].includes(item));
+  const treatmentReceivablesSignal = sourceTreatmentImpact.patternTags.some((tag) => ['receivables_strong', 'public_contract_receivables', 'receivables_quality'].includes(tag));
 
-  const structuralScore = clamp(
+  const structuralScoreBase = clamp(
     (company.creditProduct ? 50 : 25) +
     recurringReceivablesBonus +
     (strongReceivables ? 12 : 4) +
     (monitoringScore >= 70 ? 10 : 4),
   );
+  const structuralScore = clamp(structuralScoreBase + sourceTreatmentImpact.structuralScoreDelta);
 
   const capitalScore = clamp(
     fundingStructurePenalty +
@@ -66,16 +88,18 @@ export const buildQualificationSnapshot = ({
   const receivablesScore = clamp(
     (strongReceivables ? 72 : 55) +
     recurringReceivablesBonus +
-    (monitoringOutputs.some((item) => /receb|cart|assinatura|folha|mensalidades|duplicatas|cpr/i.test(item.summary)) ? 8 : 0),
+    (monitoringOutputs.some((item) => /receb|cart|assinatura|folha|mensalidades|duplicatas|cpr/i.test(item.summary)) ? 8 : 0) +
+    (treatmentReceivablesSignal ? 6 : 0),
   );
 
-  const executionScore = clamp(average([
+  const executionScoreBase = clamp(average([
     maturityToScore(company.enrichment.governanceMaturity),
     maturityToScore(company.enrichment.underwritingMaturity),
     maturityToScore(company.enrichment.operationalMaturity),
     maturityToScore(company.enrichment.riskModelMaturity),
     monitoringScore,
   ]));
+  const executionScore = clamp(executionScoreBase + sourceTreatmentImpact.executabilityScoreDelta);
 
   const weightedTotal = clamp(
     (structuralScore * qualificationWeights.structural +
@@ -86,19 +110,22 @@ export const buildQualificationSnapshot = ({
     qualificationWeightTotal,
   );
 
-  const fitFidc = strongReceivables && !/fidc/i.test(company.currentFundingStructure);
+  const fitFidc = (strongReceivables || treatmentReceivablesSignal) && !/fidc/i.test(company.currentFundingStructure);
   const fitDcm = ['debênture privada piloto', 'balanço próprio', 'linhas bilaterais', 'nota comercial', 'caixa'].some((fragment) => company.currentFundingStructure.toLowerCase().includes(fragment.toLowerCase()));
   const suggestedStructure = fitFidc ? 'FIDC + warehouse inicial' : fitDcm ? 'Debênture / nota comercial privada' : 'Warehouse';
   const predictedFundingNeed = clamp((capitalScore * 0.38) + (timingScore * 0.28) + (weightedTotal * 0.22) + (monitoringScore * 0.12));
   const urgency = clamp((timingScore * 0.42) + (capitalScore * 0.23) + (monitoringScore * 0.2) + (structuralScore * 0.15));
   const rationale = fitFidc ? thesisRationales.fidc : fitDcm ? thesisRationales.note : thesisRationales.dcm;
+  const treatmentRationale = sourceTreatmentImpact.actionableSignalsCount
+    ? ` Impacto de fontes não óbvias: ${sourceTreatmentImpact.signalTypes.join(', ')}; deltas estrutural/timing/execução = ${sourceTreatmentImpact.structuralScoreDelta}/${sourceTreatmentImpact.timingScoreDelta}/${sourceTreatmentImpact.executabilityScoreDelta}.`
+    : '';
 
   return {
     companyId: company.id,
     has_credit_product: Boolean(company.creditProduct),
     credit_product_type: company.creditProduct,
     credit_is_core_product: true,
-    has_receivables: company.receivables.length > 0,
+    has_receivables: company.receivables.length > 0 || treatmentReceivablesSignal,
     receivables_type: company.receivables,
     receivables_recurrence_level: receivablesRecurrence(company.receivables),
     receivables_predictability_level: receivablesPredictability(company.receivables),
@@ -107,7 +134,7 @@ export const buildQualificationSnapshot = ({
     has_existing_debt_structure: structuredFundingPresent,
     funding_structure_type: company.currentFundingStructure,
     capital_structure_quality: balanceSheetOnly ? 'weak' : structuredFundingPresent ? 'emerging' : 'partial',
-    capital_structure_rationale: `Estrutura atual: ${company.currentFundingStructure}. ${rationale}`,
+    capital_structure_rationale: `Estrutura atual: ${company.currentFundingStructure}. ${rationale}${treatmentRationale}`,
     funding_gap_level: capitalScore >= 78 ? 'high' : capitalScore >= 62 ? 'medium' : 'low',
     capital_dependency_level: balanceSheetOnly ? 'high' : structuredFundingPresent ? 'medium' : 'medium_high',
     growth_vs_funding_mismatch: urgency >= 78 ? 'elevated' : urgency >= 62 ? 'moderate' : 'low',
@@ -130,18 +157,19 @@ export const buildQualificationSnapshot = ({
     qualification_score_execution: executionScore,
     qualification_score_timing: timingScore,
     qualification_score_total: weightedTotal,
-    confidence_score: Number(Math.max(company.enrichment.sourceConfidence, monitoringScore / 100).toFixed(2)),
-    rationale_summary: `${company.tradeName}: ${rationale}`,
+    confidence_score: Number(Math.max(company.enrichment.sourceConfidence, monitoringScore / 100, sourceTreatmentImpact.avgConfidenceScore).toFixed(2)),
+    rationale_summary: `${company.tradeName}: ${rationale}${treatmentRationale}`,
     evidence_payload: {
       signals: company.signals,
       monitoringOutputs: monitoringOutputs.map((item) => ({ sourceId: item.sourceId, title: item.title, summary: item.summary, confidenceScore: item.confidenceScore, connectorStatus: item.connectorStatus })),
       enrichment: company.enrichment,
       fundingStructure: company.currentFundingStructure,
+      sourceTreatmentImpact,
     },
     predicted_funding_need_score: predictedFundingNeed,
     urgency_score: urgency,
     suggested_structure_type: suggestedStructure,
-    source_confidence_score: Number(company.enrichment.sourceConfidence.toFixed(2)),
+    source_confidence_score: Number(Math.max(company.enrichment.sourceConfidence, sourceTreatmentImpact.avgConfidenceScore).toFixed(2)),
     trigger_strength_score: timingScore,
     pattern_summary: [],
     created_at: generatedAt,
