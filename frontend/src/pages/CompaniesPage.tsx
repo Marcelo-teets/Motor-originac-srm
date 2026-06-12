@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, DataStatusBanner, PageIntro, Pill, ScoreBadge } from '../components/UI';
+import { Card, DataStatusBanner, EmptyState, ErrorState, LoadingState, PageIntro, Pill, ScoreBadge } from '../components/UI';
 import { WatchListStar } from '../components/WatchListStar';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -27,19 +27,22 @@ export function CompaniesPage() {
     async () => {
       const [companiesState, weekly] = await Promise.all([api.getCompanies(session), api.getAbmWeekly(session)]);
       const warMap = new Map(weekly.data.top_accounts.map((item) => [item.company_id, item]));
-      const details = await Promise.all(companiesState.data.map(async (company) => {
-        const detailState = await api.getCompany(session, company.id);
+      const detailResults = await Promise.allSettled(companiesState.data.map((company) => api.getCompany(session, company.id)));
+      const details = companiesState.data.map((company, index) => {
+        const detailResult = detailResults[index];
+        const detailState = detailResult?.status === 'fulfilled' ? detailResult.value : null;
         const war = warMap.get(company.id);
         return {
           ...company,
-          lastSignal: detailState.data.signals[0]?.note ?? detailState.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
+          lastSignal: detailState?.data.signals[0]?.note ?? detailState?.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
           commercialPriority: war?.priority_band ?? 'monitor',
           momentum: war?.momentum_status ?? 'stable',
-          nextStep: detailState.data.company.nextAction ?? 'Definir próximo passo',
-          lastTouchpoint: detailState.data.activities[0]?.dueDate ?? '-',
-          championStatus: (detailState.data.activities.length > 0 ? 'mapped' : 'unmapped'),
+          nextStep: detailState?.data.company.nextAction ?? company.nextAction ?? 'Definir próximo passo',
+          lastTouchpoint: detailState?.data.activities[0]?.dueDate ?? '-',
+          championStatus: ((detailState?.data.activities.length ?? 0) > 0 ? 'mapped' : 'unmapped'),
+          detailHealth: detailState ? 'ok' : 'partial',
         };
-      }));
+      });
       return { companiesState, companies: details };
     },
     [session?.access_token],
@@ -55,14 +58,15 @@ export function CompaniesPage() {
     }).sort((a, b) => b.leadScore - a.leadScore);
   }, [data, priority, query, structure]);
 
-  if (loading) return <div className="page"><Card title="Leads" subtitle="Carregando companies do backend oficial">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Leads" subtitle="Falha ao carregar lista">{error}</Card></div>;
+  if (loading) return <LoadingState title="Leads" subtitle="Carregando ranking, sinais e camada comercial das empresas." />;
+  if (error || !data) return <ErrorState title="Leads" error={error} />;
 
   const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure)));
   const immediateCount = filtered.filter((company) => company.leadBucket.includes('immediate')).length;
   const fidcCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('fidc')).length;
   const dcmCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('dcm')).length;
   const strongSignalCount = filtered.filter((company) => company.triggerStrength >= 70).length;
+  const partialDetailCount = filtered.filter((company) => company.detailHealth === 'partial').length;
   const leadSummary = [
     { label: 'Prioridade imediata', value: immediateCount, helper: 'empresas para abordagem agora', tone: 'success' as const },
     { label: 'Fit FIDC', value: fidcCount, helper: 'estrutura sugerida com FIDC', tone: 'warning' as const },
@@ -75,10 +79,11 @@ export function CompaniesPage() {
       <PageIntro
         eyebrow="Leads / Companies"
         title="Tabela operacional de originação"
-        description="Ranking filtrável para separar esforço comercial real: prioridade, estrutura sugerida, momentum, champion, próximo passo e último sinal observado."
+        description="Ranking filtrável para separar esforço comercial real: prioridade, estrutura sugerida, momentum, champion, próximo passo e último sinal observado. A lista agora tolera falha parcial de detalhes sem derrubar a tela."
         actions={(
           <div className="pill-row">
             <Pill tone="success">{filtered.length} na visão atual</Pill>
+            {partialDetailCount ? <Pill tone="warning">{partialDetailCount} detalhe(s) parcial(is)</Pill> : null}
             <Link to="/pipeline" className="button secondary">Abrir pipeline</Link>
           </div>
         )}
@@ -163,20 +168,20 @@ export function CompaniesPage() {
                     <td>{company.nextStep}</td>
                     <td>{company.lastTouchpoint}</td>
                     <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
-                    <td>{company.lastSignal}</td>
+                    <td>
+                      {company.lastSignal}
+                      {company.detailHealth === 'partial' ? <div className="table-helper">detalhe parcial: usando fallback da lista</div> : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="summary-item">
-            <div className="stack-blocks compact-gap">
-              <Pill tone="warning">sem resultado</Pill>
-              <strong>Nenhuma empresa encontrada com os filtros atuais.</strong>
-              <span>Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional.</span>
-            </div>
-          </div>
+          <EmptyState
+            title="Nenhuma empresa encontrada com os filtros atuais."
+            description="Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional."
+          />
         )}
       </Card>
     </div>
