@@ -1,7 +1,7 @@
 import './types';
 
 declare module './types' {
-  type SearchProfileCandidate = {
+  interface SearchProfileCandidate {
     id: string;
     searchProfileId: string;
     companyName: string;
@@ -14,9 +14,9 @@ declare module './types' {
     promoted: boolean;
     capturedAt: string;
     promotedAt?: string;
-  };
+  }
 
-  type SearchProfileDraft = {
+  interface SearchProfileDraft {
     segment: string;
     subsegment: string;
     companyType: string;
@@ -27,24 +27,24 @@ declare module './types' {
     signalIntensity: string;
     minimumConfidence: string;
     timeWindow: string;
-  };
+  }
 
-  type MonitoringSnapshot = {
+  interface MonitoringSnapshot {
     recentTriggers: Array<{ company: string; signal: string; source: string; strength: number; when: string }>;
     latestRuns: Array<{ workflow: string; status: string; detail: string; when: string }>;
     activeSources: Array<{ name: string; status: string; health: string; coverage: string }>;
-  };
+  }
 
-  type AgentsSnapshot = {
+  interface AgentsSnapshot {
     items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
-  };
+  }
 
-  type PipelineSnapshot = {
+  interface PipelineSnapshot {
     stages: Array<{ stage: string; count: number; note: string }>;
     recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
-  };
+  }
 
-  type PipelineRow = {
+  interface PipelineRow {
     id: string;
     companyId: string;
     stage: PipelineStage;
@@ -52,9 +52,9 @@ declare module './types' {
     nextAction: string;
     createdAt: string;
     updatedAt: string;
-  };
+  }
 
-  type ActivityRecord = {
+  interface ActivityRecord {
     id: string;
     companyId: string;
     type: ActivityType;
@@ -65,9 +65,9 @@ declare module './types' {
     dueDate: string | null;
     createdAt: string;
     updatedAt: string;
-  };
+  }
 
-  type TaskRecord = {
+  interface TaskRecord {
     id: string;
     companyId: string;
     title: string;
@@ -77,9 +77,9 @@ declare module './types' {
     dueDate: string | null;
     createdAt: string;
     updatedAt: string;
-  };
+  }
 
-  type AbaCommandRecord = {
+  interface AbaCommandRecord {
     id: string;
     target: 'aba' | 'paper_clip' | 'adm';
     action: string;
@@ -88,41 +88,41 @@ declare module './types' {
     result: string;
     createdAt: string;
     finishedAt?: string;
-  };
+  }
 
-  type AbaStatus = {
+  interface AbaStatus {
     abaEnabled: boolean;
     capabilities: string[];
     commandTargets: string[];
     lastCommands: AbaCommandRecord[];
     suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
-  };
+  }
 
-  type OriginationProduct = {
+  interface OriginationProduct {
     product: string;
     useCase: string;
     idealCompanyProfile: string[];
     qualificationSignals: string[];
-  };
+  }
 
-  type OriginationSkill = {
+  interface OriginationSkill {
     id: string;
     name: string;
     objective: string;
     inputs: string[];
     outputs: string[];
     tasks: string[];
-  };
+  }
 
-  type OriginationFlow = {
+  interface OriginationFlow {
     id: string;
     name: string;
     steps: string[];
-  };
+  }
 
-  type OriginationOperatingSystem = {
+  interface OriginationOperatingSystem {
     products: OriginationProduct[];
     skills: OriginationSkill[];
     flows: OriginationFlow[];
-  };
+  }
 }
