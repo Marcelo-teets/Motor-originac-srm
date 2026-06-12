@@ -1,7 +1,7 @@
 import './types';
 
 declare module './types' {
-  export type SearchProfileCandidate = {
+  type SearchProfileCandidate = {
     id: string;
     searchProfileId: string;
     companyName: string;
@@ -16,7 +16,7 @@ declare module './types' {
     promotedAt?: string;
   };
 
-  export type SearchProfileDraft = {
+  type SearchProfileDraft = {
     segment: string;
     subsegment: string;
     companyType: string;
@@ -29,22 +29,22 @@ declare module './types' {
     timeWindow: string;
   };
 
-  export type MonitoringSnapshot = {
+  type MonitoringSnapshot = {
     recentTriggers: Array<{ company: string; signal: string; source: string; strength: number; when: string }>;
     latestRuns: Array<{ workflow: string; status: string; detail: string; when: string }>;
     activeSources: Array<{ name: string; status: string; health: string; coverage: string }>;
   };
 
-  export type AgentsSnapshot = {
+  type AgentsSnapshot = {
     items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
   };
 
-  export type PipelineSnapshot = {
+  type PipelineSnapshot = {
     stages: Array<{ stage: string; count: number; note: string }>;
     recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
   };
 
-  export type PipelineRow = {
+  type PipelineRow = {
     id: string;
     companyId: string;
     stage: PipelineStage;
@@ -54,7 +54,7 @@ declare module './types' {
     updatedAt: string;
   };
 
-  export type ActivityRecord = {
+  type ActivityRecord = {
     id: string;
     companyId: string;
     type: ActivityType;
@@ -67,7 +67,7 @@ declare module './types' {
     updatedAt: string;
   };
 
-  export type TaskRecord = {
+  type TaskRecord = {
     id: string;
     companyId: string;
     title: string;
@@ -79,7 +79,7 @@ declare module './types' {
     updatedAt: string;
   };
 
-  export type AbaCommandRecord = {
+  type AbaCommandRecord = {
     id: string;
     target: 'aba' | 'paper_clip' | 'adm';
     action: string;
@@ -90,7 +90,7 @@ declare module './types' {
     finishedAt?: string;
   };
 
-  export type AbaStatus = {
+  type AbaStatus = {
     abaEnabled: boolean;
     capabilities: string[];
     commandTargets: string[];
@@ -98,14 +98,14 @@ declare module './types' {
     suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
   };
 
-  export type OriginationProduct = {
+  type OriginationProduct = {
     product: string;
     useCase: string;
     idealCompanyProfile: string[];
     qualificationSignals: string[];
   };
 
-  export type OriginationSkill = {
+  type OriginationSkill = {
     id: string;
     name: string;
     objective: string;
@@ -114,13 +114,13 @@ declare module './types' {
     tasks: string[];
   };
 
-  export type OriginationFlow = {
+  type OriginationFlow = {
     id: string;
     name: string;
     steps: string[];
   };
 
-  export type OriginationOperatingSystem = {
+  type OriginationOperatingSystem = {
     products: OriginationProduct[];
     skills: OriginationSkill[];
     flows: OriginationFlow[];
