@@ -55,14 +55,14 @@ function fallbackPreCall(detail: CompanyDetail): PreCallBriefing {
   const whyNow = detail.signals[0]?.note ?? detail.monitoring.feedHighlights[0] ?? detail.qualification.capital_structure_rationale;
   return {
     companyId: detail.company.id,
-    institutional_summary: detail.thesis.summary ?? detail.company.description,
+    institutional_summary: detail.thesis.summary || detail.company.description,
     thesis: detail.thesis.summary,
     why_now: whyNow,
     recent_signals: detail.signals.slice(0, 3).map((signal) => ({ type: signal.type, strength: signal.strength, observed_at: detail.monitoring.lastRunAt })),
     stakeholders: [],
     recent_touchpoints: [],
     open_objections: [],
-    recommended_next_step: detail.company.nextAction ?? 'Definir próximo passo comercial',
+    recommended_next_step: detail.company.nextAction || 'Definir próximo passo comercial',
     conversation_risks: ['Camada ABM indisponível no momento; validar buying committee manualmente.'],
     suggested_cta: 'Validar janela de funding, estrutura aderente e sponsor financeiro da operação.',
   };
@@ -132,15 +132,15 @@ export function CompanyDetailPage() {
   const reloadDetail = async () => {
     const nextDetail = await loadCompanyDetail(session, id);
     setData(nextDetail);
-    setStage(toPipelineStage(nextDetail.data.company.stage ?? 'Qualified'));
-    setNextActionDraft(nextDetail.data.company.nextAction ?? '');
+    setStage(toPipelineStage(nextDetail.data.company.stage || 'Qualified'));
+    setNextActionDraft(nextDetail.data.company.nextAction || '');
     setCompanyTasks(await api.listTasks(session, id).catch(() => []));
   };
 
   useEffect(() => {
     if (!data) return;
-    setStage(toPipelineStage(data.data.company.stage ?? 'Qualified'));
-    setNextActionDraft(data.data.company.nextAction ?? '');
+    setStage(toPipelineStage(data.data.company.stage || 'Qualified'));
+    setNextActionDraft(data.data.company.nextAction || '');
     void api.listTasks(session, id).then(setCompanyTasks).catch(() => setCompanyTasks([]));
   }, [data, id, session]);
 
