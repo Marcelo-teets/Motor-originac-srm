@@ -32,7 +32,9 @@ export function Stat({ label, value, helper, trend }: { label: string; value: st
 }
 
 export function ProgressBar({ value, max = 100, tone = 'default' }: { value: number; max?: number; tone?: 'default' | 'success' | 'warning' | 'info' }) {
-  const width = `${Math.min(100, Math.round((value / max) * 100))}%`;
+  const safeMax = max > 0 ? max : 100;
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const width = `${Math.min(100, Math.max(0, Math.round((safeValue / safeMax) * 100)))}%`;
   return <div className="bar"><i className={`bar-${tone}`} style={{ width } as CSSProperties} /></div>;
 }
 
@@ -69,6 +71,52 @@ export function DataStatusBanner({ source, note }: { source: DataSourceKind; not
     <div className={`data-banner data-banner-${source}`}>
       <Pill tone={tone[source]}>{label[source]}</Pill>
       <span>{note}</span>
+    </div>
+  );
+}
+
+export function LoadingState({ title, subtitle = 'Carregando dados operacionais do backend oficial.' }: { title: string; subtitle?: string }) {
+  return (
+    <div className="page">
+      <Card title={title} subtitle={subtitle}>
+        <div className="state-box state-loading">
+          <span className="loading-dot" aria-hidden="true" />
+          <div>
+            <strong>Montando visão de originação...</strong>
+            <p>Estamos buscando dados, scores, sinais e pipeline. A tela será liberada assim que a leitura terminar.</p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+export function ErrorState({ title, error, action }: { title: string; error?: string | null; action?: ReactNode }) {
+  const message = error || 'Não foi possível carregar esta visão agora.';
+  return (
+    <div className="page">
+      <Card title={title} subtitle="Falha controlada de carregamento" actions={action}>
+        <div className="state-box state-error">
+          <Pill tone="danger">atenção</Pill>
+          <div>
+            <strong>{message}</strong>
+            <p>Verifique autenticação, disponibilidade do backend e variáveis de produção. A tela não deve quebrar silenciosamente.</p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
+  return (
+    <div className="summary-item empty-state">
+      <div className="stack-blocks compact-gap">
+        <Pill tone="warning">sem dados</Pill>
+        <strong>{title}</strong>
+        <span>{description}</span>
+        {action ? <div>{action}</div> : null}
+      </div>
     </div>
   );
 }
