@@ -123,8 +123,43 @@ export type OriginationFlow = {
   steps: string[];
 };
 
+export type OriginationBacklogItem = {
+  id: string;
+  title: string;
+  status: 'implemented' | 'runtime_ready' | 'documented';
+  priority: string;
+  implementation: string;
+};
+
+export type OriginationScoreCriterion = {
+  criterion: string;
+  weight: number;
+  evidence: string[];
+};
+
+export type OriginationCommand = {
+  command: string;
+  output: string[];
+};
+
 export type OriginationOperatingSystem = {
+  version: string;
+  thesis: string;
   products: OriginationProduct[];
+  structures?: Array<{ name: string; role: string }>;
   skills: OriginationSkill[];
+  priorities?: Array<{ priority: string; definition: string; action: string }>;
+  scorecard: OriginationScoreCriterion[];
+  scoreActions?: Array<{ range: string; action: string }>;
   flows: OriginationFlow[];
+  modules?: Array<{ id: string; name: string; purpose: string; implementedBy: string[] }>;
+  routines?: Array<Record<string, unknown>>;
+  backlog: OriginationBacklogItem[];
+  hooks?: Record<string, unknown>;
+  recyclingRules?: string[];
+  initialVerticals: string[];
+  checklist: string[];
+  templates?: Record<string, unknown>;
+  commands: OriginationCommand[];
+  implementation?: Record<string, unknown>;
 };
