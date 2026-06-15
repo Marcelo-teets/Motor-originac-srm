@@ -32,22 +32,55 @@ const emptyCaptureHealth = (): CaptureHealth => ({
   tables: [],
 });
 
+const asCaptureStatus = (value: unknown): DataSourceKind => {
+  if (value === 'real' || value === 'mock' || value === 'partial') return value;
+  return 'partial';
+};
+
+async function readCapturePayload(response: Response): Promise<CaptureHealth & { error?: string }> {
+  const raw = await response.text();
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!raw.trim()) {
+    return { ...emptyCaptureHealth(), error: response.ok ? undefined : `${response.status} ${response.statusText || 'Empty response'}` };
+  }
+
+  if (!contentType.includes('application/json')) {
+    return {
+      ...emptyCaptureHealth(),
+      error: `Healthcheck retornou resposta não-JSON. Status ${response.status}. Preview: ${raw.replace(/\s+/g, ' ').slice(0, 140)}`,
+    };
+  }
+
+  try {
+    const payload = JSON.parse(raw) as CaptureHealth & { error?: string };
+    return {
+      ...emptyCaptureHealth(),
+      ...payload,
+      status: asCaptureStatus(payload.status),
+      tables: Array.isArray(payload.tables) ? payload.tables : [],
+    };
+  } catch {
+    return { ...emptyCaptureHealth(), error: `Healthcheck retornou JSON inválido. Status ${response.status}.` };
+  }
+}
+
 export async function getCaptureHealth(): Promise<DataState<CaptureHealth>> {
   try {
     const response = await fetch(buildApiUrl('/data-capture/health'));
-    const payload = await response.json() as CaptureHealth & { error?: string };
+    const payload = await readCapturePayload(response);
 
     if (!response.ok) {
       return {
         source: 'partial',
         note: payload.error ?? 'Healthcheck da captura respondeu com atenção operacional.',
-        data: { ...emptyCaptureHealth(), ...payload, status: payload.status ?? 'partial' },
+        data: { ...emptyCaptureHealth(), ...payload, status: asCaptureStatus(payload.status) },
       };
     }
 
     return {
-      source: payload.status,
-      note: 'Healthcheck da captura carregado do runtime serverless oficial.',
+      source: asCaptureStatus(payload.status),
+      note: payload.error ?? 'Healthcheck da captura carregado do runtime serverless oficial.',
       data: payload,
     };
   } catch (error) {
