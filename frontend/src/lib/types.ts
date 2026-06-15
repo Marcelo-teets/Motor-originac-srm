@@ -19,6 +19,34 @@ export type ActivityStatus = 'open' | 'done' | 'cancelled';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
 
+export type SourceTreatmentImpact = {
+  treatedSignalsCount: number;
+  actionableSignalsCount: number;
+  structuralScoreDelta: number;
+  timingScoreDelta: number;
+  executabilityScoreDelta: number;
+  totalTreatmentDelta: number;
+  maxSignalStrength: number;
+  avgConfidenceScore: number;
+  signalTypes: string[];
+  signalFamilies: string[];
+  patternTags: string[];
+  positiveSignals: string[];
+  riskSignals: string[];
+  nextActions: string[];
+  applied?: Array<{
+    signalType: string;
+    signalFamily: string;
+    signalSource: string;
+    signalStrength: number;
+    confidenceScore: number;
+    note: string;
+    appliedStructuralDelta: number;
+    appliedTimingDelta: number;
+    appliedExecutabilityDelta: number;
+  }>;
+};
+
 export type WatchList = {
   id: string;
   name: string;
@@ -124,6 +152,10 @@ export type CompanyDetail = {
     qualification_score_receivables?: number;
     qualification_score_execution?: number;
     qualification_score_timing?: number;
+    evidence_payload?: {
+      sourceTreatmentImpact?: SourceTreatmentImpact;
+      [key: string]: unknown;
+    };
   };
   patterns: Array<{ id: string; patternName: string; rationale: string; confidenceScore: number; leadScoreImpact: number; rankingImpact: number; thesisImpact?: string }>;
   thesis: { summary: string; structureType: string; marketMapSummary: string; confidenceScore: number };
@@ -222,7 +254,7 @@ export type MvpReadiness = {
   deploy_health: { status: string; note: string };
 };
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
-export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
+export type SessionData = { [key: string]: any; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;
   name: string;
@@ -240,156 +272,19 @@ export type SearchProfile = {
   profilePayload: Record<string, unknown>;
 };
 
-export type SearchProfileCandidate = {
-  id: string;
-  searchProfileId: string;
-  companyName: string;
-  website?: string;
-  segment: string;
-  sourceRef: string;
-  evidenceSummary: string;
-  confidence: number;
-  status: 'captured' | 'promoted';
-  promoted: boolean;
-  capturedAt: string;
-  promotedAt?: string;
-};
-
-export type SearchProfileDraft = {
-  segment: string;
-  subsegment: string;
-  companyType: string;
-  geography: string;
-  creditProduct: string;
-  receivables: string;
-  targetStructure: string;
-  signalIntensity: string;
-  minimumConfidence: string;
-  timeWindow: string;
-};
-
-export type MonitoringSnapshot = {
-  recentTriggers: Array<{ company: string; signal: string; source: string; strength: number; when: string }>;
-  latestRuns: Array<{ workflow: string; status: string; detail: string; when: string }>;
-  activeSources: Array<{ name: string; status: string; health: string; coverage: string }>;
-};
-
-export type AgentsSnapshot = {
-  items: Array<{ name: string; status: string; failures: number; confidence: number; focus: string; updatedAt: string }>;
-};
-
-export type AbaCommandRecord = {
-  id: string;
-  target: 'aba' | 'paper_clip' | 'adm';
-  action: string;
-  context: Record<string, unknown>;
-  status: string;
-  result: string;
-  createdAt: string;
-  finishedAt?: string;
-};
-
-export type AbaStatus = {
-  abaEnabled: boolean;
-  capabilities: string[];
-  commandTargets: string[];
-  lastCommands: AbaCommandRecord[];
-  suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
-};
-
-export type PipelineSnapshot = {
-  stages: Array<{ stage: string; count: number; note: string }>;
-  recentActivities: Array<{ company: string; title: string; owner: string; when: string; status: string }>;
-};
-
-export type PipelineRow = {
-  id: string;
-  companyId: string;
-  stage: PipelineStage;
-  owner: Owner;
-  nextAction: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ActivityRecord = {
-  id: string;
-  companyId: string;
-  type: ActivityType;
-  title: string;
-  description: string;
-  owner: Owner;
-  status: ActivityStatus;
-  dueDate: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type TaskRecord = {
-  id: string;
-  companyId: string;
-  title: string;
-  description: string;
-  owner: Owner;
-  status: TaskStatus;
-  dueDate: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type OriginationProduct = {
-  product: string;
-  useCase: string;
-  idealCompanyProfile: string[];
-  qualificationSignals: string[];
-};
-
-export type OriginationSkill = {
-  id: string;
-  name: string;
-  objective: string;
-  inputs: string[];
-  outputs: string[];
-  tasks: string[];
-};
-
-export type OriginationFlow = {
-  id: string;
-  name: string;
-  steps: string[];
-};
-
-export type OriginationBacklogItem = {
-  id: string;
-  title: string;
-  priority: string;
-  status: 'implemented' | 'runtime_ready' | 'documented' | string;
-  implementation: string;
-};
-
-export type OriginationOperatingSystem = {
-  version: string;
-  thesis: string;
-  products: OriginationProduct[];
-  structures: Array<{ name: string; role: string }>;
-  skills: OriginationSkill[];
-  priorities: Array<{ priority: string; definition: string; action: string }>;
-  scorecard: Array<{ criterion: string; weight: number; evidence: string[] }>;
-  scoreActions: Array<{ range: string; action: string }>;
-  flows: OriginationFlow[];
-  modules: Array<{ id: string; name: string; purpose: string; implementedBy: string[] }>;
-  routines: { daily: string[]; weekly: string[]; monthly: string[] };
-  backlog: OriginationBacklogItem[];
-  hooks: Record<string, string[]>;
-  recyclingRules: Array<{ condition: string; action: string }>;
-  initialVerticals: string[];
-  checklist: string[];
-  templates: Record<string, string | string[]>;
-  commands: Array<{ command: string; output: string[] }>;
-  implementation: {
-    status: string;
-    completedAt: string;
-    layers: string[];
-    runtimeEndpoints: string[];
-  };
-};
+export type {
+  AbaCommandRecord,
+  AbaStatus,
+  ActivityRecord,
+  AgentsSnapshot,
+  MonitoringSnapshot,
+  OriginationFlow,
+  OriginationOperatingSystem,
+  OriginationProduct,
+  OriginationSkill,
+  PipelineRow,
+  PipelineSnapshot,
+  SearchProfileCandidate,
+  SearchProfileDraft,
+  TaskRecord,
+} from './opsTypes';
