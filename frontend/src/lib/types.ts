@@ -221,7 +221,31 @@ export type MvpReadiness = {
   frontend_runtime: { status: string; stack: string };
   deploy_health: { status: string; note: string };
 };
-export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
+export type SourceEntry = {
+  id: string;
+  name: string;
+  sourceType: string;
+  category: string;
+  status: string;
+  health: string;
+  authRequirement?: string;
+  metadata?: {
+    code?: string;
+    provider?: string;
+    domain?: string;
+    coverage?: string;
+    cadence?: string;
+    queryTemplate?: string;
+    metricsTracked?: string[];
+    signalsTracked?: string[];
+    roleFamilies?: string[];
+    historyTables?: string[];
+    outputTables?: string[];
+    compliance?: string;
+    [key: string]: unknown;
+  };
+  rateLimitNotes?: string;
+};
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;
