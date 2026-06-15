@@ -21,6 +21,50 @@ const extractJsonLdTexts = (html: string) =>
     .map((match) => sanitizeHtml(match[1] ?? ''))
     .filter(Boolean);
 
+const parseCount = (value: string) => {
+  const normalized = value
+    .replace(/\./g, '')
+    .replace(/,/g, '.')
+    .replace(/[^0-9.]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const creditRoleKeywords = [
+  'analista de crédito',
+  'gerente de crédito',
+  'head of credit',
+  'credit analyst',
+  'credit risk',
+  'underwriting',
+  'underwriter',
+  'collections',
+  'cobrança',
+  'risk manager',
+  'tesouraria',
+  'treasury',
+  'capital markets',
+  'mercado de capitais',
+];
+
+const extractLinkedInMetrics = (text: string) => {
+  const compactText = text.replace(/\s+/g, ' ');
+  const followersMatch = compactText.match(/([\d.,]+)\s+(?:followers|seguidores)/i);
+  const employeesMatch = compactText.match(/([\d.,]+)\s+(?:employees|funcion[aá]rios)/i);
+  const employeeRangeMatch = compactText.match(/(\d{1,3}(?:[.,]\d{3})?\+?\s*-\s*\d{1,3}(?:[.,]\d{3})?\+?)\s+(?:employees|funcion[aá]rios)/i);
+  const normalized = compactText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const creditKeywordHits = creditRoleKeywords.filter((keyword) => normalized.includes(keyword.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+
+  return {
+    followersCount: followersMatch ? parseCount(followersMatch[1] ?? '') : null,
+    employeeCount: employeesMatch ? parseCount(employeesMatch[1] ?? '') : null,
+    employeeCountRange: employeeRangeMatch?.[1] ?? null,
+    creditRelatedKeywordHits: creditKeywordHits.length,
+    creditRelatedKeywords: creditKeywordHits,
+    metricsConfidence: followersMatch || employeesMatch || employeeRangeMatch || creditKeywordHits.length ? 0.68 : 0.35,
+  };
+};
+
 export const scrapeProfessionalNetworkCompany = async (params: {
   companyId: string;
   companyName: string;
@@ -50,6 +94,7 @@ export const scrapeProfessionalNetworkCompany = async (params: {
       const description = extractMeta(html, 'description') || extractMeta(html, 'og:description');
       const jsonLdTexts = extractJsonLdTexts(html);
       const rawText = sanitizeHtml([title, description, ...headings, ...jsonLdTexts].join(' | ')).slice(0, 12000);
+      const linkedinMetrics = extractLinkedInMetrics(rawText);
 
       page = {
         url: targetUrl,
@@ -66,6 +111,14 @@ export const scrapeProfessionalNetworkCompany = async (params: {
         ...metadata,
         finalUrl: response.url,
         extractedDescription: description,
+        linkedinMetrics,
+        historicalMetricKeys: [
+          'linkedin_followers_count',
+          'linkedin_employee_count',
+          'linkedin_employee_count_range',
+          'linkedin_credit_related_keyword_hits',
+        ],
+        snapshotTables: ['company_source_metric_snapshots', 'company_linkedin_role_snapshots'],
       };
     }
   } catch {
@@ -79,7 +132,7 @@ export const scrapeProfessionalNetworkCompany = async (params: {
   return {
     companyId: params.companyId,
     companyName: params.companyName,
-    sourceId: 'src_professional_network_company',
+    sourceId: 'src_linkedin_company_page',
     sourceType: 'linkedin_company',
     connectorStatus,
     collectedAt,
