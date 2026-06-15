@@ -1,19 +1,108 @@
-import { Card, Pill } from '../components/UI';
+import { Card, DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import type { SourceEntry } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
+
+const toneForStatus = (value: string) => {
+  if (value === 'real' || value === 'healthy') return 'success';
+  if (value === 'partial' || value === 'degraded') return 'warning';
+  return 'info';
+};
+
+const sourceFamily = (source: SourceEntry) => {
+  const type = `${source.sourceType} ${source.category}`.toLowerCase();
+  if (type.includes('linkedin') || type.includes('professional_network')) return 'LinkedIn';
+  if (type.includes('media') || type.includes('rss') || type.includes('news')) return 'Mídia/RSS';
+  if (type.includes('api') || type.includes('regulat')) return 'API/Regulatório';
+  return 'Outras';
+};
+
+const joinList = (items?: string[]) => items?.length ? items.join(', ') : '-';
 
 export function SourcesPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(() => api.getSources(session), [session?.access_token]);
 
-  if (loading) return <div className="page"><Card title="Sources" subtitle="Carregando catálogo">Aguarde...</Card></div>;
+  if (loading) return <LoadingState title="Sources" subtitle="Carregando catálogo de fontes, métricas monitoradas e cobertura operacional." />;
   if (error || !data) return <div className="page"><Card title="Sources" subtitle="Falha ao carregar catálogo">{error}</Card></div>;
+
+  const sources = data.data;
+  const linkedinSources = sources.filter((source) => sourceFamily(source) === 'LinkedIn');
+  const mediaSources = sources.filter((source) => sourceFamily(source) === 'Mídia/RSS');
+  const realSources = sources.filter((source) => source.status === 'real');
+  const historicalMetricSources = sources.filter((source) => source.metadata?.metricsTracked?.length || source.metadata?.historyTables?.length);
 
   return (
     <div className="page">
-      <Card title="Sources" subtitle="Catálogo vindo de source_catalog">
-        <table><thead><tr><th>Fonte</th><th>Tipo</th><th>Categoria</th><th>Status</th><th>Health</th></tr></thead><tbody>{data.data.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.sourceType}</td><td>{source.category}</td><td><Pill>{source.status}</Pill></td><td>{source.health}</td></tr>)}</tbody></table>
+      <PageIntro
+        eyebrow="Sources"
+        title="Catálogo de fontes de originação"
+        description="Governança das fontes que alimentam monitoring, signals, qualification e ranking. Inclui mídias, RSS, APIs e LinkedIn com contrato explícito de métricas históricas."
+        actions={<Pill tone={data.source === 'real' ? 'success' : 'warning'}>{data.source === 'real' ? 'source_catalog real' : 'source_catalog parcial'}</Pill>}
+      />
+      <DataStatusBanner source={data.source} note={data.note} />
+
+      <section className="decision-strip">
+        <div className="decision-card"><Pill tone="info">Fontes totais</Pill><strong>{sources.length}</strong><small>Registros no catálogo operacional.</small></div>
+        <div className="decision-card"><Pill tone="success">Mídia/RSS</Pill><strong>{mediaSources.length}</strong><small>Fontes para funding, crescimento e eventos de capital.</small></div>
+        <div className="decision-card"><Pill tone="warning">LinkedIn</Pill><strong>{linkedinSources.length}</strong><small>Métricas históricas de página, followers, headcount e cargos.</small></div>
+        <div className="decision-card"><Pill tone="info">Com histórico</Pill><strong>{historicalMetricSources.length}</strong><small>Fontes com `metricsTracked` ou tabelas históricas.</small></div>
+      </section>
+
+      <section className="grid cols-3">
+        <Card title="Cobertura por família" subtitle="Prioridade para origem de sinais reais" className="dense-card">
+          <div className="mini-metric-grid">
+            <Stat label="Real" value={String(realSources.length)} helper="Fontes já marcadas como reais" />
+            <Stat label="LinkedIn" value={String(linkedinSources.length)} helper="Página, cargos e posts" />
+            <Stat label="Mídia/RSS" value={String(mediaSources.length)} helper="Notícias e publicações de negócio" />
+          </div>
+        </Card>
+        <Card title="LinkedIn — histórico esperado" subtitle="Métricas que devem virar série temporal" className="dense-card">
+          <ul className="list compact-list">
+            <li><strong>Funcionários</strong><span>employee_count / employee_count_range</span></li>
+            <li><strong>Seguidores</strong><span>followers_count da página</span></li>
+            <li><strong>Crédito & risco</strong><span>credit, risk, underwriting, collections</span></li>
+            <li><strong>Cargos financeiros</strong><span>treasury, funding, capital markets, FP&A</span></li>
+          </ul>
+        </Card>
+        <Card title="Uso no motor" subtitle="Como a fonte afeta a originação" className="dense-card">
+          <ul className="list compact-list">
+            <li><strong>Monitoring</strong><span>gera outputs e triggers</span></li>
+            <li><strong>Signals</strong><span>crescimento, funding, crédito, recebíveis</span></li>
+            <li><strong>Qualification</strong><span>maturidade, timing e funding gap</span></li>
+            <li><strong>Ranking</strong><span>prioridade comercial e próxima ação</span></li>
+          </ul>
+        </Card>
+      </section>
+
+      <Card title="Sources" subtitle="Catálogo vindo de source_catalog" className="dense-card">
+        {sources.length ? (
+          <table className="dense-table">
+            <thead>
+              <tr><th>Fonte</th><th>Família</th><th>Tipo</th><th>Categoria</th><th>Status</th><th>Métricas / sinais</th><th>Histórico</th></tr>
+            </thead>
+            <tbody>{sources.map((source) => (
+              <tr key={source.id}>
+                <td><strong>{source.name}</strong><div className="table-helper">{source.metadata?.provider ?? source.metadata?.domain ?? source.id}</div></td>
+                <td>{sourceFamily(source)}</td>
+                <td>{source.sourceType}</td>
+                <td>{source.category}</td>
+                <td><Pill tone={toneForStatus(source.status)}>{source.status}</Pill><div className="table-helper">health {source.health}</div></td>
+                <td>
+                  <div className="table-helper">metrics: {joinList(source.metadata?.metricsTracked)}</div>
+                  <div className="table-helper">signals: {joinList(source.metadata?.signalsTracked)}</div>
+                </td>
+                <td>
+                  <div className="table-helper">tables: {joinList(source.metadata?.historyTables ?? source.metadata?.outputTables)}</div>
+                  <div className="table-helper">cadência: {source.metadata?.cadence ?? '-'}</div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        ) : (
+          <EmptyState title="Nenhuma fonte retornada." description="Verifique source_catalog no Supabase e rode as migrations/seeds de fontes." />
+        )}
       </Card>
     </div>
   );
