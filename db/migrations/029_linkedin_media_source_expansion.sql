@@ -34,11 +34,11 @@ create table if not exists public.company_linkedin_role_snapshots (
   observed_at timestamptz not null default now(),
   confidence_score numeric(5,2) not null default 0.65,
   raw_payload jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  unique(company_id, source_id, role_family, coalesce(role_title, ''), observed_at)
+  created_at timestamptz not null default now()
 );
 create index if not exists idx_company_linkedin_role_snapshots_company on public.company_linkedin_role_snapshots(company_id, observed_at desc);
 create index if not exists idx_company_linkedin_role_snapshots_role_family on public.company_linkedin_role_snapshots(role_family, observed_at desc);
+create unique index if not exists uq_company_linkedin_role_snapshots_identity on public.company_linkedin_role_snapshots(company_id, source_id, role_family, coalesce(role_title, ''), observed_at);
 
 insert into public.source_catalog (id, name, source_type, category, auth_requirement, status, metadata, rate_limit_notes, health)
 values
