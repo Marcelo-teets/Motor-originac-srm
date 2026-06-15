@@ -1,4 +1,5 @@
 export type ScraperConnectorStatus = 'real' | 'partial';
+export type SourceKind = 'company_website' | 'linkedin_company' | 'media_article';
 
 export type ScrapedPage = {
   url: string;
@@ -13,6 +14,7 @@ export type ScrapedPage = {
     | 'careers'
     | 'docs'
     | 'linkedin_company'
+    | 'media_article'
     | 'unknown';
   title: string;
   headings: string[];
@@ -28,14 +30,14 @@ export type DetectedSignal = {
   matchedKeywords: string[];
   evidence: string[];
   sourceUrl: string;
-  sourceType: 'company_website' | 'linkedin_company';
+  sourceType: SourceKind;
 };
 
 export type B2BSignalPackResult = {
   companyId: string;
   companyName: string;
   sourceId: string;
-  sourceType: 'company_website' | 'linkedin_company';
+  sourceType: SourceKind;
   connectorStatus: ScraperConnectorStatus;
   collectedAt: string;
   pages: ScrapedPage[];
