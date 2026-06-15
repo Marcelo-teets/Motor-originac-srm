@@ -1,4 +1,4 @@
-import type { DetectedSignal } from './originationScraperTypes.js';
+import type { DetectedSignal, OriginationSourceType } from './originationScraperTypes.js';
 
 const keywordFamilies: Array<{ type: string; strength: number; keywords: string[] }> = [
   {
@@ -34,12 +34,32 @@ const keywordFamilies: Array<{ type: string; strength: number; keywords: string[
   {
     type: 'underwriting_risk_signal',
     strength: 80,
-    keywords: ['underwriting', 'risk', 'fraude', 'fraud', 'motor de decisão', 'decision engine', 'credit policy'],
+    keywords: ['underwriting', 'risk', 'risco', 'fraude', 'fraud', 'motor de decisão', 'decision engine', 'credit policy'],
   },
   {
     type: 'growth_hiring_signal',
     strength: 70,
     keywords: ['careers', 'carreiras', 'jobs', 'vagas', 'hiring', 'estamos contratando'],
+  },
+  {
+    type: 'linkedin_credit_team_signal',
+    strength: 82,
+    keywords: ['analista de crédito', 'gerente de crédito', 'credit analyst', 'head of credit', 'credit risk', 'underwriter', 'underwriting', 'cobrança', 'collections'],
+  },
+  {
+    type: 'linkedin_capital_markets_team_signal',
+    strength: 80,
+    keywords: ['capital markets', 'mercado de capitais', 'securitização', 'securitization', 'treasury', 'tesouraria', 'funding'],
+  },
+  {
+    type: 'media_funding_event_signal',
+    strength: 88,
+    keywords: ['captação', 'captacao', 'rodada', 'funding', 'dívida', 'divida', 'debênture', 'debenture', 'FIDC', 'securitização', 'securitizacao'],
+  },
+  {
+    type: 'media_growth_pressure_signal',
+    strength: 77,
+    keywords: ['expansão', 'expansao', 'crescimento', 'dobrar', 'triplicar', 'novas cidades', 'new markets', 'M&A', 'aquisição', 'aquisicao'],
   },
   {
     type: 'regional_expansion_signal',
@@ -82,7 +102,7 @@ export const extractHeadings = (html: string) =>
 export const detectSignals = (
   text: string,
   sourceUrl: string,
-  sourceType: 'company_website' | 'linkedin_company',
+  sourceType: OriginationSourceType,
 ): DetectedSignal[] => {
   const normalized = normalize(text);
   const evidenceLines = text.split(/(?<=[\.!?])\s+/).filter(Boolean);
