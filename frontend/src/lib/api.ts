@@ -29,34 +29,110 @@ import type {
 } from './types';
 import { buildApiUrl } from './runtimeConfig';
 
+export type ApiErrorPayload = {
+  statusCode?: number;
+  code?: string;
+  error?: string;
+  message?: string;
+  requestId?: string;
+  details?: unknown;
+};
+
+export class ApiClientError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+  readonly requestId?: string;
+  readonly details?: unknown;
+
+  constructor(message: string, options: { statusCode: number; code: string; requestId?: string; details?: unknown }) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.statusCode = options.statusCode;
+    this.code = options.code;
+    this.requestId = options.requestId;
+    this.details = options.details;
+  }
+}
+
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
   if (status === 'partial') return `${path} carregado parcialmente; backend priorizou DB real e completou com fallback controlado.`;
   return `${path} carregado via fallback mock.`;
 };
 
-const readJsonPayload = async <T>(response: Response, path: string): Promise<ApiEnvelope<T> & { error?: string }> => {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const asString = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined);
+const asNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+const field = (payload: unknown, key: string) => (isRecord(payload) ? payload[key] : undefined);
+const isApiStatus = (value: unknown): value is ApiEnvelope<unknown>['status'] =>
+  value === 'real' || value === 'partial' || value === 'mock';
+const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const requestHeaders = (session: SessionData | null, init?: RequestInit) => {
+  const headers = new Headers(init?.headers);
+  headers.set('Accept', 'application/json');
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+  return headers;
+};
+
+const payloadWithHeaderRequestId = (payload: unknown, requestId: string | undefined) => {
+  if (!isRecord(payload) || !requestId || typeof payload.requestId === 'string') return payload;
+  return { ...payload, requestId };
+};
+
+const readPayload = async <T>(response: Response, path: string): Promise<ApiEnvelope<T> | ApiErrorPayload> => {
+  const headerRequestId = response.headers.get('x-request-id') ?? undefined;
   const raw = await response.text();
-  const contentType = response.headers.get('content-type') ?? '';
 
   if (!raw.trim()) {
     return {
-      status: 'partial',
-      data: undefined as T,
-      error: response.ok ? undefined : `${response.status} ${response.statusText || 'Empty response'}`,
+      statusCode: response.status,
+      code: 'empty_response',
+      error: response.ok ? `${path} returned an empty response.` : `${response.status} ${response.statusText || 'Empty response'}`,
+      requestId: headerRequestId,
     };
   }
 
-  if (!contentType.includes('application/json')) {
-    const preview = raw.replace(/\s+/g, ' ').slice(0, 160);
-    throw new Error(`Resposta não-JSON em ${path}. Status ${response.status}. Isso costuma indicar rota protegida, HTML da Vercel ou backend indisponível. Preview: ${preview}`);
-  }
-
   try {
-    return JSON.parse(raw) as ApiEnvelope<T> & { error?: string };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) {
+      return {
+        statusCode: response.status,
+        code: 'unexpected_response_shape',
+        error: `${path} returned a non-object JSON response.`,
+        requestId: headerRequestId,
+        details: { bodyType: typeof parsed },
+      };
+    }
+    return payloadWithHeaderRequestId(parsed, headerRequestId) as ApiEnvelope<T> | ApiErrorPayload;
   } catch {
-    throw new Error(`JSON inválido em ${path}. Status ${response.status}.`);
+    return {
+      statusCode: response.status,
+      code: 'invalid_json_response',
+      error: `Resposta nao-JSON em ${path}.`,
+      requestId: headerRequestId,
+      details: {
+        contentType: response.headers.get('content-type'),
+        bodyPreview: normalizeWhitespace(raw).slice(0, 180),
+      },
+    };
   }
+};
+
+const isApiEnvelope = <T>(payload: unknown): payload is ApiEnvelope<T> =>
+  isRecord(payload) && isApiStatus(payload.status) && 'data' in payload;
+
+const toClientError = (response: Response, path: string, payload: ApiErrorPayload | ApiEnvelope<unknown>) => {
+  const message = asString(field(payload, 'error')) ?? asString(field(payload, 'message')) ?? `${path} falhou com status ${response.status}`;
+  return new ApiClientError(message, {
+    statusCode: asNumber(field(payload, 'statusCode')) ?? response.status,
+    code: asString(field(payload, 'code')) ?? 'request_failed',
+    requestId: asString(field(payload, 'requestId')) ?? response.headers.get('x-request-id') ?? undefined,
+    details: field(payload, 'details'),
+  });
 };
 
 async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
@@ -66,18 +142,25 @@ async function requestEnvelope<T>(path: string, session: SessionData | null, ini
   try {
     response = await fetch(url, {
       ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        ...(init?.headers ?? {}),
-      },
+      headers: requestHeaders(session, init),
     });
   } catch (error) {
-    throw new Error(`Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponível'}`);
+    throw new ApiClientError(`Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponivel'}`, {
+      statusCode: 0,
+      code: 'network_error',
+    });
   }
 
-  const payload = await readJsonPayload<T>(response, path);
-  if (!response.ok) throw new Error(payload.error ?? `${path} falhou com status ${response.status}`);
+  const payload = await readPayload<T>(response, path);
+  if (!response.ok) throw toClientError(response, path, payload);
+  if (!isApiEnvelope<T>(payload)) {
+    throw new ApiClientError(`${path} retornou um envelope invalido da API.`, {
+      statusCode: response.status,
+      code: asString(field(payload, 'code')) ?? 'invalid_api_envelope',
+      requestId: asString(field(payload, 'requestId')) ?? response.headers.get('x-request-id') ?? undefined,
+      details: field(payload, 'details'),
+    });
+  }
   return payload;
 }
 
@@ -88,16 +171,9 @@ const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
 });
 
 export const api = {
-  login: async (email: string, password: string) => {
-    const response = await fetch(buildApiUrl('/auth/login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const payload = await readJsonPayload<SessionData>(response, '/auth/login');
-    if (!response.ok) throw new Error(payload.error ?? 'Falha ao autenticar.');
-    return payload.data;
-  },
+  login: async (email: string, password: string) => (
+    await requestEnvelope<SessionData>('/auth/login', null, { method: 'POST', body: JSON.stringify({ email, password }) })
+  ).data,
   logout: (session: SessionData | null) => requestEnvelope<{ success: boolean }>('/auth/logout', session, { method: 'POST' }),
   getMe: async (session: SessionData | null) => (await requestEnvelope<SessionData['user']>('/auth/me', session)).data,
 
@@ -158,7 +234,7 @@ export const api = {
     } catch {
       return {
         source: 'mock',
-        note: 'Quick actions usando fallback sintético até a tela ser conectada ao backend oficial.',
+        note: 'Quick actions usando fallback sintetico ate a tela ser conectada ao backend oficial.',
         data: {
           items: [
             { id: 'qa_mock_1', title: 'Revisar ranking', owner: 'Origination', priority: 'high' },
