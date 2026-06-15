@@ -130,98 +130,59 @@ export type CompanyDetail = {
   marketMap: Array<{ peerName: string; peerType: string; rationale: string }>;
   monitoring: { status: string; lastRunAt: string; outputs24h: number; triggers24h: number; websiteChanges: string[]; feedHighlights: string[] };
   signals: Array<{ type: string; strength: number; confidence: number; note: string; source: string }>;
-  sources: Array<{ id: string; name: string; status: string; health: string; category: string }>;
+  sources: Array<{ id: string; name: string; status: string; health: string; category: string }>; 
   activities: Array<{ title: string; owner: string; status: string; dueDate: string }>;
   scores: { qualification: number; lead: number; bucket: string; rankingScore: number };
   scoreHistory: Array<{ at: string; qualification: number; lead: number }>;
   monitoringOutputs: Array<{ id: string; sourceId: string; title: string; summary: string; confidenceScore: number; connectorStatus: string; collectedAt: string }>;
 };
 
-export type AbmStakeholder = {
-  id: string;
-  company_id: string;
-  name: string;
-  title?: string;
-  role_in_buying_committee?: string;
-  champion_score: number;
-  blocker_score: number;
-  influence_score: number;
-  relationship_strength: number;
-  what_they_care_about?: string;
-  known_objections?: string;
-  last_contact_at?: string;
-};
+export type AbmStakeholder = { id: string; company_id: string; name: string; title?: string | null; role_in_buying_committee?: string | null; seniority?: string | null; influence_score: number; champion_score: number; blocker_score: number; source_payload?: Record<string, unknown>; updated_at: string };
+export type AbmTouchpoint = { id: string; company_id: string; stakeholder_id?: string | null; occurred_at: string; channel: string; summary: string; sentiment?: string | null; next_step?: string | null; agreed_next_step?: string | null; source_payload?: Record<string, unknown> };
+export type AbmObjection = { id: string; company_id: string; objection_text: string; objection_type?: string | null; severity?: string | null; status: string; response_strategy?: string | null; source_payload?: Record<string, unknown>; created_at: string; updated_at: string };
+export type AbmWeeklyWarRoom = { top_accounts: Array<{ companyId: string; companyName: string; reason: string }>; cooling_accounts: Array<{ companyId: string; companyName: string; reason: string }>; without_champion: Array<{ companyId: string; companyName: string }>; overdue_next_steps: Array<{ companyId: string; companyName: string; nextStep: string }>; critical_open_objections: Array<{ companyId: string; companyName: string; objection: string }> };
+export type PreCallBriefing = { companyId: string; institutional_summary: string; thesis: string; why_now: string; recent_signals: Array<{ type: string; strength: number; observed_at: string }>; stakeholders: AbmStakeholder[]; recent_touchpoints: AbmTouchpoint[]; open_objections: AbmObjection[]; recommended_next_step: string; conversation_risks: string[]; suggested_cta: string };
+export type PreMortem = { companyId: string; risks: Array<{ risk: string; evidence: string; mitigation: string }> };
 
-export type AbmTouchpoint = {
-  id: string;
-  company_id: string;
-  channel: string;
-  direction?: string;
-  occurred_at: string;
-  summary: string;
-  sentiment?: string;
-  objection_raised: boolean;
-  agreed_next_step?: string;
-  next_step_due_at?: string;
-};
-
-export type AbmObjection = {
-  id: string;
-  company_id: string;
-  objection_text: string;
-  status: string;
-  severity?: string;
-  resolution_notes?: string;
-};
-
-export type AbmWeeklyWarRoom = {
-  top_accounts: Array<{ company_id: string; company_name: string; priority_band: string; priority_score?: number; momentum_status: string; momentum_score?: number }>;
-  cooling_accounts: Array<{ company_id: string; company_name: string }>;
-  without_champion: Array<{ company_id: string; company_name: string }>;
-  overdue_next_steps: Array<{ company_id: string; company_name: string; next_step_due_at: string }>;
-  critical_open_objections: Array<{ company_id: string; objection_text: string; severity?: string }>;
-};
-
-export type PreCallBriefing = {
-  companyId: string;
-  institutional_summary: string;
-  thesis: string;
-  why_now: string;
-  recent_signals: Array<{ type: string; strength: number; observed_at: string }>;
-  stakeholders: AbmStakeholder[];
-  recent_touchpoints: AbmTouchpoint[];
-  open_objections: AbmObjection[];
-  recommended_next_step: string;
-  conversation_risks: string[];
-  suggested_cta: string;
-};
-
-export type PreMortem = {
-  companyId: string;
-  risks: Array<{ risk: string; evidence: string; mitigation: string }>;
-};
-
-export type MvpQuickAction = {
-  id: string;
-  title: string;
-  owner: string;
-  priority: 'high' | 'medium' | 'low';
-};
-
-export type MvpQuickActionsSnapshot = {
-  items: MvpQuickAction[];
-};
+export type MvpQuickActionsSnapshot = { items: Array<{ id: string; title: string; owner: string; priority: string }> };
 export type MvpReadiness = {
-  auth: { status: string; provider: string };
-  database: { status: string; mode: string };
-  sources: { total: number; degraded: number; status: string };
-  monitoring: { outputs24h: number; triggers24h: number; status: string };
-  qualification: { topLeads: number; status: string };
+  mode: string;
+  score: number;
+  blockers: Array<{ id: string; title: string; severity: string; owner: string; next_action: string }>;
+  warnings: Array<{ id: string; title: string; severity: string; owner: string; next_action: string }>;
+  ready: Array<{ id: string; title: string; detail: string }>;
+  auth: { status: string; note: string };
+  supabase: { status: string; project_id?: string; note: string };
+  data: { companies: number; sources: number; monitoring_outputs: number; company_signals: number; score_snapshots: number; status: string };
   pipeline: { rows: number; stages: Array<{ stage: string; count: number; coverage?: string }>; status: string };
   frontend_runtime: { status: string; stack: string };
   deploy_health: { status: string; note: string };
 };
-export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
+export type SourceEntry = {
+  id: string;
+  name: string;
+  sourceType: string;
+  category: string;
+  status: string;
+  health: string;
+  authRequirement?: string;
+  metadata?: {
+    code?: string;
+    provider?: string;
+    domain?: string;
+    coverage?: string;
+    cadence?: string;
+    queryTemplate?: string;
+    metricsTracked?: string[];
+    signalsTracked?: string[];
+    roleFamilies?: string[];
+    historyTables?: string[];
+    outputTables?: string[];
+    compliance?: string;
+    [key: string]: unknown;
+  };
+  rateLimitNotes?: string;
+};
 export type SessionData = { access_token: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;
@@ -357,39 +318,4 @@ export type OriginationFlow = {
   id: string;
   name: string;
   steps: string[];
-};
-
-export type OriginationBacklogItem = {
-  id: string;
-  title: string;
-  priority: string;
-  status: 'implemented' | 'runtime_ready' | 'documented' | string;
-  implementation: string;
-};
-
-export type OriginationOperatingSystem = {
-  version: string;
-  thesis: string;
-  products: OriginationProduct[];
-  structures: Array<{ name: string; role: string }>;
-  skills: OriginationSkill[];
-  priorities: Array<{ priority: string; definition: string; action: string }>;
-  scorecard: Array<{ criterion: string; weight: number; evidence: string[] }>;
-  scoreActions: Array<{ range: string; action: string }>;
-  flows: OriginationFlow[];
-  modules: Array<{ id: string; name: string; purpose: string; implementedBy: string[] }>;
-  routines: { daily: string[]; weekly: string[]; monthly: string[] };
-  backlog: OriginationBacklogItem[];
-  hooks: Record<string, string[]>;
-  recyclingRules: Array<{ condition: string; action: string }>;
-  initialVerticals: string[];
-  checklist: string[];
-  templates: Record<string, string | string[]>;
-  commands: Array<{ command: string; output: string[] }>;
-  implementation: {
-    status: string;
-    completedAt: string;
-    layers: string[];
-    runtimeEndpoints: string[];
-  };
 };
