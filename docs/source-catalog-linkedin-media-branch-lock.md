@@ -1,0 +1,3 @@
+# Branch Lock
+
+Scope locked.
