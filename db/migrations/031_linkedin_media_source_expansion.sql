@@ -3,7 +3,7 @@
 
 create table if not exists public.company_source_metric_snapshots (
   id uuid primary key default gen_random_uuid(),
-  company_id text not null references public.companies(id) on delete cascade,
+  company_id uuid not null references public.companies(id) on delete cascade,
   source_id text not null references public.source_catalog(id),
   metric_key text not null,
   metric_value numeric,
@@ -27,7 +27,7 @@ create index if not exists idx_company_source_metric_snapshots_source_metric
 
 create table if not exists public.company_linkedin_role_snapshots (
   id uuid primary key default gen_random_uuid(),
-  company_id text not null references public.companies(id) on delete cascade,
+  company_id uuid not null references public.companies(id) on delete cascade,
   source_id text not null references public.source_catalog(id),
   linkedin_company_url text,
   role_family text not null,
