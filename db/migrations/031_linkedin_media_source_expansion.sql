@@ -1,10 +1,12 @@
 -- 031_linkedin_media_source_expansion.sql
 -- LinkedIn/media source expansion for Origination Intelligence Platform.
+-- Live schema note: companies.id and source_catalog.id are UUIDs.
+-- Source logical identity is stored in source_catalog.metadata->>'code'.
 
 create table if not exists public.company_source_metric_snapshots (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
-  source_id text not null references public.source_catalog(id),
+  source_id uuid not null references public.source_catalog(id),
   metric_key text not null,
   metric_value numeric,
   metric_text text,
@@ -28,7 +30,7 @@ create index if not exists idx_company_source_metric_snapshots_source_metric
 create table if not exists public.company_linkedin_role_snapshots (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
-  source_id text not null references public.source_catalog(id),
+  source_id uuid not null references public.source_catalog(id),
   linkedin_company_url text,
   role_family text not null,
   role_title text,
@@ -49,26 +51,23 @@ create index if not exists idx_company_linkedin_role_snapshots_role_family
 create unique index if not exists uq_company_linkedin_role_snapshots_identity
   on public.company_linkedin_role_snapshots(company_id, source_id, role_family, coalesce(role_title, ''), observed_at);
 
-insert into public.source_catalog (id, name, source_type, category, auth_requirement, status, metadata, rate_limit_notes, health)
-values
-  ('src_linkedin_company_page','LinkedIn Company Page Metrics','professional_network','LinkedIn company intelligence','official_api_or_manual_export','partial','{"code":"src_linkedin_company_page","provider":"linkedin","coverage":"company_page","metricsTracked":["linkedin_company_url","employee_count","employee_count_range","followers_count","page_description","industry","headquarters","locations"],"historyTables":["company_source_metric_snapshots"],"captureMode":"official_api_or_operator_verified_snapshot","cadence":"weekly"}'::jsonb,'Authorized API/export/operator snapshot only. Store company/page metrics and aggregate counts.','degraded'),
-  ('src_linkedin_credit_roles','LinkedIn Credit & Risk Role Intelligence','professional_network','LinkedIn people intelligence','official_api_or_manual_export','partial','{"code":"src_linkedin_credit_roles","provider":"linkedin","coverage":"people_search_aggregate","metricsTracked":["credit_related_employee_count","risk_related_employee_count","underwriting_related_employee_count","collections_related_employee_count","role_family","role_title","profile_sample_size"],"roleFamilies":["credit","risk","underwriting","collections","capital_markets","treasury","fp&a","finance"],"historyTables":["company_linkedin_role_snapshots","company_source_metric_snapshots"],"captureMode":"aggregate_only","cadence":"weekly"}'::jsonb,'Aggregate role counts only. Weekly cadence with manual review when confidence is low.','degraded'),
-  ('src_linkedin_company_posts','LinkedIn Company Posts & Hiring Narrative','professional_network','LinkedIn content signals','official_api_or_manual_export','partial','{"code":"src_linkedin_company_posts","provider":"linkedin","coverage":"company_posts","signalsTracked":["hiring_credit","funding_announcement","partnership","expansion","new_product","risk_or_credit_narrative"],"outputTables":["monitoring_outputs","company_signals"],"captureMode":"official_api_or_operator_verified_snapshot","cadence":"weekly"}'::jsonb,'Capture company-level posts through authorized access or operator-verified snapshots.','degraded'),
-  ('src_exame_negocios_rss','Exame Negócios / Google News RSS','rss','Business media','none','real','{"code":"src_exame_negocios_rss","provider":"google-news-rss","domain":"exame.com","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:exame.com"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_brazil_journal_rss','Brazil Journal / Google News RSS','rss','Business media','none','real','{"code":"src_brazil_journal_rss","provider":"google-news-rss","domain":"braziljournal.com","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:braziljournal.com"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_pipeline_valor_empresas_rss','Valor Empresas / Google News RSS','rss','Business media','none','real','{"code":"src_pipeline_valor_empresas_rss","provider":"google-news-rss","domain":"valor.globo.com","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:valor.globo.com"}'::jsonb,'Public Google News RSS query; respect paywall and store metadata/excerpts.','healthy'),
-  ('src_neofeed_rss','NeoFeed / Google News RSS','rss','Business media','none','real','{"code":"src_neofeed_rss","provider":"google-news-rss","domain":"neofeed.com.br","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:neofeed.com.br"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_finsiders_rss','Finsiders / Google News RSS','rss','Fintech media','none','real','{"code":"src_finsiders_rss","provider":"google-news-rss","domain":"finsiders.com.br","queryTemplate":"{company} (credito OR crédito OR fintech OR FIDC OR recebiveis OR recebíveis OR funding) site:finsiders.com.br"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_startups_com_br_rss','Startups.com.br / Google News RSS','rss','Startup media','none','real','{"code":"src_startups_com_br_rss","provider":"google-news-rss","domain":"startups.com.br","queryTemplate":"{company} (rodada OR captacao OR captação OR credito OR crédito OR fintech OR expansão OR hiring) site:startups.com.br"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_infomoney_business_rss','InfoMoney Empresas / Google News RSS','rss','Business media','none','real','{"code":"src_infomoney_business_rss","provider":"google-news-rss","domain":"infomoney.com.br","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:infomoney.com.br"}'::jsonb,'Public Google News RSS query.','healthy'),
-  ('src_bloomberg_linea_rss','Bloomberg Línea / Google News RSS','rss','LatAm business media','none','real','{"code":"src_bloomberg_linea_rss","provider":"google-news-rss","domain":"bloomberglinea.com.br","queryTemplate":"{company} (credito OR crédito OR FIDC OR debenture OR funding OR captacao OR captação) site:bloomberglinea.com.br"}'::jsonb,'Public Google News RSS query.','healthy')
-on conflict (id) do update set
-  name = excluded.name,
-  source_type = excluded.source_type,
-  category = excluded.category,
-  auth_requirement = excluded.auth_requirement,
-  status = excluded.status,
-  metadata = excluded.metadata,
-  rate_limit_notes = excluded.rate_limit_notes,
-  health = excluded.health,
-  updated_at = now();
+insert into public.source_catalog (name, source_type, category, auth_requirement, status, metadata, rate_limit_notes, health)
+select v.name, v.source_type, v.category, v.auth_requirement, v.status,
+       jsonb_build_object('code', v.code, 'provider', v.provider, 'domain', v.domain, 'cadence', v.cadence),
+       v.rate_limit_notes, v.health
+from (values
+  ('src_linkedin_company_page','LinkedIn Company Page Metrics','professional_network','LinkedIn company intelligence','official_api_or_manual_export','partial','linkedin',null,'weekly','Authorized API/export/operator snapshot only.','degraded'),
+  ('src_linkedin_credit_roles','LinkedIn Credit & Risk Role Intelligence','professional_network','LinkedIn people intelligence','official_api_or_manual_export','partial','linkedin',null,'weekly','Aggregate role counts only.','degraded'),
+  ('src_linkedin_company_posts','Professional Network Company Posts','professional_network','Professional network content','official_api_or_manual_export','partial','linkedin',null,'weekly','Company level public posts only.','degraded'),
+  ('src_exame_negocios_rss','Exame News RSS','rss','Business media','none','real','google-news-rss','exame.com','daily','Public RSS query.','healthy'),
+  ('src_brazil_journal_rss','Brazil Journal RSS','rss','Business media','none','real','google-news-rss','braziljournal.com','daily','Public RSS query.','healthy'),
+  ('src_pipeline_valor_empresas_rss','Valor Empresas RSS','rss','Business media','none','real','google-news-rss','valor.globo.com','daily','Public RSS query.','healthy'),
+  ('src_neofeed_rss','NeoFeed RSS','rss','Business media','none','real','google-news-rss','neofeed.com.br','daily','Public RSS query.','healthy'),
+  ('src_finsiders_rss','Finsiders RSS','rss','Fintech media','none','real','google-news-rss','finsiders.com.br','daily','Public RSS query.','healthy'),
+  ('src_startups_com_br_rss','Startups BR RSS','rss','Startup media','none','real','google-news-rss','startups.com.br','daily','Public RSS query.','healthy'),
+  ('src_infomoney_business_rss','InfoMoney Business RSS','rss','Business media','none','real','google-news-rss','infomoney.com.br','daily','Public RSS query.','healthy'),
+  ('src_bloomberg_linea_rss','Bloomberg Linea RSS','rss','LatAm business media','none','real','google-news-rss','bloomberglinea.com.br','daily','Public RSS query.','healthy')
+) as v(code, name, source_type, category, auth_requirement, status, provider, domain, cadence, rate_limit_notes, health)
+where not exists (
+  select 1 from public.source_catalog sc where sc.metadata->>'code' = v.code
+);
