@@ -21,6 +21,8 @@ create table if not exists public.company_source_metric_snapshots (
   unique(company_id, source_id, metric_key, observed_at)
 );
 
+alter table public.company_source_metric_snapshots enable row level security;
+
 create index if not exists idx_company_source_metric_snapshots_company
   on public.company_source_metric_snapshots(company_id, observed_at desc);
 
@@ -41,6 +43,8 @@ create table if not exists public.company_linkedin_role_snapshots (
   raw_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.company_linkedin_role_snapshots enable row level security;
 
 create index if not exists idx_company_linkedin_role_snapshots_company
   on public.company_linkedin_role_snapshots(company_id, observed_at desc);
