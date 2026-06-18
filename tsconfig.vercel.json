@@ -1,0 +1,16 @@
+{
+  "extends": "./backend/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".vercel-typecheck",
+    "noEmit": true
+  },
+  "include": [
+    "api/**/*.ts",
+    "backend/src/**/*.ts",
+    "config/**/*.ts"
+  ],
+  "exclude": [
+    "backend/src/**/*.highSignal.ts"
+  ]
+}

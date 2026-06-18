@@ -31,15 +31,15 @@ const parseCount = (value: string) => {
 };
 
 const creditRoleKeywords = [
-  'analista de crédito',
-  'gerente de crédito',
+  'analista de credito',
+  'gerente de credito',
   'head of credit',
   'credit analyst',
   'credit risk',
   'underwriting',
   'underwriter',
   'collections',
-  'cobrança',
+  'cobranca',
   'risk manager',
   'tesouraria',
   'treasury',
@@ -51,11 +51,11 @@ const normalizePlain = (value: string) => value.toLowerCase().normalize('NFD').r
 
 const extractLinkedInMetrics = (text: string) => {
   const compactText = text.replace(/\s+/g, ' ');
-  const followersMatch = compactText.match(/([\d.,]+)\s+(?:followers|seguidores)/i);
-  const employeesMatch = compactText.match(/([\d.,]+)\s+(?:employees|funcion[aá]rios)/i);
-  const employeeRangeMatch = compactText.match(/(\d{1,3}(?:[.,]\d{3})?\+?\s*-\s*\d{1,3}(?:[.,]\d{3})?\+?)\s+(?:employees|funcion[aá]rios)/i);
-  const normalized = normalizePlain(compactText);
-  const creditKeywordHits = creditRoleKeywords.filter((keyword) => normalized.includes(normalizePlain(keyword)));
+  const plainText = normalizePlain(compactText);
+  const followersMatch = plainText.match(/([\d.,]+)\s+(?:followers|seguidores)/i);
+  const employeesMatch = plainText.match(/([\d.,]+)\s+(?:employees|funcionarios)/i);
+  const employeeRangeMatch = plainText.match(/(\d{1,3}(?:[.,]\d{3})?\+?\s*-\s*\d{1,3}(?:[.,]\d{3})?\+?)\s+(?:employees|funcionarios)/i);
+  const creditKeywordHits = creditRoleKeywords.filter((keyword) => plainText.includes(normalizePlain(keyword)));
 
   return {
     followersCount: followersMatch ? parseCount(followersMatch[1] ?? '') : null,

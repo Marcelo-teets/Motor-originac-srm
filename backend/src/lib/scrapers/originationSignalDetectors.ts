@@ -14,12 +14,12 @@ const keywordFamilies: Array<{ type: string; strength: number; keywords: string[
   {
     type: 'credit_product_signal',
     strength: 86,
-    keywords: ['crédito', 'credito', 'financiamento', 'capital de giro', 'working capital', 'lending', 'loan'],
+    keywords: ['credito', 'financiamento', 'capital de giro', 'working capital', 'lending', 'loan'],
   },
   {
     type: 'receivables_signal',
     strength: 88,
-    keywords: ['recebíveis', 'recebiveis', 'antecipação', 'antecipacao', 'invoice', 'duplicata', 'parcelado'],
+    keywords: ['recebiveis', 'antecipacao', 'invoice', 'duplicata', 'parcelado'],
   },
   {
     type: 'embedded_finance_signal',
@@ -29,12 +29,12 @@ const keywordFamilies: Array<{ type: string; strength: number; keywords: string[
   {
     type: 'collections_stack_signal',
     strength: 78,
-    keywords: ['cobrança', 'cobranca', 'collections', 'recovery', 'renegociação', 'renegociacao'],
+    keywords: ['cobranca', 'collections', 'recovery', 'renegociacao'],
   },
   {
     type: 'underwriting_risk_signal',
     strength: 80,
-    keywords: ['underwriting', 'risk', 'risco', 'fraude', 'fraud', 'motor de decisão', 'decision engine', 'credit policy'],
+    keywords: ['underwriting', 'risk', 'risco', 'fraude', 'fraud', 'motor de decisao', 'decision engine', 'credit policy'],
   },
   {
     type: 'growth_hiring_signal',
@@ -44,27 +44,27 @@ const keywordFamilies: Array<{ type: string; strength: number; keywords: string[
   {
     type: 'linkedin_credit_team_signal',
     strength: 82,
-    keywords: ['analista de crédito', 'gerente de crédito', 'credit analyst', 'head of credit', 'credit risk', 'underwriter', 'underwriting', 'cobrança', 'collections'],
+    keywords: ['analista de credito', 'gerente de credito', 'credit analyst', 'head of credit', 'credit risk', 'underwriter', 'underwriting', 'cobranca', 'collections'],
   },
   {
     type: 'linkedin_capital_markets_team_signal',
     strength: 80,
-    keywords: ['capital markets', 'mercado de capitais', 'securitização', 'securitization', 'treasury', 'tesouraria', 'funding'],
+    keywords: ['capital markets', 'mercado de capitais', 'securitizacao', 'securitization', 'treasury', 'tesouraria', 'funding'],
   },
   {
     type: 'media_funding_event_signal',
     strength: 88,
-    keywords: ['captação', 'captacao', 'rodada', 'funding', 'dívida', 'divida', 'debênture', 'debenture', 'FIDC', 'securitização', 'securitizacao'],
+    keywords: ['captacao', 'rodada', 'funding', 'divida', 'debenture', 'FIDC', 'securitizacao', 'securitization'],
   },
   {
     type: 'media_growth_pressure_signal',
     strength: 77,
-    keywords: ['expansão', 'expansao', 'crescimento', 'dobrar', 'triplicar', 'novas cidades', 'new markets', 'M&A', 'aquisição', 'aquisicao'],
+    keywords: ['expansao', 'crescimento', 'dobrar', 'triplicar', 'novas cidades', 'new markets', 'M&A', 'aquisicao'],
   },
   {
     type: 'regional_expansion_signal',
     strength: 72,
-    keywords: ['expansão', 'expansao', 'nova região', 'nova regiao', 'new market', 'latam', 'brasil inteiro'],
+    keywords: ['expansao', 'nova regiao', 'new market', 'latam', 'brasil inteiro'],
   },
   {
     type: 'partner_ecosystem_signal',
@@ -77,7 +77,7 @@ const normalize = (value: string) =>
   value
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, ' ')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -105,7 +105,7 @@ export const detectSignals = (
   sourceType: OriginationSourceType,
 ): DetectedSignal[] => {
   const normalized = normalize(text);
-  const evidenceLines = text.split(/(?<=[\.!?])\s+/).filter(Boolean);
+  const evidenceLines = text.split(/(?<=[.!?])\s+/).filter(Boolean);
 
   return keywordFamilies
     .map((family) => {

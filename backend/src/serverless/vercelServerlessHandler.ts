@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
@@ -26,8 +27,12 @@ let expressApp: ExpressLike | null = null;
 let loadingPromise: Promise<void> | null = null;
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
+  const requestId = String(res.getHeader('x-request-id') ?? '');
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) && !('requestId' in payload)
+    ? { ...payload, requestId }
+    : payload;
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(payload));
+  res.end(JSON.stringify(body));
 };
 
 const getHeader = (req: IncomingMessage, key: string) => {
@@ -49,6 +54,18 @@ const isAuthorizedRuntime = (req: IncomingMessage) => {
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
+const hasSupabaseCredentials = () => envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
+const isManagedProduction = () => process.env.APP_ENV === 'production'
+  || process.env.VERCEL_ENV === 'production'
+  || process.env.VERCEL_ENV === 'preview';
+const resolveUseSupabase = () => process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials());
+const requireSupabaseRuntime = () => {
+  const useSupabase = resolveUseSupabase();
+  if (isManagedProduction() && !useSupabase) {
+    throw new Error('Supabase runtime is required in managed production and preview. Memory fallback is disabled.');
+  }
+  return useSupabase;
+};
 
 const supabaseHost = () => {
   try {
@@ -162,15 +179,15 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   ];
 
   const checks = await Promise.all(tables.map((table) => supabaseCount(table)));
-  const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
+  const supabaseConfigured = hasSupabaseCredentials();
   const canAccessCoreTables = checks
     .filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table))
     .every((check) => check.ok);
   const runtimeConfigured = envFlag('CRON_SECRET');
-  const useSupabase = process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials);
+  const useSupabase = resolveUseSupabase();
 
-  writeJson(res, hasSupabaseCredentials && canAccessCoreTables ? 200 : 207, {
-    status: hasSupabaseCredentials && canAccessCoreTables ? 'real' : 'partial',
+  writeJson(res, supabaseConfigured && canAccessCoreTables ? 200 : 207, {
+    status: supabaseConfigured && canAccessCoreTables ? 'real' : 'partial',
     generatedAt: new Date().toISOString(),
     requestPath: parseUrl(req).pathname,
     env: {
@@ -183,7 +200,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
       CRON_SECRET: runtimeConfigured,
     },
     captureRuntime: {
-      canRunAgainstSupabase: hasSupabaseCredentials && useSupabase,
+      canRunAgainstSupabase: supabaseConfigured && useSupabase,
       canAuthorizeWorkflow: runtimeConfigured,
       coreTablesAccessible: canAccessCoreTables,
     },
@@ -208,7 +225,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       import('../repositories/platformRepository.js'),
       import('../services/captureRuntimeService.js'),
     ]);
-    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(requireSupabaseRuntime() ? 'supabase' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await runtime.run({
       companyId: requestedCompanyId ?? undefined,
@@ -297,7 +314,7 @@ async function ensureApp(): Promise<void> {
     const mod = await import('../server.js');
     expressApp = (mod as any).app ?? (mod as any).default;
     if (!expressApp) {
-      throw new Error('backend/src/server.ts não exporta `app`. Adicione "export { app };" no final do arquivo.');
+      throw new Error('backend/src/server.ts does not export `app`. Add "export { app };" at the end of the file.');
     }
   })();
 
@@ -311,6 +328,7 @@ export function createVercelServerlessHandler(options: HandlerOptions = {}) {
 
   return async function handler(req: IncomingMessage, res: ServerResponse) {
     const originalUrl = (req as any).url ?? '/';
+    res.setHeader('x-request-id', getHeader(req, 'x-request-id') ?? crypto.randomUUID());
     const pathname = parseUrl(req).pathname;
     const normalizedPathname = normalizePathname(pathname);
 

@@ -30,6 +30,20 @@ import type {
 } from './types';
 import { buildApiUrl } from './runtimeConfig';
 
+export class ApiClientError extends Error {
+  readonly status?: number;
+  readonly path: string;
+  readonly requestId?: string;
+
+  constructor(path: string, message: string, options: { status?: number; requestId?: string } = {}) {
+    super(options.requestId ? `${message} (requestId: ${options.requestId})` : message);
+    this.name = 'ApiClientError';
+    this.path = path;
+    this.status = options.status;
+    this.requestId = options.requestId;
+  }
+}
+
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
   if (status === 'partial') return `${path} carregado parcialmente; backend priorizou DB real e completou com fallback controlado.`;
@@ -50,13 +64,19 @@ const readJsonPayload = async <T>(response: Response, path: string): Promise<Api
 
   if (!contentType.includes('application/json')) {
     const preview = raw.replace(/\s+/g, ' ').slice(0, 160);
-    throw new Error(`Resposta não-JSON em ${path}. Status ${response.status}. Isso costuma indicar rota protegida, HTML da Vercel ou backend indisponível. Preview: ${preview}`);
+    throw new ApiClientError(path, `Resposta nao-JSON em ${path}. Status ${response.status}. Isso costuma indicar rota protegida, HTML da Vercel ou backend indisponivel. Preview: ${preview}`, {
+      status: response.status,
+      requestId: response.headers.get('x-request-id') ?? undefined,
+    });
   }
 
   try {
     return JSON.parse(raw) as ApiEnvelope<T> & { error?: string };
   } catch {
-    throw new Error(`JSON inválido em ${path}. Status ${response.status}.`);
+    throw new ApiClientError(path, `JSON invalido em ${path}. Status ${response.status}.`, {
+      status: response.status,
+      requestId: response.headers.get('x-request-id') ?? undefined,
+    });
   }
 };
 
@@ -67,6 +87,7 @@ async function requestEnvelope<T>(path: string, session: SessionData | null, ini
   try {
     response = await fetch(url, {
       ...init,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
@@ -74,11 +95,16 @@ async function requestEnvelope<T>(path: string, session: SessionData | null, ini
       },
     });
   } catch (error) {
-    throw new Error(`Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponível'}`);
+    throw new ApiClientError(path, `Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponivel'}`);
   }
 
   const payload = await readJsonPayload<T>(response, path);
-  if (!response.ok) throw new Error(payload.error ?? `${path} falhou com status ${response.status}`);
+  if (!response.ok) {
+    throw new ApiClientError(path, payload.error ?? `${path} falhou com status ${response.status}`, {
+      status: response.status,
+      requestId: payload.requestId ?? response.headers.get('x-request-id') ?? undefined,
+    });
+  }
   return payload;
 }
 
@@ -92,11 +118,17 @@ export const api = {
   login: async (email: string, password: string) => {
     const response = await fetch(buildApiUrl('/auth/login'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
     const payload = await readJsonPayload<SessionData>(response, '/auth/login');
-    if (!response.ok) throw new Error(payload.error ?? 'Falha ao autenticar.');
+    if (!response.ok) {
+      throw new ApiClientError('/auth/login', payload.error ?? 'Falha ao autenticar.', {
+        status: response.status,
+        requestId: payload.requestId ?? response.headers.get('x-request-id') ?? undefined,
+      });
+    }
     return payload.data;
   },
   logout: (session: SessionData | null) => requestEnvelope<{ success: boolean }>('/auth/logout', session, { method: 'POST' }),
@@ -166,7 +198,7 @@ export const api = {
     } catch {
       return {
         source: 'mock',
-        note: 'Quick actions usando fallback sintético até a tela ser conectada ao backend oficial.',
+        note: 'Quick actions usando fallback sintetico ate a tela ser conectada ao backend oficial.',
         data: {
           items: [
             { id: 'qa_mock_1', title: 'Revisar ranking', owner: 'Origination', priority: 'high' },

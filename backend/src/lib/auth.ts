@@ -9,6 +9,7 @@ export type AuthSession = {
   expires_at: number;
   user: { id: string; email?: string; role?: string };
 };
+export type PublicAuthSession = Omit<AuthSession, 'access_token' | 'refresh_token'>;
 
 declare global {
   namespace Express {
@@ -20,6 +21,7 @@ declare global {
 }
 
 const encoder = new TextEncoder();
+export const authCookieName = 'motor_originacao_session';
 let jwksCache: { expiresAt: number; keys: Jwk[] } | null = null;
 
 const requireAuthEnv = () => {
@@ -34,14 +36,19 @@ const decodeBase64Url = (value: string) => {
   return Buffer.from(padded, 'base64');
 };
 
+const appMetadataRole = (payload: Record<string, unknown>) => (
+  typeof payload.app_metadata === 'object'
+    && payload.app_metadata
+    && 'role' in payload.app_metadata
+    && typeof (payload.app_metadata as Record<string, unknown>).role === 'string'
+    ? String((payload.app_metadata as Record<string, unknown>).role)
+    : undefined
+);
+
 const mapAuthUser = (payload: Record<string, unknown>): AuthUser => ({
   id: String(payload.sub ?? payload.id ?? ''),
   email: typeof payload.email === 'string' ? payload.email : undefined,
-  role: typeof payload.role === 'string'
-    ? payload.role
-    : (typeof payload.app_metadata === 'object' && payload.app_metadata && 'role' in payload.app_metadata
-      ? String((payload.app_metadata as Record<string, unknown>).role)
-      : 'authenticated'),
+  role: appMetadataRole(payload) ?? 'authenticated',
   raw: payload,
 });
 
@@ -52,9 +59,61 @@ const mapSession = (payload: Record<string, any>): AuthSession => ({
   user: {
     id: String(payload.user?.id ?? payload.user?.sub ?? ''),
     email: payload.user?.email,
-    role: payload.user?.role ?? payload.user?.app_metadata?.role ?? 'authenticated',
+    role: typeof payload.user?.app_metadata?.role === 'string' ? payload.user.app_metadata.role : 'authenticated',
   },
 });
+
+const cookieSecure = () => process.env.APP_ENV === 'production' || process.env.APP_ENV === 'staging' || process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
+
+const cookieMaxAgeSeconds = (expiresAt: number) => Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+
+const serializeCookie = (name: string, value: string, options: { maxAge: number }) => {
+  const segments = [
+    `${name}=${encodeURIComponent(value)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${options.maxAge}`,
+    `Expires=${new Date(Date.now() + options.maxAge * 1000).toUTCString()}`,
+  ];
+  if (cookieSecure()) segments.push('Secure');
+  return segments.join('; ');
+};
+
+export const toPublicSession = (session: AuthSession): PublicAuthSession => ({
+  expires_at: session.expires_at,
+  user: session.user,
+});
+
+export const buildAuthSessionCookie = (session: AuthSession) =>
+  serializeCookie(authCookieName, session.access_token, { maxAge: cookieMaxAgeSeconds(session.expires_at) });
+
+export const buildClearAuthSessionCookie = () =>
+  serializeCookie(authCookieName, '', { maxAge: 0 });
+
+const parseCookieHeader = (cookieHeader: string | undefined) => {
+  const cookies = new Map<string, string>();
+  if (!cookieHeader) return cookies;
+
+  for (const part of cookieHeader.split(';')) {
+    const [rawName, ...rawValue] = part.trim().split('=');
+    if (rawName) cookies.set(rawName, rawValue.join('='));
+  }
+
+  return cookies;
+};
+
+export const extractAuthTokenFromCookieHeader = (cookieHeader: string | undefined) => {
+  const encodedToken = parseCookieHeader(cookieHeader).get(authCookieName);
+  if (!encodedToken) return undefined;
+  return decodeURIComponent(encodedToken);
+};
+
+export const resolveAccessToken = (req: Request) => {
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length);
+  return extractAuthTokenFromCookieHeader(req.headers.cookie);
+};
 
 const getSupabaseJwks = async () => {
   requireAuthEnv();
@@ -149,25 +208,25 @@ export const signOutSupabase = async (accessToken: string) => {
 };
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const requestId = String(res.getHeader('x-request-id') ?? req.header('x-request-id') ?? '');
   try {
     requireAuthEnv();
   } catch (error) {
-    res.status(500).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Auth unavailable' });
+    res.status(500).json({ statusCode: 500, code: 'auth_unavailable', generatedAt: new Date().toISOString(), requestId, error: error instanceof Error ? error.message : 'Auth unavailable' });
     return;
   }
 
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
-    res.status(401).json({ status: 'partial', generatedAt: new Date().toISOString(), error: 'Missing bearer token.' });
+  const accessToken = resolveAccessToken(req);
+  if (!accessToken) {
+    res.status(401).json({ statusCode: 401, code: 'missing_auth_session', generatedAt: new Date().toISOString(), requestId, error: 'Missing auth session.' });
     return;
   }
 
   try {
-    const accessToken = header.slice('Bearer '.length);
     req.accessToken = accessToken;
     req.authUser = await verifySupabaseJwt(accessToken);
     next();
   } catch (error) {
-    res.status(401).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unauthorized' });
+    res.status(401).json({ statusCode: 401, code: 'unauthorized', generatedAt: new Date().toISOString(), requestId, error: error instanceof Error ? error.message : 'Unauthorized' });
   }
 };

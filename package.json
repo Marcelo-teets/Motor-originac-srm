@@ -14,6 +14,10 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
-    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck"
+    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run api:typecheck",
+    "api:typecheck": "tsc -p tsconfig.vercel.json",
+    "test": "npm -C backend run test",
+    "smoke:api": "node scripts/smoke/api-smoke.mjs",
+    "test:e2e": "npm run smoke:api"
   }
 }

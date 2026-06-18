@@ -1,19 +1,10 @@
-# Frontend (Vite + React)
+# Motor Originacao SRM Frontend
 
-## Deploy na Vercel
-Este app deve ser deployado **isoladamente** na Vercel, apontando o projeto para o diretório `frontend/`.
+React + Vite workspace for the canonical Vercel deployment.
 
-### Configuração recomendada
-- Root Directory: `frontend/`
-- Install Command: `npm install`
-- Build Command: `npm run build`
-- Output Directory: `dist`
+## Online-first contract
 
-Alternativamente, mantenha `frontend/vercel.json` versionado para padronizar os comandos.
-
-## Build local isolado
-```bash
-cd frontend
-npm install
-npm run build
-```
+- The canonical deployment is the repository root on Vercel project `motor-originac-srm`.
+- The frontend must call `/api/*` on the same Vercel deployment in production.
+- Local development can use `VITE_API_BASE_URL=http://localhost:4000` after the Codespace backend is running.
+- Do not deploy `frontend/` as an isolated Vercel project.

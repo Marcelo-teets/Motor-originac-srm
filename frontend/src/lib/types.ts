@@ -1,6 +1,7 @@
 export type ApiEnvelope<T> = {
   status: 'real' | 'partial' | 'mock';
   generatedAt?: string;
+  requestId?: string;
   data: T;
   error?: string;
 };
@@ -266,7 +267,7 @@ export type MaisRetornoQuota = {
   mode: 'supabase' | 'memory';
   reason?: string;
 };
-export type SessionData = { [key: string]: any; expires_at: number; user: { id: string; email?: string; role?: string } };
+export type SessionData = { access_token?: string; refresh_token?: string; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;
   name: string;

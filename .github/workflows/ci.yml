@@ -2,9 +2,11 @@ name: CI
 
 on:
   pull_request:
+  deployment_status:
   push:
     branches:
       - main
+      - 'codex/**'
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -12,6 +14,7 @@ concurrency:
 
 jobs:
   build-and-typecheck:
+    if: github.event_name != 'deployment_status'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -26,10 +29,42 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests
+        run: npm run test
+
       - name: Build
         run: npm run build
+
+      - name: Dependency audit
+        run: npm audit --audit-level=critical
+
+  vercel-preview-smoke:
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Smoke preview API
+        env:
+          SMOKE_BASE_URL: ${{ github.event.deployment_status.target_url }}
+          SMOKE_REQUIRE_AUTH: ${{ vars.SMOKE_REQUIRE_AUTH || 'false' }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: npm run smoke:api

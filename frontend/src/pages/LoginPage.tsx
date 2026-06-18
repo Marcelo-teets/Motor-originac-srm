@@ -25,7 +25,7 @@ export function LoginPage() {
       <section className="hero card">
         <p className="eyebrow">Login</p>
         <h2>Acesse a plataforma com Supabase Auth real</h2>
-        <p>O frontend autentica diretamente no Supabase e mantém a sessão para consumir o backend protegido por JWT.</p>
+        <p>O backend autentica no Supabase e mantem a sessao em cookie seguro HttpOnly para consumir a API oficial.</p>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label><span>E-mail</span><input value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
           <label><span>Senha</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>

@@ -1,20 +1,57 @@
 /**
- * api/index.ts — Motor Originação SRM — Vercel Serverless Handler
+ * api/index.ts - Motor Originacao SRM - Vercel Serverless Handler
  *
  * Adapta o Express app para o runtime serverless do Vercel.
  * Remove o prefixo /api antes de passar ao Express, para que todas as
- * rotas existentes (app.get('/companies'), etc.) continuem sem mudanças.
+ * rotas existentes (app.get('/companies'), etc.) continuem sem mudancas.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
+type ProcessEmitWarning = typeof process.emitWarning;
+
+const warningFilterState = globalThis as typeof globalThis & {
+  __motorOriginacaoVercelWarningFilterInstalled?: boolean;
+};
+
+const warningCode = (value: unknown) => {
+  if (value && typeof value === 'object' && 'code' in value) {
+    return String((value as { code?: unknown }).code ?? '');
+  }
+
+  return typeof value === 'string' ? value : '';
+};
+
+const isDep0169Warning = (warning: string | Error, args: unknown[]) => {
+  if (warningCode(warning) === 'DEP0169') return true;
+  if (typeof warning === 'string' && warning.includes('DEP0169')) return true;
+  if (warning instanceof Error && warning.message.includes('DEP0169')) return true;
+
+  return args.some((arg) => warningCode(arg) === 'DEP0169'
+    || (typeof arg === 'string' && arg.includes('DEP0169')));
+};
+
+if (!warningFilterState.__motorOriginacaoVercelWarningFilterInstalled) {
+  warningFilterState.__motorOriginacaoVercelWarningFilterInstalled = true;
+  const originalEmitWarning = process.emitWarning.bind(process) as ProcessEmitWarning;
+
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    // Express/parseurl emits DEP0169 on Vercel's current Node runtime; it is logged as an error there.
+    if (isDep0169Warning(warning, args)) return;
+    (originalEmitWarning as (...params: unknown[]) => void)(warning, ...args);
+  }) as ProcessEmitWarning;
+}
 
 let expressApp: ExpressLike | null = null;
 let loadingPromise: Promise<void> | null = null;
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
+  const requestId = String(res.getHeader('x-request-id') ?? '');
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) && !('requestId' in payload)
+    ? { ...payload, requestId }
+    : payload;
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(payload));
+  res.end(JSON.stringify(body));
 };
 
 const getHeader = (req: IncomingMessage, key: string) => {
@@ -34,6 +71,18 @@ const isAuthorizedCron = (req: IncomingMessage) => {
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
+const hasSupabaseCredentials = () => envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
+const isManagedProduction = () => process.env.APP_ENV === 'production'
+  || process.env.VERCEL_ENV === 'production'
+  || process.env.VERCEL_ENV === 'preview';
+const resolveUseSupabase = () => process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials());
+const requireSupabaseRuntime = () => {
+  const useSupabase = resolveUseSupabase();
+  if (isManagedProduction() && !useSupabase) {
+    throw new Error('Supabase runtime is required in managed production and preview. Memory fallback is disabled.');
+  }
+  return useSupabase;
+};
 
 const supabaseHost = () => {
   try {
@@ -154,13 +203,13 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   ];
 
   const checks = await Promise.all(tables.map((table) => supabaseCount(table)));
-  const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
+  const supabaseConfigured = hasSupabaseCredentials();
   const canAccessCoreTables = checks.filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table)).every((check) => check.ok);
   const cronConfigured = envFlag('CRON_SECRET');
-  const useSupabase = process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials);
+  const useSupabase = resolveUseSupabase();
 
-  writeJson(res, hasSupabaseCredentials && canAccessCoreTables ? 200 : 207, {
-    status: hasSupabaseCredentials && canAccessCoreTables ? 'real' : 'partial',
+  writeJson(res, supabaseConfigured && canAccessCoreTables ? 200 : 207, {
+    status: supabaseConfigured && canAccessCoreTables ? 'real' : 'partial',
     generatedAt: new Date().toISOString(),
     requestPath: parseUrl(req).pathname,
     env: {
@@ -173,7 +222,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
       CRON_SECRET: cronConfigured,
     },
     captureRuntime: {
-      canRunAgainstSupabase: hasSupabaseCredentials && useSupabase,
+      canRunAgainstSupabase: supabaseConfigured && useSupabase,
       canAuthorizeWorkflow: cronConfigured,
       coreTablesAccessible: canAccessCoreTables,
     },
@@ -197,7 +246,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/services/captureRuntimeService.js'),
     ]);
-    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(requireSupabaseRuntime() ? 'supabase' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await runtime.run({
       companyId: requestedCompanyId ?? undefined,
@@ -287,8 +336,8 @@ async function ensureApp(): Promise<void> {
     expressApp = (mod as any).app ?? (mod as any).default;
     if (!expressApp) {
       throw new Error(
-        'backend/src/server.ts não exporta `app`. ' +
-        'Adicione "export { app };" no final do arquivo.'
+        'backend/src/server.ts nao exporta `app`. '
+        + 'Adicione "export { app };" no final do arquivo.'
       );
     }
   })();
@@ -298,6 +347,7 @@ async function ensureApp(): Promise<void> {
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const originalUrl = (req as any).url ?? '/';
+  res.setHeader('x-request-id', getHeader(req, 'x-request-id') ?? crypto.randomUUID());
   const pathname = parseUrl(req).pathname;
 
   if (pathname === '/api/data-capture/health') {
@@ -328,7 +378,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // Remove prefixo /api: /api/companies → /companies
+  // Remove prefixo /api: /api/companies -> /companies
   (req as any).url = originalUrl.replace(/^\/api(?=\/|$)/, '') || '/';
 
   (expressApp as ExpressLike)(req, res, () => {

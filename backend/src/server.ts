@@ -1,6 +1,17 @@
 import cors from 'cors';
 import express from 'express';
-import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import crypto from 'node:crypto';
+import {
+  authMiddleware,
+  buildAuthSessionCookie,
+  buildClearAuthSessionCookie,
+  fetchCurrentSupabaseUser,
+  resolveAccessToken,
+  signInWithPassword,
+  signOutSupabase,
+  toPublicSession,
+} from './lib/auth.js';
 import { env } from './lib/env.js';
 import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
 import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
@@ -15,8 +26,23 @@ import { PlatformService } from './services/platformService.js';
 import { SearchProfileCaptureService } from './services/searchProfileCaptureService.js';
 import { SearchProfileCaptureRuntime } from './services/searchProfileCaptureRuntime.js';
 
+const requestContext = new AsyncLocalStorage<{ requestId: string }>();
 const app = express();
-app.use(cors());
+app.use((req, res, next) => {
+  const requestId = req.header('x-request-id') || crypto.randomUUID();
+  res.setHeader('x-request-id', requestId);
+  requestContext.run({ requestId }, next);
+});
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || env.corsOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
@@ -29,8 +55,9 @@ const searchCaptureService = new SearchProfileCaptureService(searchCaptureRuntim
 });
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
-const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
-const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
+const currentRequestId = () => requestContext.getStore()?.requestId;
+const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), requestId: currentRequestId(), data });
+const fail = (status: number, error: string, code = 'request_failed') => ({ statusCode: status, code, generatedAt: new Date().toISOString(), requestId: currentRequestId(), error });
 const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
 const wrap = (handler: express.Handler): express.Handler => async (req, res, next) => {
   try {
@@ -52,12 +79,19 @@ app.post('/auth/login', wrap(async (req, res) => {
   const email = String(req.body?.email ?? '').trim();
   const password = String(req.body?.password ?? '');
   if (!email || !password) {
-    res.status(400).json(fail(400, 'Email e password são obrigatórios.'));
+    res.status(400).json(fail(400, 'Email e password sao obrigatorios.'));
     return;
   }
 
   const session = await signInWithPassword(email, password);
-  res.json(ok('real', session));
+  res.setHeader('Set-Cookie', buildAuthSessionCookie(session));
+  res.json(ok('real', toPublicSession(session)));
+}));
+app.post('/auth/logout', wrap(async (req, res) => {
+  res.setHeader('Set-Cookie', buildClearAuthSessionCookie());
+  const accessToken = resolveAccessToken(req);
+  if (accessToken) await signOutSupabase(accessToken);
+  res.json(ok('real', { success: true }));
 }));
 
 app.use(authMiddleware);
@@ -69,11 +103,6 @@ app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
   res.json(ok('real', liveUser));
 }));
-app.post('/auth/logout', wrap(async (req, res) => {
-  if (req.accessToken) await signOutSupabase(req.accessToken);
-  res.json(ok('real', { success: true }));
-}));
-
 app.get('/search-profiles', wrap(async (_req, res) => res.json(ok(platformMode, await service.listSearchProfiles()))));
 app.post('/search-profiles', wrap(async (req, res) => {
   const profile = await service.saveSearchProfile({
@@ -185,7 +214,7 @@ app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMod
 app.get('/agents/runs', wrap(async (_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', status: 'completed', mode: platformMode }, { agent_name: 'pattern_identification_agent', status: 'completed', mode: platformMode }]))));
 app.get('/agents/runs/:id', wrap((req, res) => res.json(ok(platformMode, { execution_id: param(req.params.id), status: 'completed', mode: platformMode }))));
 app.get('/agents/validations', wrap((_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', validation: 'passed' }, { agent_name: 'lead_score_agent', validation: 'passed' }]))));
-app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Supabase/Auth real.' }]))));
+app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais apos estabilizar Supabase/Auth real.' }]))));
 app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPatternCatalog()))));
 app.post('/agents/run/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), scope: 'global', started: true }))));
 app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), companyId: param(req.params.id), started: true }))));
@@ -217,8 +246,8 @@ app.post('/aba/command', wrap(async (req, res) => {
     if (target === 'paper_clip') {
       await service.saveTask({
         companyId: context.companyId,
-        title: `ABA/Paper Clip · ${action}`,
-        description: `Comando automático: ${action}`,
+        title: `ABA/Paper Clip - ${action}`,
+        description: `Comando automatico: ${action}`,
         owner: 'Origination',
         status: 'todo',
         dueDate: null,
@@ -228,7 +257,7 @@ app.post('/aba/command', wrap(async (req, res) => {
       await service.saveActivity({
         companyId: context.companyId,
         type: 'committee',
-        title: `ABA/ADM · ${action}`,
+        title: `ABA/ADM - ${action}`,
         description: `Comando administrativo: ${action}`,
         owner: 'Coverage',
         status: 'open',
@@ -438,7 +467,7 @@ app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
   const top = rankings[0];
   const stalled = pipelineRows.find((row) => row.stage === 'Identified' || row.stage === 'Recycled');
   const stalledName = stalled ? rankings.find((row) => row.companyId === stalled.companyId)?.companyName ?? stalled.companyId : null;
-  const stalledAction = stalled?.nextAction || 'Definir próxima ação comercial';
+  const stalledAction = stalled?.nextAction || 'Definir proxima acao comercial';
   const topPipeline = top ? pipelineRows.find((row) => row.companyId === top.companyId) : null;
   const topAction = topPipeline?.nextAction || top?.rationale || 'Executar contato inicial com sponsor financeiro';
   res.json(ok(platformMode, {
@@ -452,8 +481,8 @@ app.get('/mvp/ops/quick-actions', wrap(async (_req, res) => {
       {
         id: 'qa_stalled',
         title: stalledName
-          ? `Destravar ${stalledName} | stage: ${stalled?.stage} | ${stalled?.nextAction ? `next: ${stalledAction}` : 'motivo: sem próxima ação definida'}`
-          : 'Revisar contas stalled sem próxima ação',
+          ? `Destravar ${stalledName} | stage: ${stalled?.stage} | ${stalled?.nextAction ? `next: ${stalledAction}` : 'motivo: sem proxima acao definida'}`
+          : 'Revisar contas stalled sem proxima acao',
         owner: 'Coverage',
         priority: 'medium',
       },
@@ -475,11 +504,11 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   persistence: platformMode,
 }))));
 
-// ── Exportação para Vercel serverless ──────────────────────────────────────
+// Exportacao para Vercel serverless
 export { app };
 
-// ── Servidor local (desenvolvimento apenas) ────────────────────────────────
-// Em produção no Vercel, VERCEL=1 é setado automaticamente pelo runtime.
+// Servidor local (desenvolvimento apenas)
+// Em producao no Vercel, VERCEL=1 e setado automaticamente pelo runtime.
 if (!process.env.VERCEL) {
   const port = env.port ?? 4000;
   app.listen(port, () => {

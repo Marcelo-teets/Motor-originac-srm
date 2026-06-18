@@ -22,6 +22,8 @@ create table if not exists public.company_source_metric_snapshots (
 );
 
 alter table public.company_source_metric_snapshots enable row level security;
+revoke all on public.company_source_metric_snapshots from anon, authenticated;
+grant select, insert, update, delete on public.company_source_metric_snapshots to service_role;
 
 create index if not exists idx_company_source_metric_snapshots_company
   on public.company_source_metric_snapshots(company_id, observed_at desc);
@@ -45,6 +47,8 @@ create table if not exists public.company_linkedin_role_snapshots (
 );
 
 alter table public.company_linkedin_role_snapshots enable row level security;
+revoke all on public.company_linkedin_role_snapshots from anon, authenticated;
+grant select, insert, update, delete on public.company_linkedin_role_snapshots to service_role;
 
 create index if not exists idx_company_linkedin_role_snapshots_company
   on public.company_linkedin_role_snapshots(company_id, observed_at desc);

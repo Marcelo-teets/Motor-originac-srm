@@ -23,17 +23,32 @@ const loadEnvFile = () => {
 loadEnvFile();
 
 const hasSupabaseCredentials = Boolean(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY));
+const explicitUseSupabase = process.env.USE_SUPABASE ? process.env.USE_SUPABASE === 'true' : undefined;
+const useSupabase = explicitUseSupabase ?? hasSupabaseCredentials;
+const isManagedProduction = process.env.APP_ENV === 'production'
+  || process.env.VERCEL_ENV === 'production'
+  || process.env.VERCEL_ENV === 'preview';
+
+if (isManagedProduction && !useSupabase) {
+  throw new Error('Supabase is required in managed production and preview. Set USE_SUPABASE=true and Supabase credentials.');
+}
+
+const parseCsv = (value: string | undefined, fallback: string[]) =>
+  value ? value.split(',').map((item) => item.trim()).filter(Boolean) : fallback;
+const defaultCorsOrigins = ['http://localhost:5173', 'http://localhost:4173', 'https://motor-originac-srm-marcelo-teets-projects.vercel.app', 'https://motor-originac-srm.vercel.app'];
 
 export const env = {
   port: Number(process.env.PORT ?? 4000),
   supabaseUrl: process.env.SUPABASE_URL ?? '',
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? '',
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
-  useSupabase: process.env.USE_SUPABASE ? process.env.USE_SUPABASE === 'true' : hasSupabaseCredentials,
+  useSupabase,
+  isManagedProduction,
   bootstrapSupabase: process.env.BOOTSTRAP_SUPABASE === 'true',
   maisRetornoApiKey: process.env.MAIS_RETORNO_API_KEY ?? '',
   maisRetornoApiBaseUrl: process.env.MAIS_RETORNO_API_BASE_URL ?? '',
   maisRetornoApiPath: process.env.MAIS_RETORNO_API_PATH ?? '',
   maisRetornoMonthlyQuota: process.env.MAIS_RETORNO_MONTHLY_QUOTA ?? '500',
   maisRetornoMonthlyTarget: process.env.MAIS_RETORNO_MONTHLY_TARGET ?? '500',
+  corsOrigins: parseCsv(process.env.CORS_ORIGINS, defaultCorsOrigins),
 };
