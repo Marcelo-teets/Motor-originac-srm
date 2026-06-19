@@ -9,7 +9,7 @@ type AuthContextValue = {
   session: SessionData | null;
   loading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, captchaToken?: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -48,10 +48,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     session,
     loading,
     isAuthenticated: Boolean(session?.user),
-    async login(email, password) {
+    async login(email, password, captchaToken) {
       setLoading(true);
       try {
-        const nextSession = await api.login(email, password);
+        const nextSession = await api.login(email, password, captchaToken);
         const user = await api.getMe(null).catch(() => nextSession.user);
         setSession({ ...nextSession, user });
       } finally {

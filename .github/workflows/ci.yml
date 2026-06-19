@@ -64,7 +64,9 @@ jobs:
       - name: Smoke preview API
         env:
           SMOKE_BASE_URL: ${{ github.event.deployment_status.target_url }}
-          SMOKE_REQUIRE_AUTH: ${{ vars.SMOKE_REQUIRE_AUTH || 'false' }}
+          SMOKE_REQUIRE_AUTH: ${{ vars.SMOKE_REQUIRE_AUTH || 'true' }}
           SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
           SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          SMOKE_CAPTCHA_TOKEN: ${{ secrets.SMOKE_CAPTCHA_TOKEN }}
+          SMOKE_BEARER_TOKEN: ${{ secrets.SMOKE_BEARER_TOKEN }}
         run: npm run smoke:api

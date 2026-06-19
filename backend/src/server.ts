@@ -63,8 +63,14 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
   try {
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
-    console.error(error);
-    res.status(500).json(fail(500, error instanceof Error ? error.message : 'Unexpected error'));
+    const statusCode = typeof error === 'object' && error && 'statusCode' in error && typeof error.statusCode === 'number'
+      ? error.statusCode
+      : 500;
+    const code = typeof error === 'object' && error && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : 'request_failed';
+    if (statusCode >= 500) console.error(error);
+    res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error', code));
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
@@ -83,7 +89,8 @@ app.post('/auth/login', wrap(async (req, res) => {
     return;
   }
 
-  const session = await signInWithPassword(email, password);
+  const captchaToken = typeof req.body?.captchaToken === 'string' ? req.body.captchaToken : undefined;
+  const session = await signInWithPassword(email, password, captchaToken);
   res.setHeader('Set-Cookie', buildAuthSessionCookie(session));
   res.json(ok('real', toPublicSession(session)));
 }));

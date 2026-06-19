@@ -10,6 +10,16 @@ export type AuthSession = {
   user: { id: string; email?: string; role?: string };
 };
 export type PublicAuthSession = Omit<AuthSession, 'access_token' | 'refresh_token'>;
+export class AuthRequestError extends Error {
+  constructor(
+    readonly statusCode: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AuthRequestError';
+  }
+}
 
 declare global {
   namespace Express {
@@ -162,7 +172,7 @@ export const verifySupabaseJwt = async (token: string): Promise<AuthUser> => {
   return mapAuthUser(payload);
 };
 
-export const signInWithPassword = async (email: string, password: string): Promise<AuthSession> => {
+export const signInWithPassword = async (email: string, password: string, captchaToken?: string): Promise<AuthSession> => {
   requireAuthEnv();
   const response = await fetch(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
     method: 'POST',
@@ -170,11 +180,17 @@ export const signInWithPassword = async (email: string, password: string): Promi
       apikey: env.supabaseAnonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email,
+      password,
+      ...(captchaToken ? { gotrue_meta_security: { captcha_token: captchaToken } } : {}),
+    }),
   });
   const payload = await response.json() as Record<string, any>;
   if (!response.ok) {
-    throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Falha no login com Supabase Auth.'));
+    const message = String(payload.error_description ?? payload.msg ?? payload.error ?? 'Falha no login com Supabase Auth.');
+    const code = message.toLowerCase().includes('captcha') ? 'captcha_required' : 'login_failed';
+    throw new AuthRequestError(code === 'captcha_required' ? 400 : 401, code, message);
   }
   return mapSession(payload);
 };

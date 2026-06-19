@@ -2,6 +2,8 @@ import { PRODUCTION_API_BASE_URL } from './productionApiBase';
 
 const env = import.meta.env;
 const configuredApiBaseUrl = env.VITE_API_BASE_URL ?? env.VITE_API_URL ?? '';
+export const CAPTCHA_PROVIDER = env.VITE_AUTH_CAPTCHA_PROVIDER ?? '';
+export const CAPTCHA_SITE_KEY = env.VITE_AUTH_CAPTCHA_SITE_KEY ?? '';
 
 function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim();

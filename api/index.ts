@@ -54,6 +54,112 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(body));
 };
 
+const writeError = (res: ServerResponse, statusCode: number, code: string, error: string) => {
+  writeJson(res, statusCode, {
+    statusCode,
+    code,
+    generatedAt: new Date().toISOString(),
+    error,
+  });
+};
+
+const corsOrigins = () => (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
+
+const sameOrigin = (req: IncomingMessage, origin: string) => {
+  const host = getHeader(req, 'host');
+  return Boolean(host && (origin === `https://${host}` || origin === `http://${host}`));
+};
+
+const applyCorsHeaders = (req: IncomingMessage, res: ServerResponse) => {
+  const origin = getHeader(req, 'origin');
+  if (origin && (sameOrigin(req, origin) || corsOrigins().includes(origin))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+};
+
+const readRawBody = async (req: IncomingMessage) => {
+  const parsedBody = (req as IncomingMessage & { body?: unknown }).body;
+  if (typeof parsedBody === 'string') return parsedBody;
+  if (parsedBody instanceof Buffer) return parsedBody.toString('utf8');
+  if (parsedBody && typeof parsedBody === 'object') return JSON.stringify(parsedBody);
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+};
+
+const readJsonBody = async (req: IncomingMessage) => {
+  const rawBody = await readRawBody(req);
+  if (!rawBody.trim()) return {};
+
+  try {
+    return JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    throw new Error('Invalid JSON request body.');
+  }
+};
+
+async function authLogin(req: IncomingMessage, res: ServerResponse) {
+  applyCorsHeaders(req, res);
+  res.setHeader('Access-Control-Allow-Headers', 'content-type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    writeError(res, 405, 'method_not_allowed', 'Method not allowed.');
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    writeError(res, 400, 'invalid_json', 'Invalid JSON request body.');
+    return;
+  }
+
+  const email = String(body.email ?? '').trim();
+  const password = String(body.password ?? '');
+  const captchaToken = typeof body.captchaToken === 'string' ? body.captchaToken : undefined;
+
+  if (!email || !password) {
+    writeError(res, 400, 'validation_error', 'Email e password sao obrigatorios.');
+    return;
+  }
+
+  const { buildAuthSessionCookie, signInWithPassword, toPublicSession } = await import('../backend/src/lib/auth.js');
+
+  try {
+    const session = await signInWithPassword(email, password, captchaToken);
+    res.setHeader('Set-Cookie', buildAuthSessionCookie(session));
+    writeJson(res, 200, {
+      status: 'real',
+      generatedAt: new Date().toISOString(),
+      data: toPublicSession(session),
+    });
+  } catch (error) {
+    const statusCode = typeof error === 'object' && error && 'statusCode' in error && typeof error.statusCode === 'number'
+      ? error.statusCode
+      : 500;
+    const code = typeof error === 'object' && error && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : 'request_failed';
+    writeError(res, statusCode, code, error instanceof Error ? error.message : 'Unexpected login error.');
+  }
+}
+
 const getHeader = (req: IncomingMessage, key: string) => {
   const value = req.headers[key.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -352,6 +458,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (pathname === '/api/data-capture/health') {
     await captureHealth(req, res);
+    return;
+  }
+
+  if (pathname === '/api/auth/login') {
+    await authLogin(req, res);
     return;
   }
 

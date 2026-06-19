@@ -115,12 +115,12 @@ const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
 });
 
 export const api = {
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, captchaToken?: string) => {
     const response = await fetch(buildApiUrl('/auth/login'), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, captchaToken }),
     });
     const payload = await readJsonPayload<SessionData>(response, '/auth/login');
     if (!response.ok) {

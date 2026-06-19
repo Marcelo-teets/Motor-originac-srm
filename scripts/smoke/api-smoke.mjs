@@ -3,6 +3,8 @@ const isLocalBase = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.te
 const apiPrefix = process.env.SMOKE_API_PREFIX ?? (isLocalBase ? '' : '/api');
 const smokeEmail = process.env.SMOKE_EMAIL;
 const smokePassword = process.env.SMOKE_PASSWORD;
+const smokeCaptchaToken = process.env.SMOKE_CAPTCHA_TOKEN;
+const smokeBearerToken = process.env.SMOKE_BEARER_TOKEN;
 const requireAuthSmoke = process.env.SMOKE_REQUIRE_AUTH === 'true';
 
 class SmokeError extends Error {
@@ -43,12 +45,34 @@ const request = async (path, init = {}) => {
   return { response, payload };
 };
 
+const requestExpectingError = async (path, init = {}, allowedStatuses = []) => {
+  const response = await fetch(endpoint(path), {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers,
+    },
+  });
+  const payload = await readJson(response, path);
+  if (!allowedStatuses.includes(response.status)) {
+    throw new SmokeError(`${path} returned unexpected HTTP ${response.status}`, payload);
+  }
+  return { response, payload };
+};
+
 const assertEnvelope = (path, payload) => {
   if (!payload || typeof payload !== 'object' || !payload.status || !payload.generatedAt) {
     throw new SmokeError(`${path} returned an invalid API envelope`, payload);
   }
   if (!payload.requestId) {
     throw new SmokeError(`${path} did not include requestId`, payload);
+  }
+};
+
+const assertErrorEnvelope = (path, payload) => {
+  if (!payload || typeof payload !== 'object' || !payload.statusCode || !payload.code || !payload.requestId || !payload.error) {
+    throw new SmokeError(`${path} returned an invalid API error envelope`, payload);
   }
 };
 
@@ -59,6 +83,28 @@ const run = async () => {
     console.log(`[smoke] ${apiPrefix}${path} ok (${payload.status}, req ${payload.requestId})`);
   }
 
+  const missingSession = await requestExpectingError('/auth/me', {}, [401]);
+  assertErrorEnvelope('/auth/me', missingSession.payload);
+  console.log(`[smoke] /auth/me unauthenticated error contract ok (req ${missingSession.payload.requestId})`);
+
+  const invalidLogin = await requestExpectingError('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'codex.invalid@example.com', password: 'invalid-password-for-contract-check' }),
+  }, [400, 401, 403]);
+  assertErrorEnvelope('/auth/login', invalidLogin.payload);
+  console.log(`[smoke] /auth/login error contract ok (${invalidLogin.payload.code}, req ${invalidLogin.payload.requestId})`);
+
+  if (smokeBearerToken) {
+    const dashboard = await request('/dashboard/summary', {
+      headers: {
+        Authorization: `Bearer ${smokeBearerToken}`,
+      },
+    });
+    assertEnvelope('/dashboard/summary', dashboard.payload);
+    console.log(`[smoke] authenticated dashboard ok with bearer transition token (req ${dashboard.payload.requestId})`);
+    return;
+  }
+
   if (!smokeEmail || !smokePassword) {
     if (requireAuthSmoke) throw new SmokeError('SMOKE_EMAIL and SMOKE_PASSWORD are required for authenticated smoke.');
     console.log('[smoke] authenticated flow skipped; set SMOKE_EMAIL and SMOKE_PASSWORD to enable it.');
@@ -67,7 +113,7 @@ const run = async () => {
 
   const login = await request('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email: smokeEmail, password: smokePassword }),
+    body: JSON.stringify({ email: smokeEmail, password: smokePassword, captchaToken: smokeCaptchaToken }),
   });
   assertEnvelope('/auth/login', login.payload);
 
