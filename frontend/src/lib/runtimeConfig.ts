@@ -12,9 +12,9 @@ function normalizeBaseUrl(value: string): string {
 
 function resolveApiBaseUrl(): string {
   const normalizedConfiguredUrl = normalizeBaseUrl(configuredApiBaseUrl);
-  if (normalizedConfiguredUrl) return normalizedConfiguredUrl;
-
   if (env.PROD) return PRODUCTION_API_BASE_URL;
+
+  if (normalizedConfiguredUrl) return normalizedConfiguredUrl;
 
   return '';
 }
