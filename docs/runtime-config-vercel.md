@@ -16,6 +16,12 @@ SUPABASE_URL=https://hdghpmssudrqhsbvrdyt.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 USE_SUPABASE=true
 BOOTSTRAP_SUPABASE=false
+VOYAGE_API_KEY=<voyage-ai-key>
+MAIS_RETORNO_API_KEY=<mais-retorno-key>
+MAIS_RETORNO_API_BASE_URL=https://developers.maisretorno.com
+MAIS_RETORNO_API_PATH=mcp
+MAIS_RETORNO_MONTHLY_QUOTA=500
+MAIS_RETORNO_MONTHLY_TARGET=500
 ```
 
 ## Como validar

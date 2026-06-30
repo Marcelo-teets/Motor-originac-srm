@@ -1,7 +1,7 @@
 import { Card, DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { SourceEntry } from '../lib/types';
+import type { MaisRetornoQuota, SourceEntry } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 type SourceMetadata = {
@@ -43,14 +43,38 @@ const sourceFamily = (source: SourceEntry) => {
 
 const joinList = (items?: string[]) => (items?.length ? items.join(', ') : '-');
 
+function QuotaCard({ quota }: { quota: MaisRetornoQuota | null }) {
+  if (!quota) return null;
+  const pct = quota.monthlyQuota > 0 ? Math.round((quota.used / quota.monthlyQuota) * 100) : 0;
+  return (
+    <Card title="Mais Retorno — quota mensal" subtitle="Governança de requisições da API de fundos" className="dense-card">
+      <div className="mini-metric-grid">
+        <Stat label="Quota mensal" value={String(quota.monthlyQuota)} helper="limite de requisições" />
+        <Stat label="Utilizado" value={String(quota.used)} helper={`${pct}% da quota`} />
+        <Stat label="Restante" value={String(quota.remaining)} helper="requisições disponíveis" />
+      </div>
+      <div className="pill-row top-gap">
+        <Pill tone={quota.allowed ? 'success' : 'danger'}>{quota.allowed ? 'permitido' : 'bloqueado'}</Pill>
+        {quota.warning && <Pill tone="warning">acima de 80%</Pill>}
+        <Pill tone="info">modo {quota.mode}</Pill>
+        <Pill tone="info">{quota.monthKey}</Pill>
+      </div>
+    </Card>
+  );
+}
+
 export function SourcesPage() {
   const { session } = useAuth();
-  const { data, loading, error } = useAsyncData(() => api.getSources(session), [session?.access_token]);
+  const { data, loading, error } = useAsyncData(
+    () => Promise.all([api.getSources(session), api.getMaisRetornoQuota(session).catch(() => null)]),
+    [session?.access_token],
+  );
 
   if (loading) return <LoadingState title="Sources" subtitle="Carregando catálogo de fontes, métricas monitoradas e cobertura operacional." />;
   if (error || !data) return <div className="page"><Card title="Sources" subtitle="Falha ao carregar catálogo">{error}</Card></div>;
 
-  const sources = data.data;
+  const [sourcesState, quota] = data;
+  const sources = sourcesState.data;
   const linkedinSources = sources.filter((source) => sourceFamily(source) === 'LinkedIn');
   const mediaSources = sources.filter((source) => sourceFamily(source) === 'Mídia/RSS');
   const realSources = sources.filter((source) => source.status === 'real');
@@ -62,9 +86,9 @@ export function SourcesPage() {
         eyebrow="Sources"
         title="Catálogo de fontes de originação"
         description="Governança das fontes que alimentam monitoring, signals, qualification e ranking. Inclui mídias, RSS, APIs e LinkedIn com contrato explícito de métricas históricas."
-        actions={<Pill tone={data.source === 'real' ? 'success' : 'warning'}>{data.source === 'real' ? 'source_catalog real' : 'source_catalog parcial'}</Pill>}
+        actions={<Pill tone={sourcesState.source === 'real' ? 'success' : 'warning'}>{sourcesState.source === 'real' ? 'source_catalog real' : 'source_catalog parcial'}</Pill>}
       />
-      <DataStatusBanner source={data.source} note={data.note} />
+      <DataStatusBanner source={sourcesState.source} note={sourcesState.note} />
 
       <section className="decision-strip">
         <div className="decision-card"><Pill tone="info">Fontes totais</Pill><strong>{sources.length}</strong><small>Registros no catálogo operacional.</small></div>
@@ -72,6 +96,8 @@ export function SourcesPage() {
         <div className="decision-card"><Pill tone="warning">LinkedIn</Pill><strong>{linkedinSources.length}</strong><small>Métricas históricas de página, followers, headcount e cargos.</small></div>
         <div className="decision-card"><Pill tone="info">Com histórico</Pill><strong>{historicalMetricSources.length}</strong><small>Fontes com métricas ou tabelas históricas.</small></div>
       </section>
+
+      <QuotaCard quota={quota} />
 
       <section className="grid cols-3">
         <Card title="Cobertura por família" subtitle="Prioridade para origem de sinais reais" className="dense-card">

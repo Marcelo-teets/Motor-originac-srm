@@ -19,6 +19,19 @@ export type ActivityStatus = 'open' | 'done' | 'cancelled';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
 export type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit' | 'Unknown';
 
+export type MaisRetornoQuota = {
+  provider: string;
+  monthKey: string;
+  monthlyQuota: number;
+  softTarget: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+  warning: boolean;
+  mode: 'supabase' | 'memory';
+  reason?: string;
+};
+
 export type SourceTreatmentImpact = {
   treatedSignalsCount: number;
   actionableSignalsCount: number;

@@ -176,6 +176,11 @@ app.get('/dashboard/patterns', wrap(async (_req, res) => res.json(ok(platformMod
 app.get('/sources/catalog', wrap(async (_req, res) => res.json(ok(platformMode, await service.listSources()))));
 app.get('/sources/active', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).filter((item) => item.health !== 'down')))));
 app.get('/sources/health', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).map((item) => ({ id: item.id, health: item.health, status: item.status }))))));
+app.get('/sources/usage/mais-retorno', wrap(async (_req, res) => {
+  const { getMaisRetornoQuotaStatus } = await import('./lib/maisRetorno.js');
+  const quota = await getMaisRetornoQuotaStatus();
+  res.json(ok('real', quota));
+}));
 app.get('/monitoring/state', wrap(async (_req, res) => res.json(ok(platformMode, { cadence: 'daily + manual', status: 'running', mode: platformMode, lastRunAt: new Date().toISOString() }))));
 app.get('/monitoring/outputs', wrap(async (_req, res) => res.json(ok(platformMode, await service.listMonitoringOutputsAll()))));
 app.get('/monitoring/triggers', wrap(async (_req, res) => {

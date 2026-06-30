@@ -14,6 +14,7 @@ import type {
   DataState,
   MonitoringSnapshot,
   MvpQuickActionsSnapshot,
+  MaisRetornoQuota,
   MvpReadiness,
   OriginationOperatingSystem,
   PipelineSnapshot,
@@ -108,6 +109,7 @@ export const api = {
   getCompanyEnvelope: (session: SessionData | null, id: string) => requestEnvelope<CompanyDetail>(`/companies/${id}`, session),
   getCompany: async (session: SessionData | null, id: string) => toState('Company detail', await requestEnvelope<CompanyDetail>(`/companies/${id}`, session)),
   getSources: async (session: SessionData | null) => toState('Sources catalog', await requestEnvelope<SourceEntry[]>('/sources/catalog', session)),
+  getMaisRetornoQuota: async (session: SessionData | null) => (await requestEnvelope<MaisRetornoQuota>('/sources/usage/mais-retorno', session)).data,
   getSearchProfiles: async (session: SessionData | null) => toState('Search profiles', await requestEnvelope<SearchProfile[]>('/search-profiles', session)),
   saveSearchProfile: async (session: SessionData | null, payload: Omit<SearchProfile, 'id' | 'status' | 'profilePayload'> & { id?: string; status?: 'active' | 'paused'; profilePayload?: Record<string, unknown> }) => (
     await requestEnvelope<SearchProfile>('/search-profiles', session, { method: 'POST', body: JSON.stringify(payload) })

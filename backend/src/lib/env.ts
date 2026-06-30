@@ -36,4 +36,5 @@ export const env = {
   maisRetornoApiPath: process.env.MAIS_RETORNO_API_PATH ?? '',
   maisRetornoMonthlyQuota: process.env.MAIS_RETORNO_MONTHLY_QUOTA ?? '500',
   maisRetornoMonthlyTarget: process.env.MAIS_RETORNO_MONTHLY_TARGET ?? '500',
+  voyageApiKey: process.env.VOYAGE_API_KEY ?? '',
 };
