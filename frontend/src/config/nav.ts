@@ -49,6 +49,12 @@ export const navItems = [
     description: 'Execução, diagnóstico e confiança dos agentes operacionais.',
   },
   {
+    to: '/capture-inbox',
+    label: 'Capture Inbox',
+    shortLabel: 'Inbox discovery',
+    description: 'Runs de discovery, candidatos capturados e promoção para o motor principal.',
+  },
+  {
     to: '/origination-os',
     label: 'Origination OS',
     shortLabel: 'Sistema operacional',

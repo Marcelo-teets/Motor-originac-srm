@@ -104,6 +104,17 @@ app.get('/search-profiles/:id/candidates', wrap(async (req, res) => {
 app.post('/search-profiles/candidates/:id/promote', wrap(async (req, res) => {
   res.json(ok(platformMode, await searchCaptureService.promoteCandidate(param(req.params.id))));
 }));
+app.get('/search-profile-runs', wrap(async (req, res) => {
+  const profileId = req.query?.searchProfileId ? String(req.query.searchProfileId) : undefined;
+  res.json(ok(platformMode, await searchCaptureRuntime.listRuns(profileId)));
+}));
+app.get('/discovered-candidates', wrap(async (req, res) => {
+  const profileId = req.query?.searchProfileId ? String(req.query.searchProfileId) : undefined;
+  res.json(ok(platformMode, await searchCaptureRuntime.listCandidates(profileId)));
+}));
+app.post('/discovered-candidates/:id/promote', wrap(async (req, res) => {
+  res.json(ok(platformMode, await searchCaptureService.promoteCandidate(param(req.params.id))));
+}));
 app.get('/companies', wrap(async (_req, res) => res.json(ok(platformMode, await service.listCompanies()))));
 app.get('/companies/:id', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
