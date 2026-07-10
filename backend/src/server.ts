@@ -6,6 +6,7 @@ import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
 import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
+import { getMaisRetornoQuotaStatus, quotaEnvelopeStatus } from './lib/maisRetorno.js';
 import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
 import { createWatchlistRouter } from './routes/watchlistRouter.js';
@@ -165,6 +166,10 @@ app.get('/dashboard/patterns', wrap(async (_req, res) => res.json(ok(platformMod
 app.get('/sources/catalog', wrap(async (_req, res) => res.json(ok(platformMode, await service.listSources()))));
 app.get('/sources/active', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).filter((item) => item.health !== 'down')))));
 app.get('/sources/health', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).map((item) => ({ id: item.id, health: item.health, status: item.status }))))));
+app.get('/sources/usage/mais-retorno', wrap(async (_req, res) => {
+  const quota = await getMaisRetornoQuotaStatus();
+  res.json(ok(quotaEnvelopeStatus(quota.mode), quota));
+}));
 app.get('/monitoring/state', wrap(async (_req, res) => res.json(ok(platformMode, { cadence: 'daily + manual', status: 'running', mode: platformMode, lastRunAt: new Date().toISOString() }))));
 app.get('/monitoring/outputs', wrap(async (_req, res) => res.json(ok(platformMode, await service.listMonitoringOutputsAll()))));
 app.get('/monitoring/triggers', wrap(async (_req, res) => {
