@@ -138,6 +138,15 @@ async function insertCaptureRun(input: CaptureRunInput) {
 }
 
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
+  if (!isAuthorizedRuntime(req)) {
+    writeJson(res, 401, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Unauthorized capture diagnostics request.',
+    });
+    return;
+  }
+
   const tables = [
     'companies',
     'source_catalog',

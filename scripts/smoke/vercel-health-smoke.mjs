@@ -1,5 +1,6 @@
 const DEFAULT_URL = 'https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/data-capture/health';
 const url = process.env.SMOKE_URL || DEFAULT_URL;
+const bearerToken = process.env.SMOKE_BEARER_TOKEN || '';
 const attempts = Number(process.env.SMOKE_ATTEMPTS || 12);
 const delayMs = Number(process.env.SMOKE_DELAY_MS || 10000);
 
@@ -33,18 +34,51 @@ function assertPayload(payload) {
   }
 }
 
+async function assertUnauthenticatedIsRejected() {
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const text = await response.text();
+  if (response.status !== 401) {
+    throw new Error(`Unauthenticated diagnostics request must return 401, got HTTP ${response.status}: ${text.slice(0, 240)}`);
+  }
+  const payload = JSON.parse(text);
+  if (payload.tables || payload.env) {
+    throw new Error('Unauthenticated diagnostics response must not expose tables or env flags.');
+  }
+  return payload;
+}
+
+async function assertAuthenticatedDiagnostics() {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${bearerToken}` },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 240)}`);
+  const payload = JSON.parse(text);
+  assertPayload(payload);
+  return payload;
+}
+
 let lastError;
 for (let attempt = 1; attempt <= attempts; attempt += 1) {
   try {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 240)}`);
-    const payload = JSON.parse(text);
-    assertPayload(payload);
+    await assertUnauthenticatedIsRejected();
+
+    if (!bearerToken) {
+      console.log(JSON.stringify({
+        ok: true,
+        url,
+        attempt,
+        checks: { unauthenticated401: true, authenticatedDiagnostics: 'skipped_missing_SMOKE_BEARER_TOKEN' },
+      }, null, 2));
+      process.exit(0);
+    }
+
+    const payload = await assertAuthenticatedDiagnostics();
     console.log(JSON.stringify({
       ok: true,
       url,
       attempt,
+      checks: { unauthenticated401: true, authenticatedDiagnostics: true },
       status: payload.status,
       generatedAt: payload.generatedAt,
       tables: Object.fromEntries((payload.tables || []).map((item) => [item.table, item.count])),

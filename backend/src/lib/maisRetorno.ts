@@ -43,6 +43,10 @@ const softTarget = () => Math.min(monthlyQuota(), clampQuota(env.maisRetornoMont
 
 export const getMaisRetornoMonthKey = (date = new Date()) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 
+// Contrato de evidência: quota persistida no Supabase é `real`; contagem em
+// memória/fallback nunca pode se declarar `real` (issue #126).
+export const quotaEnvelopeStatus = (mode: ReservationMode): 'real' | 'partial' => (mode === 'supabase' ? 'real' : 'partial');
+
 const reservationFromMemory = (purpose: string, reason?: string): MaisRetornoQuotaSnapshot => {
   const monthKey = getMaisRetornoMonthKey();
   const quota = monthlyQuota();
