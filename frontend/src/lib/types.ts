@@ -254,6 +254,18 @@ export type MvpReadiness = {
   deploy_health: { status: string; note: string };
 };
 export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
+export type MaisRetornoQuota = {
+  provider: string;
+  monthKey: string;
+  monthlyQuota: number;
+  softTarget: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+  warning: boolean;
+  mode: 'supabase' | 'memory';
+  reason?: string;
+};
 export type SessionData = { [key: string]: any; expires_at: number; user: { id: string; email?: string; role?: string } };
 export type SearchProfile = {
   id: string;

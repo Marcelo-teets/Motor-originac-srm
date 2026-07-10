@@ -46,6 +46,7 @@ const joinList = (items?: string[]) => (items?.length ? items.join(', ') : '-');
 export function SourcesPage() {
   const { session } = useAuth();
   const { data, loading, error } = useAsyncData(() => api.getSources(session), [session?.access_token]);
+  const { data: quotaEnvelope } = useAsyncData(() => api.getMaisRetornoQuota(session), [session?.access_token]);
 
   if (loading) return <LoadingState title="Sources" subtitle="Carregando catálogo de fontes, métricas monitoradas e cobertura operacional." />;
   if (error || !data) return <div className="page"><Card title="Sources" subtitle="Falha ao carregar catálogo">{error}</Card></div>;
@@ -72,6 +73,30 @@ export function SourcesPage() {
         <div className="decision-card"><Pill tone="warning">LinkedIn</Pill><strong>{linkedinSources.length}</strong><small>Métricas históricas de página, followers, headcount e cargos.</small></div>
         <div className="decision-card"><Pill tone="info">Com histórico</Pill><strong>{historicalMetricSources.length}</strong><small>Fontes com métricas ou tabelas históricas.</small></div>
       </section>
+
+      {quotaEnvelope?.data ? (
+        <Card
+          title="Connector Budget · Mais Retorno"
+          subtitle={`Quota mensal governada (${quotaEnvelope.data.monthKey})`}
+          className="dense-card"
+        >
+          <div className="mini-metric-grid">
+            <Stat label="Quota mensal" value={String(quotaEnvelope.data.monthlyQuota)} helper={`soft target ${quotaEnvelope.data.softTarget}`} />
+            <Stat label="Usado" value={String(quotaEnvelope.data.used)} helper={quotaEnvelope.data.allowed ? 'Chamadas liberadas' : 'Quota esgotada'} />
+            <Stat label="Restante" value={String(quotaEnvelope.data.remaining)} helper={quotaEnvelope.data.warning ? 'Acima de 80% da quota' : 'Consumo saudável'} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <Pill tone={quotaEnvelope.status === 'real' ? 'success' : 'warning'}>{quotaEnvelope.status === 'real' ? 'quota persistida (supabase)' : 'quota parcial (fallback)'}</Pill>
+            {quotaEnvelope.data.warning ? <Pill tone="warning">alerta: uso ≥ 80%</Pill> : null}
+            {!quotaEnvelope.data.allowed ? <Pill tone="warning">bloqueado: quota mensal esgotada</Pill> : null}
+          </div>
+          {quotaEnvelope.data.mode !== 'supabase' ? (
+            <p className="table-helper" style={{ marginTop: 8 }}>
+              A contagem está em memória/fallback e não é persistida nem verificável no Supabase. Os números podem zerar a cada deploy — configure o Supabase para governança real da quota.
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
 
       <section className="grid cols-3">
         <Card title="Cobertura por família" subtitle="Prioridade para origem de sinais reais" className="dense-card">
