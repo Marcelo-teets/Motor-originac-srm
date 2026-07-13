@@ -27,3 +27,13 @@ Sem `SMOKE_API_URL`/`CRON_SECRET`, o script não dispara captura nova e apenas a
 - `idShapes` com `runtime_text` em tabelas cujo schema vivo é `uuid` (ou colunas sempre `null`) confirma o drift do issue #128 — a migration de alinhamento deve ser escrita **a partir deste diagnóstico**, não do mirror local.
 - `identityContract` mostra o tipo real de `companies.id` e `source_catalog.id` em produção; é a fonte de verdade para definir o contrato canônico antes de qualquer DDL.
 - Tabela legível porém vazia após uma captura disparada indica gravação rejeitada silenciosamente (provável FK/tipo incompatível).
+
+## Resultado do diagnóstico no banco vivo (2026-07-13)
+
+Executado contra o projeto Supabase `hdghpmssudrqhsbvrdyt` via MCP:
+
+- **O drift uuid × text não existe**: `companies.id`, `source_catalog.id` e todas as colunas de captura são `uuid`; o runtime resolve os códigos canônicos (`src_*` em `source_catalog.metadata->>'code'`) para uuids antes de persistir.
+- **Volume real**: 783 runs, 5.520 documentos, 10.704 outputs, 12.707 sinais, 3.065 enrichments. `company_id` presente em ~100% das linhas.
+- **Defeito real encontrado**: o mapper de sinais não gravava a coluna `source_id` (uuid ficava só em `metadata.source_id`) — 0% de linhagem de fonte em `company_signals`.
+- **Correção aplicada**: coluna incluída no mapper + backfill (`032_company_signals_source_lineage_backfill.sql`) recuperando 11.985/12.707 sinais (94,3%); os 722 restantes não têm metadata recuperável.
+- `source_connector_runs.source_id` nulo é correto: todos os runs são `scope_type='global'`.
