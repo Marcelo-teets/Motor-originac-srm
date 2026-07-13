@@ -264,6 +264,7 @@ export class CapturePersistenceService {
       .map((signal) => ({
         id: signal.id,
         company_id: signal.companyId,
+        source_id: signal.sourceId ?? null,
         monitoring_output_id: signal.sourceId ? outputIdByCompanyAndSource.get(companySourceKey(signal.companyId, signal.sourceId)) ?? null : null,
         signal_type: signal.signalType,
         signal_label: String(signal.evidencePayload?.label ?? signal.signalType).replace(/_/g, ' '),
