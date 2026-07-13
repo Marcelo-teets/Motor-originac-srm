@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { AnchorTabs } from '../components/AnchorTabs';
 import { Card, DataStatusBanner, EmptyState, ErrorState, KeyValueList, LoadingState, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { WatchListStar } from '../components/WatchListStar';
 import { api } from '../lib/api';
@@ -191,6 +192,12 @@ export function CompanyDetailPage() {
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
+      <AnchorTabs items={[
+        { id: 'bloco-resumo', title: 'Resumo executivo' },
+        { id: 'bloco-analise', title: 'Análise & sinais' },
+        { id: 'bloco-decisao', title: 'Decisão & tese' },
+        { id: 'bloco-execucao', title: 'Execução comercial' },
+      ]} />
       {detail.abmHealth.status === 'partial' ? (
         <div className="state-box state-error">
           <Pill tone="warning">ABM parcial</Pill>
@@ -202,7 +209,7 @@ export function CompanyDetailPage() {
       ) : null}
       {feedback ? <div className="table-helper">{feedback}</div> : null}
 
-      <section className="hero executive-hero">
+      <section id="bloco-resumo" className="hero executive-hero" style={{ scrollMarginTop: 64 }}>
         <div>
           <p className="eyebrow">Header executivo</p>
           <h2>{detail.company.name}</h2>
@@ -221,7 +228,7 @@ export function CompanyDetailPage() {
         </div>
       </section>
 
-      <section className="grid cols-2 detail-layout">
+      <section id="bloco-decisao" className="grid cols-2 detail-layout" style={{ scrollMarginTop: 64 }}>
         <Card title="Thesis / Recommendation" subtitle="Resumo institucional, por que agora e estrutura sugerida" tone="accent" className="dense-card">
           <div className="recommendation-block">
             <div>
@@ -292,6 +299,7 @@ export function CompanyDetailPage() {
           ]} />
         </Card>
 
+        <span id="bloco-analise" aria-hidden="true" style={{ scrollMarginTop: 64 }} />
         <Card title="Signals" subtitle="Sinais recentes, fonte e força" className="dense-card">
           {detail.signals.length ? (
             <table className="dense-table">
@@ -345,6 +353,7 @@ export function CompanyDetailPage() {
           </div>
         </Card>
 
+        <span id="bloco-execucao" aria-hidden="true" style={{ scrollMarginTop: 64 }} />
         <Card title="Pipeline / Activities" subtitle="Estágio atual, última atividade e próxima ação" className="dense-card">
           {detail.activities.length ? (
             <ul className="list">

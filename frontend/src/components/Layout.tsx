@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { navItems } from '../config/nav';
+import { navGroups, navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
 
 export function Layout() {
@@ -13,23 +13,27 @@ export function Layout() {
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <p className="eyebrow">Origination Intelligence Platform</p>
+          <p className="eyebrow">Origination Intelligence</p>
           <h1>Motor SRM</h1>
-          <p className="sidebar-copy">Plataforma institucional para encontrar, explicar e converter oportunidades reais de crédito estruturado.</p>
+          <p className="sidebar-copy">Encontrar, explicar e converter oportunidades reais de crédito estruturado.</p>
         </div>
 
         <div className="sidebar-section">
-          <span className="sidebar-label">Workspace</span>
-          <nav>
-            {navItems.map((item) => (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={item.to === '/'}>
-                <span>
-                  <strong>{item.label}</strong>
-                  <small>{item.shortLabel}</small>
-                </span>
-              </NavLink>
-            ))}
-          </nav>
+          {navGroups.map((group) => (
+            <div key={group} className="sidebar-group">
+              <span className="sidebar-label">{group}</span>
+              <nav>
+                {navItems.filter((item) => item.group === group).map((item) => (
+                  <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={item.to === '/'}>
+                    <span>
+                      <strong>{item.label}</strong>
+                      <small>{item.shortLabel}</small>
+                    </span>
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
+          ))}
         </div>
 
         <div className="sidebar-footer">

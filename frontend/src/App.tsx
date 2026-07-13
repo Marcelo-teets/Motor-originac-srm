@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './lib/auth';
 import { AgentsPage } from './pages/AgentsPage';
+import { CaptureInboxPage } from './pages/CaptureInboxPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyDetailPage } from './pages/CompanyDetailPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="companies/:id" element={<CompanyDetailPage />} />
         <Route path="watch-lists" element={<WatchListPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />
+        <Route path="capture-inbox" element={<CaptureInboxPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
