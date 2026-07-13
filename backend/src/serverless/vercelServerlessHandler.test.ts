@@ -16,7 +16,15 @@ const buildRequest = (path: string, headers: Record<string, string> = {}) =>
 
 const buildResponse = () => {
   const captured: CapturedResponse = { statusCode: 0, payload: null };
+  const headers: Record<string, string> = {};
   const res = {
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = String(value);
+      return res;
+    },
+    getHeader(name: string) {
+      return headers[name.toLowerCase()];
+    },
     writeHead(statusCode: number) {
       captured.statusCode = statusCode;
       return res;
