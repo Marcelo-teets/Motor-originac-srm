@@ -1,0 +1,33 @@
+name: Agent Apply Runtime Integration
+
+on:
+  push:
+    branches:
+      - agent/ranking-capture-inbox
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/ranking-capture-inbox
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply focused patch
+        run: node scripts/agent/apply-runtime-integration.mjs
+      - name: Remove one-off patch helpers
+        run: rm scripts/agent/apply-runtime-integration.mjs .github/workflows/agent-apply-runtime-integration.yml
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/platformService.ts backend/src/server.ts frontend/src/pages/CaptureInboxPage.tsx scripts/agent/apply-runtime-integration.mjs .github/workflows/agent-apply-runtime-integration.yml
+          git commit -m "feat(runtime): use persisted ranking and wire capture inbox"
+          git push origin HEAD:agent/ranking-capture-inbox
