@@ -47,8 +47,8 @@ export function CaptureInboxPage() {
     try {
       setLoading(true);
       const [runsResponse, candidatesResponse] = await Promise.all([
-        fetch(buildApiUrl('/search-profile-runs'), { headers }),
-        fetch(buildApiUrl('/discovered-candidates'), { headers }),
+        fetch(buildApiUrl('/search-profile-runs'), { headers, credentials: 'include' }),
+        fetch(buildApiUrl('/discovered-candidates'), { headers, credentials: 'include' }),
       ]);
 
       const runsPayload = await runsResponse.json();
@@ -74,6 +74,7 @@ export function CaptureInboxPage() {
       const response = await fetch(buildApiUrl(`/discovered-candidates/${candidateId}/promote`), {
         method: 'POST',
         headers,
+        credentials: 'include',
       });
 
       if (!response.ok) {
