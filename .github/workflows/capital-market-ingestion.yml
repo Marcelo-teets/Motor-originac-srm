@@ -88,14 +88,21 @@ jobs:
       - name: Smoke CVM offers through deployed API
         if: github.event_name == 'push'
         run: |
-          for ATTEMPT in $(seq 1 18); do
-            echo "Serverless smoke attempt ${ATTEMPT}/18"
+          for ATTEMPT in $(seq 1 24); do
+            echo "Serverless smoke attempt ${ATTEMPT}/24 for commit ${GITHUB_SHA}"
             RESPONSE=$(curl -sS --max-time 40 -w "\nHTTP_STATUS:%{http_code}\n" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=1000" || true)
             STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | cut -d: -f2)
             BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
             echo "$BODY"
+            DEPLOYED_SHA=$(printf '%s' "$BODY" | node -e "let b='';process.stdin.on('data',d=>b+=d).on('end',()=>{try{process.stdout.write(JSON.parse(b).deploymentCommitSha||'')}catch{}})")
+
+            if [ "$DEPLOYED_SHA" != "$GITHUB_SHA" ]; then
+              echo "Deployment SHA ${DEPLOYED_SHA:-missing} does not match ${GITHUB_SHA}; retrying after promotion."
+              sleep 10
+              continue
+            fi
 
             if { [ "$STATUS" = "200" ] || [ "$STATUS" = "207" ]; } \
               && echo "$BODY" | grep -q 'recordsSeen'; then
@@ -104,7 +111,7 @@ jobs:
             sleep 10
           done
 
-          echo "Capital-market serverless smoke did not complete successfully."
+          echo "Capital-market serverless smoke did not complete on the expected deployment."
           exit 1
 
       - name: Ingest CVM capital-market datasets directly
