@@ -11,6 +11,7 @@ on:
       - backend/src/cli/capitalMarkets.ts
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/.cvm-trigger
       - db/migrations/035_capital_market_public_data.sql
       - db/migrations/036_capital_market_dataset_runs_source_index.sql
       - db/migrations/043_capital_market_single_running_guard.sql
