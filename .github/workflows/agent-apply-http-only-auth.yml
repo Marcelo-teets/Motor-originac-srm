@@ -1,0 +1,38 @@
+name: Agent Apply HttpOnly Auth
+
+on:
+  push:
+    branches:
+      - agent/http-only-auth
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/http-only-auth
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply HttpOnly auth patch
+        run: node scripts/agent/apply-http-only-auth.mjs
+      - name: Remove one-off helpers
+        run: rm scripts/agent/apply-http-only-auth.mjs .github/workflows/agent-apply-http-only-auth.yml
+      - name: Validate
+        run: |
+          npm install
+          npm run typecheck
+          npm run build
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/lib/auth.ts backend/src/server.ts frontend/src/lib/api.ts frontend/src/lib/auth.tsx frontend/src/lib/types.ts scripts/agent/apply-http-only-auth.mjs .github/workflows/agent-apply-http-only-auth.yml
+          git commit -m "feat(auth): move browser session to HttpOnly cookie"
+          git push origin HEAD:agent/http-only-auth
