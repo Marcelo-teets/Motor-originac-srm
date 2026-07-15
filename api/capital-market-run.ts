@@ -35,12 +35,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const host = getHeader(req, 'host') ?? 'localhost';
   const url = new URL((req as any).url ?? '/', `https://${host}`);
   const requestedDataset = String(url.searchParams.get('dataset') ?? 'cvm_offers');
+  const mode = String(url.searchParams.get('mode') ?? 'run');
 
   try {
-    const [{ CVM_DATASETS }, { CapitalMarketIngestionService }] = await Promise.all([
-      import('../backend/src/modules/capital-markets/cvmCapitalMarketConnector.js'),
-      import('../backend/src/services/capitalMarketIngestionService.js'),
-    ]);
+    const connector = await import('../backend/src/modules/capital-markets/cvmCapitalMarketConnector.js');
+    const { CVM_DATASETS } = connector;
 
     if (!Object.prototype.hasOwnProperty.call(CVM_DATASETS, requestedDataset)) {
       writeJson(res, 400, {
@@ -53,11 +52,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const parsedMaxRows = Number(url.searchParams.get('maxRows') ?? '1000');
-    const maxRows = Number.isFinite(parsedMaxRows) ? Math.max(1, Math.min(Math.trunc(parsedMaxRows), 5_000)) : 1_000;
     const reference = url.searchParams.get('reference') ?? undefined;
     const dataset = requestedDataset as keyof typeof CVM_DATASETS;
 
+    if (mode === 'probe') {
+      const resources = await connector.discoverCvmResources(dataset, reference);
+      writeJson(res, 200, {
+        status: 'real',
+        probe: 'ok',
+        generatedAt: new Date().toISOString(),
+        dataset,
+        reference: reference ?? null,
+        resources: resources.map((resource) => ({
+          id: resource.id ?? null,
+          name: resource.name,
+          format: resource.format ?? null,
+          lastModified: resource.last_modified ?? null,
+        })),
+        ...deploymentMetadata(),
+      });
+      return;
+    }
+
+    if (mode !== 'run') {
+      writeJson(res, 400, {
+        status: 'partial',
+        generatedAt: new Date().toISOString(),
+        error: `Invalid mode: ${mode}`,
+        allowedModes: ['run', 'probe'],
+        ...deploymentMetadata(),
+      });
+      return;
+    }
+
+    const parsedMaxRows = Number(url.searchParams.get('maxRows') ?? '1000');
+    const maxRows = Number.isFinite(parsedMaxRows) ? Math.max(1, Math.min(Math.trunc(parsedMaxRows), 5_000)) : 1_000;
+    const { CapitalMarketIngestionService } = await import('../backend/src/services/capitalMarketIngestionService.js');
     const result = await new CapitalMarketIngestionService().run({
       datasets: [dataset],
       reference,
