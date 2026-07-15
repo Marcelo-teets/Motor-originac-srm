@@ -103,8 +103,8 @@ export const normalizeCapitalMarketRecord = (input: {
     'Competencia', 'Mes Competencia', 'Data Competencia',
   ) ?? pick.matching(/(dt|data).*(refer|comptc|competencia)/));
   const eventDate = parseDate(pick(
-    'Data Registro', 'DT Registro', 'Data Inicio', 'DT Inicio', 'Data Emissao', 'DT Emissao',
-    'Data Constituicao', 'Data Funcionamento', 'Data Oferta',
+    'Data Registro Oferta', 'Data Registro', 'DT Registro', 'Data Inicio Oferta', 'Data Inicio', 'DT Inicio',
+    'Data Emissao', 'DT Emissao', 'Data Constituicao', 'Data Funcionamento', 'Data Oferta',
   ) ?? pick.matching(/(dt|data).*(registro|inicio|emissao|constituicao|funcionamento|oferta)/));
   const maturityDate = parseDate(pick('Data Vencimento', 'DT Vencimento', 'Vencimento', 'Data Final', 'DT Final'));
   const instrumentType = inferInstrument(definition, pick);
@@ -121,21 +121,23 @@ export const normalizeCapitalMarketRecord = (input: {
   const series = pick('Serie', 'Numero Serie', 'NR Serie', 'Classe Serie', 'Subclasse', 'Numero Emissao', 'NR Emissao');
   const status = pick('Situacao Oferta', 'Status Oferta', 'Situacao', 'Status', 'Situacao Fundo', 'Situacao Classe');
   const volume = parseNumber(pick(
-    'Valor Total Oferta', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
+    'Valor Total', 'Valor Total Oferta', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
     'Patrimonio Liquido', 'VL Patrimonio Liquido', 'PL', 'Valor Emissao', 'VL Emissao',
     'Saldo Devedor', 'VL Saldo Devedor', 'Valor Captado', 'VL Captado',
   ) ?? pick.matching(/(valor|vl|montante|volume).*(totaloferta|oferta|patrimonioliquido|emissao|saldodevedor|captado)/, /(^|.*)vlpl$/));
   const contentHash = stableHash(JSON.stringify(input.row));
-  const recordKey = stableHash([
-    input.datasetCode,
-    input.resource.name,
-    input.fileName,
+  const normalizedIssuer = normalizeKey(issuerName ?? fundName ?? '');
+  const naturalIdentity = [
     offerId,
     securityCode,
-    issuerCnpj,
-    fundCnpj,
-    referenceDate,
-    contentHash,
+    issuerCnpj ?? fundCnpj ?? normalizedIssuer,
+    series,
+    referenceDate ?? eventDate,
+    instrumentType,
+  ].filter(Boolean).join('|');
+  const recordKey = stableHash([
+    input.datasetCode,
+    naturalIdentity || `${input.resource.name}|${input.fileName}|${contentHash}`,
   ].join('|'));
   const entityCnpj = issuerCnpj ?? fundCnpj;
 
@@ -181,6 +183,7 @@ export const normalizeCapitalMarketRecord = (input: {
       dataset_code: input.datasetCode,
       source_code: definition.sourceCode,
       record_key: recordKey,
+      content_hash: contentHash,
       event_type: definition.eventType,
       instrument_type: instrumentType,
       issuer_cnpj: issuerCnpj,
