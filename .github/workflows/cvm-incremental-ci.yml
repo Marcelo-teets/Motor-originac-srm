@@ -1,0 +1,30 @@
+name: CVM Incremental CI
+
+on:
+  push:
+    branches:
+      - agent/cvm-incremental-checkpoints
+  pull_request:
+    paths:
+      - 'backend/src/modules/capital-markets/**'
+      - 'backend/src/services/capitalMarketIngestionService*'
+      - 'db/migrations/037_capital_market_incremental_checkpoints.sql'
+      - '.github/workflows/cvm-incremental-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm -C backend run typecheck
+      - run: npm -C backend test
+      - run: npm run build
