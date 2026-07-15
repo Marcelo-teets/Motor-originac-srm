@@ -69,6 +69,22 @@ test('selectDatasetResources prefers requested reference and latest resource', (
   assert.equal(selected[0].name, 'inf_mensal_fidc_202601.zip');
 });
 
+test('selectDatasetResources prefers newest competence over reprocessing timestamp', () => {
+  const selected = selectDatasetResources(CVM_DATASETS.cvm_fidc_monthly, [
+    { name: 'inf_mensal_fidc_202605.zip', url: 'https://example/202605.zip', last_modified: '2026-07-14' },
+    { name: 'inf_mensal_fidc_202606.zip', url: 'https://example/202606.zip', last_modified: '2026-07-13' },
+  ]);
+  assert.equal(selected[0].name, 'inf_mensal_fidc_202606.zip');
+});
+
+test('selectDatasetResources prioritizes Resolution 160 offers over the legacy archive', () => {
+  const selected = selectDatasetResources(CVM_DATASETS.cvm_offers, [
+    { name: 'Ofertas de Distribuição', url: 'https://example/oferta_distribuicao.csv', last_modified: '2026-07-14' },
+    { name: 'Ofertas Resolução 160', url: 'https://example/oferta_resolucao_160.csv', last_modified: '2026-07-13' },
+  ]);
+  assert.match(selected[0].url, /resolucao_160/);
+});
+
 test('prioritizeCvmRows puts the newest offering first', () => {
   const rows = prioritizeCvmRows('cvm_offers', [
     { Data_Registro_Oferta: '1993-09-29', Numero_Registro_Oferta: 'OLD' },
