@@ -1,22 +1,6 @@
-name: Capture Data
+name: Manual Capture Verification
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/capture.yml
-      - api/index.ts
-      - backend/frontend/api/index.ts
-      - backend/src/modules/data-capture/**
-      - backend/src/services/capture*Service.ts
-      - backend/src/lib/connectors.ts
-      - backend/src/lib/qualification.ts
-      - backend/src/lib/patterns.ts
-      - backend/src/lib/scoring.ts
-      - db/migrations/**
-  schedule:
-    - cron: "0 8 * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -45,10 +29,12 @@ jobs:
           STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
 
-          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
-            echo "Capture failed with status $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Capture did not finish as real (HTTP $STATUS)"
             exit 1
           fi
 
-          echo "$BODY" | grep -q 'companiesProcessed' || (echo "Capture endpoint did not return the expected runtime payload" && exit 1)
-          echo "$BODY" | grep -q 'persisted' || (echo "Capture endpoint did not return persistence summary" && exit 1)
+          echo "$BODY" | jq -e '.status == "real"' >/dev/null || (echo "Capture runtime returned a degraded status" && exit 1)
+          echo "$BODY" | jq -e '.data.companiesProcessed >= 1' >/dev/null || (echo "Capture did not process companies" && exit 1)
+          echo "$BODY" | jq -e '.data.persisted.status == "real"' >/dev/null || (echo "Persistence did not finish as real" && exit 1)
+          echo "$BODY" | jq -e '.data.derived.status == "real"' >/dev/null || (echo "Derived sync did not finish as real" && exit 1)

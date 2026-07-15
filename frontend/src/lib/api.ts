@@ -26,6 +26,7 @@ import type {
   SearchProfileCandidate,
   SessionData,
   SourceEntry,
+  SourceIntelligenceSnapshot,
   TaskRecord,
 } from './types';
 import { buildApiUrl } from './runtimeConfig';
@@ -109,6 +110,7 @@ export const api = {
   getCompanyEnvelope: (session: SessionData | null, id: string) => requestEnvelope<CompanyDetail>(`/companies/${id}`, session),
   getCompany: async (session: SessionData | null, id: string) => toState('Company detail', await requestEnvelope<CompanyDetail>(`/companies/${id}`, session)),
   getSources: async (session: SessionData | null) => toState('Sources catalog', await requestEnvelope<SourceEntry[]>('/sources/catalog', session)),
+  getSourceIntelligence: async (session: SessionData | null) => toState('Source intelligence', await requestEnvelope<SourceIntelligenceSnapshot>('/sources/intelligence', session)),
   getMaisRetornoQuota: async (session: SessionData | null): Promise<ApiEnvelope<MaisRetornoQuota> | null> => {
     try {
       return await requestEnvelope<MaisRetornoQuota>('/sources/usage/mais-retorno', session);

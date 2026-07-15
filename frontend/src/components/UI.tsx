@@ -35,7 +35,15 @@ export function ProgressBar({ value, max = 100, tone = 'default' }: { value: num
   const safeMax = max > 0 ? max : 100;
   const safeValue = Number.isFinite(value) ? value : 0;
   const width = `${Math.min(100, Math.max(0, Math.round((safeValue / safeMax) * 100)))}%`;
-  return <div className="bar"><i className={`bar-${tone}`} style={{ width } as CSSProperties} /></div>;
+  return (
+    <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={safeMax} aria-valuenow={Math.min(safeMax, Math.max(0, safeValue))}>
+      <i className={`bar-${tone}`} style={{ width } as CSSProperties} />
+    </div>
+  );
+}
+
+export function TableViewport({ children, minWidth, label = 'Tabela com rolagem horizontal' }: PropsWithChildren<{ minWidth?: number; label?: string }>) {
+  return <div className="table-viewport" role="region" aria-label={label} tabIndex={0} style={minWidth ? { '--table-min-width': `${minWidth}px` } as CSSProperties : undefined}>{children}</div>;
 }
 
 export function KeyValueList({ items }: { items: Array<{ label: string; value: ReactNode }> }) {

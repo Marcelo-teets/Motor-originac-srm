@@ -47,8 +47,8 @@ Search Profile
 ## Priority sources added in this package
 
 ### FIDC / funds
-- `src_cvm_fidc_informe_mensal`
-- `src_cvm_fundos_cadastral`
+- `src_cvm_fidc_monthly`
+- `src_cvm_fund_registry`
 - `src_cvm_fundos_estruturados_medidas`
 - `src_cvm_fundos_documentos_entrega`
 - `src_anbima_fundos_estruturados`
@@ -94,6 +94,11 @@ Use existing company registry and future company master connectors to map:
 
 ## Planned runtime wiring
 
+The canonical CVM capital-market ingestion already owns `src_cvm_fidc_monthly`
+and `src_cvm_fund_registry`, including dataset selection, checkpoints and
+persisted lineage. The remaining items below extend that runtime; they must not
+create a second ingestion path for the same datasets.
+
 ### Monitoring / raw outputs
 - CVM resource discovery by dataset package
 - ANBIMA paginated pulls for structured funds
@@ -115,9 +120,9 @@ Examples:
 
 ## Next implementation steps
 
-1. Wire the new source catalog into `sourceCatalogSeeds`.
-2. Create a FIDC ingestion job for CVM monthly ZIP datasets.
-3. Add ANBIMA structured funds pagination runner.
+1. Project operational CVM lineage into the source-intelligence telemetry.
+2. Add loaders for structured-fund measures and document-delivery datasets.
+3. Add the authenticated ANBIMA structured-funds pagination runner.
 4. Normalize provider CNPJs into the Motor graph.
 5. Reuse Portal da Transparência for provider exposure checks.
 6. Feed qualification/patterns with explicit FIDC ecosystem evidence.

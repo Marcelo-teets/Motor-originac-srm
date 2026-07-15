@@ -97,6 +97,79 @@ export type SourceCatalogEntry = {
   rateLimitNotes?: string;
 };
 
+export type SourceEvidenceStatus = 'observed' | 'awaiting_capture' | 'needs_setup' | 'planned';
+
+export type SourceIntelligenceRow = {
+  id: string;
+  code: string;
+  name: string;
+  url?: string;
+  family: string;
+  sourceType: string;
+  category: string;
+  status: SourceCatalogEntry['status'];
+  health: SourceCatalogEntry['health'];
+  captureMode: string;
+  cadence: string;
+  authRequirement?: string;
+  captureRecordsTotal: number;
+  captureRecords30d: number;
+  outputsTotal: number;
+  outputs24h: number;
+  outputs30d: number;
+  companiesCovered: number;
+  averageConfidence: number | null;
+  lastCaptureAt: string | null;
+  lastObservedAt: string | null;
+  evidenceStatus: SourceEvidenceStatus;
+  recommendedAction: string;
+};
+
+export type SourceIntelligenceSnapshot = {
+  generatedAt: string;
+  summary: {
+    totalSources: number;
+    realSources: number;
+    observedSources: number;
+    degradedSources: number;
+    outputs24h: number;
+    companiesCovered: number;
+  };
+  families: Array<{
+    family: string;
+    sources: number;
+    realSources: number;
+    observedSources: number;
+    degradedSources: number;
+    outputs30d: number;
+  }>;
+  sources: SourceIntelligenceRow[];
+  coverageGaps: SourceIntelligenceRow[];
+};
+
+export type SourceOutputMetrics = {
+  sourceId: string;
+  captureRecordsTotal: number;
+  captureRecords30d: number;
+  outputsTotal: number;
+  outputs24h: number;
+  outputs30d: number;
+  companiesCovered: number;
+  averageConfidence: number | null;
+  lastCaptureAt: string | null;
+  lastObservedAt: string | null;
+  globalCompaniesCovered?: number;
+};
+
+export type CompanyIntelligenceMetrics = {
+  companyId: string;
+  outputs24h: number;
+  triggers24h: number;
+  lastCaptureAt: string | null;
+  latestEvidenceAt: string | null;
+  latestEvidenceSummary: string | null;
+};
+
 export type QualificationSnapshot = {
   companyId: string;
   has_credit_product: boolean;
@@ -306,6 +379,10 @@ export type CompanyView = {
   sourceConfidence: number;
   triggerStrength: number;
   topPatterns: string[];
+  rankingScore: number;
+  rankingPosition: number;
+  latestEvidence: string;
+  latestEvidenceAt: string | null;
 };
 
 export type CompanyDetailView = {

@@ -34,6 +34,9 @@ const isAuthorizedCron = (req: IncomingMessage) => {
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
+const resolvedUseSupabase = () => process.env.USE_SUPABASE
+  ? process.env.USE_SUPABASE === 'true'
+  : envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
 
 const supabaseHost = () => {
   try {
@@ -139,6 +142,15 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
 }
 
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
+  if (!isAuthorizedCron(req)) {
+    writeJson(res, 401, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Unauthorized capture diagnostics request.',
+    });
+    return;
+  }
+
   const tables = [
     'companies',
     'source_catalog',
@@ -197,7 +209,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/services/captureRuntimeService.js'),
     ]);
-    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(resolvedUseSupabase() ? 'supabase' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await runtime.run({
       companyId: requestedCompanyId ?? undefined,
@@ -208,7 +220,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
     const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
     await insertCaptureAuditRun({
       triggerType,
-      status: result.persisted.status === 'real' ? 'completed' : 'partial',
+      status: result.status === 'real' ? 'completed' : 'partial',
       startedAt,
       finishedAt: new Date().toISOString(),
       companyId: requestedCompanyId,
@@ -230,7 +242,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
         persisted: result.persisted,
       },
     });
-    writeJson(res, result.persisted.status === 'real' ? 200 : 207, { status: result.persisted.status, generatedAt: new Date().toISOString(), data: result });
+    writeJson(res, result.status === 'real' ? 200 : 207, { status: result.status, generatedAt: new Date().toISOString(), data: result });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await insertCaptureAuditRun({
@@ -248,7 +260,9 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
         query: Object.fromEntries(url.searchParams.entries()),
       },
     });
-    writeJson(res, 500, {
+    const requestedStatus = Number((error as { statusCode?: number })?.statusCode ?? 500);
+    const statusCode = requestedStatus >= 400 && requestedStatus < 500 ? requestedStatus : 500;
+    writeJson(res, statusCode, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
       error: errorMessage,

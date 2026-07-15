@@ -116,6 +116,10 @@ export type CompanyListItem = {
   topPatterns: string[];
   thesis?: string;
   nextAction?: string;
+  rankingScore: number;
+  rankingPosition: number;
+  latestEvidence: string;
+  latestEvidenceAt: string | null;
 };
 
 export type CompanyDetail = {
@@ -253,7 +257,68 @@ export type MvpReadiness = {
   frontend_runtime: { status: string; stack: string };
   deploy_health: { status: string; note: string };
 };
-export type SourceEntry = { id: string; name: string; sourceType: string; category: string; status: string; health: string };
+export type SourceEntry = {
+  id: string;
+  name: string;
+  url?: string;
+  sourceType: string;
+  category: string;
+  status: string;
+  health: string;
+  authRequirement?: string;
+  rateLimitNotes?: string;
+  metadata: Record<string, unknown>;
+};
+
+export type SourceEvidenceStatus = 'observed' | 'awaiting_capture' | 'needs_setup' | 'planned';
+
+export type SourceIntelligenceRow = {
+  id: string;
+  code: string;
+  name: string;
+  url?: string;
+  family: string;
+  sourceType: string;
+  category: string;
+  status: string;
+  health: string;
+  captureMode: string;
+  cadence: string;
+  authRequirement?: string;
+  captureRecordsTotal: number;
+  captureRecords30d: number;
+  outputsTotal: number;
+  outputs24h: number;
+  outputs30d: number;
+  companiesCovered: number;
+  averageConfidence: number | null;
+  lastCaptureAt: string | null;
+  lastObservedAt: string | null;
+  evidenceStatus: SourceEvidenceStatus;
+  recommendedAction: string;
+};
+
+export type SourceIntelligenceSnapshot = {
+  generatedAt: string;
+  summary: {
+    totalSources: number;
+    realSources: number;
+    observedSources: number;
+    degradedSources: number;
+    outputs24h: number;
+    companiesCovered: number;
+  };
+  families: Array<{
+    family: string;
+    sources: number;
+    realSources: number;
+    observedSources: number;
+    degradedSources: number;
+    outputs30d: number;
+  }>;
+  sources: SourceIntelligenceRow[];
+  coverageGaps: SourceIntelligenceRow[];
+};
 export type MaisRetornoQuota = {
   provider: string;
   monthKey: string;

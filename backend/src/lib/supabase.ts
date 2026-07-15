@@ -4,6 +4,7 @@ type QueryOptions = {
   select?: string;
   orderBy?: { column: string; ascending?: boolean };
   limit?: number;
+  range?: { from: number; to: number };
   filters?: FilterDefinition[];
 };
 
@@ -54,9 +55,24 @@ class SupabaseRestClient {
   }
 
   async select(table: string, options?: QueryOptions) {
-    const response = await fetch(this.buildUrl(table, options), { headers: this.headers() });
+    const response = await fetch(this.buildUrl(table, options), {
+      headers: this.headers(options?.range ? {
+        Range: `${options.range.from}-${options.range.to}`,
+        'Range-Unit': 'items',
+      } : undefined),
+    });
     if (!response.ok) throw new Error(`Supabase select failed for ${table}: ${response.status} ${await response.text()}`);
     return response.json();
+  }
+
+  async selectAll(table: string, options?: Omit<QueryOptions, 'limit' | 'range'>, pageSize = 1000) {
+    const rows: unknown[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const page = await this.select(table, { ...options, range: { from, to: from + pageSize - 1 } });
+      if (!Array.isArray(page)) return page;
+      rows.push(...page);
+      if (page.length < pageSize) return rows;
+    }
   }
 
   async upsert(table: string, rows: unknown[], onConflict?: string) {

@@ -1,5 +1,6 @@
 import { computeSourceTreatmentImpact, hasTreatmentTag } from './sourceTreatment.js';
 import type { CompanyPattern, CompanySeed, MonitoringOutput, PatternCatalogEntry, QualificationSnapshot } from '../types/platform.js';
+import { buildDeterministicUuid } from '../modules/data-capture/documentFingerprint.js';
 
 const matches = (texts: string[], pattern: RegExp) => texts.some((text) => pattern.test(text.toLowerCase()));
 const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, '_');
@@ -163,7 +164,7 @@ export const detectCompanyPatterns = (
       const rule = rules[pattern.patternName];
       const evidence = texts.slice(0, 4);
       return {
-        id: `${company.id}_${pattern.id}`,
+        id: buildDeterministicUuid(['company_pattern', company.id, pattern.id]),
         companyId: company.id,
         patternId: pattern.id,
         patternName: pattern.patternName,

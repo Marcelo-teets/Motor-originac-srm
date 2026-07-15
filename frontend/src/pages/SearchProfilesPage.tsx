@@ -29,6 +29,12 @@ const profileGroups: Array<{ title: string; fields: Array<{ key: keyof SearchPro
   },
 ];
 
+const signalIntensityThreshold: Record<string, number> = {
+  Alta: 80,
+  Média: 65,
+  Baixa: 50,
+};
+
 export function SearchProfilesPage() {
   const { session } = useAuth();
   const [draft, setDraft] = useState<SearchProfileDraft>(defaultSearchProfileDraft);
@@ -65,7 +71,7 @@ export function SearchProfilesPage() {
         creditProduct: draft.creditProduct,
         receivables: draft.receivables.split(',').map((item) => item.trim()).filter(Boolean),
         targetStructure: draft.targetStructure,
-        minimumSignalIntensity: Number(draft.signalIntensity.replace(/\D/g, '') || 60),
+        minimumSignalIntensity: signalIntensityThreshold[draft.signalIntensity] ?? 65,
         minimumConfidence: Number(draft.minimumConfidence.replace(',', '.').replace(/[^0-9.]/g, '') || 0.7),
         timeWindowDays: Number(draft.timeWindow.replace(/\D/g, '') || 90),
         profilePayload: { createdFromUi: true },

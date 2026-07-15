@@ -1,6 +1,13 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
 
-const sanitizeText = (value: string) => value.replace(/<[^>]+>/g, ' ').replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const sanitizeText = (value: string) => value
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&#39;/g, "'")
+  .replace(/&quot;/g, '"')
+  .replace(/\s+/g, ' ')
+  .trim();
 const nowIso = () => new Date().toISOString();
 const toConfidence = (status: 'real' | 'partial') => (status === 'real' ? 0.82 : 0.45);
 
@@ -123,7 +130,7 @@ const dedupeRssSources = (sources: Array<{ source: RuntimeSource; url: string }>
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
   try {
-    const response = await fetch(endpoint, { headers: { accept: 'application/json' } });
+    const response = await fetch(endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8_000) });
     if (!response.ok) throw new Error(`BrasilAPI status ${response.status}`);
     return { status: 'real' as const, data: await response.json(), endpoint };
   } catch (error) {
@@ -133,35 +140,49 @@ export async function fetchBrasilApiCompany(cnpj: string) {
 
 export async function fetchRssFeed(feedUrl: string) {
   try {
-    const response = await fetch(feedUrl, { headers: { accept: 'application/rss+xml, application/xml, text/xml' } });
+    const response = await fetch(feedUrl, { headers: { accept: 'application/rss+xml, application/xml, text/xml' }, signal: AbortSignal.timeout(8_000) });
     if (!response.ok) throw new Error(`RSS status ${response.status}`);
     const xml = await response.text();
-    const items = [...xml.matchAll(/<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?(?:<pubDate>(.*?)<\/pubDate>)?[\s\S]*?<description>(.*?)<\/description>/g)]
-      .slice(0, 3)
-      .map((match) => ({
-        title: sanitizeText(match[1] ?? ''),
-        link: sanitizeText(match[2] ?? ''),
-        publishedAt: sanitizeText(match[3] ?? nowIso()),
-        description: sanitizeText(match[4] ?? ''),
-      }));
+    const textForTag = (block: string, tag: string) => sanitizeText(
+      block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] ?? '',
+    );
+    const items = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)]
+      .map((match) => {
+        const block = match[1] ?? '';
+        return {
+          title: textForTag(block, 'title'),
+          link: textForTag(block, 'link'),
+          publishedAt: textForTag(block, 'pubDate') || undefined,
+          description: textForTag(block, 'description'),
+        };
+      })
+      .filter((item) => Boolean(item.title || item.description))
+      .slice(0, 3);
+    if (!items.length) {
+      return { status: 'partial' as const, items: [], sourceUrl: feedUrl, error: 'empty_feed' };
+    }
     return { status: 'real' as const, items, sourceUrl: feedUrl };
   } catch (error) {
     return {
       status: 'partial' as const,
-      items: [{ title: 'RSS fallback', link: feedUrl, publishedAt: new Date().toUTCString(), description: error instanceof Error ? error.message : 'unknown_error' }],
+      items: [],
       sourceUrl: feedUrl,
+      error: error instanceof Error ? error.message : 'unknown_error',
     };
   }
 }
 
 export async function monitorCompanyWebsite(url: string) {
   try {
-    const response = await fetch(url, { headers: { accept: 'text/html' } });
+    const response = await fetch(url, { headers: { accept: 'text/html' }, signal: AbortSignal.timeout(8_000) });
     if (!response.ok) throw new Error(`Website status ${response.status}`);
     const html = await response.text();
     const title = sanitizeText(html.match(/<title>(.*?)<\/title>/i)?.[1] ?? 'homepage');
     const headings = [...html.matchAll(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/gi)].slice(0, 6).map((match) => sanitizeText(match[1]));
     const bodyText = sanitizeText(html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')).slice(0, 1200);
+    if (!headings.some(Boolean) && bodyText.length < 40) {
+      return { status: 'partial' as const, title, headings: [], bodyText: '', sourceUrl: url, error: 'empty_page' };
+    }
     return { status: 'real' as const, title, headings, bodyText, sourceUrl: url };
   } catch (error) {
     return { status: 'partial' as const, title: 'website_fallback', headings: [error instanceof Error ? error.message : 'unreachable'], bodyText: '', sourceUrl: url };
@@ -313,21 +334,30 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
     )] : []),
     ...rssResults.map((rss, index) => {
       const runtime = rssSources[index];
+      const hasEvidence = rss.status === 'real' && rss.items.length > 0;
       return buildOutput(
         company,
         runtime.source,
-        `${runtime.source.name} · ${company.tradeName}`,
-        rss.items.map((item) => item.title).join(' | '),
+        hasEvidence
+          ? `${runtime.source.name} · ${company.tradeName}`
+          : `${runtime.source.name} · captura sem evidência`,
+        hasEvidence
+          ? rss.items.map((item) => item.title).join(' | ')
+          : `Nenhum item útil retornado para ${company.tradeName}.`,
         collectedAt,
         rss.status,
-        rss.status === 'real' ? 0.7 : 0.4,
-        { items: rss.items, ...connectorMetadata(rss.sourceUrl, collectedAt, rss.status === 'real' ? 0.7 : 0.4, runtime.source.runtimeCode) },
+        hasEvidence ? 0.7 : 0.2,
+        {
+          items: rss.items,
+          error: rss.status === 'partial' ? rss.error : undefined,
+          ...connectorMetadata(rss.sourceUrl, collectedAt, hasEvidence ? 0.7 : 0.2, runtime.source.runtimeCode),
+        },
       );
     }),
   ];
 
   const signals: CompanySignal[] = [
-    ...(website && websiteSource ? [buildSignal(
+    ...(website?.status === 'real' && websiteSource ? [buildSignal(
       company,
       websiteSource,
       'website',
@@ -336,7 +366,7 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       website.status,
       website.sourceUrl,
     )] : []),
-    ...(brasilApi && brasilApiSource ? [buildSignal(
+    ...(brasilApi?.status === 'real' && brasilApiSource ? [buildSignal(
       company,
       brasilApiSource,
       'brasilapi',
@@ -345,7 +375,7 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       brasilApi.status,
       brasilApi.endpoint,
     )] : []),
-    ...rssResults.flatMap((rss, index) => rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(
+    ...rssResults.flatMap((rss, index) => rss.status === 'real' ? rss.items.slice(0, 2).map((item, itemIndex) => buildSignal(
       company,
       rssSources[index].source,
       `rss_${itemIndex + 1}`,
@@ -353,10 +383,10 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       collectedAt,
       rss.status,
       item.link || rss.sourceUrl,
-    ))),
+    )) : []),
   ];
 
-  const enrichments: EnrichmentRecord[] = brasilApi && brasilApiSource
+  const enrichments: EnrichmentRecord[] = brasilApi?.status === 'real' && brasilApiSource
     ? [buildBrasilApiEnrichment(company, brasilApiSource, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)]
     : [];
 

@@ -7,6 +7,7 @@ matches=$(grep -R "localhost:4000" -n "$ROOT" \
   --exclude-dir=node_modules \
   --exclude-dir=dist \
   --exclude-dir=.git \
+  --exclude="check-no-localhost.sh" \
   --exclude="*.md" \
   --exclude=".env.example" \
   --exclude="*.example" || true)

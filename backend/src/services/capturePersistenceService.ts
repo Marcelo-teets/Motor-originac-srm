@@ -140,6 +140,12 @@ export class CapturePersistenceService {
         connectorStatus: output.connectorStatus,
         confidenceScore: output.confidenceScore,
       },
+      output_payload: { title: output.title, summary: output.summary },
+      normalized_payload: output.normalizedPayload,
+      confidence_score: output.confidenceScore,
+      connector_status: output.connectorStatus,
+      observed_vs_inferred: 'observed',
+      created_at: output.collectedAt,
     }));
 
     const outputIdByCompanyAndSource = new Map<string, string>();
@@ -212,35 +218,38 @@ export class CapturePersistenceService {
         await this.client.upsert('source_documents', documentRows, 'id');
         documentsWritten = documentRows.length;
 
-        for (const doc of documentRows) {
-          try {
-            const qualityResult = await this.client.rpc<QualityGateResult>('run_source_document_quality_gate', {
-              p_source_document_id: doc.id,
-            });
-            qualityResults.push(qualityResult);
-            qualityGatesRun += 1;
+        for (let index = 0; index < documentRows.length; index += 6) {
+          const batch = documentRows.slice(index, index + 6);
+          await Promise.all(batch.map(async (doc) => {
+            try {
+              const qualityResult = await this.client!.rpc<QualityGateResult>('run_source_document_quality_gate', {
+                p_source_document_id: doc.id,
+              });
+              qualityResults.push(qualityResult);
+              qualityGatesRun += 1;
 
-            const gateStatus = gateStatusFromResult(qualityResult);
-            const sourceDocument = documentById.get(doc.id);
-            const key = companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId);
+              const gateStatus = gateStatusFromResult(qualityResult);
+              const sourceDocument = documentById.get(doc.id);
+              const key = companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId);
 
-            if (gateStatus === 'allow') {
-              documentsAllowed += 1;
-              allowedCompanySourcePairs.add(key);
-            } else if (gateStatus === 'review') {
-              documentsInReview += 1;
-              blockedCompanySourcePairs.add(key);
-            } else if (gateStatus === 'quarantine') {
-              documentsQuarantined += 1;
-              blockedCompanySourcePairs.add(key);
-            } else {
-              blockedCompanySourcePairs.add(key);
+              if (gateStatus === 'allow') {
+                documentsAllowed += 1;
+                allowedCompanySourcePairs.add(key);
+              } else if (gateStatus === 'review') {
+                documentsInReview += 1;
+                blockedCompanySourcePairs.add(key);
+              } else if (gateStatus === 'quarantine') {
+                documentsQuarantined += 1;
+                blockedCompanySourcePairs.add(key);
+              } else {
+                blockedCompanySourcePairs.add(key);
+              }
+            } catch (error) {
+              const sourceDocument = documentById.get(doc.id);
+              blockedCompanySourcePairs.add(companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId));
+              errors.push(`quality_gate:${doc.id}: ${error instanceof Error ? error.message : String(error)}`);
             }
-          } catch (error) {
-            const sourceDocument = documentById.get(doc.id);
-            blockedCompanySourcePairs.add(companySourceKey(sourceDocument?.companyId, sourceDocument?.sourceId));
-            errors.push(`quality_gate:${doc.id}: ${error instanceof Error ? error.message : String(error)}`);
-          }
+          }));
         }
       }
     } catch (error) {
@@ -279,6 +288,11 @@ export class CapturePersistenceService {
           source_id: signal.sourceId,
           observedVsInferred: signal.observedVsInferred,
         },
+        signal_strength: signal.signalStrength,
+        confidence_score: signal.confidenceScore,
+        evidence_payload: signal.evidencePayload,
+        observed_vs_inferred: signal.observedVsInferred,
+        created_at: signal.createdAt,
       }));
 
     const allEnrichments = results.flatMap((result) => result.enrichments);

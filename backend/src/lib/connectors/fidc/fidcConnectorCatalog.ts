@@ -1,7 +1,7 @@
 export type FIDCConnectorCatalogEntry = {
   id: string;
   name: string;
-  sourceType: 'dataset_http' | 'api' | 'rpa_api';
+  sourceType: 'dataset_api' | 'dataset_http' | 'api' | 'rpa_api';
   category: 'FIDC' | 'Fundos estruturados' | 'Regulatório' | 'Prestadores' | 'Setor público';
   status: 'real' | 'partial' | 'planned';
   authRequirement?: string;
@@ -11,49 +11,49 @@ export type FIDCConnectorCatalogEntry = {
 
 export const fidcConnectorCatalog: FIDCConnectorCatalogEntry[] = [
   {
-    id: 'src_cvm_fidc_informe_mensal',
-    name: 'CVM FIDC: Documentos: Informe Mensal',
-    sourceType: 'dataset_http',
+    id: 'src_cvm_fidc_monthly',
+    name: 'CVM FIDC Informes Mensais',
+    sourceType: 'dataset_api',
     category: 'FIDC',
     status: 'real',
-    notes: 'Dataset mensal em ZIP no Portal de Dados Abertos da CVM. Deve ser tratado como dataset API com polling de recursos.',
+    notes: 'Ingestão pública operacional no pipeline de mercado de capitais, com seleção por competência, checkpoints e lineage persistido.',
     baseUrl: 'https://dados.cvm.gov.br/dataset/fidc-doc-inf_mensal',
   },
   {
-    id: 'src_cvm_fundos_cadastral',
-    name: 'CVM Fundos de Investimento: Informação Cadastral',
-    sourceType: 'dataset_http',
+    id: 'src_cvm_fund_registry',
+    name: 'CVM Cadastro de Fundos Classes e Subclasses',
+    sourceType: 'dataset_api',
     category: 'Regulatório',
     status: 'real',
-    notes: 'Cadastro de fundos estruturados e não estruturados. Útil para identidade base do fundo e status cadastral.',
-    baseUrl: 'https://dados.cvm.gov.br/dataset/?q=fundos+de+investimento',
+    notes: 'Ingestão pública operacional no pipeline de mercado de capitais, com normalização cadastral e lineage persistido.',
+    baseUrl: 'https://dados.cvm.gov.br/dataset/fi-cad',
   },
   {
     id: 'src_cvm_fundos_estruturados_medidas',
     name: 'CVM Fundos Estruturados: Medidas',
     sourceType: 'dataset_http',
     category: 'Fundos estruturados',
-    status: 'real',
-    notes: 'Medidas agregadas como patrimônio líquido e número de cotistas para fundos estruturados, incluindo FIDC.',
-    baseUrl: 'https://dados.cvm.gov.br/dataset/?q=FIDC',
+    status: 'partial',
+    notes: 'Fonte oficial catalogada para medidas agregadas; loader e persistência ainda estão pendentes.',
+    baseUrl: 'https://dados.cvm.gov.br/dataset/fie-medidas',
   },
   {
     id: 'src_cvm_fundos_documentos_entrega',
     name: 'CVM Fundos de Investimento: Documentos: Entrega',
     sourceType: 'dataset_http',
     category: 'Regulatório',
-    status: 'real',
-    notes: 'Metadados de entrega de documentos periódicos e eventuais. Útil para completude, monitoramento e qualidade de disclosure.',
-    baseUrl: 'https://dados.cvm.gov.br/dataset/?q=fundos+de+investimento',
+    status: 'partial',
+    notes: 'Fonte oficial catalogada para completude de disclosure; loader e persistência ainda estão pendentes.',
+    baseUrl: 'https://dados.cvm.gov.br/dataset/fi-doc-entrega',
   },
   {
     id: 'src_anbima_fundos_estruturados',
     name: 'ANBIMA API Fundos Estruturados',
     sourceType: 'api',
     category: 'Fundos estruturados',
-    status: 'real',
+    status: 'partial',
     authRequirement: 'client credentials / token ANBIMA',
-    notes: 'API REST com paginação para FIDC/FII/FIP, classes/séries, prestadores, ISIN, situação, restrições e contexto RCVM 175.',
+    notes: 'Conector implementado, mas a captura só é real quando o token ANBIMA estiver configurado. API REST com paginação para FIDC/FII/FIP, classes/séries, prestadores, ISIN, situação, restrições e contexto RCVM 175.',
     baseUrl: 'https://api.anbima.com.br/feed/fundos/v1/fundos-estruturados',
   },
   {

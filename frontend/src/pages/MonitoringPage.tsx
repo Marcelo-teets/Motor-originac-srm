@@ -1,122 +1,124 @@
-import { Card, DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill, Stat } from '../components/UI';
-import { getCaptureHealth, type CaptureHealth } from '../lib/captureHealthApi';
+import { Card, DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill, Stat, TableViewport } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { DataState, MonitoringSnapshot } from '../lib/types';
+import type { DataState, MonitoringSnapshot, SourceIntelligenceSnapshot } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 const statusTone = (status: string) => {
-  if (status === 'active' || status === 'real') return 'success';
-  if (status === 'attention' || status === 'partial') return 'warning';
+  if (status === 'active' || status === 'real' || status === 'observed' || status === 'healthy') return 'success';
+  if (status === 'attention' || status === 'partial' || status === 'degraded' || status === 'needs_setup') return 'warning';
   return 'info';
 };
 
-const tableCount = (tables: Array<{ table: string; count: number | null }>, tableName: string) => tables.find((item) => item.table === tableName)?.count ?? 0;
-const booleanLabel = (value?: boolean) => value ? 'sim' : 'não';
+const formatMoment = (value: string | null) => {
+  if (!value) return 'sem observação';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'data indisponível' : date.toLocaleString('pt-BR');
+};
 
 const emptySnapshot = (): DataState<MonitoringSnapshot> => ({
   source: 'partial',
-  note: 'Monitoring snapshot indisponível; exibindo fallback de troubleshooting operacional.',
+  note: 'Monitoring snapshot indisponível; telemetria de fontes continua separada.',
   data: { recentTriggers: [], latestRuns: [], activeSources: [] },
 });
 
-const emptyCaptureHealth = (): DataState<CaptureHealth> => ({
+const emptySourceIntelligence = (): DataState<SourceIntelligenceSnapshot> => ({
   source: 'partial',
-  note: 'Healthcheck da captura indisponível; validar runtime serverless e variáveis de ambiente.',
+  note: 'Telemetria agregada das fontes indisponível.',
   data: {
-    status: 'partial',
     generatedAt: new Date().toISOString(),
-    captureRuntime: {
-      canRunAgainstSupabase: false,
-      canAuthorizeWorkflow: false,
-      coreTablesAccessible: false,
-    },
-    tables: [],
+    summary: { totalSources: 0, realSources: 0, observedSources: 0, degradedSources: 0, outputs24h: 0, companiesCovered: 0 },
+    families: [],
+    sources: [],
+    coverageGaps: [],
   },
 });
 
 export function MonitoringPage() {
   const { session } = useAuth();
   const { data, loading } = useAsyncData(async () => {
-    const [snapshotResult, captureHealthResult] = await Promise.allSettled([
+    const [snapshotResult, sourceResult] = await Promise.allSettled([
       api.getMonitoringSnapshot(session),
-      getCaptureHealth(),
+      api.getSourceIntelligence(session),
     ]);
     return {
       snapshot: snapshotResult.status === 'fulfilled' ? snapshotResult.value : emptySnapshot(),
-      captureHealth: captureHealthResult.status === 'fulfilled' ? captureHealthResult.value : emptyCaptureHealth(),
+      sourceIntelligence: sourceResult.status === 'fulfilled' ? sourceResult.value : emptySourceIntelligence(),
       health: {
         snapshotOk: snapshotResult.status === 'fulfilled',
-        captureHealthOk: captureHealthResult.status === 'fulfilled',
+        sourceTelemetryOk: sourceResult.status === 'fulfilled',
       },
     };
   }, [session?.access_token]);
 
-  if (loading) return <LoadingState title="Monitoring Center" subtitle="Carregando healthcheck, triggers, fontes e execução dos agentes." />;
-  if (!data) return <LoadingState title="Monitoring Center" subtitle="Preparando fallback operacional de monitoramento." />;
+  if (loading) return <LoadingState title="Monitoring Center" subtitle="Carregando evidências, triggers, fontes e execução dos agentes." />;
+  if (!data) return <LoadingState title="Monitoring Center" subtitle="Preparando a telemetria operacional." />;
 
   const snapshot = data.snapshot;
-  const captureHealth = data.captureHealth;
-  const tables = captureHealth.data.tables ?? [];
+  const intelligence = data.sourceIntelligence;
+  const sourceRows = intelligence.data.sources;
   const triggerCount = snapshot.data.recentTriggers.length;
   const activeSourceCount = snapshot.data.activeSources.filter((item) => item.health !== 'down').length;
-  const degradedSourceCount = snapshot.data.activeSources.filter((item) => item.health !== 'healthy').length;
-  const monitoringOutputs = tableCount(tables, 'monitoring_outputs');
-  const connectorRuns = tableCount(tables, 'source_connector_runs');
-  const companySignals = tableCount(tables, 'company_signals');
-  const enrichments = tableCount(tables, 'enrichments');
-  const scoreSnapshots = tableCount(tables, 'score_snapshots');
-  const canRunCapture = Boolean(captureHealth.data.captureRuntime?.canRunAgainstSupabase);
-  const canAuthorizeWorkflow = Boolean(captureHealth.data.captureRuntime?.canAuthorizeWorkflow);
-  const coreTablesAccessible = Boolean(captureHealth.data.captureRuntime?.coreTablesAccessible);
-  const captureStatus = monitoringOutputs > 0 && connectorRuns > 0 ? 'active' : !canRunCapture || !canAuthorizeWorkflow || !coreTablesAccessible ? 'attention' : 'idle';
+  const records30d = sourceRows.reduce((sum, source) => sum + source.captureRecords30d, 0);
+  const latestObservedAt = sourceRows
+    .map((source) => source.lastObservedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => b.localeCompare(a))[0] ?? null;
+  const captureStatus = intelligence.data.summary.outputs24h > 0
+    ? 'active'
+    : intelligence.data.summary.observedSources > 0
+      ? 'idle'
+      : 'attention';
+  const nextGap = intelligence.data.coverageGaps[0];
   const nextCaptureAction = captureStatus === 'active'
-    ? 'Revisar outputs recentes, confirmar tese e atualizar próxima ação comercial dos top leads.'
-    : 'Rodar Capture Data manualmente no GitHub Actions e validar se source_connector_runs e monitoring_outputs passaram a ser persistidos.';
+    ? 'Revisar as evidências recentes e atualizar a próxima ação comercial dos leads afetados.'
+    : nextGap
+      ? `Ativar ou validar ${nextGap.name}: ${nextGap.recommendedAction}`
+      : 'Executar uma captura controlada e confirmar a primeira evidência observada.';
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Monitoring"
-        title="Monitoring center"
-        description="Visão condensada de triggers recentes, últimas execuções e cobertura por fonte para apoiar operação e troubleshooting. A tela agora continua útil mesmo com snapshot ou healthcheck parcial."
+        title="Central de monitoramento"
+        description="Triggers, cobertura e frescor das evidências em uma visão segura. Diagnósticos de infraestrutura e segredos permanecem fora do navegador."
         actions={(
           <div className="pill-row">
             <Pill tone={statusTone(captureStatus)}>captura {captureStatus}</Pill>
             <Pill tone={data.health.snapshotOk ? 'success' : 'warning'}>{data.health.snapshotOk ? 'snapshot ok' : 'snapshot parcial'}</Pill>
-            <Pill tone={data.health.captureHealthOk ? 'success' : 'warning'}>{data.health.captureHealthOk ? 'health ok' : 'health parcial'}</Pill>
+            <Pill tone={data.health.sourceTelemetryOk ? 'success' : 'warning'}>{data.health.sourceTelemetryOk ? 'telemetria ok' : 'telemetria parcial'}</Pill>
           </div>
         )}
       />
       <DataStatusBanner source={snapshot.source} note={snapshot.note} />
-      <DataStatusBanner source={captureHealth.source} note={captureHealth.note} />
+      <DataStatusBanner source={intelligence.source} note={intelligence.note} />
 
-      <Card title="Captura & tratamento" subtitle="Painel operacional para acompanhar se a captura virou sinal útil para originação" className="dense-card">
+      <Card title="Captura & evidência" subtitle="Telemetria agregada do fluxo Sources → Monitoring → Signals" className="dense-card">
         <div className="mini-metric-grid">
-          <Stat label="Runs persistidas" value={String(connectorRuns)} helper="source_connector_runs gravadas no Supabase" />
-          <Stat label="Outputs persistidos" value={String(monitoringOutputs)} helper="monitoring_outputs disponíveis para tese e score" />
-          <Stat label="Sinais persistidos" value={String(companySignals)} helper="company_signals observados/inferidos" />
-          <Stat label="Enrichments" value={String(enrichments)} helper="perfis tratados pela captura" />
-          <Stat label="Score snapshots" value={String(scoreSnapshots)} helper="histórico técnico de score" />
-          <Stat label="Triggers visíveis" value={String(triggerCount)} helper="Sinais que já chegaram à camada operacional" />
-          <Stat label="Fontes ativas" value={String(activeSourceCount)} helper="Fontes disponíveis no snapshot operacional" />
-          <Stat label="Fontes degradadas" value={String(degradedSourceCount)} helper="Fontes fora do estado healthy" />
+          <Stat label="Outputs em 24h" value={String(intelligence.data.summary.outputs24h)} helper="evidências publicadas ou observadas no período" />
+          <Stat label="Registros em 30d" value={String(records30d)} helper="capturas registradas, separadas de evidência útil" />
+          <Stat label="Triggers visíveis" value={String(triggerCount)} helper="sinais recentes na camada operacional" />
+          <Stat label="Fontes observadas" value={String(intelligence.data.summary.observedSources)} helper={`de ${intelligence.data.summary.totalSources} fontes catalogadas`} />
+          <Stat label="Empresas cobertas" value={String(intelligence.data.summary.companiesCovered)} helper="companhias com evidência probatória" />
+          <Stat label="Fontes degradadas" value={String(intelligence.data.summary.degradedSources)} helper="integrações que pedem atenção" />
+          <Stat label="Lacunas de cobertura" value={String(intelligence.data.coverageGaps.length)} helper="fontes sem evidência observada" />
+          <Stat label="Fontes no snapshot" value={String(activeSourceCount)} helper="catálogo disponível para operação" />
         </div>
         <div className="grid cols-3 top-gap">
           <div className="mini-panel">
-            <strong>Supabase runtime</strong>
-            <span>{booleanLabel(canRunCapture)}</span>
-            <small>SUPABASE_URL + chave operacional resolvidas</small>
+            <strong>Cobertura observada</strong>
+            <span>{intelligence.data.summary.observedSources}/{intelligence.data.summary.totalSources}</span>
+            <small>catálogo e evidência são medidos separadamente</small>
           </div>
           <div className="mini-panel">
-            <strong>Workflow autorizado</strong>
-            <span>{booleanLabel(canAuthorizeWorkflow)}</span>
-            <small>CRON_SECRET configurado no runtime</small>
+            <strong>Última evidência</strong>
+            <span>{formatMoment(latestObservedAt)}</span>
+            <small>data de publicação/observação, não de recaptura</small>
           </div>
           <div className="mini-panel">
-            <strong>Tabelas core acessíveis</strong>
-            <span>{booleanLabel(coreTablesAccessible)}</span>
-            <small>companies, source_catalog, outputs e runs</small>
+            <strong>Diagnóstico técnico</strong>
+            <span>restrito</span>
+            <small>variáveis, tabelas e segredo operacional não são expostos à UI</small>
           </div>
         </div>
         <div className="top-gap">
@@ -134,7 +136,7 @@ export function MonitoringPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState title="Sem triggers recentes." description="Valide captura, source_connector_runs e company_signals antes de depender de priorização dinâmica." />
+            <EmptyState title="Sem triggers recentes." description="Confirme captura e evidência antes de depender de priorização dinâmica." />
           )}
         </Card>
         <Card title="Últimas execuções" subtitle="Workflows e status" className="dense-card">
@@ -145,41 +147,45 @@ export function MonitoringPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState title="Sem execuções recentes." description="Execute captura ou recálculo para gerar trilha operacional dos agentes." />
+            <EmptyState title="Sem execuções recentes." description="Execute captura ou recálculo para gerar trilha operacional." />
           )}
         </Card>
-        <Card title="Fontes ativas" subtitle="Status e cobertura" className="dense-card">
-          {snapshot.data.activeSources.length ? (
+        <Card title="Lacunas prioritárias" subtitle="Fontes catalogadas ainda sem evidência" className="dense-card">
+          {intelligence.data.coverageGaps.length ? (
             <ul className="list compact-list">
-              {snapshot.data.activeSources.map((item) => (
-                <li key={item.name}><strong>{item.name}</strong><span>{item.status} · {item.health} · {item.coverage}</span></li>
+              {intelligence.data.coverageGaps.slice(0, 5).map((source) => (
+                <li key={source.id}><strong>{source.name}</strong><span>{source.recommendedAction}</span></li>
               ))}
             </ul>
           ) : (
-            <EmptyState title="Sem fontes no snapshot." description="Verifique Source Catalog e healthcheck da captura para garantir cobertura mínima de dados reais." />
+            <EmptyState title="Sem lacunas registradas." description="Todas as fontes catalogadas já possuem evidência observada." />
           )}
         </Card>
       </section>
 
-      <Card title="Auditoria de tabelas da captura" subtitle="Contagens e erros por tabela crítica do fluxo Sources → Monitoring → Signals → Scores" className="dense-card">
-        {tables.length ? (
-          <table className="dense-table">
-            <thead>
-              <tr><th>Tabela</th><th>Status</th><th>Linhas</th><th>Erro</th></tr>
-            </thead>
-            <tbody>
-              {tables.map((item) => (
-                <tr key={item.table}>
-                  <td><strong>{item.table}</strong></td>
-                  <td><Pill tone={item.ok ? 'success' : 'warning'}>{item.ok ? 'ok' : 'atenção'}</Pill></td>
-                  <td>{item.count ?? '-'}</td>
-                  <td>{item.error ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Card title="Telemetria por fonte" subtitle="Registros de captura e evidências úteis, sem expor infraestrutura interna" className="dense-card">
+        {sourceRows.length ? (
+          <TableViewport label="Telemetria agregada por fonte">
+            <table className="dense-table">
+              <thead>
+                <tr><th>Fonte</th><th>Evidência</th><th>Registros 30d</th><th>Outputs 24h</th><th>Última observação</th><th>Saúde</th></tr>
+              </thead>
+              <tbody>
+                {sourceRows.slice(0, 12).map((source) => (
+                  <tr key={source.id}>
+                    <td><strong>{source.name}</strong><div className="table-helper">{source.family}</div></td>
+                    <td><Pill tone={statusTone(source.evidenceStatus)}>{source.evidenceStatus}</Pill></td>
+                    <td>{source.captureRecords30d}</td>
+                    <td>{source.outputs24h}</td>
+                    <td>{formatMoment(source.lastObservedAt)}</td>
+                    <td><Pill tone={statusTone(source.health)}>{source.health}</Pill></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableViewport>
         ) : (
-          <EmptyState title="Sem auditoria de tabelas disponível." description="O healthcheck da captura não retornou contagens. Validar rota /api/data-capture/health e variáveis do runtime." />
+          <EmptyState title="Sem telemetria disponível." description="Aplique a migration de métricas e confirme o catálogo de fontes." />
         )}
       </Card>
     </div>

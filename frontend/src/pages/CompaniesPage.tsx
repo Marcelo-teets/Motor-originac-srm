@@ -6,84 +6,96 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
 
-function priorityTone(bucket: string) {
+const priorityTone = (bucket: string) => {
   if (bucket.includes('immediate')) return 'success';
   if (bucket.includes('high')) return 'warning';
   return 'info';
-}
+};
 
-function momentumTone(momentum: string) {
+const momentumTone = (momentum: string) => {
   if (momentum === 'cooling') return 'warning';
   if (momentum === 'accelerating') return 'success';
   return 'info';
-}
+};
+
+const formatMoment = (value: string | null) => {
+  if (!value) return 'sem observação datada';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 'data indisponível' : parsed.toLocaleDateString('pt-BR');
+};
+
+const bucketLabel: Record<string, string> = {
+  immediate_priority: 'Prioridade imediata',
+  high_priority: 'Alta prioridade',
+  monitor_closely: 'Monitorar de perto',
+  watchlist: 'Em observação',
+  low_priority: 'Baixa prioridade',
+};
 
 export function CompaniesPage() {
   const { session } = useAuth();
   const [query, setQuery] = useState('');
   const [priority, setPriority] = useState('all');
   const [structure, setStructure] = useState('all');
+  const [sortBy, setSortBy] = useState<'ranking' | 'lead' | 'qualification'>('ranking');
   const { data, loading, error } = useAsyncData(
     async () => {
-      const [companiesState, weekly] = await Promise.all([api.getCompanies(session), api.getAbmWeekly(session)]);
-      const warMap = new Map(weekly.data.top_accounts.map((item) => [item.company_id, item]));
-      const detailResults = await Promise.allSettled(companiesState.data.map((company) => api.getCompany(session, company.id)));
-      const details = companiesState.data.map((company, index) => {
-        const detailResult = detailResults[index];
-        const detailState = detailResult?.status === 'fulfilled' ? detailResult.value : null;
+      const [companiesState, weekly] = await Promise.all([
+        api.getCompanies(session),
+        api.getAbmWeekly(session).catch(() => null),
+      ]);
+      const warMap = new Map((weekly?.data.top_accounts ?? []).map((item) => [item.company_id, item]));
+      const withoutChampion = new Set((weekly?.data.without_champion ?? []).map((item) => item.company_id));
+      const companies = companiesState.data.map((company) => {
         const war = warMap.get(company.id);
         return {
           ...company,
-          lastSignal: detailState?.data.signals[0]?.note ?? detailState?.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
-          commercialPriority: war?.priority_band ?? 'monitor',
-          momentum: war?.momentum_status ?? 'stable',
-          nextStep: detailState?.data.company.nextAction ?? company.nextAction ?? 'Definir próximo passo',
-          lastTouchpoint: detailState?.data.activities[0]?.dueDate ?? '-',
-          championStatus: ((detailState?.data.activities.length ?? 0) > 0 ? 'mapped' : 'unmapped'),
-          detailHealth: detailState ? 'ok' : 'partial',
+          commercialPriority: war?.priority_band ?? 'not_classified',
+          momentum: war?.momentum_status ?? 'unknown',
+          championStatus: weekly && withoutChampion.has(company.id) ? 'unmapped' : 'not_validated',
         };
       });
-      return { companiesState, companies: details };
+      return { companiesState, companies, abmAvailable: Boolean(weekly) };
     },
     [session?.access_token],
   );
 
   const filtered = useMemo(() => {
     if (!data) return [];
+    const search = query.trim().toLowerCase();
+    const scoreFor = (company: (typeof data.companies)[number]) => {
+      if (sortBy === 'lead') return company.leadScore;
+      if (sortBy === 'qualification') return company.qualificationScore;
+      return company.rankingScore;
+    };
+
     return data.companies.filter((company) => {
-      const matchesQuery = [company.name, company.segment, company.subsegment, company.topPatterns.join(' ')].join(' ').toLowerCase().includes(query.toLowerCase());
+      const searchable = [company.name, company.segment, company.subsegment, company.topPatterns.join(' '), company.latestEvidence].join(' ').toLowerCase();
+      const matchesQuery = !search || searchable.includes(search);
       const matchesPriority = priority === 'all' || company.leadBucket === priority;
       const matchesStructure = structure === 'all' || company.suggestedStructure === structure;
       return matchesQuery && matchesPriority && matchesStructure;
-    }).sort((a, b) => b.leadScore - a.leadScore);
-  }, [data, priority, query, structure]);
+    }).sort((a, b) => scoreFor(b) - scoreFor(a));
+  }, [data, priority, query, sortBy, structure]);
 
-  if (loading) return <LoadingState title="Leads" subtitle="Carregando ranking, sinais e camada comercial das empresas." />;
+  if (loading) return <LoadingState title="Leads" subtitle="Carregando ranking e sinais consolidados das empresas." />;
   if (error || !data) return <ErrorState title="Leads" error={error} />;
 
   const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure)));
-  const immediateCount = filtered.filter((company) => company.leadBucket.includes('immediate')).length;
+  const immediateCount = filtered.filter((company) => company.leadBucket === 'immediate_priority').length;
   const fidcCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('fidc')).length;
-  const dcmCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('dcm')).length;
   const strongSignalCount = filtered.filter((company) => company.triggerStrength >= 70).length;
-  const partialDetailCount = filtered.filter((company) => company.detailHealth === 'partial').length;
-  const leadSummary = [
-    { label: 'Prioridade imediata', value: immediateCount, helper: 'empresas para abordagem agora', tone: 'success' as const },
-    { label: 'Fit FIDC', value: fidcCount, helper: 'estrutura sugerida com FIDC', tone: 'warning' as const },
-    { label: 'Fit DCM', value: dcmCount, helper: 'potencial de dívida corporativa', tone: 'info' as const },
-    { label: 'Sinal forte', value: strongSignalCount, helper: 'trigger strength acima de 70', tone: 'default' as const },
-  ];
+  const withoutChampionCount = filtered.filter((company) => company.championStatus === 'unmapped').length;
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Leads / Companies"
-        title="Tabela operacional de originação"
-        description="Ranking filtrável para separar esforço comercial real: prioridade, estrutura sugerida, momentum, champion, próximo passo e último sinal observado. A lista agora tolera falha parcial de detalhes sem derrubar a tela."
+        title="Fila de decisão comercial"
+        description="Ranking único para decidir onde agir agora. Cada conta combina posição, scores, tese, evidência observada e a próxima ação — sem preencher lacunas comerciais com inferências artificiais."
         actions={(
           <div className="pill-row">
             <Pill tone="success">{filtered.length} na visão atual</Pill>
-            {partialDetailCount ? <Pill tone="warning">{partialDetailCount} detalhe(s) parcial(is)</Pill> : null}
             <Link to="/pipeline" className="button secondary">Abrir pipeline</Link>
           </div>
         )}
@@ -91,99 +103,106 @@ export function CompaniesPage() {
 
       <DataStatusBanner source={data.companiesState.source} note={data.companiesState.note} />
 
+      {!data.abmAvailable ? (
+        <div className="notice warning" role="status">Ranking disponível. O complemento comercial do ABM War Room não respondeu; champion e momentum permanecem como não validados.</div>
+      ) : null}
+
       <section className="decision-strip">
-        {leadSummary.map((item) => (
-          <div key={item.label} className="decision-card">
-            <Pill tone={item.tone}>{item.label}</Pill>
-            <strong>{item.value}</strong>
-            <small>{item.helper}</small>
-          </div>
-        ))}
+        <div className="decision-card"><Pill tone="success">Agir agora</Pill><strong>{immediateCount}</strong><small>Contas no bucket de prioridade imediata.</small></div>
+        <div className="decision-card"><Pill tone="warning">Fit FIDC</Pill><strong>{fidcCount}</strong><small>Estrutura sugerida contém FIDC.</small></div>
+        <div className="decision-card"><Pill tone="info">Sinal forte</Pill><strong>{strongSignalCount}</strong><small>Força de trigger igual ou superior a 70.</small></div>
+        <div className="decision-card"><Pill tone="warning">Sem champion</Pill><strong>{withoutChampionCount}</strong><small>Lacuna explicitamente registrada no war room.</small></div>
       </section>
 
-      <Card title="Filters" subtitle="Busca rápida, filtros de prioridade e estrutura" className="dense-card">
-        <div className="toolbar-grid">
+      <Card title="Refinar a fila" subtitle="Busque, filtre e escolha o critério de ordenação" className="dense-card">
+        <div className="toolbar-grid lead-toolbar">
           <label>
             <span>Busca</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar empresa, segmento ou pattern" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, segmento, padrão ou evidência" />
           </label>
           <label>
             <span>Prioridade</span>
             <select value={priority} onChange={(event) => setPriority(event.target.value)}>
               <option value="all">Todas</option>
-              <option value="immediate_priority">Immediate</option>
-              <option value="high_priority">High</option>
-              <option value="monitor_closely">Monitor</option>
+              <option value="immediate_priority">Imediata</option>
+              <option value="high_priority">Alta</option>
+              <option value="monitor_closely">Monitorar</option>
+              <option value="watchlist">Observação</option>
             </select>
           </label>
           <label>
-            <span>Estrutura sugerida</span>
+            <span>Estrutura</span>
             <select value={structure} onChange={(event) => setStructure(event.target.value)}>
               <option value="all">Todas</option>
               {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
+          <label>
+            <span>Ordenar por</span>
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}>
+              <option value="ranking">Ranking consolidado</option>
+              <option value="lead">Lead score</option>
+              <option value="qualification">Qualification score</option>
+            </select>
+          </label>
         </div>
       </Card>
 
-      <Card title="Leads Table" subtitle={`${filtered.length} companhias na visão atual`} actions={<Pill tone="info">desktop-first</Pill>} className="dense-card">
-        {filtered.length ? (
-          <div style={{ overflowX: 'auto', width: '100%' }}>
-            <table className="dense-table" style={{ minWidth: 1180 }}>
-              <thead>
-                <tr>
-                  <th>Company</th>
-                  <th>Watch</th>
-                  <th>Qualification Score</th>
-                  <th>Lead Score</th>
-                  <th>Pattern</th>
-                  <th>Suggested Structure</th>
-                  <th>Priority</th>
-                  <th>Commercial Priority</th>
-                  <th>Momentum</th>
-                  <th>Next Step</th>
-                  <th>Last Touchpoint</th>
-                  <th>Champion</th>
-                  <th>Last Signal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((company) => (
-                  <tr key={company.id}>
-                    <td>
-                      <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
-                      <div className="table-helper">{company.segment} · {company.subsegment}</div>
-                    </td>
-                    <td><WatchListStar companyId={company.id} companyName={company.name} /></td>
-                    <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
-                    <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
-                    <td>
-                      <strong>{company.topPatterns[0] ?? 'Sem pattern dominante'}</strong>
-                      <div className="table-helper">trigger {company.triggerStrength}</div>
-                    </td>
-                    <td>{company.suggestedStructure}</td>
-                    <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
-                    <td><Pill tone={priorityTone(company.commercialPriority)}>{company.commercialPriority}</Pill></td>
-                    <td><Pill tone={momentumTone(company.momentum)}>{company.momentum}</Pill></td>
-                    <td>{company.nextStep}</td>
-                    <td>{company.lastTouchpoint}</td>
-                    <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
-                    <td>
-                      {company.lastSignal}
-                      {company.detailHealth === 'partial' ? <div className="table-helper">detalhe parcial: usando fallback da lista</div> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            title="Nenhuma empresa encontrada com os filtros atuais."
-            description="Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional."
-          />
-        )}
-      </Card>
+      {filtered.length ? (
+        <section className="lead-decision-list" aria-label="Leads ordenados">
+          {filtered.map((company) => (
+            <article className="lead-decision-card" key={company.id}>
+              <div className="lead-rank" aria-label={`Posição ${company.rankingPosition}`}>
+                <span>#</span>
+                <strong>{company.rankingPosition}</strong>
+              </div>
+
+              <div className="lead-account">
+                <div className="lead-account-head">
+                  <div>
+                    <Link to={`/companies/${company.id}`}><h3>{company.name}</h3></Link>
+                    <p>{company.segment} · {company.subsegment}</p>
+                  </div>
+                  <WatchListStar companyId={company.id} companyName={company.name} />
+                </div>
+                <div className="pill-row">
+                  <Pill tone={priorityTone(company.leadBucket)}>{bucketLabel[company.leadBucket] ?? company.leadBucket}</Pill>
+                  <Pill tone="info">{company.suggestedStructure}</Pill>
+                  {company.commercialPriority !== 'not_classified' ? <Pill tone={priorityTone(company.commercialPriority)}>Comercial: {company.commercialPriority}</Pill> : null}
+                  {company.momentum !== 'unknown' ? <Pill tone={momentumTone(company.momentum)}>Momentum: {company.momentum}</Pill> : null}
+                </div>
+              </div>
+
+              <div className="lead-score-cluster" aria-label="Scores da conta">
+                <div><span>Ranking</span><ScoreBadge value={company.rankingScore} kind="priority" /></div>
+                <div><span>Lead</span><ScoreBadge value={company.leadScore} kind="lead" /></div>
+                <div><span>Qualificação</span><ScoreBadge value={company.qualificationScore} kind="qualification" /></div>
+              </div>
+
+              <div className="lead-evidence">
+                <span className="section-label">Evidência mais recente</span>
+                <strong>{company.latestEvidence}</strong>
+                <small>{formatMoment(company.latestEvidenceAt)} · confiança da fonte {Math.round(company.sourceConfidence * (company.sourceConfidence <= 1 ? 100 : 1))}%</small>
+              </div>
+
+              <div className="lead-action">
+                <span className="section-label">Próxima ação</span>
+                <strong>{company.nextAction || 'Definir próxima ação comercial'}</strong>
+                <small>
+                  {company.championStatus === 'unmapped'
+                    ? 'Champion: não mapeado no war room.'
+                    : 'Champion: ainda não validado nesta visão.'}
+                </small>
+                <Link to={`/companies/${company.id}`} className="button secondary compact-button">Abrir memo</Link>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : (
+        <Card title="Fila vazia" subtitle="Nenhuma conta atende aos filtros atuais">
+          <EmptyState title="Nenhuma empresa encontrada." description="Limpe a busca ou selecione outra prioridade e estrutura." />
+        </Card>
+      )}
     </div>
   );
 }

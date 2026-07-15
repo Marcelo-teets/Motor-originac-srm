@@ -2,11 +2,13 @@ import { additionalCompanySeeds } from '../data/additionalCompanySeeds.js';
 import { companySeeds, patternCatalogSeeds, searchProfileFilterSeeds, searchProfileSeeds, sourceCatalogSeeds } from '../data/platformSeeds.js';
 import { env } from '../lib/env.js';
 import { getSupabaseClient } from '../lib/supabase.js';
+import { isProbativeMonitoringOutput, outputPublishedAt } from '../modules/data-capture/outputEvidence.js';
 import type {
   ActivityRecord,
   CompanyPattern,
   CompanySeed,
   CompanySignal,
+  CompanyIntelligenceMetrics,
   EnrichmentRecord,
   LeadScoreSnapshot,
   MonitoringOutput,
@@ -18,6 +20,7 @@ import type {
   SearchProfile,
   SearchProfileFilter,
   SourceCatalogEntry,
+  SourceOutputMetrics,
   Owner,
   ActivityStatus,
   TaskRecord,
@@ -28,10 +31,12 @@ export interface PlatformRepository {
   listSearchProfiles(): Promise<SearchProfile[]>;
   listSearchProfileFilters(): Promise<SearchProfileFilter[]>;
   listSources(): Promise<SourceCatalogEntry[]>;
+  listSourceOutputMetrics(): Promise<SourceOutputMetrics[]>;
+  listCompanyIntelligenceMetrics(): Promise<CompanyIntelligenceMetrics[]>;
   listPatternCatalog(): Promise<PatternCatalogEntry[]>;
-  listMonitoringOutputs(): Promise<MonitoringOutput[]>;
-  listCompanySignals(): Promise<CompanySignal[]>;
-  listEnrichments(): Promise<EnrichmentRecord[]>;
+  listMonitoringOutputs(options?: { companyId?: string; limit?: number }): Promise<MonitoringOutput[]>;
+  listCompanySignals(options?: { companyId?: string; limit?: number }): Promise<CompanySignal[]>;
+  listEnrichments(options?: { companyId?: string; limit?: number }): Promise<EnrichmentRecord[]>;
   listQualificationSnapshots(): Promise<QualificationSnapshot[]>;
   listCompanyPatterns(): Promise<CompanyPattern[]>;
   listScoreSnapshots(): Promise<ScoreSnapshot[]>;
@@ -59,6 +64,73 @@ export interface PlatformRepository {
 
 const seededCompanies = [...companySeeds, ...additionalCompanySeeds];
 
+const hasObjectKeys = (value: unknown) => Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value as object).length);
+const asUnitConfidence = (value: unknown) => {
+  const numeric = Number(value ?? 0);
+  return numeric > 1 ? numeric / 100 : numeric;
+};
+
+export const mapMonitoringOutputRow = (row: any): MonitoringOutput => {
+  const hasCanonicalPayload = hasObjectKeys(row.normalized_payload) || hasObjectKeys(row.output_payload);
+  const normalizedPayload = hasObjectKeys(row.normalized_payload)
+    ? row.normalized_payload
+    : hasObjectKeys(row.payload)
+      ? row.payload
+      : row.output_payload ?? {};
+  const connectorStatus = normalizedPayload?.connectorStatus
+    ?? (hasCanonicalPayload ? row.connector_status : row.status === 'processed' ? 'real' : 'partial')
+    ?? 'partial';
+
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    sourceId: row.source_id,
+    title: row.output_payload?.title ?? row.title ?? row.source_id,
+    summary: row.output_payload?.summary ?? row.summary ?? row.raw_text ?? '',
+    collectedAt: row.observed_at ?? row.created_at,
+    confidenceScore: hasCanonicalPayload
+      ? asUnitConfidence(row.confidence_score)
+      : asUnitConfidence(normalizedPayload?.confidenceScore ?? row.source_confidence),
+    connectorStatus,
+    normalizedPayload,
+  } satisfies MonitoringOutput;
+};
+
+export const mapCompanySignalRow = (row: any): CompanySignal => {
+  const hasCanonicalEvidence = hasObjectKeys(row.evidence_payload);
+  const evidencePayload = hasCanonicalEvidence ? row.evidence_payload : row.metadata ?? {};
+  const signalStrength = Number(row.signal_strength ?? 0) || Number(row.strength ?? 0);
+  const canonicalConfidence = asUnitConfidence(row.confidence_score);
+  const confidenceScore = canonicalConfidence || asUnitConfidence(row.confidence);
+
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    sourceId: row.source_id,
+    signalType: row.signal_type,
+    signalStrength,
+    confidenceScore,
+    evidencePayload,
+    observedVsInferred: (hasCanonicalEvidence ? row.observed_vs_inferred : evidencePayload?.observedVsInferred)
+      ?? row.observed_vs_inferred
+      ?? (row.is_explicit === false ? 'inferred' : 'observed'),
+    createdAt: row.observed_at ?? row.created_at,
+  } satisfies CompanySignal;
+};
+
+export const mapSourceCatalogRow = (row: any): SourceCatalogEntry => ({
+  id: row.id,
+  name: row.name,
+  url: row.url ?? row.metadata?.baseUrl ?? undefined,
+  sourceType: row.source_type,
+  category: row.category,
+  status: row.status === 'active' ? 'real' : row.status,
+  health: row.health ?? 'healthy',
+  authRequirement: row.auth_requirement ?? undefined,
+  metadata: row.metadata ?? {},
+  rateLimitNotes: row.rate_limit_notes ?? undefined,
+});
+
 const defaultMonitoring = {
   status: 'queued',
   lastRunAt: '',
@@ -66,6 +138,67 @@ const defaultMonitoring = {
   triggers24h: 0,
   websiteChanges: [],
   feedHighlights: [],
+};
+
+export const aggregateSourceOutputMetrics = (outputs: MonitoringOutput[]): SourceOutputMetrics[] => {
+  const last24h = Date.now() - (24 * 60 * 60 * 1000);
+  const last30d = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  const bySource = new Map<string, MonitoringOutput[]>();
+  outputs.forEach((output) => {
+    const current = bySource.get(output.sourceId) ?? [];
+    current.push(output);
+    bySource.set(output.sourceId, current);
+  });
+  const globalCompaniesCovered = new Set(outputs.filter(isProbativeMonitoringOutput).map((output) => output.companyId)).size;
+  return [...bySource.entries()].map(([sourceId, sourceOutputs]) => {
+    const evidence = sourceOutputs.filter(isProbativeMonitoringOutput);
+    const capturedAfter = (output: MonitoringOutput, threshold: number) => Date.parse(output.collectedAt) >= threshold;
+    const latestCapture = [...sourceOutputs].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt))[0];
+    const latestEvidence = [...evidence].sort((a, b) => outputPublishedAt(b).localeCompare(outputPublishedAt(a)))[0];
+    return {
+      sourceId,
+      captureRecordsTotal: sourceOutputs.length,
+      captureRecords30d: sourceOutputs.filter((output) => capturedAfter(output, last30d)).length,
+      outputsTotal: evidence.length,
+      outputs24h: evidence.filter((output) => Date.parse(outputPublishedAt(output)) >= last24h).length,
+      outputs30d: evidence.filter((output) => Date.parse(outputPublishedAt(output)) >= last30d).length,
+      companiesCovered: new Set(evidence.map((output) => output.companyId)).size,
+      averageConfidence: evidence.length
+        ? Number((evidence.reduce((sum, output) => sum + output.confidenceScore, 0) / evidence.length).toFixed(3))
+        : null,
+      lastCaptureAt: latestCapture?.collectedAt ?? null,
+      lastObservedAt: latestEvidence ? outputPublishedAt(latestEvidence) : null,
+      globalCompaniesCovered,
+    } satisfies SourceOutputMetrics;
+  });
+};
+
+export const aggregateCompanyIntelligenceMetrics = (
+  outputs: MonitoringOutput[],
+  signals: CompanySignal[],
+): CompanyIntelligenceMetrics[] => {
+  const last24h = Date.now() - (24 * 60 * 60 * 1000);
+  const rejectedOutputIds = new Set(outputs.filter((output) => !isProbativeMonitoringOutput(output)).map((output) => output.id));
+  const companyIds = new Set([...outputs.map((output) => output.companyId), ...signals.map((signal) => signal.companyId)]);
+  return [...companyIds].map((companyId) => {
+    const companyOutputs = outputs.filter((output) => output.companyId === companyId);
+    const evidence = companyOutputs.filter(isProbativeMonitoringOutput);
+    const latestEvidence = [...evidence].sort((a, b) => outputPublishedAt(b).localeCompare(outputPublishedAt(a)))[0];
+    const validSignals = signals.filter((signal) => {
+      if (signal.companyId !== companyId || signal.signalStrength < 65 || Date.parse(signal.createdAt) < last24h) return false;
+      const outputId = signal.evidencePayload?.outputId;
+      if (typeof outputId === 'string' && rejectedOutputIds.has(outputId)) return false;
+      return !/rss fallback|empty[_ ]feed|sem evid[eê]ncia/i.test(String(signal.evidencePayload?.note ?? ''));
+    });
+    return {
+      companyId,
+      outputs24h: evidence.filter((output) => Date.parse(outputPublishedAt(output)) >= last24h).length,
+      triggers24h: validSignals.length,
+      lastCaptureAt: [...companyOutputs].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt))[0]?.collectedAt ?? null,
+      latestEvidenceAt: latestEvidence ? outputPublishedAt(latestEvidence) : null,
+      latestEvidenceSummary: latestEvidence?.summary ?? null,
+    } satisfies CompanyIntelligenceMetrics;
+  });
 };
 
 const defaultEnrichment = {
@@ -175,10 +308,21 @@ class MemoryPlatformRepository implements PlatformRepository {
   async listSearchProfiles() { return structuredClone(this.searchProfiles); }
   async listSearchProfileFilters() { return structuredClone(this.searchProfileFilters); }
   async listSources() { return structuredClone(this.sources); }
+  async listSourceOutputMetrics() { return aggregateSourceOutputMetrics(this.monitoringOutputs); }
+  async listCompanyIntelligenceMetrics() { return aggregateCompanyIntelligenceMetrics(this.monitoringOutputs, this.companySignals); }
   async listPatternCatalog() { return structuredClone(this.patternCatalog); }
-  async listMonitoringOutputs() { return structuredClone(this.monitoringOutputs); }
-  async listCompanySignals() { return structuredClone(this.companySignals); }
-  async listEnrichments() { return structuredClone(this.enrichments); }
+  async listMonitoringOutputs(options?: { companyId?: string; limit?: number }) {
+    const rows = options?.companyId ? this.monitoringOutputs.filter((item) => item.companyId === options.companyId) : this.monitoringOutputs;
+    return structuredClone(options?.limit ? rows.slice(0, options.limit) : rows);
+  }
+  async listCompanySignals(options?: { companyId?: string; limit?: number }) {
+    const rows = options?.companyId ? this.companySignals.filter((item) => item.companyId === options.companyId) : this.companySignals;
+    return structuredClone(options?.limit ? rows.slice(0, options.limit) : rows);
+  }
+  async listEnrichments(options?: { companyId?: string; limit?: number }) {
+    const rows = options?.companyId ? this.enrichments.filter((item) => item.companyId === options.companyId) : this.enrichments;
+    return structuredClone(options?.limit ? rows.slice(0, options.limit) : rows);
+  }
   async listQualificationSnapshots() { return structuredClone(this.qualificationSnapshots); }
   async listCompanyPatterns() { return structuredClone(this.companyPatterns); }
   async listScoreSnapshots() { return structuredClone(this.scoreSnapshots); }
@@ -186,7 +330,12 @@ class MemoryPlatformRepository implements PlatformRepository {
 
   async saveMonitoringOutputs(outputs: MonitoringOutput[]) {
     const ids = new Set(outputs.map((item) => item.id));
-    this.monitoringOutputs = [...this.monitoringOutputs.filter((item) => !ids.has(item.id)), ...outputs];
+    const existingById = new Map(this.monitoringOutputs.map((item) => [item.id, item]));
+    const stableOutputs = outputs.map((item) => ({
+      ...item,
+      collectedAt: existingById.get(item.id)?.collectedAt ?? item.collectedAt,
+    }));
+    this.monitoringOutputs = [...this.monitoringOutputs.filter((item) => !ids.has(item.id)), ...stableOutputs];
   }
 
   async saveCompanySignals(items: CompanySignal[]) {
@@ -412,18 +561,43 @@ class SupabasePlatformRepository implements PlatformRepository {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
       const data = await client.select('source_catalog', { select: '*', orderBy: { column: 'name', ascending: true } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        sourceType: row.source_type,
-        category: row.category,
-        status: row.status,
-        health: row.health ?? 'healthy',
-        authRequirement: row.auth_requirement ?? undefined,
-        metadata: row.metadata ?? {},
-        rateLimitNotes: row.rate_limit_notes ?? undefined,
-      } satisfies SourceCatalogEntry));
+      return (data ?? []).map(mapSourceCatalogRow);
     }, () => this.fallback.listSources(), (result) => Array.isArray(result) && result.length === 0);
+  }
+
+  async listSourceOutputMetrics() {
+    return this.readWithFallback(async () => {
+      const client = this.ensureClient();
+      const data = await client.select('source_intelligence_metrics_v1', { select: '*' });
+      return (data ?? []).map((row: any) => ({
+        sourceId: String(row.source_id),
+        captureRecordsTotal: Number(row.capture_records_total ?? 0),
+        captureRecords30d: Number(row.capture_records_30d ?? 0),
+        outputsTotal: Number(row.outputs_total ?? 0),
+        outputs24h: Number(row.outputs_24h ?? 0),
+        outputs30d: Number(row.outputs_30d ?? 0),
+        companiesCovered: Number(row.companies_covered ?? 0),
+        averageConfidence: row.average_confidence === null ? null : Number(row.average_confidence),
+        lastCaptureAt: row.last_capture_at ?? null,
+        lastObservedAt: row.last_observed_at ?? null,
+        globalCompaniesCovered: Number(row.global_companies_covered ?? 0),
+      } satisfies SourceOutputMetrics));
+    }, async () => []);
+  }
+
+  async listCompanyIntelligenceMetrics() {
+    return this.readWithFallback(async () => {
+      const client = this.ensureClient();
+      const data = await client.select('company_intelligence_metrics_v1', { select: '*' });
+      return (data ?? []).map((row: any) => ({
+        companyId: String(row.company_id),
+        outputs24h: Number(row.outputs_24h ?? 0),
+        triggers24h: Number(row.triggers_24h ?? 0),
+        lastCaptureAt: row.last_capture_at ?? null,
+        latestEvidenceAt: row.latest_evidence_at ?? null,
+        latestEvidenceSummary: row.latest_evidence_summary ?? null,
+      } satisfies CompanyIntelligenceMetrics));
+    }, async () => []);
   }
 
   async listPatternCatalog() {
@@ -444,46 +618,45 @@ class SupabasePlatformRepository implements PlatformRepository {
     }, () => this.fallback.listPatternCatalog(), (result) => Array.isArray(result) && result.length === 0);
   }
 
-  async listMonitoringOutputs() {
+  async listMonitoringOutputs(options?: { companyId?: string; limit?: number }) {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
-      const data = await client.select('monitoring_outputs', { select: '*', orderBy: { column: 'created_at', ascending: false } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        sourceId: row.source_id,
-        title: row.output_payload?.title ?? row.source_id,
-        summary: row.output_payload?.summary ?? '',
-        collectedAt: row.created_at,
-        confidenceScore: Number(row.confidence_score ?? 0),
-        connectorStatus: row.connector_status ?? 'partial',
-        normalizedPayload: row.normalized_payload ?? row.output_payload ?? {},
-      } satisfies MonitoringOutput));
-    }, () => this.fallback.listMonitoringOutputs());
+      const query = {
+        select: '*',
+        orderBy: { column: 'created_at', ascending: false },
+        filters: options?.companyId ? [{ column: 'company_id', value: options.companyId }] : undefined,
+      } as const;
+      const data = options?.limit
+        ? await client.select('monitoring_outputs', { ...query, limit: options.limit })
+        : await client.selectAll('monitoring_outputs', query);
+      return (data ?? []).map(mapMonitoringOutputRow);
+    }, () => this.fallback.listMonitoringOutputs(options));
   }
 
-  async listCompanySignals() {
+  async listCompanySignals(options?: { companyId?: string; limit?: number }) {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
-      const data = await client.select('company_signals', { select: '*', orderBy: { column: 'created_at', ascending: false } });
-      return (data ?? []).map((row: any) => ({
-        id: row.id,
-        companyId: row.company_id,
-        sourceId: row.source_id,
-        signalType: row.signal_type,
-        signalStrength: Number(row.signal_strength ?? 0),
-        confidenceScore: Number(row.confidence_score ?? 0),
-        evidencePayload: row.evidence_payload ?? {},
-        observedVsInferred: row.observed_vs_inferred ?? 'observed',
-        createdAt: row.created_at,
-      } satisfies CompanySignal));
-    }, () => this.fallback.listCompanySignals());
+      const query = {
+        select: '*',
+        orderBy: { column: 'created_at', ascending: false },
+        filters: options?.companyId ? [{ column: 'company_id', value: options.companyId }] : undefined,
+      } as const;
+      const data = options?.limit
+        ? await client.select('company_signals', { ...query, limit: options.limit })
+        : await client.selectAll('company_signals', query);
+      return (data ?? []).map(mapCompanySignalRow);
+    }, () => this.fallback.listCompanySignals(options));
   }
 
-  async listEnrichments() {
+  async listEnrichments(options?: { companyId?: string; limit?: number }) {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
-      const data = await client.select('enrichments', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+      const data = await client.select('enrichments', {
+        select: '*',
+        orderBy: { column: 'created_at', ascending: false },
+        filters: options?.companyId ? [{ column: 'company_id', value: options.companyId }] : undefined,
+        limit: options?.limit,
+      });
       return (data ?? []).map((row: any) => ({
         id: row.id,
         companyId: row.company_id,
@@ -493,7 +666,7 @@ class SupabasePlatformRepository implements PlatformRepository {
         observedVsInferred: row.observed_vs_inferred ?? 'inferred',
         createdAt: row.created_at,
       } satisfies EnrichmentRecord));
-    }, () => this.fallback.listEnrichments());
+    }, () => this.fallback.listEnrichments(options));
   }
 
   async listQualificationSnapshots() {
@@ -568,6 +741,20 @@ class SupabasePlatformRepository implements PlatformRepository {
         id: output.id,
         company_id: output.companyId,
         source_id: output.sourceId,
+        output_type: 'raw',
+        title: output.title,
+        url: output.normalizedPayload?.sourceUrl ?? output.normalizedPayload?.canonicalUrl ?? output.normalizedPayload?.endpoint ?? null,
+        raw_text: output.summary,
+        summary: output.summary,
+        observed_at: output.collectedAt,
+        processed_at: output.collectedAt,
+        status: output.connectorStatus === 'real' ? 'processed' : 'partial',
+        source_confidence: Math.round(output.confidenceScore <= 1 ? output.confidenceScore * 100 : output.confidenceScore),
+        payload: {
+          ...output.normalizedPayload,
+          connectorStatus: output.connectorStatus,
+          confidenceScore: output.confidenceScore,
+        },
         output_payload: { title: output.title, summary: output.summary },
         normalized_payload: output.normalizedPayload,
         confidence_score: output.confidenceScore,
@@ -586,6 +773,14 @@ class SupabasePlatformRepository implements PlatformRepository {
         company_id: item.companyId,
         source_id: item.sourceId,
         signal_type: item.signalType,
+        signal_label: String(item.evidencePayload?.label ?? item.signalType).replace(/_/g, ' '),
+        strength: item.signalStrength,
+        confidence: Math.round(item.confidenceScore <= 1 ? item.confidenceScore * 100 : item.confidenceScore),
+        is_explicit: item.observedVsInferred === 'observed',
+        evidence_url: item.evidencePayload?.sourceUrl ?? null,
+        evidence_text: item.evidencePayload?.note ?? item.evidencePayload?.summary ?? item.signalType,
+        observed_at: item.createdAt,
+        metadata: { ...item.evidencePayload, observedVsInferred: item.observedVsInferred },
         signal_strength: item.signalStrength,
         confidence_score: item.confidenceScore,
         evidence_payload: item.evidencePayload,
@@ -634,7 +829,7 @@ class SupabasePlatformRepository implements PlatformRepository {
         ranking_impact: item.rankingImpact,
         thesis_impact: item.thesisImpact,
         evidence_payload: item.evidencePayload,
-      })), 'id');
+      })), 'company_id,pattern_id');
     }, () => this.fallback.saveCompanyPatterns(items));
   }
 
@@ -863,6 +1058,8 @@ class SupabasePlatformRepository implements PlatformRepository {
   }
 
   async seedBaseData() {
+    if (!env.bootstrapSupabase) return;
+
     await this.writeWithFallback(async () => {
       const client = this.ensureClient();
       await client.upsert('source_catalog', sourceCatalogSeeds.map((item) => ({
@@ -960,9 +1157,7 @@ class SupabasePlatformRepository implements PlatformRepository {
       })));
     }, () => this.fallback.seedBaseData());
 
-    if (env.bootstrapSupabase) {
-      await this.fallback.seedBaseData();
-    }
+    await this.fallback.seedBaseData();
   }
 }
 

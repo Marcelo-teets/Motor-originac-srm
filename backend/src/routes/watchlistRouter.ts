@@ -285,7 +285,7 @@ export const createWatchlistRouter = (repository: any) => {
         return (rows ?? []).map((row: any) => mapWatchListItem(row));
       }, () => memory.items.filter((item) => item.watchlistId === watchlistId));
 
-      const companyIds = new Set(itemsResult.data.map((item) => item.companyId));
+      const companyIds = new Set(itemsResult.data.map((item: WatchListItem) => item.companyId));
       const [signals, scores, companies] = await Promise.all([
         repository.listCompanySignals(),
         repository.listLeadScoreSnapshots(),

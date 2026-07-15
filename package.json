@@ -14,6 +14,7 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
-    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck"
+    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless",
+    "typecheck:serverless": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict api/index.ts backend/src/lib/connectors.runtime.highSignal.ts backend/src/lib/ingestCompanyMonitoring.highSignal.ts backend/src/modules/data-capture/sourceConnectorRegistry.highSignal.ts"
   }
 }

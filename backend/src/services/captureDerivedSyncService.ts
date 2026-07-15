@@ -4,6 +4,7 @@ import { detectCompanyPatterns } from '../lib/patterns.js';
 import { computeLeadScore } from '../lib/scoring.js';
 import type { CaptureEngineResult } from '../modules/data-capture/types.js';
 import type { CompanySeed, CompanySignal, MonitoringOutput, PatternCatalogEntry, PriorityBucket } from '../types/platform.js';
+import { isProbativeMonitoringOutput } from '../modules/data-capture/outputEvidence.js';
 
 export type CaptureDerivedSyncInput = {
   companies: CompanySeed[];
@@ -175,8 +176,9 @@ export class CaptureDerivedSyncService {
       .map((company) => {
         const result = resultByCompany.get(company.id);
         if (!result) return null;
-        const outputs = result.outputs;
-        const enrichedCompany = normalizeCompanyWithCapture(company, result);
+        const outputs = result.outputs.filter(isProbativeMonitoringOutput);
+        if (!outputs.length) return null;
+        const enrichedCompany = normalizeCompanyWithCapture(company, { ...result, outputs });
         const qualification = buildQualificationSnapshot({ company: enrichedCompany, monitoringOutputs: outputs, generatedAt });
         const nextAction = treatmentAction(outputs) ?? company.activities[0]?.title ?? 'Validar tese comercial a partir da captura tratada.';
         const structure = suggestedStructureFromTreatment(outputs) ?? qualification.suggested_structure_type;
@@ -205,7 +207,7 @@ export class CaptureDerivedSyncService {
     const patternRows = derived.flatMap((item) => {
       const patterns = detectCompanyPatterns(item.company, item.qualification, input.patternCatalog, item.outputs);
       return patterns.map((pattern) => ({
-        id: crypto.randomUUID(),
+        id: pattern.id,
         company_id: pattern.companyId,
         pattern_id: pattern.patternId,
         confidence: asPercent(pattern.confidenceScore),
@@ -224,8 +226,22 @@ export class CaptureDerivedSyncService {
 
     try {
       if (patternRows.length) {
-        await this.client.upsert('company_patterns', patternRows, 'id');
+        await this.client.upsert('company_patterns', patternRows, 'company_id,pattern_id');
         patternsWritten = patternRows.length;
+      }
+      if (derived.length) {
+        const companyIds = derived.map((item) => item.company.id);
+        const existingPatterns = await this.client.select('company_patterns', {
+          select: 'id,company_id,pattern_id',
+          filters: [{ column: 'company_id', operator: 'in', value: companyIds }],
+        });
+        const currentPairs = new Set(patternRows.map((pattern) => `${pattern.company_id}|${pattern.pattern_id}`));
+        const staleIds = (existingPatterns ?? [])
+          .filter((pattern: any) => !currentPairs.has(`${pattern.company_id}|${pattern.pattern_id}`))
+          .map((pattern: any) => String(pattern.id));
+        if (staleIds.length) {
+          await this.client.delete('company_patterns', [{ column: 'id', operator: 'in', value: staleIds }]);
+        }
       }
     } catch (error) {
       errors.push(`company_patterns: ${error instanceof Error ? error.message : String(error)}`);
@@ -301,21 +317,29 @@ export class CaptureDerivedSyncService {
       errors.push(`lead_score_snapshots: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const pipelineRows = leadRows.map((lead) => ({
+    const candidatePipelineRows = leadRows.map((lead) => ({
       company_id: lead.company_id,
       stage: 'Qualified',
       status: 'active',
       priority: lead.priority_tier,
       next_action: lead.next_action,
       expected_structure: lead.suggested_structure,
-      notes: `Atualizado por capture_derived_sync. Motivo: ${input.reason}.`,
+      notes: `Criado por capture_derived_sync. Motivo: ${input.reason}.`,
       updated_at: generatedAt,
     }));
 
     try {
-      if (pipelineRows.length) {
-        await this.client.upsert('pipeline', pipelineRows, 'company_id');
-        pipelineRowsTouched = pipelineRows.length;
+      if (candidatePipelineRows.length) {
+        const existing = await this.client.select('pipeline', {
+          select: 'company_id',
+          filters: [{ column: 'company_id', operator: 'in', value: candidatePipelineRows.map((row) => row.company_id) }],
+        });
+        const existingCompanyIds = new Set((existing ?? []).map((row: any) => String(row.company_id)));
+        const newPipelineRows = candidatePipelineRows.filter((row) => !existingCompanyIds.has(row.company_id));
+        if (newPipelineRows.length) {
+          await this.client.insert('pipeline', newPipelineRows);
+          pipelineRowsTouched = newPipelineRows.length;
+        }
       }
     } catch (error) {
       errors.push(`pipeline: ${error instanceof Error ? error.message : String(error)}`);

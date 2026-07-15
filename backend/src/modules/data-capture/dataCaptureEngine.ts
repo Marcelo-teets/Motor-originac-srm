@@ -3,6 +3,8 @@ import { ingestCompanyMonitoring } from '../../lib/connectors.js';
 import { captureMaisRetorno } from '../../lib/maisRetornoCapture.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 import { treatCaptureOutputs } from './captureTreatment.js';
+import { buildDeterministicUuid, buildDocumentFingerprint } from './documentFingerprint.js';
+import { isProbativeMonitoringOutput, outputPublishedAt } from './outputEvidence.js';
 
 const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_brasilapi_cnpj: 0.1,
@@ -91,7 +93,7 @@ const dedupeEnrichments = (enrichments: EnrichmentRecord[]): EnrichmentRecord[] 
 
 const calibrateConfidence = (output: MonitoringOutput): number => {
   const payload = output.normalizedPayload as Record<string, unknown>;
-  const publishedAt = typeof payload.timestamp === 'string' ? payload.timestamp : output.collectedAt;
+  const publishedAt = outputPublishedAt(output);
   const hasSummary = output.summary.trim().length > 50;
   const hasSourceUrl = typeof payload.sourceUrl === 'string' || typeof payload.endpoint === 'string';
   const completeness = (hasSummary ? 0.04 : -0.05) + (hasSourceUrl ? 0.02 : -0.04);
@@ -105,16 +107,25 @@ const toCanonicalDocuments = (companyId: string, outputs: MonitoringOutput[]): C
   outputs.map((output) => {
     const payload = output.normalizedPayload as Record<string, unknown>;
     const canonicalUrl = normalizeUrl(String(payload?.sourceUrl ?? payload?.canonicalUrl ?? payload?.endpoint ?? ''));
+    const publishedAt = outputPublishedAt(output);
+    const contentHash = buildDocumentFingerprint([
+      output.companyId,
+      sourceCodeFor(output),
+      canonicalUrl,
+      output.title.trim().toLowerCase(),
+      output.summary.trim().toLowerCase(),
+    ]);
 
     return {
-      id: `doc_${output.id}`,
+      id: buildDeterministicUuid(['source_document', contentHash]),
       companyId,
       sourceId: output.sourceId,
       documentType: 'monitoring_output',
       canonicalUrl,
       title: output.title,
+      publishedAt,
       observedAt: output.collectedAt,
-      contentHash: `${output.companyId}_${output.sourceId}_${output.collectedAt}_${output.title}_${output.summary.slice(0, 60)}`,
+      contentHash,
       rawPayload: output.normalizedPayload,
       normalizedPayload: { ...output.normalizedPayload, canonicalUrl },
       extractionStatus: 'normalized',
@@ -168,6 +179,46 @@ const buildCrossEnrichment = (company: CompanySeed, themes: string[], collectedA
   }];
 };
 
+const withStableOutputId = (output: MonitoringOutput): MonitoringOutput => {
+  const payload = output.normalizedPayload as Record<string, unknown>;
+  const canonicalUrl = normalizeUrl(String(payload.sourceUrl ?? payload.canonicalUrl ?? payload.endpoint ?? ''));
+  return {
+    ...output,
+    id: buildDeterministicUuid([
+      'monitoring_output',
+      output.companyId,
+      sourceCodeFor(output),
+      canonicalUrl,
+      output.title.trim().toLowerCase(),
+      output.summary.trim().toLowerCase(),
+    ]),
+  };
+};
+
+const withStableSignalId = (signal: CompanySignal): CompanySignal => ({
+  ...signal,
+  id: buildDeterministicUuid([
+    'company_signal',
+    signal.companyId,
+    signal.sourceId,
+    signal.signalType,
+    String(signal.evidencePayload?.sourceUrl ?? ''),
+    String(signal.evidencePayload?.theme ?? signal.evidencePayload?.note ?? signal.evidencePayload?.summary ?? '').slice(0, 240),
+  ]),
+});
+
+const withStableEnrichmentId = (enrichment: EnrichmentRecord): EnrichmentRecord => ({
+  ...enrichment,
+  id: buildDeterministicUuid([
+    'enrichment',
+    enrichment.companyId,
+    enrichment.enrichmentType,
+    enrichment.provider,
+    String(enrichment.payload?.sourceId ?? ''),
+    String(enrichment.payload?.summary ?? enrichment.payload?.treatmentVersion ?? '').slice(0, 240),
+  ]),
+});
+
 const filterByRequestedSource = (request: CaptureRunRequest, outputs: MonitoringOutput[], signals: CompanySignal[], enrichments: EnrichmentRecord[]) => {
   if (!request.sourceId) return { outputs, signals, enrichments };
 
@@ -182,8 +233,11 @@ export class DataCaptureEngine {
   async run(request: CaptureRunRequest, companies: CompanySeed[], sources: SourceCatalogEntry[]): Promise<CaptureEngineResult[]> {
     const targetCompanies = request.companyId ? companies.filter((item) => item.id === request.companyId) : companies;
     const targetSources = request.sourceId ? sources.filter((item) => item.id === request.sourceId) : sources;
+    const results: CaptureEngineResult[] = [];
 
-    return Promise.all(targetCompanies.map(async (company) => {
+    for (let index = 0; index < targetCompanies.length; index += 5) {
+      const batch = targetCompanies.slice(index, index + 5);
+      const batchResults = await Promise.all(batch.map(async (company) => {
       const collectedAt = new Date().toISOString();
       const [ingested, maisRetorno] = await Promise.all([
         ingestCompanyMonitoring(company, targetSources),
@@ -198,16 +252,16 @@ export class DataCaptureEngine {
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
 
       const calibratedOutputs = deduped
-        .map((output) => ({ ...output, confidenceScore: calibrateConfidence(output) }))
+        .map((output) => withStableOutputId({ ...output, confidenceScore: calibrateConfidence(output) }))
         .sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
 
       const treatment = treatCaptureOutputs(company, calibratedOutputs, collectedAt);
       const outputs = treatment.outputs.sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
-      const corroboratedThemes = extractThemes(outputs);
+      const corroboratedThemes = extractThemes(outputs.filter(isProbativeMonitoringOutput));
       const crossSignals = buildCrossSignals(company, corroboratedThemes, collectedAt);
       const crossEnrichments = buildCrossEnrichment(company, corroboratedThemes, collectedAt);
-      const allSignals = dedupeSignals([...filtered.signals, ...treatment.signals, ...crossSignals]);
-      const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...treatment.enrichments, ...crossEnrichments]);
+      const allSignals = dedupeSignals([...filtered.signals, ...treatment.signals, ...crossSignals]).map(withStableSignalId);
+      const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...treatment.enrichments, ...crossEnrichments]).map(withStableEnrichmentId);
 
       const runStatus = outputs.length === 0
         ? 'failed'
@@ -242,6 +296,10 @@ export class DataCaptureEngine {
         signals: allSignals,
         enrichments: allEnrichments,
       } satisfies CaptureEngineResult;
-    }));
+      }));
+      results.push(...batchResults);
+    }
+
+    return results;
   }
 }

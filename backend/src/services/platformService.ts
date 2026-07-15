@@ -10,6 +10,7 @@ import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { buildRankingRow } from '../lib/ranking.js';
 import { computeLeadScore } from '../lib/scoring.js';
 import { buildThesisOutput } from '../lib/thesis.js';
+import { isProbativeMonitoringOutput, outputPublishedAt } from '../modules/data-capture/outputEvidence.js';
 import type {
   ActivityRecord,
   CompanyDetailView,
@@ -25,6 +26,10 @@ import type {
   QualificationSnapshot,
   RankingRow,
   ScoreSnapshot,
+  SourceCatalogEntry,
+  SourceEvidenceStatus,
+  SourceIntelligenceRow,
+  SourceIntelligenceSnapshot,
   TaskRecord,
   PriorityBucket,
 } from '../types/platform.js';
@@ -58,33 +63,126 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type PersistedRankingRow = {
+  company_id?: string;
+  position?: number | string;
+  qualification_score?: number | string;
+  lead_score?: number | string;
+  ranking_score?: number | string;
+  rationale?: string | null;
+  created_at?: string;
+};
+
+const isAfter = (value: string, threshold: number) => {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp >= threshold;
+};
+
+const sourceCode = (source: SourceCatalogEntry) => {
+  const code = source.metadata?.code;
+  return typeof code === 'string' && code.trim() ? code : source.id;
+};
+
+export const buildSourceIdentityLookup = (sources: SourceCatalogEntry[]) => {
+  const lookup = new Map<string, string>();
+  const codeCounts = new Map<string, number>();
+  sources.forEach((source) => {
+    const code = sourceCode(source);
+    codeCounts.set(code, (codeCounts.get(code) ?? 0) + 1);
+    lookup.set(source.id, source.id);
+  });
+  sources.forEach((source) => {
+    const code = sourceCode(source);
+    if (codeCounts.get(code) === 1) lookup.set(code, source.id);
+  });
+  return lookup;
+};
+
+const outputSourceCode = (output: MonitoringOutput) => {
+  const code = output.normalizedPayload?.sourceCode;
+  return typeof code === 'string' && code.trim() ? code : output.sourceId;
+};
+
+const sourceFamily = (source: SourceCatalogEntry) => {
+  const value = `${source.sourceType} ${source.category} ${sourceCode(source)}`.toLowerCase();
+  if (/linkedin|professional_network|social_signal/.test(value)) return 'Rede profissional';
+  if (/fidc|fundos estruturados|structured/.test(value)) return 'Mercado estruturado';
+  if (/rss|news|media|not[ií]cia/.test(value)) return 'Mídia e RSS';
+  if (/website|company_site|sitemap|docs|careers/.test(value)) return 'Sites próprios';
+  if (/api|regulat|cadastral|dataset|setor público|prestadores/.test(value)) return 'APIs e regulatórios';
+  return 'Outras fontes';
+};
+
+const sourceAuthRequirement = (source: SourceCatalogEntry) => {
+  const requirement = source.authRequirement?.trim();
+  return requirement && !['none', 'public', 'sem autenticação'].includes(requirement.toLowerCase()) ? requirement : undefined;
+};
+
+const sourceEvidenceStatus = (source: SourceCatalogEntry, outputsCount: number): SourceEvidenceStatus => {
+  if (outputsCount > 0) return 'observed';
+  if (source.status === 'planned') return 'planned';
+  if (source.status === 'partial' || source.status === 'mock' || sourceAuthRequirement(source)) return 'needs_setup';
+  return 'awaiting_capture';
+};
+
+const sourceRecommendedAction = (source: SourceCatalogEntry, evidenceStatus: SourceEvidenceStatus) => {
+  if (evidenceStatus === 'observed') return 'Manter cadência e validar qualidade das evidências.';
+  if (evidenceStatus === 'planned') return 'Definir conector, contrato de dados e critério de ativação.';
+  if (sourceAuthRequirement(source)) return `Configurar credencial: ${sourceAuthRequirement(source)}.`;
+  if (source.sourceType.includes('dataset')) return 'Conectar o loader do dataset a monitoring_outputs e lineage.';
+  if (source.status === 'partial' || source.status === 'mock') return 'Concluir integração e remover fallback antes de usar no score.';
+  return 'Executar captura e confirmar o primeiro output persistido.';
+};
+
+const probativeSignalsForOutputs = (signals: CompanySignal[], outputs: MonitoringOutput[]) => {
+  const rejectedOutputIds = new Set(outputs.filter((output) => !isProbativeMonitoringOutput(output)).map((output) => output.id));
+  return signals.filter((signal) => {
+    const outputId = signal.evidencePayload?.outputId;
+    if (typeof outputId === 'string' && rejectedOutputIds.has(outputId)) return false;
+    const evidenceText = String(signal.evidencePayload?.note ?? signal.evidencePayload?.summary ?? '');
+    return !/rss fallback|empty[_ ]feed|sem evid[eê]ncia|unknown_error/i.test(evidenceText);
+  });
+};
+
 export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
 
   async bootstrap() {
+    if (env.useSupabase && !env.bootstrapSupabase) return;
     await this.repository.seedBaseData();
-    await this.refreshMonitoring();
-    await this.recomputeDerivedData();
+    if (!env.useSupabase) await this.recomputeDerivedData();
   }
 
-  private async hydrateCompanies() {
-    const [companies, signals, enrichments, monitoringOutputs] = await Promise.all([
-      this.repository.listCompanies(),
-      this.repository.listCompanySignals(),
-      this.repository.listEnrichments(),
-      this.repository.listMonitoringOutputs(),
-    ]);
+  private async hydrateCompanies(preloaded?: {
+    companies: CompanySeed[];
+    signals: CompanySignal[];
+    enrichments: EnrichmentRecord[];
+    monitoringOutputs: MonitoringOutput[];
+  }) {
+    const [companies, rawSignals, enrichments, monitoringOutputs] = preloaded
+      ? [preloaded.companies, preloaded.signals, preloaded.enrichments, preloaded.monitoringOutputs]
+      : await Promise.all([
+        this.repository.listCompanies(),
+        this.repository.listCompanySignals(),
+        this.repository.listEnrichments(),
+        this.repository.listMonitoringOutputs(),
+      ]);
+    const signals = probativeSignalsForOutputs(rawSignals, monitoringOutputs);
 
     const signalsByCompany = groupByCompany(signals);
     const enrichmentsByCompany = groupByCompany(enrichments);
     const outputsByCompany = groupByCompany(monitoringOutputs);
+    const last24h = Date.now() - DAY_MS;
 
     return companies.map((company) => {
       const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       const companySignals = (signalsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const companyOutputs = (outputsByCompany.get(company.id) ?? []).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
-      const websiteChanges = companyOutputs.filter((item) => item.sourceId === 'src_company_website').slice(0, 2).map((item) => item.summary);
-      const feedHighlights = companyOutputs.filter((item) => item.sourceId !== 'src_company_website').slice(0, 3).map((item) => item.summary);
+      const evidenceOutputs = companyOutputs.filter(isProbativeMonitoringOutput);
+      const websiteChanges = evidenceOutputs.filter((item) => outputSourceCode(item) === 'src_company_website').slice(0, 2).map((item) => item.summary);
+      const feedHighlights = evidenceOutputs.filter((item) => outputSourceCode(item) !== 'src_company_website').slice(0, 3).map((item) => item.summary);
 
       return {
         ...company,
@@ -92,10 +190,10 @@ export class PlatformService {
         enrichment: latestEnrichment?.payload ? { ...fallbackEnrichment(company), ...latestEnrichment.payload } : company.enrichment,
         monitoring: {
           ...company.monitoring,
-          status: companyOutputs.some((item) => item.connectorStatus === 'real') ? 'active' : company.monitoring.status,
+          status: evidenceOutputs.length ? 'active' : company.monitoring.status,
           lastRunAt: companyOutputs[0]?.collectedAt ?? company.monitoring.lastRunAt,
-          outputs24h: companyOutputs.length,
-          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65).length,
+          outputs24h: evidenceOutputs.filter((output) => isAfter(outputPublishedAt(output), last24h)).length,
+          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65 && isAfter(signal.createdAt, last24h)).length,
           websiteChanges: websiteChanges.length ? websiteChanges : company.monitoring.websiteChanges,
           feedHighlights: feedHighlights.length ? feedHighlights : company.monitoring.feedHighlights,
         },
@@ -130,7 +228,7 @@ export class PlatformService {
 
   private buildSnapshots(companies: CompanySeed[], monitoringOutputs: MonitoringOutput[], patternCatalog: PatternCatalogEntry[]) {
     const generatedAt = isoNow();
-    const outputsByCompany = groupByCompany(monitoringOutputs);
+    const outputsByCompany = groupByCompany(monitoringOutputs.filter(isProbativeMonitoringOutput));
 
     const qualifications: QualificationSnapshot[] = companies.map((company) => buildQualificationSnapshot({
       company,
@@ -227,15 +325,18 @@ export class PlatformService {
   }
 
   async recomputeDerivedData(companyId?: string) {
-    const [companies, patternCatalog, monitoringOutputs] = await Promise.all([
-      this.hydrateCompanies(),
+    const [companySeeds, patternCatalog, monitoringOutputs, signals, enrichments] = await Promise.all([
+      this.repository.listCompanies(),
       this.repository.listPatternCatalog(),
       this.repository.listMonitoringOutputs(),
+      this.repository.listCompanySignals(),
+      this.repository.listEnrichments(),
     ]);
+    const companies = await this.hydrateCompanies({ companies: companySeeds, signals, enrichments, monitoringOutputs });
 
     const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
     const companyIds = new Set(targetCompanies.map((item) => item.id));
-    const relevantOutputs = monitoringOutputs.filter((item) => companyIds.has(item.companyId));
+    const relevantOutputs = monitoringOutputs.filter((item) => companyIds.has(item.companyId) && isProbativeMonitoringOutput(item));
     const snapshots = this.buildSnapshots(targetCompanies, relevantOutputs, patternCatalog);
 
     await this.repository.saveQualificationSnapshots(snapshots.qualifications);
@@ -259,22 +360,36 @@ export class PlatformService {
   private async assembleViews() {
     await this.ensureDerivedData();
 
-    const [companies, sources, patternCatalog, monitoringOutputs, qualificationSnapshots, companyPatterns, scoreSnapshots, leadScoreSnapshots] = await Promise.all([
-      this.hydrateCompanies(),
+    const [companySeeds, sources, patternCatalog, companyMetrics, sourceMetrics, qualificationSnapshots, companyPatterns, scoreSnapshots, leadScoreSnapshots] = await Promise.all([
+      this.repository.listCompanies(),
       this.repository.listSources(),
       this.repository.listPatternCatalog(),
-      this.repository.listMonitoringOutputs(),
+      this.repository.listCompanyIntelligenceMetrics(),
+      this.repository.listSourceOutputMetrics(),
       this.repository.listQualificationSnapshots(),
       this.repository.listCompanyPatterns(),
       this.repository.listScoreSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
+    const metricsByCompany = new Map(companyMetrics.map((metric) => [metric.companyId, metric]));
+    const companies = companySeeds.map((company) => {
+      const metric = metricsByCompany.get(company.id);
+      return {
+        ...company,
+        monitoring: {
+          ...company.monitoring,
+          status: metric?.latestEvidenceAt ? 'active' : company.monitoring.status,
+          lastRunAt: metric?.lastCaptureAt ?? company.monitoring.lastRunAt,
+          outputs24h: metric?.outputs24h ?? 0,
+          triggers24h: metric?.triggers24h ?? 0,
+        },
+      } satisfies CompanySeed;
+    });
 
     const latestQualifications = latestByCompany(qualificationSnapshots);
     const latestLeads = latestByCompany(leadScoreSnapshots);
     const latestScores = latestByCompany(scoreSnapshots.filter((item) => item.scoreType === 'qualification'));
     const patternByCompany = groupByCompany(companyPatterns);
-    const outputsByCompany = groupByCompany(monitoringOutputs);
     const thesisByCompany = new Map(companies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
       const patterns = patternByCompany.get(company.id) ?? [];
@@ -297,19 +412,20 @@ export class PlatformService {
       const client = getSupabaseClient();
       if (client) {
         try {
-          const persistedRows = await client.select('ranking_v2', {
+          const persistedResult = await client.select('ranking_v2', {
             select: '*',
             orderBy: { column: 'created_at', ascending: false },
             limit: Math.max(companies.length * 3, 50),
           });
+          const persistedRows: PersistedRankingRow[] = Array.isArray(persistedResult) ? persistedResult : [];
           const latestSnapshotAt = persistedRows?.[0]?.created_at;
           const latestSnapshot = latestSnapshotAt
-            ? (persistedRows ?? []).filter((row: any) => row.created_at === latestSnapshotAt)
+            ? persistedRows.filter((row) => row.created_at === latestSnapshotAt)
             : [];
           const fallbackByCompany = new Map(computedRankingRows.map((row) => [row.companyId, row]));
           const mapped = latestSnapshot
-            .map((row: any) => {
-              const fallback = fallbackByCompany.get(row.company_id);
+            .map((row) => {
+              const fallback = fallbackByCompany.get(row.company_id ?? '');
               if (!fallback) return null;
               return {
                 ...fallback,
@@ -335,6 +451,8 @@ export class PlatformService {
       const lead = latestLeads.get(company.id)!;
       const thesis = thesisByCompany.get(company.id)!;
       const patterns = (patternByCompany.get(company.id) ?? []).slice(0, 3).map((item) => item.patternName);
+      const ranking = rankingRows.find((item) => item.companyId === company.id)!;
+      const metric = metricsByCompany.get(company.id);
       return {
         id: company.id,
         name: company.tradeName,
@@ -355,6 +473,10 @@ export class PlatformService {
         sourceConfidence: qualification.source_confidence_score,
         triggerStrength: qualification.trigger_strength_score,
         topPatterns: patterns,
+        rankingScore: ranking.rankingScore,
+        rankingPosition: ranking.position,
+        latestEvidence: metric?.latestEvidenceSummary ?? 'Sem evidência observada consolidada.',
+        latestEvidenceAt: metric?.latestEvidenceAt ?? null,
       };
     });
 
@@ -367,8 +489,8 @@ export class PlatformService {
       leadScores: latestLeads,
       rankingRows,
       sources,
-      monitoringOutputs: outputsByCompany,
-      allMonitoringOutputs: monitoringOutputs,
+      companyMetrics,
+      sourceMetrics,
       scoreSnapshots,
       latestScores,
       leadScoreSnapshots,
@@ -378,27 +500,43 @@ export class PlatformService {
   }
 
   async getDashboard(): Promise<DashboardView> {
-    const { companyViews, rankingRows, patterns, allMonitoringOutputs, agents } = await this.assembleViews();
+    const { companyViews, rankingRows, patterns, companyMetrics, sourceMetrics, sources, agents } = await this.assembleViews();
     const allPatterns = Array.from(patterns.values()).flat();
+    const websiteSourceIds = new Set(sources.filter((source) => sourceCode(source) === 'src_company_website').map((source) => source.id));
+    const sourceIdentityLookup = buildSourceIdentityLookup(sources);
+    const observedSourceIds = new Set(sourceMetrics
+      .filter((metric) => metric.outputsTotal > 0)
+      .map((metric) => sourceIdentityLookup.get(metric.sourceId))
+      .filter((id): id is string => Boolean(id)));
+    const outputs24h = sourceMetrics.reduce((sum, metric) => sum + metric.outputs24h, 0);
+    const triggers24h = companyMetrics.reduce((sum, metric) => sum + metric.triggers24h, 0);
+    const lastCaptureAt = sourceMetrics
+      .map((metric) => metric.lastCaptureAt)
+      .filter((stamp): stamp is string => Boolean(stamp))
+      .sort((a, b) => b.localeCompare(a))[0] ?? '';
 
     return {
       summary: [
         { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base vinda do backend com Supabase + fallback local apenas se necessário.' },
         { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
-        { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
-        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
+        { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Padrões explicáveis atualmente associados às empresas.' },
+        { label: 'Outputs em 24h', value: String(outputs24h), tone: 'info', helper: 'Evidências publicadas ou observadas nas últimas 24 horas.' },
       ],
       topLeads: rankingRows.slice(0, 5),
       monitoring: {
-        activeSources: 3,
-        outputs24h: allMonitoringOutputs.length,
-        triggers24h: companyViews.reduce((sum, company) => sum + Math.round(company.triggerStrength / 25), 0),
-        websiteChecks: allMonitoringOutputs.filter((item) => item.sourceId === 'src_company_website').length,
+        activeSources: sources.filter((source) => source.status === 'real'
+          && source.health === 'healthy'
+          && observedSourceIds.has(source.id)).length,
+        outputs24h,
+        triggers24h,
+        websiteChecks: sourceMetrics
+          .filter((metric) => websiteSourceIds.has(sourceIdentityLookup.get(metric.sourceId) ?? metric.sourceId))
+          .reduce((sum, metric) => sum + metric.outputs24h, 0),
       },
       agents: agents.filter((agent) => ['qualification_agent', 'pattern_identification_agent', 'monitoring_agent', 'lead_score_agent'].includes(agent.name)).map((agent) => ({
         name: agent.name,
         status: agent.status,
-        lastRun: new Date().toISOString(),
+        lastRun: lastCaptureAt,
         note: agent.objective,
       })),
       patterns: Array.from(new Set(allPatterns.map((pattern) => pattern.patternName))).map((patternName) => {
@@ -428,17 +566,26 @@ export class PlatformService {
   }
 
   async getCompanyDetail(id: string): Promise<CompanyDetailView | null> {
-    const { companies, companyViews, qualifications, patterns, thesisByCompany, leadScores, rankingRows, sources, monitoringOutputs, scoreSnapshots, leadScoreSnapshots } = await this.assembleViews();
-    const companySeed = companies.find((item) => item.id === id);
+    const { companies, companyViews, qualifications, patterns, thesisByCompany, leadScores, rankingRows, sources, scoreSnapshots, leadScoreSnapshots } = await this.assembleViews();
+    const baseCompanySeed = companies.find((item) => item.id === id);
     const company = companyViews.find((item) => item.id === id);
     const qualification = qualifications.get(id);
     const lead = leadScores.get(id);
     const ranking = rankingRows.find((item) => item.companyId === id);
-    if (!companySeed || !company || !qualification || !lead || !ranking) return null;
-    const [activityRows, pipelineRow] = await Promise.all([
+    if (!baseCompanySeed || !company || !qualification || !lead || !ranking) return null;
+    const [activityRows, pipelineRow, detailOutputs, detailSignals, detailEnrichments] = await Promise.all([
       this.repository.listActivities(id),
       this.repository.getPipelineByCompany(id),
+      this.repository.listMonitoringOutputs({ companyId: id, limit: 200 }),
+      this.repository.listCompanySignals({ companyId: id, limit: 100 }),
+      this.repository.listEnrichments({ companyId: id, limit: 20 }),
     ]);
+    const [companySeed] = await this.hydrateCompanies({
+      companies: [baseCompanySeed],
+      signals: detailSignals,
+      enrichments: detailEnrichments,
+      monitoringOutputs: detailOutputs,
+    });
 
     const historyDates = Array.from(new Set([
       ...scoreSnapshots.filter((item) => item.companyId === id).map((item) => item.createdAt),
@@ -495,7 +642,7 @@ export class PlatformService {
         rankingScore: ranking.rankingScore,
       },
       scoreHistory,
-      monitoringOutputs: monitoringOutputs.get(id) ?? [],
+      monitoringOutputs: detailOutputs,
     };
   }
 
@@ -508,12 +655,11 @@ export class PlatformService {
   }
 
   async recalculateCompany(id: string, reason = 'manual') {
-    await this.refreshMonitoring(id);
     const snapshots = await this.recomputeDerivedData(id);
     const latest = snapshots.qualifications.find((item) => item.companyId === id);
     return {
       companyId: id,
-      action: 'recalculated',
+      action: 'derived_data_recalculated',
       reason,
       qualificationScore: latest?.qualification_score_total ?? null,
       urgencyScore: latest?.urgency_score ?? null,
@@ -559,16 +705,102 @@ export class PlatformService {
   }
 
   async listSources() { return this.repository.listSources(); }
+
+  async getSourceIntelligence(): Promise<SourceIntelligenceSnapshot> {
+    const [sources, metrics] = await Promise.all([
+      this.repository.listSources(),
+      this.repository.listSourceOutputMetrics(),
+    ]);
+    const generatedAt = isoNow();
+
+    const sourceIdByLookup = buildSourceIdentityLookup(sources);
+    const metricsBySource = new Map(metrics.flatMap((metric) => {
+      const catalogId = sourceIdByLookup.get(metric.sourceId);
+      return catalogId ? [[catalogId, metric] as const] : [];
+    }));
+
+    const rows: SourceIntelligenceRow[] = sources.map((source) => {
+      const code = sourceCode(source);
+      const metric = metricsBySource.get(source.id);
+      const evidenceStatus = sourceEvidenceStatus(source, metric?.outputsTotal ?? 0);
+
+      return {
+        id: source.id,
+        code,
+        name: source.name,
+        url: source.url ?? (typeof source.metadata?.baseUrl === 'string' ? source.metadata.baseUrl : undefined),
+        family: sourceFamily(source),
+        sourceType: source.sourceType,
+        category: source.category,
+        status: source.status,
+        health: source.health,
+        captureMode: String(source.metadata?.captureMode ?? source.metadata?.provider ?? source.sourceType),
+        cadence: String(source.metadata?.cadence ?? 'não definida'),
+        authRequirement: sourceAuthRequirement(source),
+        captureRecordsTotal: metric?.captureRecordsTotal ?? 0,
+        captureRecords30d: metric?.captureRecords30d ?? 0,
+        outputsTotal: metric?.outputsTotal ?? 0,
+        outputs24h: metric?.outputs24h ?? 0,
+        outputs30d: metric?.outputs30d ?? 0,
+        companiesCovered: metric?.companiesCovered ?? 0,
+        averageConfidence: metric?.averageConfidence ?? null,
+        lastCaptureAt: metric?.lastCaptureAt ?? null,
+        lastObservedAt: metric?.lastObservedAt ?? null,
+        evidenceStatus,
+        recommendedAction: sourceRecommendedAction(source, evidenceStatus),
+      };
+    }).sort((a, b) => {
+      const evidenceOrder: Record<SourceEvidenceStatus, number> = { observed: 0, awaiting_capture: 1, needs_setup: 2, planned: 3 };
+      return evidenceOrder[a.evidenceStatus] - evidenceOrder[b.evidenceStatus]
+        || a.family.localeCompare(b.family)
+        || a.name.localeCompare(b.name);
+    });
+
+    const familyNames = [...new Set(rows.map((row) => row.family))].sort();
+    const families = familyNames.map((family) => {
+      const familyRows = rows.filter((row) => row.family === family);
+      return {
+        family,
+        sources: familyRows.length,
+        realSources: familyRows.filter((row) => row.status === 'real').length,
+        observedSources: familyRows.filter((row) => row.evidenceStatus === 'observed').length,
+        degradedSources: familyRows.filter((row) => row.health !== 'healthy').length,
+        outputs30d: familyRows.reduce((sum, row) => sum + row.outputs30d, 0),
+      };
+    });
+
+    const gapOrder: Record<SourceEvidenceStatus, number> = { awaiting_capture: 0, needs_setup: 1, planned: 2, observed: 3 };
+
+    return {
+      generatedAt,
+      summary: {
+        totalSources: rows.length,
+        realSources: rows.filter((row) => row.status === 'real').length,
+        observedSources: rows.filter((row) => row.evidenceStatus === 'observed').length,
+        degradedSources: rows.filter((row) => row.health !== 'healthy').length,
+        outputs24h: rows.reduce((sum, row) => sum + row.outputs24h, 0),
+        companiesCovered: metrics[0]?.globalCompaniesCovered ?? 0,
+      },
+      families,
+      sources: rows,
+      coverageGaps: rows
+        .filter((row) => row.evidenceStatus !== 'observed')
+        .sort((a, b) => gapOrder[a.evidenceStatus] - gapOrder[b.evidenceStatus] || a.name.localeCompare(b.name)),
+    };
+  }
+
   async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
   async listPipelineRows() { return this.repository.listPipelineRows(); }
   async getMonitoringSnapshot() {
-    const [dashboard, companies, sources, signals] = await Promise.all([
+    const [dashboard, companies, sources, rawSignals, outputs] = await Promise.all([
       this.getDashboard(),
       this.listCompanies(),
       this.listSources(),
-      this.repository.listCompanySignals(),
+      this.repository.listCompanySignals({ limit: 100 }),
+      this.repository.listMonitoringOutputs({ limit: 250 }),
     ]);
+    const signals = probativeSignalsForOutputs(rawSignals, outputs);
 
     const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
     const sourceById = new Map(sources.map((source) => [source.id, source]));

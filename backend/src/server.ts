@@ -14,6 +14,9 @@ import { AbaService } from './services/abaService.js';
 import { PlatformService } from './services/platformService.js';
 import { SearchProfileCaptureService } from './services/searchProfileCaptureService.js';
 import { SearchProfileCaptureRuntime } from './services/searchProfileCaptureRuntime.js';
+import { FidcPublicDataService } from './services/fidc/fidcPublicDataService.js';
+import { fidcConnectorCatalog } from './lib/connectors/fidc/fidcConnectorCatalog.js';
+import { CaptureRuntimeService } from './services/captureRuntimeService.js';
 
 const app = express();
 app.use(cors());
@@ -23,9 +26,10 @@ const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memo
 const service = new PlatformService(repository);
 const abaService = new AbaService();
 const searchCaptureRuntime = new SearchProfileCaptureRuntime(repository);
+const fidcPublicDataService = new FidcPublicDataService();
+const captureRuntime = new CaptureRuntimeService(repository);
 const searchCaptureService = new SearchProfileCaptureService(searchCaptureRuntime, {
-  refreshMonitoring: async (companyId) => service.refreshMonitoring(companyId),
-  recomputeDerivedData: async (companyId) => service.recomputeDerivedData(companyId),
+  refreshMonitoring: async (companyId) => captureRuntime.run({ companyId, triggerType: 'orchestrated', reason: 'candidate_promotion' }),
 });
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
@@ -37,7 +41,9 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
     console.error(error);
-    res.status(500).json(fail(500, error instanceof Error ? error.message : 'Unexpected error'));
+    const requestedStatus = Number((error as { statusCode?: number })?.statusCode ?? 500);
+    const status = requestedStatus >= 400 && requestedStatus < 500 ? requestedStatus : 500;
+    res.status(status).json(fail(status, error instanceof Error ? error.message : 'Unexpected error'));
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
@@ -179,7 +185,14 @@ app.get('/companies/:id/qualification/history', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
   res.json(ok(platformMode, detail?.scoreHistory ?? []));
 }));
-app.post('/companies/:id/qualification/recalculate', wrap(async (req, res) => res.json(ok(platformMode, await service.recalculateCompany(param(req.params.id), req.body?.reason ?? 'manual')))));
+app.post('/companies/:id/qualification/recalculate', wrap(async (req, res) => {
+  const result = await captureRuntime.run({
+    companyId: param(req.params.id),
+    triggerType: 'manual',
+    reason: req.body?.reason ?? 'manual_qualification_recalculation',
+  });
+  res.json(ok(result.status, result));
+}));
 app.get('/companies/:id/thesis', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
   res.json(ok(platformMode, detail?.thesis ?? null));
@@ -201,8 +214,14 @@ app.get('/dashboard/monitoring', wrap(async (_req, res) => res.json(ok(platformM
 app.get('/dashboard/patterns', wrap(async (_req, res) => res.json(ok(platformMode, (await service.getDashboard()).patterns))));
 
 app.get('/sources/catalog', wrap(async (_req, res) => res.json(ok(platformMode, await service.listSources()))));
+app.get('/sources/intelligence', wrap(async (_req, res) => res.json(ok(platformMode, await service.getSourceIntelligence()))));
 app.get('/sources/active', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).filter((item) => item.health !== 'down')))));
 app.get('/sources/health', wrap(async (_req, res) => res.json(ok(platformMode, (await service.listSources()).map((item) => ({ id: item.id, health: item.health, status: item.status }))))));
+app.get('/sources/fidc/catalog', wrap((_req, res) => res.json(ok('partial', fidcConnectorCatalog))));
+app.get('/sources/fidc/snapshot', wrap(async (_req, res) => {
+  const snapshot = await fidcPublicDataService.getCatalogSnapshot();
+  res.json(ok(snapshot.cvmDataset ? 'real' : 'partial', snapshot));
+}));
 app.get('/sources/usage/mais-retorno', wrap(async (_req, res) => {
   const quota = await getMaisRetornoQuotaStatus();
   res.json(ok(quotaEnvelopeStatus(quota.mode), quota));
@@ -213,9 +232,18 @@ app.get('/monitoring/triggers', wrap(async (_req, res) => {
   const companies = await service.listCompanies();
   res.json(ok(platformMode, companies.map((item) => ({ companyId: item.id, triggerStrength: item.triggerStrength, topPatterns: item.topPatterns }))));
 }));
-app.post('/monitoring/run', wrap(async (_req, res) => res.json(ok(platformMode, { started: true, ...(await service.refreshMonitoring()) }))));
-app.post('/monitoring/run/company/:id', wrap(async (req, res) => res.json(ok(platformMode, { started: true, companyId: param(req.params.id), ...(await service.refreshMonitoring(param(req.params.id))) }))));
-app.post('/monitoring/run/source/:id', wrap((req, res) => res.json(ok(platformMode, { started: true, sourceId: param(req.params.id), note: 'Source-specific filtering uses persisted outputs catalog.' }))));
+app.post('/monitoring/run', wrap(async (_req, res) => {
+  const result = await captureRuntime.run({ triggerType: 'manual', reason: 'manual_monitoring_run' });
+  res.json(ok(result.status, result));
+}));
+app.post('/monitoring/run/company/:id', wrap(async (req, res) => {
+  const result = await captureRuntime.run({ companyId: param(req.params.id), triggerType: 'manual', reason: 'manual_company_monitoring_run' });
+  res.json(ok(result.status, result));
+}));
+app.post('/monitoring/run/source/:id', wrap(async (req, res) => {
+  const result = await captureRuntime.run({ sourceId: param(req.params.id), triggerType: 'manual', reason: 'manual_source_monitoring_run' });
+  res.json(ok(result.status, result));
+}));
 
 app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: (await import('./modules/agents.js')).agentDefinitions }))));
 app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMode, (await import('./modules/agents.js')).agentDefinitions))));
@@ -227,9 +255,8 @@ app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, 
 app.post('/agents/run/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), scope: 'global', started: true }))));
 app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), companyId: param(req.params.id), started: true }))));
 app.post('/agents/orchestrate/company/:id', wrap(async (req, res) => {
-  await service.refreshMonitoring(param(req.params.id));
-  await service.recalculateCompany(param(req.params.id), 'orchestrated');
-  res.json(ok(platformMode, { companyId: param(req.params.id), orchestrated: true, runCount: 3 }));
+  const result = await captureRuntime.run({ companyId: param(req.params.id), triggerType: 'orchestrated', reason: 'agent_orchestration' });
+  res.json(ok(result.status, { companyId: param(req.params.id), orchestrated: true, result }));
 }));
 app.get('/agents/health', wrap((_req, res) => res.json(ok(platformMode, { healthy: 4, degraded: 1, mocked: 0 }))));
 app.get('/aba/status', wrap(async (_req, res) => {

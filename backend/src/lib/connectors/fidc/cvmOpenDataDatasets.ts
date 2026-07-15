@@ -39,7 +39,10 @@ export type CVMOpenDataPackage = {
 };
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: { accept: 'application/json' } });
+  const response = await fetch(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(8_000),
+  });
   if (!response.ok) {
     throw new Error(`CVM package request failed with status ${response.status}`);
   }
@@ -83,6 +86,6 @@ export async function fetchCvmFidcInformeMensalPackage() {
 export async function fetchCvmFundosInvestimentoSearchAnchors() {
   return Promise.all([
     fetchCvmDatasetPackage('fidc-doc-inf_mensal'),
-    fetchCvmDatasetPackage('fundos-estruturados-medidas'),
+    fetchCvmDatasetPackage('fie-medidas'),
   ]);
 }

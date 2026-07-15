@@ -1,4 +1,5 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput } from '../../types/platform.js';
+import { isProbativeMonitoringOutput } from './outputEvidence.js';
 
 const TREATMENT_VERSION = 'capture_treatment_v1';
 
@@ -152,16 +153,37 @@ const sourceUrlFromOutput = (output: MonitoringOutput) => pickString(
   firstItemLink(output.normalizedPayload?.items),
 );
 
-const payloadToSearchText = (payload: Record<string, unknown>) => {
-  try {
-    return JSON.stringify(payload).slice(0, 2400);
-  } catch {
-    return '';
-  }
+const itemBusinessText = (value: unknown) => {
+  if (!Array.isArray(value)) return '';
+  return value.map((item) => {
+    if (!item || typeof item !== 'object') return '';
+    const record = item as Record<string, unknown>;
+    return [record.title, record.description, record.summary, record.snippet]
+      .filter((field): field is string => typeof field === 'string')
+      .join(' ');
+  }).join(' ');
 };
 
+const stringArrayText = (value: unknown) => Array.isArray(value)
+  ? value.filter((item): item is string => typeof item === 'string').join(' ')
+  : '';
+
+const payloadToSearchText = (payload: Record<string, unknown>) => [
+  payload.bodyText,
+  payload.rawText,
+  payload.description,
+  payload.summary,
+  stringArrayText(payload.headings),
+  itemBusinessText(payload.items),
+]
+  .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  .join(' ')
+  .slice(0, 6000);
+
 const matchRules = (output: MonitoringOutput): TreatmentMatch[] => {
-  const text = normalize(`${output.title} ${output.summary} ${payloadToSearchText(output.normalizedPayload)}`);
+  if (!isProbativeMonitoringOutput(output)) return [];
+  const text = normalize(`${output.summary} ${payloadToSearchText(output.normalizedPayload)}`);
+  if (!text) return [];
 
   return RULES.map((rule) => {
     const keywords = rule.keywords.filter((keyword) => text.includes(normalize(keyword)));
@@ -228,7 +250,7 @@ const buildTreatmentSignals = (
   matches: TreatmentMatch[],
   collectedAt: string,
 ): CompanySignal[] => {
-  if (treatment.relevanceScore < 55) return [];
+  if (!isProbativeMonitoringOutput(output) || treatment.relevanceScore < 55) return [];
 
   return matches.slice(0, 4).map((match) => ({
     id: crypto.randomUUID(),

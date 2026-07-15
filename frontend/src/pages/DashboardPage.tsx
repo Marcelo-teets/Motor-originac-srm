@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
+import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat, TableViewport } from '../components/UI';
 import { VercelOpsPanel } from '../components/VercelOpsPanel';
 import { WatchListWidget } from '../components/WatchListWidget';
 import { api } from '../lib/api';
@@ -23,7 +23,7 @@ export function DashboardPage() {
       const [dashboardState, companiesState, abmWeekly] = await Promise.all([
         api.getDashboard(session),
         api.getCompanies(session),
-        api.getAbmWeekly(session),
+        api.getAbmWeekly(session).catch(() => null),
       ]);
       return { dashboardState, companiesState, abmWeekly };
     },
@@ -94,14 +94,6 @@ export function DashboardPage() {
         ))}
       </section>
 
-      <VercelOpsPanel
-        source={dashboardState.source}
-        note={dashboardState.note}
-        activeSources={dashboard.monitoring.activeSources}
-        outputs24h={dashboard.monitoring.outputs24h}
-        triggers24h={dashboard.monitoring.triggers24h}
-      />
-
       {bestNextLead ? (
         <Card title="Próxima melhor ação" subtitle="Lead mais relevante para ação comercial imediata" tone="accent" className="dashboard-decision-card">
           <div className="next-best-action">
@@ -120,51 +112,61 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
+      <VercelOpsPanel
+        source={dashboardState.source}
+        note={dashboardState.note}
+        activeSources={dashboard.monitoring.activeSources}
+        outputs24h={dashboard.monitoring.outputs24h}
+        triggers24h={dashboard.monitoring.triggers24h}
+      />
+
       <section className="dashboard-grid">
         <Card title="Top Leads" subtitle="Shortlist central para decisão de cobertura e estruturação" actions={<Pill tone="success">peça central</Pill>} className="dashboard-main-table">
-          <table className="dense-table">
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Qualification Score</th>
-                <th>Lead Score</th>
-                <th>Ranking</th>
-                <th>Main Pattern</th>
-                <th>Suggested Structure</th>
-                <th>Priority</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topLeads.map((row) => (
-                <tr key={row.companyId}>
-                  <td>
-                    <Link to={`/companies/${row.companyId}`}><strong>{row.companyName}</strong></Link>
-                    <div className="table-helper">{row.nextAction}</div>
-                  </td>
-                  <td><ScoreBadge value={row.qualificationScore} kind="qualification" /></td>
-                  <td><ScoreBadge value={row.leadScore} kind="lead" /></td>
-                  <td><ScoreBadge value={row.rankingScore ?? row.leadScore} kind="priority" /></td>
-                  <td>
-                    <strong>{row.mainPattern}</strong>
-                    <div className="table-helper">Trigger strength {row.triggerStrength}</div>
-                  </td>
-                  <td>{row.suggestedStructure}</td>
-                  <td><Pill tone={priorityTone(row.bucket)}>{formatBucket(row.bucket)}</Pill></td>
+          <TableViewport minWidth={820} label="Ranking dos principais leads">
+            <table className="dense-table">
+              <thead>
+                <tr>
+                  <th>Company</th>
+                  <th>Qualification Score</th>
+                  <th>Lead Score</th>
+                  <th>Ranking</th>
+                  <th>Main Pattern</th>
+                  <th>Suggested Structure</th>
+                  <th>Priority</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {topLeads.map((row) => (
+                  <tr key={row.companyId}>
+                    <td>
+                      <Link to={`/companies/${row.companyId}`}><strong>{row.companyName}</strong></Link>
+                      <div className="table-helper">{row.nextAction}</div>
+                    </td>
+                    <td><ScoreBadge value={row.qualificationScore} kind="qualification" /></td>
+                    <td><ScoreBadge value={row.leadScore} kind="lead" /></td>
+                    <td><ScoreBadge value={row.rankingScore ?? row.leadScore} kind="priority" /></td>
+                    <td>
+                      <strong>{row.mainPattern}</strong>
+                      <div className="table-helper">Trigger strength {row.triggerStrength}</div>
+                    </td>
+                    <td>{row.suggestedStructure}</td>
+                    <td><Pill tone={priorityTone(row.bucket)}>{formatBucket(row.bucket)}</Pill></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableViewport>
         </Card>
 
         <WatchListWidget />
 
-        <Card title="ABM War Room" subtitle="Top contas da semana e pendências comerciais críticas" actions={<Pill tone="warning">novo</Pill>}>
+        <Card title="ABM War Room" subtitle={abmWeekly ? 'Top contas da semana e pendências comerciais críticas' : 'Complemento comercial temporariamente indisponível'} actions={<Pill tone={abmWeekly ? 'warning' : 'default'}>{abmWeekly ? 'novo' : 'indisponível'}</Pill>}>
           <ul className="list compact-list">
-            <li><strong>Top contas</strong><span>{abmWeekly.data.top_accounts.length}</span></li>
-            <li><strong>Contas esfriando</strong><span>{abmWeekly.data.cooling_accounts.length}</span></li>
-            <li><strong>Sem champion</strong><span>{abmWeekly.data.without_champion.length}</span></li>
-            <li><strong>Ações vencidas</strong><span>{abmWeekly.data.overdue_next_steps.length}</span></li>
-            <li><strong>Objeções críticas</strong><span>{abmWeekly.data.critical_open_objections.length}</span></li>
+            <li><strong>Top contas</strong><span>{abmWeekly?.data.top_accounts.length ?? '—'}</span></li>
+            <li><strong>Contas esfriando</strong><span>{abmWeekly?.data.cooling_accounts.length ?? '—'}</span></li>
+            <li><strong>Sem champion</strong><span>{abmWeekly?.data.without_champion.length ?? '—'}</span></li>
+            <li><strong>Ações vencidas</strong><span>{abmWeekly?.data.overdue_next_steps.length ?? '—'}</span></li>
+            <li><strong>Objeções críticas</strong><span>{abmWeekly?.data.critical_open_objections.length ?? '—'}</span></li>
           </ul>
         </Card>
 
@@ -188,13 +190,13 @@ export function DashboardPage() {
 
         <Card title="Agents" subtitle="Saúde operacional, falhas e confiança por agente" actions={<Pill tone="warning">widget</Pill>}>
           <ul className="list compact-list">
-            {dashboard.agents.map((agent, index) => (
+            {dashboard.agents.map((agent) => (
               <li key={agent.name}>
                 <div>
                   <strong>{agent.name}</strong>
                   <div className="table-helper">{agent.note}</div>
                 </div>
-                <span>{agent.status} · confiança {Math.max(58, 88 - index * 6)}%</span>
+                <span>{agent.status} · {agent.lastRun ? new Date(agent.lastRun).toLocaleString('pt-BR') : 'sem execução observada'}</span>
               </li>
             ))}
           </ul>

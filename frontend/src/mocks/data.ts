@@ -78,6 +78,10 @@ export const mockCompanies: CompanyListItem[] = [
     topPatterns: ['Growth without structured funding', 'Strong receivables base with weak funding architecture', 'Momentum + timing + structural gap'],
     thesis: 'Pressão de funding visível para sustentar originação crescente com recebíveis elegíveis.',
     nextAction: 'Abrir conversa executiva com CFO e estruturar memo FIDC.',
+    rankingScore: 92,
+    rankingPosition: 1,
+    latestEvidence: 'Empresa anunciou expansão da carteira de recebíveis.',
+    latestEvidenceAt: '2026-03-21T09:00:00Z',
   },
   {
     id: 'cmp_orbit_pay',
@@ -99,6 +103,10 @@ export const mockCompanies: CompanyListItem[] = [
     topPatterns: ['Capital mismatch for business model', 'Embedded finance with implicit balance-sheet pressure'],
     thesis: 'Estrutura privada pode aliviar a pressão de capital antes da migração para funding estruturado.',
     nextAction: 'Mapear dívida privada como ponte para funding mais escalável.',
+    rankingScore: 80,
+    rankingPosition: 2,
+    latestEvidence: 'Crescimento de crédito SMB observado em publicação recente.',
+    latestEvidenceAt: '2026-03-20T09:00:00Z',
   },
   {
     id: 'cmp_axon_health',
@@ -120,6 +128,10 @@ export const mockCompanies: CompanyListItem[] = [
     topPatterns: ['Sophisticated credit narrative, immature funding stack', 'Operational maturity signals without capital market readiness yet'],
     thesis: 'Há maturidade operacional, mas a arquitetura de capital ainda não acompanha a tese comercial.',
     nextAction: 'Refinar diagnóstico de prontidão para dívida privada.',
+    rankingScore: 71,
+    rankingPosition: 3,
+    latestEvidence: 'Sem evidência observada consolidada.',
+    latestEvidenceAt: null,
   },
 ];
 
@@ -363,11 +375,11 @@ export const mockPipelineSnapshot: PipelineSnapshot = {
 };
 
 export const sources: SourceEntry[] = [
-  { id: 's1', name: 'BrasilAPI CNPJ', sourceType: 'api', status: 'real', category: 'Cadastral', health: 'healthy' },
-  { id: 's2', name: 'Google News RSS', sourceType: 'rss', status: 'real', category: 'News/RSS', health: 'healthy' },
-  { id: 's3', name: 'Company Website Monitor', sourceType: 'sitemap', status: 'partial', category: 'Website monitoring', health: 'healthy' },
-  { id: 's4', name: 'CVM RSS', sourceType: 'rss', status: 'partial', category: 'Regulatório', health: 'healthy' },
-  { id: 's5', name: 'LinkedIn Hiring Signals', sourceType: 'scraper', status: 'mock', category: 'Digital signals', health: 'degraded' },
+  { id: 's1', name: 'BrasilAPI CNPJ', sourceType: 'api', status: 'real', category: 'Cadastral', health: 'healthy', metadata: {} },
+  { id: 's2', name: 'Google News RSS', sourceType: 'rss', status: 'real', category: 'News/RSS', health: 'healthy', metadata: {} },
+  { id: 's3', name: 'Company Website Monitor', sourceType: 'sitemap', status: 'partial', category: 'Website monitoring', health: 'healthy', metadata: {} },
+  { id: 's4', name: 'CVM RSS', sourceType: 'rss', status: 'partial', category: 'Regulatório', health: 'healthy', metadata: {} },
+  { id: 's5', name: 'LinkedIn Hiring Signals', sourceType: 'scraper', status: 'mock', category: 'Digital signals', health: 'degraded', metadata: {} },
 ];
 
 export const stackStatus = [

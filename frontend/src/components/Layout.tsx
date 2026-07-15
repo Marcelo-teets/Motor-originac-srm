@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { navGroups, navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
@@ -5,13 +6,16 @@ import { useAuth } from '../lib/auth';
 export function Layout() {
   const { logout, session } = useAuth();
   const location = useLocation();
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const activeItem = [...navItems]
     .reverse()
     .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? navItems[0];
 
+  useEffect(() => setNavigationOpen(false), [location.pathname]);
+
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside id="primary-navigation" className={`sidebar ${navigationOpen ? 'sidebar-open' : ''}`} aria-label="Navegação principal">
         <div className="sidebar-brand">
           <p className="eyebrow">Origination Intelligence</p>
           <h1>Motor SRM</h1>
@@ -42,8 +46,20 @@ export function Layout() {
         </div>
       </aside>
 
+      {navigationOpen ? <button type="button" className="sidebar-scrim" aria-label="Fechar navegação" onClick={() => setNavigationOpen(false)} /> : null}
+
       <main className="content">
         <header className="topbar">
+          <button
+            type="button"
+            className="secondary compact-button nav-toggle"
+            aria-controls="primary-navigation"
+            aria-expanded={navigationOpen}
+            onClick={() => setNavigationOpen((current) => !current)}
+          >
+            <span aria-hidden="true">☰</span>
+            Menu
+          </button>
           <div className="topbar-title">
             <p className="eyebrow">{activeItem.label}</p>
             <strong>{activeItem.description}</strong>

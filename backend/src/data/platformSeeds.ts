@@ -1,5 +1,72 @@
 import { sourceSeeds } from '../../../config/source-seeds.js';
+import { fidcConnectorCatalog } from '../lib/connectors/fidc/fidcConnectorCatalog.js';
 import type { CompanySeed, PatternCatalogEntry, SearchProfile, SourceCatalogEntry } from '../types/platform.js';
+
+const CORE_SOURCE_NAMES = new Set([
+  'BrasilAPI CNPJ',
+  'Google News RSS',
+  'Company Website Monitor',
+  'Empresa Website Monitor',
+  'CVM RSS',
+  'Valor / Google News RSS',
+  'LinkedIn Hiring Signals',
+]);
+
+const SOURCE_SEED_DETAILS: Record<string, { id: string; url?: string }> = {
+  'CVM Ofertas Públicas': { id: 'src_cvm_offers', url: 'https://dados.cvm.gov.br/dataset/oferta-distrib' },
+  'CVM Cadastro de Fundos': { id: 'src_cvm_fund_registry', url: 'https://dados.cvm.gov.br/dataset/fi-cad' },
+  'CVM FIDC Informes Mensais': { id: 'src_cvm_fidc_monthly', url: 'https://dados.cvm.gov.br/dataset/fidc-doc-inf_mensal' },
+  'CVM CRI Informes Mensais': { id: 'src_cvm_cri_monthly', url: 'https://dados.cvm.gov.br/dataset/securit-doc-inf_mensal_cri' },
+  'CVM CRA Informes Mensais': { id: 'src_cvm_cra_monthly', url: 'https://dados.cvm.gov.br/dataset/securit-doc-inf_mensal_cra' },
+  'CVM FII Informes Mensais': { id: 'src_cvm_fii_monthly', url: 'https://dados.cvm.gov.br/dataset/fii-doc-inf_mensal' },
+  'Banco Central Registrations': { id: 'src_bacen_registrations' },
+};
+
+const structuredMarketSourceSeeds: SourceCatalogEntry[] = fidcConnectorCatalog.map((source) => ({
+  id: source.id,
+  name: source.name,
+  url: source.baseUrl,
+  sourceType: source.sourceType,
+  category: source.category,
+  status: source.status,
+  health: source.status === 'real' ? 'healthy' : 'degraded',
+  authRequirement: source.authRequirement,
+  rateLimitNotes: source.notes,
+  metadata: {
+    code: source.id,
+    provider: source.id.startsWith('src_cvm_') ? 'CVM' : source.id.startsWith('src_anbima_') ? 'ANBIMA' : 'Public data',
+    captureMode: source.sourceType,
+    cadence: source.id.startsWith('src_cvm_') ? 'weekly' : 'on_demand',
+    coverage: 'structured_credit_market',
+    targetSignals: ['existing_fidc', 'structured_funding_maturity', 'market_comparables'],
+    targetOutputTables: ['fidc_dataset_runs', 'fidc_funds', 'monitoring_outputs'],
+  },
+}));
+
+const structuredMarketSourceIds = new Set(structuredMarketSourceSeeds.map((source) => source.id));
+
+const additionalSourceSeeds: SourceCatalogEntry[] = sourceSeeds
+  .filter((seed) => !CORE_SOURCE_NAMES.has(seed.name))
+  .map((seed, index) => {
+    const details = SOURCE_SEED_DETAILS[seed.name];
+    const id = details?.id ?? `seed_${index + 1}`;
+    return {
+      id,
+      name: seed.name,
+      url: details?.url,
+      sourceType: seed.type,
+      category: seed.category,
+      status: seed.status as SourceCatalogEntry['status'],
+      health: (seed.status === 'mock' ? 'degraded' : 'healthy') as SourceCatalogEntry['health'],
+      metadata: {
+        seeded: true,
+        code: id,
+        provider: id.startsWith('src_cvm_') ? 'CVM' : undefined,
+        captureMode: id.startsWith('src_cvm_') ? 'capital_market_ingestion' : seed.type,
+      },
+    };
+  })
+  .filter((source) => !structuredMarketSourceIds.has(source.id));
 
 export const sourceCatalogSeeds: SourceCatalogEntry[] = [
   {
@@ -57,17 +124,8 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     health: 'degraded',
     metadata: { note: 'Sem integração automatizada nesta PR; mantido como fallback mockado.' },
   },
-  ...sourceSeeds
-    .filter((seed) => !['Google News RSS', 'CVM RSS'].includes(seed.name))
-    .map((seed, index) => ({
-      id: `seed_${index + 1}`,
-      name: seed.name,
-      sourceType: seed.type,
-      category: seed.category,
-      status: seed.status as SourceCatalogEntry['status'],
-      health: (seed.status === 'mock' ? 'degraded' : 'healthy') as SourceCatalogEntry['health'],
-      metadata: { seeded: true }
-    })),
+  ...structuredMarketSourceSeeds,
+  ...additionalSourceSeeds,
 ];
 
 export const searchProfileSeeds: SearchProfile[] = [
