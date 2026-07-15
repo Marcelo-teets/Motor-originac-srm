@@ -1,0 +1,42 @@
+name: Agent Patch CVM Incremental Main
+
+on:
+  push:
+    branches:
+      - fix/cvm-incremental-main
+    paths:
+      - 'scripts/agent/patch-cvm-incremental-main.mjs'
+      - '.github/workflows/agent-patch-cvm-incremental-main.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/cvm-incremental-main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply focused connector patch
+        run: node scripts/agent/patch-cvm-incremental-main.mjs
+      - name: Remove one-off helpers
+        run: rm scripts/agent/patch-cvm-incremental-main.mjs .github/workflows/agent-patch-cvm-incremental-main.yml
+      - run: npm ci
+      - run: npm -C backend run typecheck
+      - run: npm -C backend test
+      - run: npm run build
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/modules/capital-markets/cvmCapitalMarketConnector.ts backend/src/modules/capital-markets/cvmCapitalMarketConnector.test.ts scripts/agent/patch-cvm-incremental-main.mjs .github/workflows/agent-patch-cvm-incremental-main.yml
+          git commit -m "fix(cvm): stabilize record identity for incremental updates"
+          git push origin HEAD:fix/cvm-incremental-main
