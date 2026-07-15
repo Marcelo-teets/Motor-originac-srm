@@ -3,6 +3,7 @@ import { treatCaptureOutputs } from '../modules/data-capture/captureTreatment.js
 import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
+import { getSupabaseClient } from '../lib/supabase.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
@@ -280,7 +281,7 @@ export class PlatformService {
       return [company.id, buildThesisOutput(company, qualification, patterns)] as const;
     }));
 
-    const rankingRows = companies
+    const computedRankingRows = companies
       .map((company) => buildRankingRow({
         companyId: company.id,
         companyName: company.tradeName,
@@ -290,6 +291,44 @@ export class PlatformService {
       }))
       .sort((a, b) => b.rankingScore - a.rankingScore)
       .map((row, index) => ({ ...row, position: index + 1 }));
+
+    let rankingRows = computedRankingRows;
+    if (env.useSupabase) {
+      const client = getSupabaseClient();
+      if (client) {
+        try {
+          const persistedRows = await client.select('ranking_v2', {
+            select: '*',
+            orderBy: { column: 'created_at', ascending: false },
+            limit: Math.max(companies.length * 3, 50),
+          });
+          const latestSnapshotAt = persistedRows?.[0]?.created_at;
+          const latestSnapshot = latestSnapshotAt
+            ? (persistedRows ?? []).filter((row: any) => row.created_at === latestSnapshotAt)
+            : [];
+          const fallbackByCompany = new Map(computedRankingRows.map((row) => [row.companyId, row]));
+          const mapped = latestSnapshot
+            .map((row: any) => {
+              const fallback = fallbackByCompany.get(row.company_id);
+              if (!fallback) return null;
+              return {
+                ...fallback,
+                position: Number(row.position),
+                qualificationScore: Number(row.qualification_score),
+                leadScore: Number(row.lead_score),
+                rankingScore: Number(row.ranking_score),
+                rationale: row.rationale ?? fallback.rationale,
+              } satisfies RankingRow;
+            })
+            .filter((row): row is RankingRow => Boolean(row))
+            .sort((a, b) => a.position - b.position);
+
+          if (mapped.length === companies.length) rankingRows = mapped;
+        } catch (error) {
+          console.warn('Ranking V2 persistence fallback:', error instanceof Error ? error.message : error);
+        }
+      }
+    }
 
     const companyViews = companies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
