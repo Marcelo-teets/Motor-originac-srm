@@ -2,13 +2,16 @@ name: Capital Market Ingestion
 
 on:
   schedule:
+    # Ofertas publicas: sinal de timing mais rapido, captura diaria.
     - cron: "20 9 * * *"
+    # Cadastros e informes mensais: captura semanal, segunda-feira.
+    - cron: "40 10 * * 1"
   workflow_dispatch:
     inputs:
       dataset:
         description: Dataset CVM ou all
         required: true
-        default: all
+        default: cvm_offers
         type: choice
         options:
           - all
@@ -25,7 +28,7 @@ on:
       max_rows:
         description: Limite de linhas por dataset
         required: true
-        default: "250000"
+        default: "50000"
         type: string
 
 permissions:
@@ -42,9 +45,10 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      DATASET: ${{ inputs.dataset || 'all' }}
-      REFERENCE: ${{ inputs.reference || '' }}
-      MAX_ROWS: ${{ inputs.max_rows || '250000' }}
+      DISPATCH_DATASET: ${{ inputs.dataset || '' }}
+      DISPATCH_REFERENCE: ${{ inputs.reference || '' }}
+      DISPATCH_MAX_ROWS: ${{ inputs.max_rows || '' }}
+      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,8 +70,35 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
+      - name: Resolve incremental ingestion scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DATASET="${DISPATCH_DATASET:-cvm_offers}"
+            MAX_ROWS="${DISPATCH_MAX_ROWS:-50000}"
+            REFERENCE="$DISPATCH_REFERENCE"
+            TRIGGER="manual"
+          elif [ "$SCHEDULE_EXPRESSION" = "20 9 * * *" ]; then
+            DATASET="cvm_offers"
+            MAX_ROWS="50000"
+            REFERENCE=""
+            TRIGGER="schedule"
+          else
+            DATASET="cvm_fund_registry,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_fii_monthly"
+            MAX_ROWS="100000"
+            REFERENCE=""
+            TRIGGER="schedule"
+          fi
+
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "max_rows=$MAX_ROWS" >> "$GITHUB_OUTPUT"
+          echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+          echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
+
       - name: Ingest CVM capital-market datasets
         run: |
-          ARGS=(--dataset "$DATASET" --max-rows "$MAX_ROWS" --trigger schedule)
-          if [ -n "$REFERENCE" ]; then ARGS+=(--reference "$REFERENCE"); fi
+          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}")
+          if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
           npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
