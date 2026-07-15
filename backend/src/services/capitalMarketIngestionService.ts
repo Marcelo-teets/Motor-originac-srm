@@ -10,8 +10,7 @@ import {
 
 const DEFAULT_BATCH_SIZE = 500;
 const DEFAULT_MAX_ROWS = 100_000;
-const MANUAL_STALE_RUN_AFTER_MS = 5 * 60 * 1_000;
-const BATCH_STALE_RUN_AFTER_MS = 3 * 60 * 60 * 1_000;
+const STALE_RUN_AFTER_MS = 30 * 60 * 1_000;
 const ALL_DATASETS = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
 
 const chunks = <T>(items: T[], size = DEFAULT_BATCH_SIZE) => {
@@ -129,31 +128,6 @@ export class CapitalMarketIngestionService {
     ]));
   }
 
-  private async closeStaleRuns(datasetCode: CvmDatasetCode) {
-    const now = new Date().toISOString();
-    const manualStaleBefore = new Date(Date.now() - MANUAL_STALE_RUN_AFTER_MS).toISOString();
-    const batchStaleBefore = new Date(Date.now() - BATCH_STALE_RUN_AFTER_MS).toISOString();
-    const stalePayload = {
-      status: 'failed',
-      finished_at: now,
-      error_message: 'Automatically closed as a stale capital-market ingestion run.',
-      updated_at: now,
-    };
-
-    await this.client!.update('capital_market_dataset_runs', stalePayload, [
-      { column: 'dataset_code', value: datasetCode },
-      { column: 'status', value: 'running' },
-      { column: 'trigger_type', value: 'manual' },
-      { column: 'started_at', operator: 'lt', value: manualStaleBefore },
-    ]);
-    await this.client!.update('capital_market_dataset_runs', stalePayload, [
-      { column: 'dataset_code', value: datasetCode },
-      { column: 'status', value: 'running' },
-      { column: 'trigger_type', operator: 'in', value: ['schedule', 'backfill'] },
-      { column: 'started_at', operator: 'lt', value: batchStaleBefore },
-    ]);
-  }
-
   private async acquireRun(input: {
     runId: string;
     datasetCode: CvmDatasetCode;
@@ -164,7 +138,18 @@ export class CapitalMarketIngestionService {
     maxRows: number;
     packageId: string;
   }) {
-    await this.closeStaleRuns(input.datasetCode);
+    const now = new Date().toISOString();
+    const staleBefore = new Date(Date.now() - STALE_RUN_AFTER_MS).toISOString();
+    await this.client!.update('capital_market_dataset_runs', {
+      status: 'failed',
+      finished_at: now,
+      error_message: 'Automatically closed as a stale capital-market ingestion run.',
+      updated_at: now,
+    }, [
+      { column: 'dataset_code', value: input.datasetCode },
+      { column: 'status', value: 'running' },
+      { column: 'started_at', operator: 'lt', value: staleBefore },
+    ]);
 
     try {
       await this.client!.insert('capital_market_dataset_runs', [{
