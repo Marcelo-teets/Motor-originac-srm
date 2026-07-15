@@ -15,9 +15,20 @@ const isAuthorized = (req: IncomingMessage) => {
   return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
 };
 
+const deploymentMetadata = () => ({
+  deploymentCommitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+  deploymentEnvironment: process.env.VERCEL_ENV ?? null,
+  deploymentUrl: process.env.VERCEL_URL ?? null,
+});
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!isAuthorized(req)) {
-    writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized capital-market ingestion request.' });
+    writeJson(res, 401, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Unauthorized capital-market ingestion request.',
+      ...deploymentMetadata(),
+    });
     return;
   }
 
@@ -37,6 +48,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         generatedAt: new Date().toISOString(),
         error: `Invalid dataset: ${requestedDataset}`,
         allowedDatasets: Object.keys(CVM_DATASETS),
+        ...deploymentMetadata(),
       });
       return;
     }
@@ -52,12 +64,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       maxRows,
       triggerType: 'manual',
     });
-    writeJson(res, result.status === 'real' ? 200 : result.status === 'partial' ? 207 : 500, result);
+    writeJson(res, result.status === 'real' ? 200 : result.status === 'partial' ? 207 : 500, {
+      ...result,
+      ...deploymentMetadata(),
+    });
   } catch (error) {
     writeJson(res, 500, {
       status: 'failed',
       generatedAt: new Date().toISOString(),
       error: error instanceof Error ? error.message : String(error),
+      ...deploymentMetadata(),
     });
   }
 }
