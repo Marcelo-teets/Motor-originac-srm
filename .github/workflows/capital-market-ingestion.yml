@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - .github/workflows/capital-market-ingestion.yml
+      - api/capital-market-run.ts
+      - vercel.json
       - backend/src/cli/capitalMarkets.ts
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
@@ -52,6 +54,8 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      CAPITAL_MARKET_API_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/capital-markets/run
       REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
@@ -68,7 +72,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate required secrets
+      - name: Validate serverless smoke secret
+        if: github.event_name == 'push'
+        run: test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1)
+
+      - name: Validate direct ingestion secrets
+        if: github.event_name != 'push'
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
@@ -76,19 +85,37 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
-      - name: Ingest CVM capital-market datasets
+      - name: Smoke CVM offers through deployed API
+        if: github.event_name == 'push'
+        run: |
+          for ATTEMPT in $(seq 1 18); do
+            echo "Serverless smoke attempt ${ATTEMPT}/18"
+            RESPONSE=$(curl -sS --max-time 40 -w "\nHTTP_STATUS:%{http_code}\n" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=1000" || true)
+            STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | cut -d: -f2)
+            BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+            echo "$BODY"
+
+            if { [ "$STATUS" = "200" ] || [ "$STATUS" = "207" ]; } \
+              && echo "$BODY" | grep -q 'recordsSeen'; then
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Capital-market serverless smoke did not complete successfully."
+          exit 1
+
+      - name: Ingest CVM capital-market datasets directly
+        if: github.event_name != 'push'
         run: |
           DATASET="${REQUESTED_DATASET:-all}"
           REFERENCE="$REQUESTED_REFERENCE"
           MAX_ROWS="${REQUESTED_MAX_ROWS:-250000}"
           TRIGGER="schedule"
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            DATASET="cvm_offers"
-            REFERENCE=""
-            MAX_ROWS="5000"
-            TRIGGER="manual"
-          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             TRIGGER="manual"
           fi
 
