@@ -30,6 +30,54 @@ const mapCompanySeedToRow = (company: CompanySeed) => ({
   source_trace: company.sourceRecords,
 });
 
+const normalizeCandidateStatus = (value: unknown): DiscoveredCandidateRecord['candidateStatus'] => {
+  if (value === 'promoted') return 'promoted';
+  if (value === 'deduped') return 'deduped';
+  if (value === 'discarded' || value === 'rejected') return 'discarded';
+  return 'captured';
+};
+
+const normalizeCandidateReceivables = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  if (value && typeof value === 'object') {
+    const instruments = (value as Record<string, unknown>).instrumentTypes;
+    if (Array.isArray(instruments) && instruments.includes('FIDC')) {
+      return ['FIDC identificado em registro CVM — validar carteira, originador e lastro'];
+    }
+  }
+  return [];
+};
+
+const mapCandidateRow = (row: any): DiscoveredCandidateRecord => ({
+  id: row.id,
+  searchProfileRunId: row.search_profile_run_id ?? undefined,
+  searchProfileId: row.search_profile_id ?? undefined,
+  companyName: row.company_name,
+  legalName: row.legal_name ?? undefined,
+  website: row.website ?? undefined,
+  normalizedDomain: row.normalized_domain ?? undefined,
+  cnpj: row.cnpj ?? undefined,
+  geography: row.geography ?? 'Brasil',
+  segment: row.segment ?? 'Unknown',
+  subsegment: row.subsegment ?? 'Unknown',
+  companyType: row.company_type ?? 'Unknown',
+  creditProduct: row.credit_product ?? 'Unknown',
+  targetStructure: row.target_structure ?? 'Unknown',
+  sourceRef: row.source_ref ?? 'unknown',
+  sourceUrl: row.source_url ?? undefined,
+  evidenceSummary: row.evidence_summary ?? '',
+  receivables: normalizeCandidateReceivables(row.receivables),
+  confidence: Number(row.confidence ?? 0.5),
+  candidateStatus: normalizeCandidateStatus(row.candidate_status),
+  companyId: row.company_id ?? undefined,
+  dedupeKey: row.dedupe_key ?? '',
+  rawPayload: row.raw_payload ?? {},
+  capturedAt: row.captured_at,
+  promotedAt: row.promoted_at ?? undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
 export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter {
   private readonly client: SupabaseLike | null = getSupabaseClient();
   private runs: SearchProfileRunRecord[] = [];
@@ -185,35 +233,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       updated_at: candidate.updatedAt,
     })));
 
-    return (rows ?? []).map((row: any) => ({
-      id: row.id,
-      searchProfileRunId: row.search_profile_run_id,
-      searchProfileId: row.search_profile_id,
-      companyName: row.company_name,
-      legalName: row.legal_name ?? undefined,
-      website: row.website ?? undefined,
-      normalizedDomain: row.normalized_domain ?? undefined,
-      cnpj: row.cnpj ?? undefined,
-      geography: row.geography ?? 'Brasil',
-      segment: row.segment ?? 'Unknown',
-      subsegment: row.subsegment ?? 'Unknown',
-      companyType: row.company_type ?? 'Unknown',
-      creditProduct: row.credit_product ?? 'Unknown',
-      targetStructure: row.target_structure ?? 'Unknown',
-      sourceRef: row.source_ref ?? 'unknown',
-      sourceUrl: row.source_url ?? undefined,
-      evidenceSummary: row.evidence_summary ?? '',
-      receivables: row.receivables ?? [],
-      confidence: Number(row.confidence ?? 0.5),
-      candidateStatus: row.candidate_status,
-      companyId: row.company_id ?? undefined,
-      dedupeKey: row.dedupe_key ?? '',
-      rawPayload: row.raw_payload ?? {},
-      capturedAt: row.captured_at,
-      promotedAt: row.promoted_at ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return (rows ?? []).map(mapCandidateRow);
   }
 
   async getDiscoveredCandidate(candidateId: string): Promise<DiscoveredCandidateRecord | null> {
@@ -221,35 +241,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
     const rows = await this.client.select('discovered_company_candidates', { select: '*', filters: [{ column: 'id', operator: 'eq', value: candidateId }], limit: 1 });
     const row = rows?.[0];
     if (!row) return null;
-    return {
-      id: row.id,
-      searchProfileRunId: row.search_profile_run_id,
-      searchProfileId: row.search_profile_id,
-      companyName: row.company_name,
-      legalName: row.legal_name ?? undefined,
-      website: row.website ?? undefined,
-      normalizedDomain: row.normalized_domain ?? undefined,
-      cnpj: row.cnpj ?? undefined,
-      geography: row.geography ?? 'Brasil',
-      segment: row.segment ?? 'Unknown',
-      subsegment: row.subsegment ?? 'Unknown',
-      companyType: row.company_type ?? 'Unknown',
-      creditProduct: row.credit_product ?? 'Unknown',
-      targetStructure: row.target_structure ?? 'Unknown',
-      sourceRef: row.source_ref ?? 'unknown',
-      sourceUrl: row.source_url ?? undefined,
-      evidenceSummary: row.evidence_summary ?? '',
-      receivables: row.receivables ?? [],
-      confidence: Number(row.confidence ?? 0.5),
-      candidateStatus: row.candidate_status,
-      companyId: row.company_id ?? undefined,
-      dedupeKey: row.dedupe_key ?? '',
-      rawPayload: row.raw_payload ?? {},
-      capturedAt: row.captured_at,
-      promotedAt: row.promoted_at ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return mapCandidateRow(row);
   }
 
   async updateDiscoveredCandidate(candidateId: string, patch: Partial<DiscoveredCandidateRecord>): Promise<DiscoveredCandidateRecord> {
