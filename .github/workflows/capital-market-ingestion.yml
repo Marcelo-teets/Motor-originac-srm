@@ -14,13 +14,16 @@ on:
       - db/migrations/035_capital_market_public_data.sql
       - db/migrations/036_capital_market_dataset_runs_source_index.sql
   schedule:
+    # Ofertas públicas: sinal de timing rápido, captura diária.
     - cron: "20 9 * * *"
+    # Cadastros e informes: captura semanal, segunda-feira.
+    - cron: "40 10 * * 1"
   workflow_dispatch:
     inputs:
       dataset:
         description: Dataset CVM ou all
         required: true
-        default: all
+        default: cvm_offers
         type: choice
         options:
           - all
@@ -31,13 +34,13 @@ on:
           - cvm_cra_monthly
           - cvm_fii_monthly
       reference:
-        description: Competencia opcional (YYYY-MM ou YYYY)
+        description: Competência opcional (YYYY-MM ou YYYY)
         required: false
         type: string
       max_rows:
         description: Limite de linhas por dataset
         required: true
-        default: "250000"
+        default: "50000"
         type: string
 
 permissions:
@@ -59,6 +62,7 @@ jobs:
       REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
+      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,17 +89,27 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
-      - name: Smoke CVM offers through deployed API
+      - name: Test capital-market connector
+        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts
+
+      - name: Smoke recent CVM offers through deployed API
         if: github.event_name == 'push'
         run: |
-          for ATTEMPT in $(seq 1 18); do
-            echo "Serverless smoke attempt ${ATTEMPT}/18"
+          for ATTEMPT in $(seq 1 24); do
+            echo "Serverless smoke attempt ${ATTEMPT}/24 for commit ${GITHUB_SHA}"
             RESPONSE=$(curl -sS --max-time 40 -w "\nHTTP_STATUS:%{http_code}\n" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=1000" || true)
+              "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=500" || true)
             STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | cut -d: -f2)
             BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
             echo "$BODY"
+            DEPLOYED_SHA=$(printf '%s' "$BODY" | node -e "let b='';process.stdin.on('data',d=>b+=d).on('end',()=>{try{process.stdout.write(JSON.parse(b).deploymentCommitSha||'')}catch{}})")
+
+            if [ "$DEPLOYED_SHA" != "$GITHUB_SHA" ]; then
+              echo "Deployment SHA ${DEPLOYED_SHA:-missing} does not match ${GITHUB_SHA}; retrying after promotion."
+              sleep 10
+              continue
+            fi
 
             if { [ "$STATUS" = "200" ] || [ "$STATUS" = "207" ]; } \
               && echo "$BODY" | grep -q 'recordsSeen'; then
@@ -104,21 +118,40 @@ jobs:
             sleep 10
           done
 
-          echo "Capital-market serverless smoke did not complete successfully."
+          echo "Capital-market serverless smoke did not complete on the expected deployment."
           exit 1
+
+      - name: Resolve direct ingestion scope
+        if: github.event_name != 'push'
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            DATASET="${REQUESTED_DATASET:-cvm_offers}"
+            REFERENCE="$REQUESTED_REFERENCE"
+            MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
+            TRIGGER="manual"
+          elif [ "$SCHEDULE_EXPRESSION" = "20 9 * * *" ]; then
+            DATASET="cvm_offers"
+            REFERENCE=""
+            MAX_ROWS="50000"
+            TRIGGER="schedule"
+          else
+            DATASET="cvm_fund_registry,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_fii_monthly"
+            REFERENCE=""
+            MAX_ROWS="100000"
+            TRIGGER="schedule"
+          fi
+
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "max_rows=$MAX_ROWS" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+          echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
 
       - name: Ingest CVM capital-market datasets directly
         if: github.event_name != 'push'
         run: |
-          DATASET="${REQUESTED_DATASET:-all}"
-          REFERENCE="$REQUESTED_REFERENCE"
-          MAX_ROWS="${REQUESTED_MAX_ROWS:-250000}"
-          TRIGGER="schedule"
-
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            TRIGGER="manual"
-          fi
-
-          ARGS=(--dataset "$DATASET" --max-rows "$MAX_ROWS" --trigger "$TRIGGER")
-          if [ -n "$REFERENCE" ]; then ARGS+=(--reference "$REFERENCE"); fi
+          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}")
+          if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
           npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
