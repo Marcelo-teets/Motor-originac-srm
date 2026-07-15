@@ -256,10 +256,10 @@ export class CapitalMarketIngestionService {
       filters: [{ column: 'dataset_code', value: datasetCode }],
     }) as ResourceCheckpoint[];
     const checkpoints = new Map(checkpointRows.map((row) => [row.resource_key, row]));
+    const incremental = options.triggerType === 'schedule' && !options.reference;
 
     try {
       const resources = await discoverCvmResources(datasetCode, options.reference);
-      const incremental = options.triggerType === 'schedule' && !options.reference;
       const previousFingerprints = incremental ? await this.previousResourceFingerprints(datasetCode) : new Set<string>();
       const resourcesToProcess: Array<{ resource: CvmResource; fingerprint: string; checkpoint?: ResourceCheckpoint }> = [];
 
