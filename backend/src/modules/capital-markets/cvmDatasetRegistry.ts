@@ -1,4 +1,3 @@
-
 export type CvmDatasetCode =
   | 'cvm_offers'
   | 'cvm_fund_registry'
@@ -142,8 +141,23 @@ export const normalizeKey = (value: string) => value
   .toLowerCase();
 
 const normalizeReference = (reference?: string) => String(reference ?? '').replace(/\D/g, '');
-
 const resourceTimestamp = (resource: CvmResource) => Date.parse(resource.last_modified ?? resource.created ?? '') || 0;
+
+const resourcePeriod = (resource: CvmResource) => {
+  const text = `${resource.name} ${resource.url}`;
+  const monthly = [...text.matchAll(/(?:^|\D)((?:19|20)\d{2})(0[1-9]|1[0-2])(?:\D|$)/g)].at(-1);
+  if (monthly) return Number(`${monthly[1]}${monthly[2]}`);
+  const annual = [...text.matchAll(/(?:^|\D)((?:19|20)\d{2})(?:\D|$)/g)].at(-1);
+  return annual ? Number(`${annual[1]}00`) : 0;
+};
+
+const resourcePriority = (definition: CvmDatasetDefinition, resource: CvmResource) => {
+  if (definition.code !== 'cvm_offers') return 0;
+  const key = normalizeKey(`${resource.name} ${resource.url}`);
+  if (key.includes('resolucao160')) return 20;
+  if (key.includes('ofertadistribuicao')) return 10;
+  return 0;
+};
 
 export const selectDatasetResources = (
   definition: CvmDatasetDefinition,
@@ -157,8 +171,16 @@ export const selectDatasetResources = (
     ? supported.filter((resource) => normalizeReference(`${resource.name} ${resource.url}`).includes(referenceKey))
     : supported;
   const candidates = referenced
-    .map((resource) => ({ resource, score: resourceTimestamp(resource) }))
-    .sort((a, b) => b.score - a.score || b.resource.name.localeCompare(a.resource.name));
+    .map((resource) => ({
+      resource,
+      priority: resourcePriority(definition, resource),
+      period: resourcePeriod(resource),
+      timestamp: resourceTimestamp(resource),
+    }))
+    .sort((a, b) => b.priority - a.priority
+      || b.period - a.period
+      || b.timestamp - a.timestamp
+      || b.resource.name.localeCompare(a.resource.name));
 
   if (!candidates.length && referenceKey) return selectDatasetResources(definition, resources);
 
