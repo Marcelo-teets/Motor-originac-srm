@@ -79,7 +79,7 @@ test('normalizeCapitalMarketRecord extracts a debenture offering with stable lin
       Nome_Emissor: 'Empresa Teste S.A.',
       Valor_Mobiliario: 'Debêntures',
       Valor_Total_Oferta: '250.000.000,00',
-      Data_Registro: '14/07/2026',
+      Data_Registro_Oferta: '14/07/2026',
       Numero_Registro_Oferta: 'CVM-2026-001',
     },
   });
@@ -90,4 +90,43 @@ test('normalizeCapitalMarketRecord extracts a debenture offering with stable lin
   assert.equal(normalized.event.event_date, '2026-07-14');
   assert.equal(normalized.bronze.dataset_code, 'cvm_offers');
   assert.equal(normalized.event.record_key.length, 64);
+  assert.equal(normalized.event.content_hash, normalized.bronze.content_hash);
+});
+
+test('natural record identity remains stable when mutable fields change', () => {
+  const base = {
+    datasetCode: 'cvm_offers' as const,
+    resource: { name: 'oferta_distribuicao.zip', url: 'https://dados.cvm.gov.br/oferta.zip' },
+    fileName: 'oferta_distribuicao.csv',
+    observedAt: '2026-07-14T12:00:00.000Z',
+  };
+  const first = normalizeCapitalMarketRecord({
+    ...base,
+    row: {
+      CNPJ_Emissor: '12.345.678/0001-90',
+      Nome_Emissor: 'Empresa Teste S.A.',
+      Tipo_Ativo: 'Debêntures',
+      Valor_Total: '250.000.000,00',
+      Data_Registro_Oferta: '14/07/2026',
+      Numero_Registro_Oferta: 'CVM-2026-001',
+      Situacao_Oferta: 'Em análise',
+    },
+  });
+  const updated = normalizeCapitalMarketRecord({
+    ...base,
+    observedAt: '2026-07-15T12:00:00.000Z',
+    row: {
+      CNPJ_Emissor: '12.345.678/0001-90',
+      Nome_Emissor: 'Empresa Teste S.A.',
+      Tipo_Ativo: 'Debêntures',
+      Valor_Total: '300.000.000,00',
+      Data_Registro_Oferta: '14/07/2026',
+      Numero_Registro_Oferta: 'CVM-2026-001',
+      Situacao_Oferta: 'Registrada',
+    },
+  });
+
+  assert.equal(first.event.record_key, updated.event.record_key);
+  assert.notEqual(first.event.content_hash, updated.event.content_hash);
+  assert.equal(updated.event.volume, 300_000_000);
 });
