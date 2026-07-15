@@ -21,6 +21,8 @@ export {
 };
 export type { CvmDatasetCode, CvmResource, NormalizedCapitalMarketRecord };
 
+const TARGET_OFFER_INSTRUMENTS = new Set(['DEBENTURE', 'CRI', 'CRA', 'FIDC', 'FII']);
+
 const digitsOnly = (value: string | null | undefined) => {
   const digits = String(value ?? '').replace(/\D/g, '');
   return digits.length === 14 ? digits : null;
@@ -60,6 +62,11 @@ const parseDate = (value: string | null) => {
   return null;
 };
 
+const eventDateFromPick = (pick: ReturnType<typeof rowAccessor>) => parseDate(pick(
+  'Data Registro Oferta', 'Data Registro', 'DT Registro', 'Data Inicio Oferta', 'Data Inicio', 'DT Inicio',
+  'Data Emissao', 'DT Emissao', 'Data Abertura Processo', 'Data Constituicao', 'Data Funcionamento', 'Data Oferta',
+) ?? pick.matching(/(dt|data).*(registrooferta|registro|iniciooferta|inicio|emissao|aberturaprocesso|constituicao|funcionamento|oferta)/));
+
 const parseNumber = (value: string | null) => {
   if (!value) return null;
   let clean = value.replace(/\s/g, '').replace(/R\$/gi, '').replace(/%/g, '');
@@ -75,11 +82,25 @@ const inferInstrument = (definition: CvmDatasetDefinition, pick: ReturnType<type
   const text = `${explicit ?? ''} ${definition.instrumentFallback}`.toUpperCase();
   const canonical = normalizeKey(text);
   if (canonical.includes('debent')) return 'DEBENTURE';
+  if (canonical.includes('certificadoderecebiveisagronegocio') || canonical.includes('certificadosderecebiveisagronegocio')) return 'CRA';
+  if (canonical.includes('certificadoderecebiveisimobiliario') || canonical.includes('certificadosderecebiveisimobiliario')) return 'CRI';
   if (/(^|[^a-z])cri([^a-z]|$)/i.test(text)) return 'CRI';
   if (/(^|[^a-z])cra([^a-z]|$)/i.test(text)) return 'CRA';
   if (canonical.includes('fidc') || canonical.includes('direitoscreditorios')) return 'FIDC';
-  if (canonical.includes('fii') || canonical.includes('imobiliario')) return 'FII';
+  if (canonical.includes('fii') || canonical.includes('fundodeinvestimentoimobiliario') || canonical.includes('imobiliario')) return 'FII';
   return explicit?.toUpperCase() ?? definition.instrumentFallback;
+};
+
+const offerRowRecency = (row: CsvRecord) => {
+  const pick = rowAccessor(row);
+  const date = eventDateFromPick(pick)
+    ?? parseDate(pick('Data Encerramento Oferta', 'Ultimo Comunicado', 'Data Comunicado'));
+  return date ? Date.parse(`${date}T00:00:00Z`) : 0;
+};
+
+export const prioritizeCvmRows = (datasetCode: CvmDatasetCode, rows: CsvRecord[]) => {
+  if (datasetCode !== 'cvm_offers') return rows;
+  return [...rows].sort((left, right) => offerRowRecency(right) - offerRowRecency(left));
 };
 
 export const normalizeCapitalMarketRecord = (input: {
@@ -102,29 +123,29 @@ export const normalizeCapitalMarketRecord = (input: {
     'Data Referencia', 'Data de Referencia', 'DT Refer', 'DT Referencia', 'DT Competencia', 'DT COMPTC',
     'Competencia', 'Mes Competencia', 'Data Competencia',
   ) ?? pick.matching(/(dt|data).*(refer|comptc|competencia)/));
-  const eventDate = parseDate(pick(
-    'Data Registro', 'DT Registro', 'Data Inicio', 'DT Inicio', 'Data Emissao', 'DT Emissao',
-    'Data Constituicao', 'Data Funcionamento', 'Data Oferta',
-  ) ?? pick.matching(/(dt|data).*(registro|inicio|emissao|constituicao|funcionamento|oferta)/));
+  const eventDate = eventDateFromPick(pick);
   const maturityDate = parseDate(pick('Data Vencimento', 'DT Vencimento', 'Vencimento', 'Data Final', 'DT Final'));
   const instrumentType = inferInstrument(definition, pick);
   const issuerName = pick(
-    'Nome Emissor', 'Razao Social Emissor', 'Emissor', 'Nome Companhia', 'Nome Cia', 'Nome Securitizadora',
-    'Denom Cia', 'Devedor', 'Cedente',
-  ) ?? pick.matching(/(nome|denom|razaosocial).*(emissor|companhia|cia|securitizadora|devedor|cedente)/);
+    'Nome Emissor', 'Razao Social Emissor', 'Emissor', 'Nome Ofertante', 'Nome Vendedor',
+    'Nome Companhia', 'Nome Cia', 'Nome Securitizadora', 'Denom Cia', 'Devedor', 'Cedente',
+  ) ?? pick.matching(/(nome|denom|razaosocial).*(emissor|ofertante|vendedor|companhia|cia|securitizadora|devedor|cedente)/);
   const fundName = pick('Denominacao Social', 'DENOM SOCIAL', 'Nome Fundo', 'Denominacao Fundo', 'Nome Classe')
     ?? pick.matching(/(nome|denom|razaosocial).*(fundo|classe|fidc|fii)/);
   const offerId = pick(
     'Numero Registro Oferta', 'NR Registro Oferta', 'Numero Processo', 'NR Processo', 'Codigo Oferta', 'ID Oferta', 'Numero Oferta',
   ) ?? pick.matching(/(numero|nr|codigo|id).*(registrooferta|oferta|processo)/);
   const securityCode = pick('Codigo Ativo', 'Codigo Cetip', 'Codigo ISIN', 'ISIN', 'Codigo Negociacao', 'Codigo CVM');
-  const series = pick('Serie', 'Numero Serie', 'NR Serie', 'Classe Serie', 'Subclasse', 'Numero Emissao', 'NR Emissao');
-  const status = pick('Situacao Oferta', 'Status Oferta', 'Situacao', 'Status', 'Situacao Fundo', 'Situacao Classe');
+  const series = pick('Serie', 'Numero Serie', 'NR Serie', 'Classe Serie', 'Subclasse', 'Numero Emissao', 'NR Emissao', 'Emissao');
+  const status = pick(
+    'Situacao Oferta', 'Status Oferta', 'Modalidade Registro', 'Modalidade Oferta', 'Rito Oferta',
+    'Situacao', 'Status', 'Situacao Fundo', 'Situacao Classe',
+  );
   const volume = parseNumber(pick(
-    'Valor Total Oferta', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
+    'Valor Total Oferta', 'Valor Total', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
     'Patrimonio Liquido', 'VL Patrimonio Liquido', 'PL', 'Valor Emissao', 'VL Emissao',
     'Saldo Devedor', 'VL Saldo Devedor', 'Valor Captado', 'VL Captado',
-  ) ?? pick.matching(/(valor|vl|montante|volume).*(totaloferta|oferta|patrimonioliquido|emissao|saldodevedor|captado)/, /(^|.*)vlpl$/));
+  ) ?? pick.matching(/(valor|vl|montante|volume).*(totaloferta|valortotal|oferta|patrimonioliquido|emissao|saldodevedor|captado)/, /(^|.*)vlpl$/));
   const contentHash = stableHash(JSON.stringify(input.row));
   const recordKey = stableHash([
     input.datasetCode,
@@ -207,6 +228,35 @@ export const normalizeCapitalMarketRecord = (input: {
   };
 };
 
+const normalizeRows = (input: {
+  datasetCode: CvmDatasetCode;
+  rows: Array<{ row: CsvRecord; fileName: string }>;
+  resource: CvmResource;
+  observedAt: string;
+  maxRows: number;
+}) => {
+  const orderedRows = input.datasetCode === 'cvm_offers'
+    ? prioritizeCvmRows(input.datasetCode, input.rows.map((entry) => entry.row)).map((row) => {
+        const match = input.rows.find((entry) => entry.row === row);
+        return match ?? { row, fileName: input.resource.name || 'resource.csv' };
+      })
+    : input.rows;
+  const records: NormalizedCapitalMarketRecord[] = [];
+  for (const entry of orderedRows) {
+    const normalized = normalizeCapitalMarketRecord({
+      datasetCode: input.datasetCode,
+      row: entry.row,
+      resource: input.resource,
+      fileName: entry.fileName,
+      observedAt: input.observedAt,
+    });
+    if (input.datasetCode === 'cvm_offers' && !TARGET_OFFER_INSTRUMENTS.has(normalized.event.instrument_type)) continue;
+    records.push(normalized);
+    if (records.length >= input.maxRows) break;
+  }
+  return records;
+};
+
 export const fetchCvmResourceRecords = async (input: {
   datasetCode: CvmDatasetCode;
   resource: CvmResource;
@@ -228,6 +278,11 @@ export const fetchCvmResourceRecords = async (input: {
     ? extractZipEntries(buffer).filter((entry) => /\.csv$/i.test(entry.name))
     : [{ name: input.resource.name || 'resource.csv', data: buffer }];
   if (!files.length) throw new Error(`No CSV file found in ${input.resource.name}.`);
+
+  if (input.datasetCode === 'cvm_offers') {
+    const rows = files.flatMap((file) => parseCsv(decodeBuffer(file.data)).map((row) => ({ row, fileName: file.name })));
+    return normalizeRows({ datasetCode: input.datasetCode, rows, resource: input.resource, observedAt, maxRows: input.maxRows });
+  }
 
   const records: NormalizedCapitalMarketRecord[] = [];
   for (const file of files) {
