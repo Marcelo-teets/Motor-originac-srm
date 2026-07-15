@@ -29,6 +29,16 @@ const result = await new CapitalMarketIngestionService().run({
 console.log(JSON.stringify(result, null, 2));
 if (result.status === 'failed') process.exitCode = 1;
 if (args.includes('--require-records') && result.totals.recordsSeen <= 0) {
-  console.error('Capital-market ingestion completed without persisted source records.');
+  console.error('Capital-market ingestion completed without source records.');
   process.exitCode = 1;
+}
+if (args.includes('--require-idempotent')) {
+  const hasWrites = result.totals.eventsWritten > 0
+    || result.totals.recordsInserted > 0
+    || result.totals.recordsUpdated > 0;
+  const provedUnchanged = result.totals.recordsUnchanged > 0 || result.totals.resourcesSkipped > 0;
+  if (hasWrites || !provedUnchanged) {
+    console.error(`Capital-market idempotency assertion failed: ${JSON.stringify(result.totals)}`);
+    process.exitCode = 1;
+  }
 }
