@@ -10,6 +10,7 @@ import {
 
 const DEFAULT_BATCH_SIZE = 500;
 const DEFAULT_MAX_ROWS = 100_000;
+const STALE_RUN_AFTER_MS = 30 * 60 * 1_000;
 const ALL_DATASETS = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
 
 const chunks = <T>(items: T[], size = DEFAULT_BATCH_SIZE) => {
@@ -19,6 +20,12 @@ const chunks = <T>(items: T[], size = DEFAULT_BATCH_SIZE) => {
 };
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+const isConcurrentRunConflict = (error: unknown) => {
+  const message = errorMessage(error);
+  return message.includes('uq_capital_market_dataset_single_running')
+    || message.includes('duplicate key value violates unique constraint')
+    || message.includes('23505');
+};
 const resourceFingerprint = (resource: CvmResource) => [
   resource.id ?? resource.url,
   resource.last_modified ?? resource.created ?? 'unknown',
@@ -50,6 +57,22 @@ type DatasetRunRow = {
     skippedResourceFingerprints?: string[];
   };
 };
+
+const emptySummary = (
+  datasetCode: CvmDatasetCode,
+  status: CapitalMarketDatasetSummary['status'],
+  error: string,
+): CapitalMarketDatasetSummary => ({
+  datasetCode,
+  status,
+  resourcesProcessed: 0,
+  resourcesSkipped: 0,
+  recordsSeen: 0,
+  bronzeRowsWritten: 0,
+  eventsWritten: 0,
+  signalsWritten: 0,
+  errors: [error],
+});
 
 export class CapitalMarketIngestionService {
   private readonly client = getSupabaseClient();
@@ -105,6 +128,50 @@ export class CapitalMarketIngestionService {
     ]));
   }
 
+  private async acquireRun(input: {
+    runId: string;
+    datasetCode: CvmDatasetCode;
+    sourceId: string | null;
+    triggerType: 'manual' | 'schedule' | 'backfill';
+    startedAt: string;
+    reference?: string;
+    maxRows: number;
+    packageId: string;
+  }) {
+    const now = new Date().toISOString();
+    const staleBefore = new Date(Date.now() - STALE_RUN_AFTER_MS).toISOString();
+    await this.client!.update('capital_market_dataset_runs', {
+      status: 'failed',
+      finished_at: now,
+      error_message: 'Automatically closed as a stale capital-market ingestion run.',
+      updated_at: now,
+    }, [
+      { column: 'dataset_code', value: input.datasetCode },
+      { column: 'status', value: 'running' },
+      { column: 'started_at', operator: 'lt', value: staleBefore },
+    ]);
+
+    try {
+      await this.client!.insert('capital_market_dataset_runs', [{
+        id: input.runId,
+        dataset_code: input.datasetCode,
+        source_id: input.sourceId,
+        trigger_type: input.triggerType,
+        status: 'running',
+        started_at: input.startedAt,
+        metadata: {
+          reference: input.reference ?? null,
+          maxRows: input.maxRows,
+          packageId: input.packageId,
+        },
+      }]);
+      return true;
+    } catch (error) {
+      if (isConcurrentRunConflict(error)) return false;
+      throw error;
+    }
+  }
+
   private async runDataset(
     datasetCode: CvmDatasetCode,
     options: { reference?: string; maxRows: number; triggerType: 'manual' | 'schedule' | 'backfill' },
@@ -128,16 +195,20 @@ export class CapitalMarketIngestionService {
       metadata?: Record<string, unknown>;
     }>;
     const sourceId = sourceRows.find((row) => row.metadata?.code === definition.sourceCode)?.id ?? null;
+    const acquired = await this.acquireRun({
+      runId,
+      datasetCode,
+      sourceId,
+      triggerType: options.triggerType,
+      startedAt,
+      reference: options.reference,
+      maxRows: options.maxRows,
+      packageId: definition.packageId,
+    });
 
-    await this.client!.insert('capital_market_dataset_runs', [{
-      id: runId,
-      dataset_code: datasetCode,
-      source_id: sourceId,
-      trigger_type: options.triggerType,
-      status: 'running',
-      started_at: startedAt,
-      metadata: { reference: options.reference ?? null, maxRows: options.maxRows, packageId: definition.packageId },
-    }]);
+    if (!acquired) {
+      return emptySummary(datasetCode, 'partial', `Another ${datasetCode} ingestion is already running.`);
+    }
 
     try {
       const resources = await discoverCvmResources(datasetCode, options.reference);
