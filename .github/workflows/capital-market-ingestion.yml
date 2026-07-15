@@ -1,6 +1,16 @@
 name: Capital Market Ingestion
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/capital-market-ingestion.yml
+      - backend/src/cli/capitalMarkets.ts
+      - backend/src/modules/capital-markets/**
+      - backend/src/services/capitalMarketIngestionService.ts
+      - db/migrations/035_capital_market_public_data.sql
+      - db/migrations/036_capital_market_dataset_runs_source_index.sql
   schedule:
     - cron: "20 9 * * *"
   workflow_dispatch:
@@ -42,9 +52,9 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      DATASET: ${{ inputs.dataset || 'all' }}
-      REFERENCE: ${{ inputs.reference || '' }}
-      MAX_ROWS: ${{ inputs.max_rows || '250000' }}
+      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
+      REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,6 +78,20 @@ jobs:
 
       - name: Ingest CVM capital-market datasets
         run: |
-          ARGS=(--dataset "$DATASET" --max-rows "$MAX_ROWS" --trigger schedule)
+          DATASET="${REQUESTED_DATASET:-all}"
+          REFERENCE="$REQUESTED_REFERENCE"
+          MAX_ROWS="${REQUESTED_MAX_ROWS:-250000}"
+          TRIGGER="schedule"
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            DATASET="cvm_offers"
+            REFERENCE=""
+            MAX_ROWS="5000"
+            TRIGGER="manual"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TRIGGER="manual"
+          fi
+
+          ARGS=(--dataset "$DATASET" --max-rows "$MAX_ROWS" --trigger "$TRIGGER")
           if [ -n "$REFERENCE" ]; then ARGS+=(--reference "$REFERENCE"); fi
           npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
