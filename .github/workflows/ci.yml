@@ -33,3 +33,46 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  cvm-idempotency-proof:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ops/cvm-idempotency-proof'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate runtime configuration
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: First canonical write
+        run: |
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset cvm_offers \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records
+
+      - name: Second idempotent pass
+        run: |
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset cvm_offers \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records \
+            --require-idempotent
