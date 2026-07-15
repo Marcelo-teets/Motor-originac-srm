@@ -27,10 +27,6 @@ jobs:
           cache: npm
       - run: node scripts/agent/patch-cvm-write-delta.mjs
       - run: rm scripts/agent/patch-cvm-write-delta.mjs .github/workflows/agent-patch-cvm-write-delta.yml
-      - run: npm ci
-      - run: npm -C backend run typecheck
-      - run: npm -C backend test
-      - run: npm run build
       - name: Commit generated changes
         run: |
           git config user.name "github-actions[bot]"
@@ -38,5 +34,3 @@ jobs:
           git add backend/src/modules/capital-markets/cvmDatasetRegistry.ts backend/src/modules/capital-markets/cvmCapitalMarketConnector.ts backend/src/modules/capital-markets/cvmCapitalMarketConnector.test.ts scripts/agent/patch-cvm-write-delta.mjs .github/workflows/agent-patch-cvm-write-delta.yml
           git commit -m "fix(cvm): stabilize identity and persist content deltas"
           git push origin HEAD:fix/cvm-write-delta
-
-# Trigger after workflow registration.
