@@ -36,3 +36,5 @@ jobs:
           git add backend/src/lib/auth.ts backend/src/server.ts frontend/src/lib/api.ts frontend/src/lib/auth.tsx frontend/src/lib/types.ts scripts/agent/apply-http-only-auth.mjs .github/workflows/agent-apply-http-only-auth.yml
           git commit -m "feat(auth): move browser session to HttpOnly cookie"
           git push origin HEAD:agent/http-only-auth
+
+# Trigger one-off generation after workflow registration.
