@@ -1,6 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { CVM_DATASETS, type CvmDatasetCode } from '../backend/src/modules/capital-markets/cvmCapitalMarketConnector.js';
-import { CapitalMarketIngestionService } from '../backend/src/services/capitalMarketIngestionService.js';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -25,24 +23,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   const host = getHeader(req, 'host') ?? 'localhost';
   const url = new URL((req as any).url ?? '/', `https://${host}`);
-  const requestedDataset = String(url.searchParams.get('dataset') ?? 'cvm_offers') as CvmDatasetCode;
-  if (!CVM_DATASETS[requestedDataset]) {
-    writeJson(res, 400, {
-      status: 'partial',
-      generatedAt: new Date().toISOString(),
-      error: `Invalid dataset: ${requestedDataset}`,
-      allowedDatasets: Object.keys(CVM_DATASETS),
-    });
-    return;
-  }
-
-  const parsedMaxRows = Number(url.searchParams.get('maxRows') ?? '1000');
-  const maxRows = Number.isFinite(parsedMaxRows) ? Math.max(1, Math.min(Math.trunc(parsedMaxRows), 5_000)) : 1_000;
-  const reference = url.searchParams.get('reference') ?? undefined;
+  const requestedDataset = String(url.searchParams.get('dataset') ?? 'cvm_offers');
 
   try {
+    const [{ CVM_DATASETS }, { CapitalMarketIngestionService }] = await Promise.all([
+      import('../backend/src/modules/capital-markets/cvmCapitalMarketConnector.js'),
+      import('../backend/src/services/capitalMarketIngestionService.js'),
+    ]);
+
+    if (!Object.prototype.hasOwnProperty.call(CVM_DATASETS, requestedDataset)) {
+      writeJson(res, 400, {
+        status: 'partial',
+        generatedAt: new Date().toISOString(),
+        error: `Invalid dataset: ${requestedDataset}`,
+        allowedDatasets: Object.keys(CVM_DATASETS),
+      });
+      return;
+    }
+
+    const parsedMaxRows = Number(url.searchParams.get('maxRows') ?? '1000');
+    const maxRows = Number.isFinite(parsedMaxRows) ? Math.max(1, Math.min(Math.trunc(parsedMaxRows), 5_000)) : 1_000;
+    const reference = url.searchParams.get('reference') ?? undefined;
+    const dataset = requestedDataset as keyof typeof CVM_DATASETS;
+
     const result = await new CapitalMarketIngestionService().run({
-      datasets: [requestedDataset],
+      datasets: [dataset],
       reference,
       maxRows,
       triggerType: 'manual',
