@@ -121,21 +121,19 @@ export const normalizeCapitalMarketRecord = (input: {
   const series = pick('Serie', 'Numero Serie', 'NR Serie', 'Classe Serie', 'Subclasse', 'Numero Emissao', 'NR Emissao');
   const status = pick('Situacao Oferta', 'Status Oferta', 'Situacao', 'Status', 'Situacao Fundo', 'Situacao Classe');
   const volume = parseNumber(pick(
-    'Valor Total Oferta', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
+    'Valor Total', 'Valor Total Oferta', 'VL Total Oferta', 'Valor Oferta', 'VL Oferta', 'Montante Oferta', 'Volume Total',
     'Patrimonio Liquido', 'VL Patrimonio Liquido', 'PL', 'Valor Emissao', 'VL Emissao',
     'Saldo Devedor', 'VL Saldo Devedor', 'Valor Captado', 'VL Captado',
   ) ?? pick.matching(/(valor|vl|montante|volume).*(totaloferta|oferta|patrimonioliquido|emissao|saldodevedor|captado)/, /(^|.*)vlpl$/));
   const contentHash = stableHash(JSON.stringify(input.row));
+  const naturalIdentity = [offerId, securityCode, issuerCnpj, fundCnpj, series, referenceDate, eventDate]
+    .filter(Boolean)
+    .join('|');
   const recordKey = stableHash([
     input.datasetCode,
     input.resource.name,
     input.fileName,
-    offerId,
-    securityCode,
-    issuerCnpj,
-    fundCnpj,
-    referenceDate,
-    contentHash,
+    naturalIdentity || contentHash,
   ].join('|'));
   const entityCnpj = issuerCnpj ?? fundCnpj;
 
