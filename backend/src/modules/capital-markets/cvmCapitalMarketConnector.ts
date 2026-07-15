@@ -82,8 +82,8 @@ const inferInstrument = (definition: CvmDatasetDefinition, pick: ReturnType<type
   const text = `${explicit ?? ''} ${definition.instrumentFallback}`.toUpperCase();
   const canonical = normalizeKey(text);
   if (canonical.includes('debent')) return 'DEBENTURE';
-  if (canonical.includes('certificadoderecebiveisagronegocio') || canonical.includes('certificadosderecebiveisagronegocio')) return 'CRA';
-  if (canonical.includes('certificadoderecebiveisimobiliario') || canonical.includes('certificadosderecebiveisimobiliario')) return 'CRI';
+  if (canonical.includes('recebiveisdoagronegocio') || canonical.includes('recebiveisagronegocio')) return 'CRA';
+  if (canonical.includes('recebiveisimobiliario')) return 'CRI';
   if (/(^|[^a-z])cri([^a-z]|$)/i.test(text)) return 'CRI';
   if (/(^|[^a-z])cra([^a-z]|$)/i.test(text)) return 'CRA';
   if (canonical.includes('fidc') || canonical.includes('direitoscreditorios')) return 'FIDC';
@@ -236,10 +236,7 @@ const normalizeRows = (input: {
   maxRows: number;
 }) => {
   const orderedRows = input.datasetCode === 'cvm_offers'
-    ? prioritizeCvmRows(input.datasetCode, input.rows.map((entry) => entry.row)).map((row) => {
-        const match = input.rows.find((entry) => entry.row === row);
-        return match ?? { row, fileName: input.resource.name || 'resource.csv' };
-      })
+    ? [...input.rows].sort((left, right) => offerRowRecency(right.row) - offerRowRecency(left.row))
     : input.rows;
   const records: NormalizedCapitalMarketRecord[] = [];
   for (const entry of orderedRows) {
