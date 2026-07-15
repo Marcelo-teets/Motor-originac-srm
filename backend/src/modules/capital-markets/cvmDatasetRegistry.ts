@@ -52,6 +52,7 @@ export type NormalizedCapitalMarketRecord = {
     dataset_code: CvmDatasetCode;
     source_code: string;
     record_key: string;
+    content_hash: string;
     event_type: string;
     instrument_type: string;
     issuer_cnpj: string | null;

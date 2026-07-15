@@ -147,16 +147,18 @@ export const normalizeCapitalMarketRecord = (input: {
     'Saldo Devedor', 'VL Saldo Devedor', 'Valor Captado', 'VL Captado',
   ) ?? pick.matching(/(valor|vl|montante|volume).*(totaloferta|valortotal|oferta|patrimonioliquido|emissao|saldodevedor|captado)/, /(^|.*)vlpl$/));
   const contentHash = stableHash(JSON.stringify(input.row));
-  const recordKey = stableHash([
-    input.datasetCode,
-    input.resource.name,
-    input.fileName,
+  const normalizedIssuer = normalizeKey(issuerName ?? fundName ?? '');
+  const naturalIdentity = [
     offerId,
     securityCode,
-    issuerCnpj,
-    fundCnpj,
-    referenceDate,
-    contentHash,
+    issuerCnpj ?? fundCnpj ?? normalizedIssuer,
+    series,
+    referenceDate ?? eventDate,
+    instrumentType,
+  ].filter(Boolean).join('|');
+  const recordKey = stableHash([
+    input.datasetCode,
+    naturalIdentity || `${input.resource.name}|${input.fileName}|${contentHash}`,
   ].join('|'));
   const entityCnpj = issuerCnpj ?? fundCnpj;
 
@@ -202,6 +204,7 @@ export const normalizeCapitalMarketRecord = (input: {
       dataset_code: input.datasetCode,
       source_code: definition.sourceCode,
       record_key: recordKey,
+      content_hash: contentHash,
       event_type: definition.eventType,
       instrument_type: instrumentType,
       issuer_cnpj: issuerCnpj,
