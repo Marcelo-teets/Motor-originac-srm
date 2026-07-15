@@ -9,7 +9,7 @@ type QueryOptions = {
 
 type FilterDefinition = {
   column: string;
-  operator?: 'eq' | 'in' | 'is';
+  operator?: 'eq' | 'in' | 'is' | 'lt' | 'lte' | 'gt' | 'gte';
   value: string | number | boolean | null | Array<string | number>;
 };
 
