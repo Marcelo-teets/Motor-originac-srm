@@ -1,4 +1,5 @@
 -- Repair the candidate sync projection for environments where migration 044 was already applied.
+-- Also avoid rewriting an unchanged Capture Inbox candidate.
 
 create or replace function public.sync_capital_market_discovered_candidates(
   p_dataset_code text default 'cvm_offers'
@@ -219,6 +220,18 @@ begin
       updated_at = now()
     where public.discovered_company_candidates.company_id is null
       and coalesce(public.discovered_company_candidates.candidate_status, 'new') not in ('promoted', 'rejected')
+      and (
+        public.discovered_company_candidates.company_name is distinct from excluded.company_name
+        or public.discovered_company_candidates.segment is distinct from excluded.segment
+        or public.discovered_company_candidates.subsegment is distinct from excluded.subsegment
+        or public.discovered_company_candidates.target_structure is distinct from excluded.target_structure
+        or public.discovered_company_candidates.source_ref is distinct from excluded.source_ref
+        or public.discovered_company_candidates.evidence_summary is distinct from excluded.evidence_summary
+        or public.discovered_company_candidates.receivables is distinct from excluded.receivables
+        or public.discovered_company_candidates.confidence is distinct from excluded.confidence
+        or public.discovered_company_candidates.raw_payload is distinct from excluded.raw_payload
+        or public.discovered_company_candidates.captured_at is distinct from excluded.captured_at
+      )
     returning id
   )
   select count(*)::integer into v_upserted from upserted;
