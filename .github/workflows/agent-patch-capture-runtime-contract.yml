@@ -1,0 +1,33 @@
+name: Agent Patch Capture Runtime Contract
+
+on:
+  push:
+    branches:
+      - fix/capture-candidate-promotion-contract
+    paths:
+      - 'scripts/agent/patch-capture-runtime-contract.mjs'
+      - '.github/workflows/agent-patch-capture-runtime-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/capture-candidate-promotion-contract
+          fetch-depth: 0
+      - run: node scripts/agent/patch-capture-runtime-contract.mjs
+      - run: rm scripts/agent/patch-capture-runtime-contract.mjs .github/workflows/agent-patch-capture-runtime-contract.yml
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/searchProfileCaptureRuntime.ts scripts/agent/patch-capture-runtime-contract.mjs .github/workflows/agent-patch-capture-runtime-contract.yml
+          git commit -m "fix(capture): normalize governed candidate rows"
+          git push origin HEAD:fix/capture-candidate-promotion-contract
+
+# Trigger after workflow registration.
