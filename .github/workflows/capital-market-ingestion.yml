@@ -14,6 +14,8 @@ on:
       - backend/src/services/.cvm-trigger
       - db/migrations/035_capital_market_public_data.sql
       - db/migrations/036_capital_market_dataset_runs_source_index.sql
+      - db/migrations/037_capital_market_incremental_checkpoints.sql
+      - db/migrations/038_cleanup_legacy_cvm_canary.sql
       - db/migrations/043_capital_market_single_running_guard.sql
   schedule:
     # Ofertas públicas: sinal de timing rápido, captura diária.
@@ -91,7 +93,7 @@ jobs:
         run: npm -C backend run typecheck
 
       - name: Test capital-market connector
-        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts
+        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts src/services/capitalMarketIngestionService.test.ts
 
       - name: Persist recent CVM offers canary directly
         if: github.event_name == 'push'
@@ -110,6 +112,16 @@ jobs:
 
           echo "Direct capital-market canary did not persist source records."
           exit 1
+
+      - name: Prove CVM canary idempotency
+        if: github.event_name == 'push'
+        run: |
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset cvm_offers \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records \
+            --require-idempotent
 
       - name: Probe exact deployed endpoint
         if: github.event_name == 'push'
