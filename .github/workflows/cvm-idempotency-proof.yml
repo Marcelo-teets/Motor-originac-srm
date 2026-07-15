@@ -1,0 +1,46 @@
+name: CVM Idempotency Proof
+
+on:
+  push:
+    branches:
+      - ops/cvm-idempotency-proof
+    paths:
+      - '.github/workflows/cvm-idempotency-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cvm-idempotency-proof
+  cancel-in-progress: false
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm -C backend run typecheck
+      - name: First canonical write
+        run: |
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset cvm_offers \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records
+      - name: Second idempotent pass
+        run: |
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset cvm_offers \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records \
+            --require-idempotent
