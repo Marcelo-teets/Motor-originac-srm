@@ -28,3 +28,7 @@ const result = await new CapitalMarketIngestionService().run({
 
 console.log(JSON.stringify(result, null, 2));
 if (result.status === 'failed') process.exitCode = 1;
+if (args.includes('--require-records') && result.totals.recordsSeen <= 0) {
+  console.error('Capital-market ingestion completed without persisted source records.');
+  process.exitCode = 1;
+}
