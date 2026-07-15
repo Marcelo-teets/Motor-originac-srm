@@ -1,0 +1,73 @@
+name: Capital Market Ingestion
+
+on:
+  schedule:
+    - cron: "20 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset CVM ou all
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - cvm_offers
+          - cvm_fund_registry
+          - cvm_fidc_monthly
+          - cvm_cri_monthly
+          - cvm_cra_monthly
+          - cvm_fii_monthly
+      reference:
+        description: Competencia opcional (YYYY-MM ou YYYY)
+        required: false
+        type: string
+      max_rows:
+        description: Limite de linhas por dataset
+        required: true
+        default: "250000"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capital-market-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DATASET: ${{ inputs.dataset || 'all' }}
+      REFERENCE: ${{ inputs.reference || '' }}
+      MAX_ROWS: ${{ inputs.max_rows || '250000' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+
+      - name: Ingest CVM capital-market datasets
+        run: |
+          ARGS=(--dataset "$DATASET" --max-rows "$MAX_ROWS" --trigger schedule)
+          if [ -n "$REFERENCE" ]; then ARGS+=(--reference "$REFERENCE"); fi
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
