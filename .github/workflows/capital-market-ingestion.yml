@@ -13,6 +13,7 @@ on:
       - backend/src/services/capitalMarketIngestionService.ts
       - db/migrations/035_capital_market_public_data.sql
       - db/migrations/036_capital_market_dataset_runs_source_index.sql
+      - db/migrations/043_capital_market_single_running_guard.sql
   schedule:
     - cron: "20 9 * * *"
   workflow_dispatch:
@@ -90,13 +91,14 @@ jobs:
         run: |
           for ATTEMPT in $(seq 1 24); do
             echo "Serverless smoke attempt ${ATTEMPT}/24 for commit ${GITHUB_SHA}"
-            RESPONSE=$(curl -sS --max-time 40 -w "\nHTTP_STATUS:%{http_code}\n" \
+            RESPONSE=$(curl -sS --max-time 45 -w "\nHTTP_STATUS:%{http_code}\n" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=1000" || true)
+              "${CAPITAL_MARKET_API_URL}?dataset=cvm_offers&maxRows=250" || true)
             STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | tail -1 | cut -d: -f2)
             BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
             echo "$BODY"
             DEPLOYED_SHA=$(printf '%s' "$BODY" | node -e "let b='';process.stdin.on('data',d=>b+=d).on('end',()=>{try{process.stdout.write(JSON.parse(b).deploymentCommitSha||'')}catch{}})")
+            RECORDS_SEEN=$(printf '%s' "$BODY" | node -e "let b='';process.stdin.on('data',d=>b+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(b).totals?.recordsSeen||0))}catch{process.stdout.write('0')}})")
 
             if [ "$DEPLOYED_SHA" != "$GITHUB_SHA" ]; then
               echo "Deployment SHA ${DEPLOYED_SHA:-missing} does not match ${GITHUB_SHA}; retrying after promotion."
@@ -105,9 +107,11 @@ jobs:
             fi
 
             if { [ "$STATUS" = "200" ] || [ "$STATUS" = "207" ]; } \
-              && echo "$BODY" | grep -q 'recordsSeen'; then
+              && [ "${RECORDS_SEEN:-0}" -gt 0 ]; then
               exit 0
             fi
+
+            echo "Deployment is current, but no records were persisted yet; retrying."
             sleep 10
           done
 
