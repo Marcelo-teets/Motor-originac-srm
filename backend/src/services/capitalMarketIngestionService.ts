@@ -47,6 +47,7 @@ export type CapitalMarketDatasetSummary = {
 type DatasetRunRow = {
   metadata?: {
     resourceFingerprints?: string[];
+    skippedResourceFingerprints?: string[];
   };
 };
 
@@ -98,7 +99,10 @@ export class CapitalMarketIngestionService {
       ],
     }) as DatasetRunRow[];
 
-    return new Set(rows.flatMap((row) => row.metadata?.resourceFingerprints ?? []));
+    return new Set(rows.flatMap((row) => [
+      ...(row.metadata?.resourceFingerprints ?? []),
+      ...(row.metadata?.skippedResourceFingerprints ?? []),
+    ]));
   }
 
   private async runDataset(
