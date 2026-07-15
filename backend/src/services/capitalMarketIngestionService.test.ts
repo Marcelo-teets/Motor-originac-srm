@@ -34,3 +34,11 @@ test('explicit reference forces processing even in scheduled mode', () => {
     checkpoint,
   }), false);
 });
+
+test('failed checkpoint is retried even when the resource timestamp is unchanged', () => {
+  assert.equal(shouldSkipCapitalMarketResource({
+    triggerType: 'schedule',
+    resource,
+    checkpoint: { ...checkpoint, status: 'failed' },
+  }), false);
+});
