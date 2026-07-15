@@ -1,0 +1,29 @@
+name: CVM Incremental Canary Once
+
+on:
+  push:
+    branches:
+      - agent/cvm-incremental-v3
+    paths:
+      - '.github/workflows/cvm-incremental-canary-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm -C backend run typecheck
+      - name: Run controlled offers canary
+        run: npm -C backend exec -- tsx src/cli/capitalMarkets.ts --dataset cvm_offers --max-rows 500 --trigger manual
