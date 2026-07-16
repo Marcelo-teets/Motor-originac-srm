@@ -1,4 +1,5 @@
 import { sourceSeeds } from '../../../config/source-seeds.js';
+import { fidcConnectorCatalog } from '../lib/connectors/fidc/fidcConnectorCatalog.js';
 import type { CompanySeed, PatternCatalogEntry, SearchProfile, SourceCatalogEntry } from '../types/platform.js';
 
 export const sourceCatalogSeeds: SourceCatalogEntry[] = [
@@ -57,6 +58,51 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     health: 'degraded',
     metadata: { note: 'Sem integração automatizada nesta PR; mantido como fallback mockado.' },
   },
+  {
+    id: 'src_company_website_deep',
+    name: 'Company Website Deep Scraper',
+    sourceType: 'scraper',
+    category: 'company_site',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_company_website_deep',
+      provider: 'company_website_deep_scraper',
+      captureMode: 'first_party_http',
+      notes: 'Deep crawl de páginas públicas (about/products/enterprise/partners/pricing/careers/docs) com detecção de sinais B2B.',
+    },
+    rateLimitNotes: 'Respeitar robots e backoff progressivo; máximo ~26 paths candidatos por execução.',
+  },
+  {
+    id: 'src_professional_network_company',
+    name: 'Professional Network Company Profile',
+    sourceType: 'scraper',
+    category: 'professional_network',
+    status: 'partial',
+    health: 'degraded',
+    metadata: {
+      code: 'src_professional_network_company',
+      provider: 'professional_network_company_scraper',
+      baseUrl: 'https://www.linkedin.com',
+      captureMode: 'public_profile_http',
+      notes: 'Perfil institucional público; status partial frequente por bot challenge.',
+    },
+    rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
+  },
+  // Camada FIDC de dados públicos: o catálogo de conectores é a fonte única de
+  // verdade (backend/src/lib/connectors/fidc/fidcConnectorCatalog.ts); fontes
+  // com token ficam como 'planned' até credenciais serem provisionadas.
+  ...fidcConnectorCatalog.map((entry): SourceCatalogEntry => ({
+    id: entry.id,
+    name: entry.name,
+    sourceType: entry.sourceType,
+    category: entry.category,
+    status: entry.authRequirement ? 'planned' : entry.status,
+    health: entry.authRequirement ? 'degraded' : 'healthy',
+    authRequirement: entry.authRequirement,
+    metadata: { code: entry.id, baseUrl: entry.baseUrl, notes: entry.notes },
+    rateLimitNotes: entry.notes,
+  })),
   ...sourceSeeds
     .filter((seed) => !['Google News RSS', 'CVM RSS'].includes(seed.name))
     .map((seed, index) => ({
