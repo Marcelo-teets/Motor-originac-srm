@@ -6,12 +6,12 @@ import type { SourceCatalogEntry } from '../types/platform.js';
 
 const fidcSource: SourceCatalogEntry = {
   id: '2d9c5f70-ab43-4c8d-9f5e-3c4d5e6f8091',
-  name: 'CVM FIDC: Documentos: Informe Mensal',
-  sourceType: 'dataset_http',
-  category: 'FIDC',
+  name: 'CVM FIDC Informes Mensais',
+  sourceType: 'dataset_api',
+  category: 'regulatory',
   status: 'real',
   health: 'healthy',
-  metadata: { code: 'src_cvm_fidc_informe_mensal' },
+  metadata: { code: 'src_cvm_fidc_monthly' },
 };
 
 const relevantCompany = {

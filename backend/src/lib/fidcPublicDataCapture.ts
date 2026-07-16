@@ -22,7 +22,7 @@ const runtimeSource = (source: SourceCatalogEntry): RuntimeSource => ({
 const findSource = (sources: SourceCatalogEntry[]) => sources
   .filter((source) => source.status !== 'planned')
   .map(runtimeSource)
-  .find((source) => source.runtimeCode === 'src_cvm_fidc_informe_mensal');
+  .find((source) => source.runtimeCode === 'src_cvm_fidc_monthly');
 
 // The CVM dataset is company-agnostic; run the probe only for companies with a
 // plausible FIDC/securitization angle to keep per-company noise low (same

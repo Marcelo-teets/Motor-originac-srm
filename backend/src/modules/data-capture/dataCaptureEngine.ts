@@ -15,7 +15,7 @@ const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_mais_retorno_api: 0.02,
   src_company_website_deep: 0.06,
   src_professional_network_company: 0.03,
-  src_cvm_fidc_informe_mensal: 0.08,
+  src_cvm_fidc_monthly: 0.08,
 };
 
 const THEME_RULES = [

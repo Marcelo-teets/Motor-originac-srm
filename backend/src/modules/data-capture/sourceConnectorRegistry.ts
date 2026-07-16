@@ -43,15 +43,15 @@ export const sourceConnectorRegistry: RegisteredSourceConnector[] = [
     enabledByDefault: true,
   },
   {
-    id: 'src_cvm_fidc_informe_mensal',
+    id: 'src_cvm_fidc_monthly',
     category: 'regulatory',
-    description: 'CVM open-data FIDC monthly report dataset freshness probe (CKAN package metadata).',
+    description: 'CVM FIDC monthly report dataset: capital-markets ingestion (migration 035) plus per-company freshness probe.',
     enabledByDefault: true,
   },
   {
-    id: 'src_cvm_fundos_cadastral',
+    id: 'src_cvm_fund_registry',
     category: 'regulatory',
-    description: 'CVM fund registry cadastral dataset (catalog visibility; heavy ingestion pending).',
+    description: 'CVM fund registry cadastral dataset governed by the capital-markets subsystem.',
     enabledByDefault: false,
   },
   {

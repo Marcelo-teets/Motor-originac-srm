@@ -89,20 +89,46 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     },
     rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
   },
+  // Fontes CVM canônicas do subsistema de mercado de capitais (migration 035);
+  // replicadas aqui para paridade no modo memória — o código canônico é a
+  // identidade estável (metadata.code), nunca duplicar sob outro código.
+  {
+    id: 'src_cvm_fidc_monthly',
+    name: 'CVM FIDC Informes Mensais',
+    sourceType: 'dataset_api',
+    category: 'regulatory',
+    status: 'real',
+    health: 'healthy',
+    metadata: { code: 'src_cvm_fidc_monthly', datasetCode: 'cvm_fidc_monthly', packageId: 'fidc-doc-inf_mensal', tier: 'tier_1_official_regulatory' },
+    rateLimitNotes: 'Sem chave; arquivos mensais atualizados semanalmente.',
+  },
+  {
+    id: 'src_cvm_fund_registry',
+    name: 'CVM Cadastro de Fundos Classes e Subclasses',
+    sourceType: 'dataset_api',
+    category: 'regulatory',
+    status: 'real',
+    health: 'healthy',
+    metadata: { code: 'src_cvm_fund_registry', datasetCode: 'cvm_fund_registry', packageId: 'fi-cad', tier: 'tier_1_official_regulatory' },
+    rateLimitNotes: 'Sem chave; aplicar backoff e uma coleta global por ciclo.',
+  },
   // Camada FIDC de dados públicos: o catálogo de conectores é a fonte única de
   // verdade (backend/src/lib/connectors/fidc/fidcConnectorCatalog.ts); fontes
   // com token ficam como 'planned' até credenciais serem provisionadas.
-  ...fidcConnectorCatalog.map((entry): SourceCatalogEntry => ({
-    id: entry.id,
-    name: entry.name,
-    sourceType: entry.sourceType,
-    category: entry.category,
-    status: entry.authRequirement ? 'planned' : entry.status,
-    health: entry.authRequirement ? 'degraded' : 'healthy',
-    authRequirement: entry.authRequirement,
-    metadata: { code: entry.id, baseUrl: entry.baseUrl, notes: entry.notes },
-    rateLimitNotes: entry.notes,
-  })),
+  // Datasets já cobertos pelos códigos canônicos acima são excluídos.
+  ...fidcConnectorCatalog
+    .filter((entry) => !['src_cvm_fidc_informe_mensal', 'src_cvm_fundos_cadastral'].includes(entry.id))
+    .map((entry): SourceCatalogEntry => ({
+      id: entry.id,
+      name: entry.name,
+      sourceType: entry.sourceType,
+      category: entry.category,
+      status: entry.authRequirement ? 'planned' : entry.status,
+      health: entry.authRequirement ? 'degraded' : 'healthy',
+      authRequirement: entry.authRequirement,
+      metadata: { code: entry.id, baseUrl: entry.baseUrl, notes: entry.notes },
+      rateLimitNotes: entry.notes,
+    })),
   ...sourceSeeds
     .filter((seed) => !['Google News RSS', 'CVM RSS'].includes(seed.name))
     .map((seed, index) => ({

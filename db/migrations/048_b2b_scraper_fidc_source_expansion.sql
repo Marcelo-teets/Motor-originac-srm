@@ -1,9 +1,12 @@
--- 035_b2b_scraper_fidc_source_expansion.sql
+-- 048_b2b_scraper_fidc_source_expansion.sql
 -- Registers the B2B P0 scraper sources and the FIDC public-data source layer.
 -- Live schema note: source_catalog.id is UUID in production.
 -- Source logical identity lives in source_catalog.metadata->>'code' (see 031).
 -- Token-gated sources are seeded as status='planned' so the capture runtime
 -- keeps them inert until credentials are provisioned.
+-- CVM datasets already governed by migration 035 (capital markets) keep their
+-- canonical codes there: src_cvm_fidc_monthly (fidc-doc-inf_mensal) and
+-- src_cvm_fund_registry (fi-cad) are NOT re-registered here.
 
 insert into public.source_catalog (name, source_type, category, auth_requirement, status, metadata, rate_limit_notes, health)
 select v.name, v.source_type, v.category, v.auth_requirement, v.status,
@@ -13,9 +16,8 @@ from (values
   -- Workstream A: B2B origination scrapers
   ('src_company_website_deep','Company Website Deep Scraper','scraper','company_site','none','real','company_website_deep_scraper',null,'first_party_http','Deep crawl of up to 10 public pages (about/products/enterprise/partners/pricing/careers/docs) with B2B signal detection.','Respect robots and progressive backoff; max ~26 candidate paths per run.','healthy'),
   ('src_professional_network_company','Professional Network Company Profile','scraper','professional_network','none','partial','professional_network_company_scraper','https://www.linkedin.com','public_profile_http','Public institutional profile page only; expect frequent partial status due to bot challenge.','Single page per run; degrade gracefully to partial.','degraded'),
-  -- Workstream B: FIDC public-data layer (mirrors backend/src/lib/connectors/fidc/fidcConnectorCatalog.ts)
-  ('src_cvm_fidc_informe_mensal','CVM FIDC: Documentos: Informe Mensal','dataset_http','FIDC','none','real','cvm_ckan','https://dados.cvm.gov.br/dataset/fidc-doc-inf_mensal','ckan_package_show','Monthly ZIP dataset; runtime probes package metadata and resources.','Public CKAN API; poll at most daily.','healthy'),
-  ('src_cvm_fundos_cadastral','CVM Fundos de Investimento: Informação Cadastral','dataset_http','Regulatório','none','real','cvm_ckan','https://dados.cvm.gov.br/dataset/?q=fundos+de+investimento','ckan_package_show','Fund registry identity and cadastral status.','Public CKAN API.','healthy'),
+  -- Workstream B: FIDC public-data layer (mirrors backend/src/lib/connectors/fidc/fidcConnectorCatalog.ts,
+  -- minus the datasets already registered by migration 035 under canonical codes)
   ('src_cvm_fundos_estruturados_medidas','CVM Fundos Estruturados: Medidas','dataset_http','Fundos estruturados','none','real','cvm_ckan','https://dados.cvm.gov.br/dataset/?q=FIDC','ckan_package_show','PL and cotistas aggregates for structured funds including FIDC.','Public CKAN API.','healthy'),
   ('src_cvm_fundos_documentos_entrega','CVM Fundos: Documentos: Entrega','dataset_http','Regulatório','none','real','cvm_ckan','https://dados.cvm.gov.br/dataset/?q=fundos+de+investimento','ckan_package_show','Periodic/eventual disclosure delivery metadata.','Public CKAN API.','healthy'),
   ('src_anbima_fundos_estruturados','ANBIMA API Fundos Estruturados','api','Fundos estruturados','client_credentials_token','planned','anbima','https://api.anbima.com.br/feed/fundos/v1/fundos-estruturados','token_api','Paginated FIDC/FII/FIP feed with RCVM 175 context; runtime enablement pending ANBIMA token.','Token required; pagination runner out of scope this cycle.','degraded'),
@@ -49,7 +51,7 @@ values
   ('src_professional_network_company','linkedin_credit_team_signal','latent_growth',82,0.04,6,7,3,array['growth_without_funding'],'{"output":"company_signals","qualification_use":"latent credit team buildout signal"}'::jsonb),
   ('src_professional_network_company','linkedin_capital_markets_team_signal','capital_structure',80,0.04,6,6,4,array['capital_structure','funding_gap'],'{"output":"company_signals","qualification_use":"capital markets/treasury capability signal"}'::jsonb),
   ('src_professional_network_company','growth_hiring_signal','latent_growth',70,0.02,3,5,2,array['growth_without_funding'],'{"output":"company_signals","qualification_use":"weak growth signal; needs corroboration"}'::jsonb),
-  ('src_cvm_fidc_informe_mensal','fidc_dataset_update_signal','capital_structure',70,0.04,4,4,3,array['fidc_fit','capital_structure'],'{"output":"company_signals","qualification_use":"FIDC ecosystem context for structured funding fit"}'::jsonb)
+  ('src_cvm_fidc_monthly','fidc_dataset_update_signal','capital_structure',70,0.04,4,4,3,array['fidc_fit','capital_structure'],'{"output":"company_signals","qualification_use":"FIDC ecosystem context for structured funding fit"}'::jsonb)
 on conflict (source_code, signal_type) do update set
   signal_family = excluded.signal_family,
   strength_floor = excluded.strength_floor,
