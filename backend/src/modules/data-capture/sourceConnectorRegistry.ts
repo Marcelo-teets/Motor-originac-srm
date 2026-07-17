@@ -43,6 +43,18 @@ export const sourceConnectorRegistry: RegisteredSourceConnector[] = [
     enabledByDefault: true,
   },
   {
+    id: 'src_pncp_contracts_api',
+    category: 'public_procurement_receivables',
+    description: 'Official PNCP contract search per supplier; primary evidence for public-debtor receivables.',
+    enabledByDefault: true,
+  },
+  {
+    id: 'src_querido_diario_api',
+    category: 'regulatory',
+    description: 'Querido Diário municipal gazette mentions per company (Open Knowledge Brasil API).',
+    enabledByDefault: true,
+  },
+  {
     id: 'src_bcb_sgs',
     category: 'macro_context',
     description: 'BCB SGS macro series probe (Selic, CDI, IPCA, IGP-M, FX) feeding macro_indexer_context.',

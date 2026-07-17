@@ -89,6 +89,37 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     },
     rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
   },
+  // Registros públicos via API oficial (migration 050): PNCP e Querido Diário.
+  {
+    id: 'src_pncp_contracts_api',
+    name: 'PNCP Contratos Públicos (API oficial)',
+    sourceType: 'api',
+    category: 'public_procurement_receivables',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_pncp_contracts_api',
+      provider: 'pncp',
+      baseUrl: 'https://pncp.gov.br/api/search/',
+      notes: 'Busca oficial de contratos públicos por fornecedor; evidência primária de recebíveis contra ente público.',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 consulta por empresa por execução.',
+  },
+  {
+    id: 'src_querido_diario_api',
+    name: 'Querido Diário (diários oficiais municipais)',
+    sourceType: 'api',
+    category: 'Regulatório',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_querido_diario_api',
+      provider: 'querido_diario',
+      baseUrl: 'https://queridodiario.ok.org.br/api/gazettes',
+      notes: 'Menções da empresa em diários oficiais municipais (Open Knowledge Brasil).',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 consulta por empresa por execução.',
+  },
   // Fonte macro BCB SGS: registrada em prod pela migration 022 sob o código
   // canônico src_bcb_sgs; espelhada aqui para paridade no modo memória.
   {
