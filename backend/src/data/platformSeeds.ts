@@ -89,6 +89,27 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     },
     rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
   },
+  // Fonte macro BCB SGS: registrada em prod pela migration 022 sob o código
+  // canônico src_bcb_sgs; espelhada aqui para paridade no modo memória.
+  {
+    id: 'src_bcb_sgs',
+    name: 'Banco Central SGS Macro Series',
+    sourceType: 'api',
+    category: 'macro_context',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_bcb_sgs',
+      series: [
+        { code: 432, name: 'Selic meta', unit: '% a.a.' },
+        { code: 12, name: 'CDI diário', unit: '% a.d.' },
+        { code: 433, name: 'IPCA mensal', unit: '% a.m.' },
+        { code: 189, name: 'IGP-M mensal', unit: '% a.m.' },
+        { code: 1, name: 'Dólar comercial (venda)', unit: 'BRL' },
+      ],
+    },
+    rateLimitNotes: 'API pública sem chave; uma coleta por série por execução do engine.',
+  },
   // Fontes CVM canônicas do subsistema de mercado de capitais (migration 035);
   // replicadas aqui para paridade no modo memória — o código canônico é a
   // identidade estável (metadata.code), nunca duplicar sob outro código.

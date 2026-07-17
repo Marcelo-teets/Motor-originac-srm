@@ -43,6 +43,12 @@ export const sourceConnectorRegistry: RegisteredSourceConnector[] = [
     enabledByDefault: true,
   },
   {
+    id: 'src_bcb_sgs',
+    category: 'macro_context',
+    description: 'BCB SGS macro series probe (Selic, CDI, IPCA, IGP-M, FX) feeding macro_indexer_context.',
+    enabledByDefault: true,
+  },
+  {
     id: 'src_cvm_fidc_monthly',
     category: 'regulatory',
     description: 'CVM FIDC monthly report dataset: capital-markets ingestion (migration 035) plus per-company freshness probe.',

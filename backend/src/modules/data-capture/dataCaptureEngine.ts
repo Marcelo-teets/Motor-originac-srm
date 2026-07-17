@@ -3,6 +3,7 @@ import { ingestCompanyMonitoring } from '../../lib/connectors.js';
 import { captureMaisRetorno } from '../../lib/maisRetornoCapture.js';
 import { captureOriginationScrapers } from '../../lib/scrapers/originationScraperCapture.js';
 import { captureFidcPublicData } from '../../lib/fidcPublicDataCapture.js';
+import { captureBcbSgsMacro } from '../../lib/bcbSgsCapture.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 import { treatCaptureOutputs } from './captureTreatment.js';
 
@@ -16,6 +17,7 @@ const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_company_website_deep: 0.06,
   src_professional_network_company: 0.03,
   src_cvm_fidc_monthly: 0.08,
+  src_bcb_sgs: 0.08,
 };
 
 const THEME_RULES = [
@@ -190,16 +192,17 @@ export class DataCaptureEngine {
 
     return Promise.all(targetCompanies.map(async (company) => {
       const collectedAt = new Date().toISOString();
-      const [ingested, maisRetorno, scraperPacks, fidcPublic] = await Promise.all([
+      const [ingested, maisRetorno, scraperPacks, fidcPublic, bcbMacro] = await Promise.all([
         ingestCompanyMonitoring(company, targetSources),
         captureMaisRetorno(company, targetSources, collectedAt),
         captureOriginationScrapers(company, targetSources, collectedAt),
         captureFidcPublicData(company, targetSources, collectedAt),
+        captureBcbSgsMacro(company, targetSources, collectedAt),
       ]);
       const combined = {
-        outputs: [...ingested.outputs, ...maisRetorno.outputs, ...scraperPacks.outputs, ...fidcPublic.outputs],
-        signals: [...ingested.signals, ...maisRetorno.signals, ...scraperPacks.signals, ...fidcPublic.signals],
-        enrichments: [...ingested.enrichments, ...maisRetorno.enrichments, ...scraperPacks.enrichments, ...fidcPublic.enrichments],
+        outputs: [...ingested.outputs, ...maisRetorno.outputs, ...scraperPacks.outputs, ...fidcPublic.outputs, ...bcbMacro.outputs],
+        signals: [...ingested.signals, ...maisRetorno.signals, ...scraperPacks.signals, ...fidcPublic.signals, ...bcbMacro.signals],
+        enrichments: [...ingested.enrichments, ...maisRetorno.enrichments, ...scraperPacks.enrichments, ...fidcPublic.enrichments, ...bcbMacro.enrichments],
       };
       const filtered = filterByRequestedSource(request, combined.outputs, combined.signals, combined.enrichments);
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
