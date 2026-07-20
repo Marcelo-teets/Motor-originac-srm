@@ -43,6 +43,12 @@ export const sourceConnectorRegistry: RegisteredSourceConnector[] = [
     enabledByDefault: true,
   },
   {
+    id: 'src_vc_portfolio_monitor',
+    category: 'vc_portfolio',
+    description: 'First-party VC portfolio page monitor; confirms venture backing with evidence URLs.',
+    enabledByDefault: true,
+  },
+  {
     id: 'src_pncp_contracts_api',
     category: 'public_procurement_receivables',
     description: 'Official PNCP contract search per supplier; primary evidence for public-debtor receivables.',

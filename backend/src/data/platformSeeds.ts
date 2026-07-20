@@ -89,6 +89,27 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     },
     rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
   },
+  // Monitor de portfólios VC de primeira parte: registrado em prod pela
+  // migration 022 (código canônico src_vc_portfolio_monitor) e ativado pela 051.
+  {
+    id: 'src_vc_portfolio_monitor',
+    name: 'VC Portfolio Monitor Brasil',
+    sourceType: 'website',
+    category: 'vc_portfolio',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_vc_portfolio_monitor',
+      portfolios: [
+        { fund: 'Kaszek', url: 'https://www.kaszek.com/companies' },
+        { fund: 'Monashees', url: 'https://monashees.com.br/en/portfolio' },
+        { fund: 'Canary', url: 'https://canary.com.br/portfolio' },
+        { fund: 'Astella', url: 'https://www.astella.com.br/portfolio' },
+        { fund: 'Valor Capital Group', url: 'https://valorcapitalgroup.com/portfolio' },
+      ],
+    },
+    rateLimitNotes: 'Páginas públicas de portfólio; 1 fetch por fundo por execução do engine (memoizado).',
+  },
   // Registros públicos via API oficial (migration 050): PNCP e Querido Diário.
   {
     id: 'src_pncp_contracts_api',

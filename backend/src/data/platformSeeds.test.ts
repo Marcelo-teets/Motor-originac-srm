@@ -9,6 +9,7 @@ const NEW_SOURCE_IDS = [
   'src_bcb_sgs',
   'src_pncp_contracts_api',
   'src_querido_diario_api',
+  'src_vc_portfolio_monitor',
   'src_cvm_fidc_monthly',
   'src_cvm_fund_registry',
   'src_cvm_fundos_estruturados_medidas',

@@ -5,6 +5,7 @@ import { captureOriginationScrapers } from '../../lib/scrapers/originationScrape
 import { captureFidcPublicData } from '../../lib/fidcPublicDataCapture.js';
 import { captureBcbSgsMacro } from '../../lib/bcbSgsCapture.js';
 import { capturePublicRecords } from '../../lib/publicRecordsCapture.js';
+import { captureVcPortfolios } from '../../lib/vcPortfolioCapture.js';
 import type { CaptureEngineResult, CaptureRunRequest, CanonicalSourceDocument } from './types.js';
 import { treatCaptureOutputs } from './captureTreatment.js';
 
@@ -21,6 +22,7 @@ const SOURCE_CONFIDENCE_BONUS: Record<string, number> = {
   src_bcb_sgs: 0.08,
   src_pncp_contracts_api: 0.07,
   src_querido_diario_api: 0.05,
+  src_vc_portfolio_monitor: 0.05,
 };
 
 const THEME_RULES = [
@@ -195,18 +197,19 @@ export class DataCaptureEngine {
 
     return Promise.all(targetCompanies.map(async (company) => {
       const collectedAt = new Date().toISOString();
-      const [ingested, maisRetorno, scraperPacks, fidcPublic, bcbMacro, publicRecords] = await Promise.all([
+      const [ingested, maisRetorno, scraperPacks, fidcPublic, bcbMacro, publicRecords, vcPortfolios] = await Promise.all([
         ingestCompanyMonitoring(company, targetSources),
         captureMaisRetorno(company, targetSources, collectedAt),
         captureOriginationScrapers(company, targetSources, collectedAt),
         captureFidcPublicData(company, targetSources, collectedAt),
         captureBcbSgsMacro(company, targetSources, collectedAt),
         capturePublicRecords(company, targetSources, collectedAt),
+        captureVcPortfolios(company, targetSources, collectedAt),
       ]);
       const combined = {
-        outputs: [...ingested.outputs, ...maisRetorno.outputs, ...scraperPacks.outputs, ...fidcPublic.outputs, ...bcbMacro.outputs, ...publicRecords.outputs],
-        signals: [...ingested.signals, ...maisRetorno.signals, ...scraperPacks.signals, ...fidcPublic.signals, ...bcbMacro.signals, ...publicRecords.signals],
-        enrichments: [...ingested.enrichments, ...maisRetorno.enrichments, ...scraperPacks.enrichments, ...fidcPublic.enrichments, ...bcbMacro.enrichments, ...publicRecords.enrichments],
+        outputs: [...ingested.outputs, ...maisRetorno.outputs, ...scraperPacks.outputs, ...fidcPublic.outputs, ...bcbMacro.outputs, ...publicRecords.outputs, ...vcPortfolios.outputs],
+        signals: [...ingested.signals, ...maisRetorno.signals, ...scraperPacks.signals, ...fidcPublic.signals, ...bcbMacro.signals, ...publicRecords.signals, ...vcPortfolios.signals],
+        enrichments: [...ingested.enrichments, ...maisRetorno.enrichments, ...scraperPacks.enrichments, ...fidcPublic.enrichments, ...bcbMacro.enrichments, ...publicRecords.enrichments, ...vcPortfolios.enrichments],
       };
       const filtered = filterByRequestedSource(request, combined.outputs, combined.signals, combined.enrichments);
       const { deduped, duplicatesDiscarded } = dedupeOutputs(filtered.outputs);
