@@ -110,6 +110,22 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     },
     rateLimitNotes: 'Páginas públicas de portfólio; 1 fetch por fundo por execução do engine (memoizado).',
   },
+  // Diretório oficial de participantes do Open Finance Brasil (migration 052).
+  {
+    id: 'src_open_finance_participants_api',
+    name: 'Open Finance Brasil Participants (diretório oficial)',
+    sourceType: 'api',
+    category: 'embedded_finance',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_open_finance_participants_api',
+      provider: 'open_finance_brasil',
+      baseUrl: 'https://data.directory.openbankingbrasil.org.br/participants',
+      notes: 'Diretório público oficial; matching por CNPJ exato ou nome exato normalizado.',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 busca global por execução do engine (memoizada).',
+  },
   // Registros públicos via API oficial (migration 050): PNCP e Querido Diário.
   {
     id: 'src_pncp_contracts_api',

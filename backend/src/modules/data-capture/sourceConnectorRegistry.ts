@@ -43,6 +43,12 @@ export const sourceConnectorRegistry: RegisteredSourceConnector[] = [
     enabledByDefault: true,
   },
   {
+    id: 'src_open_finance_participants_api',
+    category: 'embedded_finance',
+    description: 'Official Open Finance Brasil participants directory; exact CNPJ/name matching for infrastructure roles.',
+    enabledByDefault: true,
+  },
+  {
     id: 'src_vc_portfolio_monitor',
     category: 'vc_portfolio',
     description: 'First-party VC portfolio page monitor; confirms venture backing with evidence URLs.',
