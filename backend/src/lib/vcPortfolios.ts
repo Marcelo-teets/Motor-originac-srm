@@ -7,6 +7,7 @@ export type VcPortfolioConfig = {
 
 export type VcPortfolioPage = VcPortfolioConfig & {
   text: string;
+  html: string;
 };
 
 // Páginas públicas de portfólio de fundos atuantes no Brasil; sobreponível por
@@ -42,7 +43,7 @@ export async function fetchPortfolioPage(config: VcPortfolioConfig): Promise<VcP
     const html = await response.text();
     const text = sanitizeHtml(html).slice(0, 60000);
     if (!text) return null;
-    return { ...config, text };
+    return { ...config, text, html: html.slice(0, 200000) };
   } catch {
     return null;
   }
