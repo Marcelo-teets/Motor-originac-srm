@@ -13,6 +13,10 @@
     "api/capital-market-run.ts": {
       "maxDuration": 30,
       "memory": 1024
+    },
+    "api/capital-market-health.ts": {
+      "maxDuration": 15,
+      "memory": 512
     }
   },
   "crons": [
@@ -25,6 +29,10 @@
     {
       "source": "/api/capital-markets/run",
       "destination": "/api/capital-market-run"
+    },
+    {
+      "source": "/api/capital-markets/health",
+      "destination": "/api/capital-market-health"
     },
     {
       "source": "/api/:path*",
