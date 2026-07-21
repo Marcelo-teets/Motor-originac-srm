@@ -7,6 +7,19 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+// Node 24 emite DEP0169 (url.parse) a partir das dependências internas do
+// Express 4 (parseurl); nosso código usa apenas WHATWG URL. Filtramos somente
+// esse código para manter os logs de produção limpos sem silenciar outras
+// deprecations. Remoção definitiva depende de upgrade do Express.
+const originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+  const code = typeof args[0] === 'object' && args[0] !== null
+    ? (args[0] as { code?: string }).code
+    : typeof args[1] === 'string' ? args[1] : undefined;
+  if (code === 'DEP0169') return;
+  return originalEmitWarning(warning as string, ...(args as [never]));
+}) as typeof process.emitWarning;
+
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
 let expressApp: ExpressLike | null = null;
