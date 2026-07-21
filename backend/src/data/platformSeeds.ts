@@ -1,4 +1,5 @@
 import { sourceSeeds } from '../../../config/source-seeds.js';
+import { fidcConnectorCatalog } from '../lib/connectors/fidc/fidcConnectorCatalog.js';
 import type { CompanySeed, PatternCatalogEntry, SearchProfile, SourceCatalogEntry } from '../types/platform.js';
 
 export const sourceCatalogSeeds: SourceCatalogEntry[] = [
@@ -57,6 +58,166 @@ export const sourceCatalogSeeds: SourceCatalogEntry[] = [
     health: 'degraded',
     metadata: { note: 'Sem integração automatizada nesta PR; mantido como fallback mockado.' },
   },
+  {
+    id: 'src_company_website_deep',
+    name: 'Company Website Deep Scraper',
+    sourceType: 'scraper',
+    category: 'company_site',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_company_website_deep',
+      provider: 'company_website_deep_scraper',
+      captureMode: 'first_party_http',
+      notes: 'Deep crawl de páginas públicas (about/products/enterprise/partners/pricing/careers/docs) com detecção de sinais B2B.',
+    },
+    rateLimitNotes: 'Respeitar robots e backoff progressivo; máximo ~26 paths candidatos por execução.',
+  },
+  {
+    id: 'src_professional_network_company',
+    name: 'Professional Network Company Profile',
+    sourceType: 'scraper',
+    category: 'professional_network',
+    status: 'partial',
+    health: 'degraded',
+    metadata: {
+      code: 'src_professional_network_company',
+      provider: 'professional_network_company_scraper',
+      baseUrl: 'https://www.linkedin.com',
+      captureMode: 'public_profile_http',
+      notes: 'Perfil institucional público; status partial frequente por bot challenge.',
+    },
+    rateLimitNotes: 'Uma página por execução; degradar para partial sem retry agressivo.',
+  },
+  // Monitor de portfólios VC de primeira parte: registrado em prod pela
+  // migration 022 (código canônico src_vc_portfolio_monitor) e ativado pela 051.
+  {
+    id: 'src_vc_portfolio_monitor',
+    name: 'VC Portfolio Monitor Brasil',
+    sourceType: 'website',
+    category: 'vc_portfolio',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_vc_portfolio_monitor',
+      portfolios: [
+        { fund: 'Kaszek', url: 'https://www.kaszek.com/companies' },
+        { fund: 'Monashees', url: 'https://monashees.com.br/en/portfolio' },
+        { fund: 'Canary', url: 'https://canary.com.br/portfolio' },
+        { fund: 'Astella', url: 'https://www.astella.com.br/portfolio' },
+        { fund: 'Valor Capital Group', url: 'https://valorcapitalgroup.com/portfolio' },
+      ],
+    },
+    rateLimitNotes: 'Páginas públicas de portfólio; 1 fetch por fundo por execução do engine (memoizado).',
+  },
+  // Diretório oficial de participantes do Open Finance Brasil (migration 052).
+  {
+    id: 'src_open_finance_participants_api',
+    name: 'Open Finance Brasil Participants (diretório oficial)',
+    sourceType: 'api',
+    category: 'embedded_finance',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_open_finance_participants_api',
+      provider: 'open_finance_brasil',
+      baseUrl: 'https://data.directory.openbankingbrasil.org.br/participants',
+      notes: 'Diretório público oficial; matching por CNPJ exato ou nome exato normalizado.',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 busca global por execução do engine (memoizada).',
+  },
+  // Registros públicos via API oficial (migration 050): PNCP e Querido Diário.
+  {
+    id: 'src_pncp_contracts_api',
+    name: 'PNCP Contratos Públicos (API oficial)',
+    sourceType: 'api',
+    category: 'public_procurement_receivables',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_pncp_contracts_api',
+      provider: 'pncp',
+      baseUrl: 'https://pncp.gov.br/api/search/',
+      notes: 'Busca oficial de contratos públicos por fornecedor; evidência primária de recebíveis contra ente público.',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 consulta por empresa por execução.',
+  },
+  {
+    id: 'src_querido_diario_api',
+    name: 'Querido Diário (diários oficiais municipais)',
+    sourceType: 'api',
+    category: 'Regulatório',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_querido_diario_api',
+      provider: 'querido_diario',
+      baseUrl: 'https://queridodiario.ok.org.br/api/gazettes',
+      notes: 'Menções da empresa em diários oficiais municipais (Open Knowledge Brasil).',
+    },
+    rateLimitNotes: 'API pública sem chave; 1 consulta por empresa por execução.',
+  },
+  // Fonte macro BCB SGS: registrada em prod pela migration 022 sob o código
+  // canônico src_bcb_sgs; espelhada aqui para paridade no modo memória.
+  {
+    id: 'src_bcb_sgs',
+    name: 'Banco Central SGS Macro Series',
+    sourceType: 'api',
+    category: 'macro_context',
+    status: 'real',
+    health: 'healthy',
+    metadata: {
+      code: 'src_bcb_sgs',
+      series: [
+        { code: 432, name: 'Selic meta', unit: '% a.a.' },
+        { code: 12, name: 'CDI diário', unit: '% a.d.' },
+        { code: 433, name: 'IPCA mensal', unit: '% a.m.' },
+        { code: 189, name: 'IGP-M mensal', unit: '% a.m.' },
+        { code: 1, name: 'Dólar comercial (venda)', unit: 'BRL' },
+      ],
+    },
+    rateLimitNotes: 'API pública sem chave; uma coleta por série por execução do engine.',
+  },
+  // Fontes CVM canônicas do subsistema de mercado de capitais (migration 035);
+  // replicadas aqui para paridade no modo memória — o código canônico é a
+  // identidade estável (metadata.code), nunca duplicar sob outro código.
+  {
+    id: 'src_cvm_fidc_monthly',
+    name: 'CVM FIDC Informes Mensais',
+    sourceType: 'dataset_api',
+    category: 'regulatory',
+    status: 'real',
+    health: 'healthy',
+    metadata: { code: 'src_cvm_fidc_monthly', datasetCode: 'cvm_fidc_monthly', packageId: 'fidc-doc-inf_mensal', tier: 'tier_1_official_regulatory' },
+    rateLimitNotes: 'Sem chave; arquivos mensais atualizados semanalmente.',
+  },
+  {
+    id: 'src_cvm_fund_registry',
+    name: 'CVM Cadastro de Fundos Classes e Subclasses',
+    sourceType: 'dataset_api',
+    category: 'regulatory',
+    status: 'real',
+    health: 'healthy',
+    metadata: { code: 'src_cvm_fund_registry', datasetCode: 'cvm_fund_registry', packageId: 'fi-cad', tier: 'tier_1_official_regulatory' },
+    rateLimitNotes: 'Sem chave; aplicar backoff e uma coleta global por ciclo.',
+  },
+  // Camada FIDC de dados públicos: o catálogo de conectores é a fonte única de
+  // verdade (backend/src/lib/connectors/fidc/fidcConnectorCatalog.ts); fontes
+  // com token ficam como 'planned' até credenciais serem provisionadas.
+  // Datasets já cobertos pelos códigos canônicos acima são excluídos.
+  ...fidcConnectorCatalog
+    .filter((entry) => !['src_cvm_fidc_informe_mensal', 'src_cvm_fundos_cadastral'].includes(entry.id))
+    .map((entry): SourceCatalogEntry => ({
+      id: entry.id,
+      name: entry.name,
+      sourceType: entry.sourceType,
+      category: entry.category,
+      status: entry.authRequirement ? 'planned' : entry.status,
+      health: entry.authRequirement ? 'degraded' : 'healthy',
+      authRequirement: entry.authRequirement,
+      metadata: { code: entry.id, baseUrl: entry.baseUrl, notes: entry.notes },
+      rateLimitNotes: entry.notes,
+    })),
   ...sourceSeeds
     .filter((seed) => !['Google News RSS', 'CVM RSS'].includes(seed.name))
     .map((seed, index) => ({
