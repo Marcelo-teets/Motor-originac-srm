@@ -110,6 +110,7 @@ const runNewsDiscovery = async (profile: SearchProfile): Promise<DiscoverySource
       headers: {
         accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
       },
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!response.ok) return [];

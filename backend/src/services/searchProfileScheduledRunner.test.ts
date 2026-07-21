@@ -106,6 +106,30 @@ test('runner respects the lease for fresh running runs but recovers stale ones',
   assert.equal(stale.executed, 1);
 });
 
+test('runner defers remaining profiles when the time budget is exhausted', async () => {
+  let tick = 0;
+  const clock = () => new Date(Date.parse('2026-07-21T12:00:00Z') + tick * 15000);
+  const captured: string[] = [];
+
+  const summary = await runScheduledSearchProfiles(
+    {
+      listSearchProfiles: async () => [profile('sp_1'), profile('sp_2'), profile('sp_3')],
+      listRuns: async () => [],
+      runCapture: async (id) => {
+        captured.push(id);
+        tick += 1;
+        return summaryFor(id);
+      },
+    },
+    { now: clock, timeBudgetMs: 20000 },
+  );
+
+  assert.deepEqual(captured, ['sp_1', 'sp_2'], 'third profile must be deferred, not executed');
+  assert.equal(summary.results[2]!.action, 'deferred_time_budget');
+  assert.equal(summary.executed, 2);
+  assert.equal(summary.skipped, 1);
+});
+
 test('runner records failures without aborting the batch', async () => {
   const summary = await runScheduledSearchProfiles({
     listSearchProfiles: async () => [profile('sp_1'), profile('sp_2')],

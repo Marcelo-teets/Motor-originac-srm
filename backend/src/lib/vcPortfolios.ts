@@ -38,7 +38,12 @@ export const parsePortfoliosMetadata = (value: unknown): VcPortfolioConfig[] => 
 
 export async function fetchPortfolioPage(config: VcPortfolioConfig): Promise<VcPortfolioPage | null> {
   try {
-    const response = await fetch(config.url, { headers: { accept: 'text/html,application/xhtml+xml' } });
+    // Timeout curto: uma página de portfólio lenta não pode consumir o
+    // orçamento da função serverless (FUNCTION_INVOCATION_TIMEOUT de 30s).
+    const response = await fetch(config.url, {
+      headers: { accept: 'text/html,application/xhtml+xml' },
+      signal: AbortSignal.timeout(8000),
+    });
     if (!response.ok) return null;
     const html = await response.text();
     const text = sanitizeHtml(html).slice(0, 60000);
