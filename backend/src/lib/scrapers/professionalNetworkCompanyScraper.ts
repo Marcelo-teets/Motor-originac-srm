@@ -134,7 +134,7 @@ export const scrapeProfessionalNetworkCompany = async (params: {
   return {
     companyId: params.companyId,
     companyName: params.companyName,
-    sourceId: 'src_linkedin_company_page',
+    sourceId: 'src_professional_network_company',
     sourceType: 'linkedin_company',
     connectorStatus,
     collectedAt,

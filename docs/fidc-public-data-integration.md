@@ -115,7 +115,7 @@ Examples:
 
 ## Next implementation steps
 
-1. Wire the new source catalog into `sourceCatalogSeeds`.
+1. ~~Wire the new source catalog into `sourceCatalogSeeds`.~~ **Done** — migration `048_b2b_scraper_fidc_source_expansion.sql` registers the FIDC sources in `source_catalog` (token-gated ones as `planned`) and `sourceCatalogSeeds` derives them from `fidcConnectorCatalog`. The CVM datasets already governed by the capital-markets subsystem keep their canonical codes from migration `035_capital_market_public_data.sql` (`src_cvm_fidc_monthly` for `fidc-doc-inf_mensal`, `src_cvm_fund_registry` for `fi-cad`) and are mirrored into the seeds under those codes. `captureFidcPublicData` (`backend/src/lib/fidcPublicDataCapture.ts`) probes the CVM FIDC informe-mensal dataset per FIDC-relevant company, emitting `fidc_dataset_update_signal`.
 2. Create a FIDC ingestion job for CVM monthly ZIP datasets.
 3. Add ANBIMA structured funds pagination runner.
 4. Normalize provider CNPJs into the Motor graph.

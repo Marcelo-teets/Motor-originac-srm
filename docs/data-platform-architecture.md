@@ -109,6 +109,8 @@ Fontes iniciais:
 | 4 | Cadastral/societário | Receita CNPJ Dados Abertos, BrasilAPI CNPJ |
 | 5 | Comercial/alternativo | Company Website Deep, Google News RSS, VC Portfolio Monitor, SimilarWeb, Lusha, Apollo, AI Vibe, Fireflies, CB Insights |
 
+> **BCB SGS capturado (migration 049):** a fonte `src_bcb_sgs` (cadastrada na migration 022) passou a ser efetivamente capturada pelo engine via `backend/src/lib/bcbSgsCapture.ts` — probe das séries Selic/CDI/IPCA/IGP-M/câmbio (configuráveis em `metadata.series`), memoizado por execução, emitindo `macro_indexer_context` + enrichment `macro_credit_context` pelo caminho padrão (`monitoring_outputs`/`enrichments`). Follow-up registrado: backfill histórico para `macro_series_observations` (escopo da onda de backfill histórico, ex-PR #115).
+
 ## Regras de qualidade
 
 Gates mínimos para D5, já preparados em D0:

@@ -1,4 +1,5 @@
 import type { SearchProfile } from '../types/platform.js';
+import { discoverVcPortfolioCompanies } from './vcPortfolioDiscovery.js';
 
 export type DiscoverySourceHit = {
   companyName: string;
@@ -101,7 +102,7 @@ export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
   }).filter((item) => item.companyName.length >= 3);
 };
 
-export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoverySourceHit[]> {
+const runNewsDiscovery = async (profile: SearchProfile): Promise<DiscoverySourceHit[]> => {
   const url = googleNewsSearchUrl(profile);
 
   try {
@@ -119,4 +120,13 @@ export async function runSearchProfileDiscovery(profile: SearchProfile): Promise
   } catch {
     return [];
   }
+};
+
+export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoverySourceHit[]> {
+  const [newsHits, portfolioHits] = await Promise.all([
+    runNewsDiscovery(profile),
+    discoverVcPortfolioCompanies().catch(() => [] as DiscoverySourceHit[]),
+  ]);
+
+  return [...newsHits, ...portfolioHits.slice(0, 30)];
 }
