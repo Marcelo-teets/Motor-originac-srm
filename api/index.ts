@@ -152,6 +152,19 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
 }
 
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
+  // Contrato 401 (issue #133 §12): diagnóstico só com bearer válido. Sem
+  // CRON_SECRET configurado o endpoint permanece fechado (fail-closed) —
+  // nunca expor env/tabelas sem credencial. Espelha o gate de
+  // backend/src/serverless/vercelServerlessHandler.ts (captureHealth).
+  if (!isAuthorizedCron(req)) {
+    writeJson(res, 401, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Unauthorized capture diagnostics request.',
+    });
+    return;
+  }
+
   const tables = [
     'companies',
     'source_catalog',
