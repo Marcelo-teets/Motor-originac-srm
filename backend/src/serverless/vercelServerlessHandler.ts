@@ -137,6 +137,41 @@ async function insertCaptureRun(input: CaptureRunInput) {
   }
 }
 
+async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
+  if (!isAuthorizedRuntime(req)) {
+    writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized discovery runtime request.' });
+    return;
+  }
+
+  try {
+    const [{ createPlatformRepository }, { SearchProfileCaptureRuntime }, { SearchProfileCaptureService }, { runScheduledSearchProfiles }] = await Promise.all([
+      import('../repositories/platformRepository.js'),
+      import('../services/searchProfileCaptureRuntime.js'),
+      import('../services/searchProfileCaptureService.js'),
+      import('../services/searchProfileScheduledRunner.js'),
+    ]);
+    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const runtime = new SearchProfileCaptureRuntime(repository);
+    const captureService = new SearchProfileCaptureService(runtime);
+    const summary = await runScheduledSearchProfiles({
+      listSearchProfiles: () => repository.listSearchProfiles(),
+      listRuns: (searchProfileId: string) => runtime.listRuns(searchProfileId),
+      runCapture: (searchProfileId, triggerMode) => captureService.runCapture(searchProfileId, triggerMode),
+    });
+    writeJson(res, summary.failed > 0 ? 207 : 200, {
+      status: summary.failed > 0 ? 'partial' : process.env.USE_SUPABASE === 'true' ? 'real' : 'partial',
+      generatedAt: new Date().toISOString(),
+      data: summary,
+    });
+  } catch (error) {
+    writeJson(res, 500, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Scheduled discovery failed.',
+    });
+  }
+}
+
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   if (!isAuthorizedRuntime(req)) {
     writeJson(res, 401, {
@@ -313,6 +348,11 @@ export function createVercelServerlessHandler(options: HandlerOptions = {}) {
     const originalUrl = (req as any).url ?? '/';
     const pathname = parseUrl(req).pathname;
     const normalizedPathname = normalizePathname(pathname);
+
+    if (normalizedPathname === '/search-profiles/cron/run') {
+      await runScheduledDiscovery(req, res);
+      return;
+    }
 
     if (normalizedPathname === '/data-capture/health') {
       await captureHealth(req, res);

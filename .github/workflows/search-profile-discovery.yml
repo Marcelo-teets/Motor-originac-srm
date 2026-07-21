@@ -1,0 +1,47 @@
+name: Search Profile Discovery
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/search-profile-discovery.yml
+      - api/index.ts
+      - backend/src/services/searchProfileScheduledRunner.ts
+      - backend/src/services/searchProfileCaptureService.ts
+      - backend/src/services/searchProfileCaptureRuntime.ts
+      - backend/src/lib/discoveryCapture.ts
+      - backend/src/lib/vcPortfolioDiscovery.ts
+  schedule:
+    - cron: "30 8 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run_discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Run scheduled search profile discovery
+        env:
+          DISCOVERY_TOKEN: ${{ secrets.CRON_SECRET }}
+          DISCOVERY_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/search-profiles/cron/run
+        run: |
+          test -n "$DISCOVERY_TOKEN" || (echo "discovery token is missing" && exit 1)
+          test -n "$DISCOVERY_URL" || (echo "discovery url is missing" && exit 1)
+
+          RESPONSE=$(curl -sS -X POST -w "\nHTTP_STATUS:%{http_code}\n" \
+            -H "Authorization: Bearer ${DISCOVERY_TOKEN}" \
+            "$DISCOVERY_URL")
+
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+            echo "Scheduled discovery failed with status $STATUS"
+            exit 1
+          fi
+
+          echo "$BODY" | grep -q 'activeProfiles' || (echo "Discovery endpoint did not return the runner summary" && exit 1)
