@@ -1,0 +1,56 @@
+version: 4.1
+generated_at: "2026-07-21T12:00:00-03:00"
+project: "Origination Intelligence Platform"
+repository: "Marcelo-teets/Motor-originac-srm"
+main_sha: "a38d45f6734fad489af75f32067251147d4bbe0b"
+rules:
+  one_pr_per_objective: true
+  production_only_from_main: true
+  real_requires: [execution, persistence, audit, smoke]
+phases:
+  P0:
+    name: "Verdade operacional, segurança e release"
+    status: in_progress
+    exit_gate:
+      - health_exposes_build_metadata
+      - authenticated_smokes_green
+      - false_real_endpoints_removed
+      - security_decisions_recorded
+    items:
+      - {id: P0-001, branch: fix/health-build-metadata, status: todo}
+      - {id: P0-002, branch: fix/agent-runtime-truthfulness, status: todo}
+      - {id: P0-003, action: authenticated-cvm-and-search-smoke, status: blocked_by_valid_token}
+      - {id: P0-004, action: leaked-password-protection, status: todo}
+      - {id: P0-005, branch: fix/node-url-deprecation, status: todo}
+  P1:
+    name: "Discovery e Capture Inbox"
+    status: blocked_by_P0
+    targets: {search_profile_runs: 1, candidates: 50, promoted_companies: 20, lineage_pct: 100}
+    items:
+      - {id: P1-001, branch: feat/search-profile-scheduled-runner, status: todo}
+      - {id: P1-002, branch: feat/discovery-health-capture-inbox, status: todo}
+  P2:
+    name: "Inteligência de decisão"
+    status: blocked_by_P1
+    targets: {trigger_events_min: 1, thesis_top_leads: 20, market_map_top_leads: 20}
+    items:
+      - {id: P2-001, branch: feat/trigger-engine-real, status: todo}
+      - {id: P2-002, branch: feat/scoring-evidence-guardrails, status: todo}
+      - {id: P2-003, branch: feat/thesis-coverage, status: todo}
+      - {id: P2-004, branch: feat/market-map-cards, status: todo}
+  P3:
+    name: "Execução comercial e Paper Clip"
+    status: blocked_by_P2
+    targets: {owners_pct: 100, next_actions_pct: 100, due_dates_pct: 100, overdue_tasks: 0, durable_agent_runs_min: 1}
+    items:
+      - {id: P3-001, branch: fix/pipeline-sla-hygiene, status: todo}
+      - {id: P3-002, branch: feat/paper-clip-durable-executor, status: todo}
+      - {id: P3-003, branch: feat/paper-clip-command-center, status: todo}
+  P4:
+    name: "Escala governada"
+    status: blocked_by_P3
+    items:
+      - {id: P4-001, branch: feat/observability-and-quotas, status: todo}
+      - {id: P4-002, branch: feat/historical-backfill-governed, status: todo}
+      - {id: P4-003, branch: feat/comparables-engine, status: todo}
+      - {id: P4-004, branch: feat/copilot-contextual, status: todo}
