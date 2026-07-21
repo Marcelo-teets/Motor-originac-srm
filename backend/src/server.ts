@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
 import { env } from './lib/env.js';
+import { getBuildInfo } from './lib/buildInfo.js';
 import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
 import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
@@ -46,7 +47,12 @@ await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
 });
 
-app.get('/health', (_req, res) => res.json(ok(platformMode, { service: 'backend', mode: platformMode, uptime: process.uptime() })));
+app.get('/health', (_req, res) => res.json(ok(platformMode, {
+  service: 'backend',
+  mode: platformMode,
+  uptime: process.uptime(),
+  build: getBuildInfo(),
+})));
 
 app.post('/auth/login', wrap(async (req, res) => {
   const email = String(req.body?.email ?? '').trim();
@@ -219,19 +225,24 @@ app.post('/monitoring/run/source/:id', wrap((req, res) => res.json(ok(platformMo
 
 app.get('/agents', wrap(async (_req, res) => res.json(ok(platformMode, { definitions: (await import('./modules/agents.js')).agentDefinitions }))));
 app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMode, (await import('./modules/agents.js')).agentDefinitions))));
-app.get('/agents/runs', wrap(async (_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', status: 'completed', mode: platformMode }, { agent_name: 'pattern_identification_agent', status: 'completed', mode: platformMode }]))));
-app.get('/agents/runs/:id', wrap((req, res) => res.json(ok(platformMode, { execution_id: param(req.params.id), status: 'completed', mode: platformMode }))));
-app.get('/agents/validations', wrap((_req, res) => res.json(ok(platformMode, [{ agent_name: 'qualification_agent', validation: 'passed' }, { agent_name: 'lead_score_agent', validation: 'passed' }]))));
+// Verdade operacional (P0): sem runs/validações persistidos não há dado a
+// reportar — nunca fabricar execuções concluídas.
+app.get('/agents/runs', wrap(async (_req, res) => res.json(ok('partial', { runs: [], note: 'Execuções duráveis de agentes ainda não são persistidas (fila engine_requests/ai_agent_runs vazia).' }))));
+app.get('/agents/runs/:id', wrap((req, res) => res.status(404).json(fail(404, `Agent run não encontrado: ${param(req.params.id)}. Execuções duráveis ainda não são persistidas.`))));
+app.get('/agents/validations', wrap((_req, res) => res.json(ok('partial', { validations: [], note: 'Validações de agentes ainda não são persistidas; nada a reportar.' }))));
 app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Supabase/Auth real.' }]))));
 app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPatternCatalog()))));
-app.post('/agents/run/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), scope: 'global', started: true }))));
-app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.json(ok(platformMode, { agent: param(req.params.agent_name), companyId: param(req.params.id), started: true }))));
+app.post('/agents/run/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), scope: 'global', started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id para recalcular uma empresa.' }))));
+app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), companyId: param(req.params.id), started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id.' }))));
 app.post('/agents/orchestrate/company/:id', wrap(async (req, res) => {
   await service.refreshMonitoring(param(req.params.id));
   await service.recalculateCompany(param(req.params.id), 'orchestrated');
   res.json(ok(platformMode, { companyId: param(req.params.id), orchestrated: true, runCount: 3 }));
 }));
-app.get('/agents/health', wrap((_req, res) => res.json(ok(platformMode, { healthy: 4, degraded: 1, mocked: 0 }))));
+app.get('/agents/health', wrap(async (_req, res) => {
+  const { agentHealthSummary } = await import('./modules/agents.js');
+  res.json(ok(platformMode, agentHealthSummary()));
+}));
 app.get('/aba/status', wrap(async (_req, res) => {
   const dashboard = await service.getDashboard();
   res.json(ok(platformMode, abaService.getStatus(dashboard)));
@@ -331,7 +342,9 @@ app.get('/thesis/company/:id', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
   res.json(ok(platformMode, detail?.thesis ?? null));
 }));
-app.post('/market-map/company/:id/generate', wrap((req, res) => res.json(ok(platformMode, { companyId: param(req.params.id), generated: true, mode: platformMode }))));
+// Verdade operacional (P0): Market Map ainda não persiste cards; não afirmar
+// geração que não aconteceu.
+app.post('/market-map/company/:id/generate', wrap((req, res) => res.status(202).json(ok('partial', { companyId: param(req.params.id), generated: false, persisted: false, note: 'Geração persistida de Market Map pendente (P2); consulte GET /market-map/company/:id para os peers derivados atuais.' }))));
 app.get('/market-map/company/:id', wrap(async (req, res) => {
   const detail = await service.getCompanyDetail(param(req.params.id));
   res.json(ok(platformMode, { companyId: param(req.params.id), peers: detail?.marketMap ?? [] }));
