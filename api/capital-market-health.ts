@@ -1,6 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { verifySupabaseJwt } from '../backend/src/lib/auth.js';
-import { getSupabaseClient } from '../backend/src/lib/supabase.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -56,6 +54,8 @@ const numberValue = (value: string | number | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
     writeJson(res, 405, {
@@ -76,24 +76,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || anonKey;
+
+  if (!supabaseUrl || !anonKey || !serviceKey) {
+    writeJson(res, 503, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Supabase is not configured for capital-market health.',
+    });
+    return;
+  }
+
+  const accessToken = authorization.slice('Bearer '.length);
+
   try {
-    await verifySupabaseJwt(authorization.slice('Bearer '.length));
-    const client = getSupabaseClient();
-    if (!client) {
-      writeJson(res, 503, {
+    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!authResponse.ok) {
+      const authBody = await authResponse.text();
+      writeJson(res, 401, {
         status: 'partial',
         generatedAt: new Date().toISOString(),
-        error: 'Supabase is not configured for capital-market health.',
+        error: authBody.slice(0, 240) || 'Unauthorized.',
       });
       return;
     }
 
-    const rows = await client.select('capital_market_ingestion_health', {
-      select: '*',
-      orderBy: { column: 'dataset_code', ascending: true },
-      limit: 20,
-    }) as HealthRow[];
+    const healthUrl = new URL(`${supabaseUrl}/rest/v1/capital_market_ingestion_health`);
+    healthUrl.searchParams.set('select', '*');
+    healthUrl.searchParams.set('order', 'dataset_code.asc');
+    healthUrl.searchParams.set('limit', '20');
 
+    const healthResponse = await fetch(healthUrl.toString(), {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    });
+
+    if (!healthResponse.ok) {
+      throw new Error(`Supabase health query failed: ${healthResponse.status} ${(await healthResponse.text()).slice(0, 240)}`);
+    }
+
+    const rows = await healthResponse.json() as HealthRow[];
     const datasets = rows.map((row) => ({
       datasetCode: row.dataset_code,
       label: datasetLabels[row.dataset_code] ?? row.dataset_code,
@@ -141,12 +173,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const unauthorized = /token|jwt|issuer|signature|expired|unauthorized/i.test(message);
-    writeJson(res, unauthorized ? 401 : 500, {
+    writeJson(res, 500, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
-      error: message,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }
