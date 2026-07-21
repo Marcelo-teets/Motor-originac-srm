@@ -1,0 +1,152 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifySupabaseJwt } from '../backend/src/lib/auth.js';
+import { getSupabaseClient } from '../backend/src/lib/supabase.js';
+
+type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
+
+type HealthRow = {
+  dataset_code: string;
+  latest_status: string | null;
+  latest_trigger_type: string | null;
+  latest_started_at: string | null;
+  latest_finished_at: string | null;
+  last_success_at: string | null;
+  latest_age_seconds: number | null;
+  latest_duration_seconds: number | null;
+  files_processed: number | null;
+  resources_skipped: number | null;
+  records_seen: number | null;
+  records_inserted: number | null;
+  records_updated: number | null;
+  records_unchanged: number | null;
+  events_written: number | null;
+  signals_written: number | null;
+  runs_30d: number | null;
+  successful_runs_30d: number | null;
+  failed_runs_30d: number | null;
+  success_rate_30d: string | number | null;
+  error_message: string | null;
+  health_status: HealthStatus;
+};
+
+const datasetLabels: Record<string, string> = {
+  cvm_offers: 'Ofertas públicas',
+  cvm_fund_registry: 'Cadastro de fundos',
+  cvm_fidc_monthly: 'FIDC mensal',
+  cvm_cri_monthly: 'CRI mensal',
+  cvm_cra_monthly: 'CRA mensal',
+  cvm_fii_monthly: 'FII mensal',
+};
+
+const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+  });
+  res.end(JSON.stringify(payload));
+};
+
+const getHeader = (req: IncomingMessage, key: string) => {
+  const value = req.headers[key.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+};
+
+const numberValue = (value: string | number | null | undefined) => {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+    writeJson(res, 405, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Method not allowed.',
+    });
+    return;
+  }
+
+  const authorization = getHeader(req, 'authorization');
+  if (!authorization?.startsWith('Bearer ')) {
+    writeJson(res, 401, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: 'Missing bearer token.',
+    });
+    return;
+  }
+
+  try {
+    await verifySupabaseJwt(authorization.slice('Bearer '.length));
+    const client = getSupabaseClient();
+    if (!client) {
+      writeJson(res, 503, {
+        status: 'partial',
+        generatedAt: new Date().toISOString(),
+        error: 'Supabase is not configured for capital-market health.',
+      });
+      return;
+    }
+
+    const rows = await client.select('capital_market_ingestion_health', {
+      select: '*',
+      orderBy: { column: 'dataset_code', ascending: true },
+      limit: 20,
+    }) as HealthRow[];
+
+    const datasets = rows.map((row) => ({
+      datasetCode: row.dataset_code,
+      label: datasetLabels[row.dataset_code] ?? row.dataset_code,
+      latestStatus: row.latest_status,
+      latestTriggerType: row.latest_trigger_type,
+      latestStartedAt: row.latest_started_at,
+      latestFinishedAt: row.latest_finished_at,
+      lastSuccessAt: row.last_success_at,
+      latestAgeSeconds: row.latest_age_seconds === null ? null : numberValue(row.latest_age_seconds),
+      latestDurationSeconds: row.latest_duration_seconds === null ? null : numberValue(row.latest_duration_seconds),
+      filesProcessed: numberValue(row.files_processed),
+      resourcesSkipped: numberValue(row.resources_skipped),
+      recordsSeen: numberValue(row.records_seen),
+      recordsInserted: numberValue(row.records_inserted),
+      recordsUpdated: numberValue(row.records_updated),
+      recordsUnchanged: numberValue(row.records_unchanged),
+      eventsWritten: numberValue(row.events_written),
+      signalsWritten: numberValue(row.signals_written),
+      runs30d: numberValue(row.runs_30d),
+      successfulRuns30d: numberValue(row.successful_runs_30d),
+      failedRuns30d: numberValue(row.failed_runs_30d),
+      successRate30d: numberValue(row.success_rate_30d),
+      errorMessage: row.error_message,
+      healthStatus: row.health_status,
+    }));
+
+    const healthyDatasets = datasets.filter((dataset) => dataset.healthStatus === 'healthy').length;
+    const neverRunDatasets = datasets.filter((dataset) => dataset.healthStatus === 'never_run').length;
+    const attentionDatasets = datasets.length - healthyDatasets;
+
+    writeJson(res, 200, {
+      status: 'real',
+      generatedAt: new Date().toISOString(),
+      data: {
+        summary: {
+          totalDatasets: datasets.length,
+          healthyDatasets,
+          attentionDatasets,
+          neverRunDatasets,
+          recordsSeenLatest: datasets.reduce((sum, dataset) => sum + dataset.recordsSeen, 0),
+          recordsInsertedLatest: datasets.reduce((sum, dataset) => sum + dataset.recordsInserted, 0),
+          signalsWrittenLatest: datasets.reduce((sum, dataset) => sum + dataset.signalsWritten, 0),
+        },
+        datasets,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const unauthorized = /token|jwt|issuer|signature|expired|unauthorized/i.test(message);
+    writeJson(res, unauthorized ? 401 : 500, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: message,
+    });
+  }
+}

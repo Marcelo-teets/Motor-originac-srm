@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CapitalMarketHealthPanel } from '../components/CapitalMarketHealthPanel';
 import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge, Stat } from '../components/UI';
 import { VercelOpsPanel } from '../components/VercelOpsPanel';
 import { WatchListWidget } from '../components/WatchListWidget';
@@ -101,6 +102,8 @@ export function DashboardPage() {
         outputs24h={dashboard.monitoring.outputs24h}
         triggers24h={dashboard.monitoring.triggers24h}
       />
+
+      <CapitalMarketHealthPanel />
 
       {bestNextLead ? (
         <Card title="Próxima melhor ação" subtitle="Lead mais relevante para ação comercial imediata" tone="accent" className="dashboard-decision-card">
