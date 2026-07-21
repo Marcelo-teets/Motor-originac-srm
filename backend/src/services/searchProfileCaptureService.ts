@@ -22,7 +22,7 @@ export type SearchProfileRunRecord = {
 
 export type DiscoveredCandidateRecord = DiscoveredCandidateDraft & {
   id: string;
-  searchProfileRunId: string;
+  searchProfileRunId?: string;
   candidateStatus: 'captured' | 'deduped' | 'promoted' | 'discarded';
   companyId?: string;
   capturedAt: string;
@@ -145,6 +145,7 @@ export class SearchProfileCaptureService {
   async promoteCandidate(candidateId: string) {
     const candidate = await this.adapter.getDiscoveredCandidate(candidateId);
     if (!candidate) throw new Error(`Candidate not found: ${candidateId}`);
+    if (candidate.candidateStatus === 'discarded') throw new Error(`Discarded candidate cannot be promoted: ${candidateId}`);
 
     const companySeed = candidateDraftToCompanySeed(candidate);
     const companyResult = await this.adapter.upsertCompanySeed(companySeed);
