@@ -322,9 +322,49 @@ async function ensureApp(): Promise<void> {
   return loadingPromise;
 }
 
+async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
+  if (!isAuthorizedCron(req)) {
+    writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized discovery runtime request.' });
+    return;
+  }
+
+  try {
+    const [{ createPlatformRepository }, { SearchProfileCaptureRuntime }, { SearchProfileCaptureService }, { runScheduledSearchProfiles }] = await Promise.all([
+      import('../backend/src/repositories/platformRepository.js'),
+      import('../backend/src/services/searchProfileCaptureRuntime.js'),
+      import('../backend/src/services/searchProfileCaptureService.js'),
+      import('../backend/src/services/searchProfileScheduledRunner.js'),
+    ]);
+    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const runtime = new SearchProfileCaptureRuntime(repository);
+    const captureService = new SearchProfileCaptureService(runtime);
+    const summary = await runScheduledSearchProfiles({
+      listSearchProfiles: () => repository.listSearchProfiles(),
+      listRuns: (searchProfileId: string) => runtime.listRuns(searchProfileId),
+      runCapture: (searchProfileId, triggerMode) => captureService.runCapture(searchProfileId, triggerMode),
+    });
+    writeJson(res, summary.failed > 0 ? 207 : 200, {
+      status: summary.failed > 0 ? 'partial' : process.env.USE_SUPABASE === 'true' ? 'real' : 'partial',
+      generatedAt: new Date().toISOString(),
+      data: summary,
+    });
+  } catch (error) {
+    writeJson(res, 500, {
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Scheduled discovery failed.',
+    });
+  }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const originalUrl = (req as any).url ?? '/';
   const pathname = parseUrl(req).pathname;
+
+  if (pathname === '/api/search-profiles/cron/run') {
+    await runScheduledDiscovery(req, res);
+    return;
+  }
 
   if (pathname === '/api/data-capture/health') {
     await captureHealth(req, res);
