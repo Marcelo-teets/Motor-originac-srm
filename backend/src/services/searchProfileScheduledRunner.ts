@@ -14,13 +14,17 @@ export type ScheduledRunnerOptions = {
   // Lease: uma execução queued/running mais nova que staleRunningMinutes
   // bloqueia nova execução; mais velha que isso é considerada morta.
   staleRunningMinutes?: number;
+  // Orçamento da invocação serverless (função Vercel tem 30s): quando o tempo
+  // decorrido excede o orçamento, os profiles restantes são adiados para a
+  // próxima execução em vez de estourar FUNCTION_INVOCATION_TIMEOUT.
+  timeBudgetMs?: number;
   now?: () => Date;
 };
 
 export type ScheduledProfileResult = {
   searchProfileId: string;
   profileName: string;
-  action: 'executed' | 'skipped_recent_run' | 'skipped_run_in_progress' | 'failed';
+  action: 'executed' | 'skipped_recent_run' | 'skipped_run_in_progress' | 'deferred_time_budget' | 'failed';
   runStatus?: SearchProfileRunRecord['runStatus'];
   candidatesFound?: number;
   candidatesInserted?: number;
@@ -53,7 +57,10 @@ export async function runScheduledSearchProfiles(
 ): Promise<ScheduledRunnerSummary> {
   const minIntervalHours = options.minIntervalHours ?? 20;
   const staleRunningMinutes = options.staleRunningMinutes ?? 30;
-  const now = (options.now ?? (() => new Date()))();
+  const timeBudgetMs = options.timeBudgetMs ?? 20000;
+  const clock = options.now ?? (() => new Date());
+  const now = clock();
+  const startedAtMs = now.getTime();
 
   const profiles = (await deps.listSearchProfiles()).filter((profile) => profile.status === 'active');
   const results: ScheduledProfileResult[] = [];
@@ -61,6 +68,16 @@ export async function runScheduledSearchProfiles(
   // Sequencial de propósito: evita tempestade de fetches paralelos por perfil
   // e mantém os guards de lease consistentes dentro da mesma execução.
   for (const profile of profiles) {
+    if (clock().getTime() - startedAtMs > timeBudgetMs) {
+      results.push({
+        searchProfileId: profile.id,
+        profileName: profile.name,
+        action: 'deferred_time_budget',
+        note: `Orçamento de ${timeBudgetMs}ms excedido; profile adiado para a próxima execução.`,
+      });
+      continue;
+    }
+
     const runs = await deps.listRuns(profile.id);
     const last = latestRun(runs);
 
@@ -115,7 +132,7 @@ export async function runScheduledSearchProfiles(
     triggeredAt: now.toISOString(),
     activeProfiles: profiles.length,
     executed: results.filter((item) => item.action === 'executed').length,
-    skipped: results.filter((item) => item.action.startsWith('skipped')).length,
+    skipped: results.filter((item) => item.action.startsWith('skipped') || item.action === 'deferred_time_budget').length,
     failed: results.filter((item) => item.action === 'failed').length,
     results,
   };
