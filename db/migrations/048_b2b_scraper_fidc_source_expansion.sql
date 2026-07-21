@@ -27,29 +27,30 @@ revoke all on table public.source_treatment_rules from public, anon, authenticat
 grant all on table public.source_treatment_rules to service_role;
 
 -- ---------------------------------------------------------------------------
--- 2. Resolve the only duplicated logical codes found in the live catalog.
--- Preserve every source row and assign a code that represents the actual feed.
+-- 2. Resolve duplicated logical codes found in the live catalog.
+-- Preserve every source row. Canonical June sources keep their existing codes;
+-- the older May rows receive explicit legacy codes so lineage is not deleted.
 -- ---------------------------------------------------------------------------
 update public.source_catalog
-set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_fintechs_brasil_rss'::text), true),
+set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_fintechs_brasil_legacy_rss'::text), true),
     updated_at = now()
 where metadata->>'code' = 'src_google_news_rss'
   and name = 'Fintechs Brasil';
 
 update public.source_catalog
-set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_startups_com_br_rss'::text), true),
+set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_startups_com_br_legacy_rss'::text), true),
     updated_at = now()
 where metadata->>'code' = 'src_google_news_rss'
   and name = 'Startups.com.br';
 
 update public.source_catalog
-set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_brazil_journal_rss'::text), true),
+set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_brazil_journal_legacy_rss'::text), true),
     updated_at = now()
 where metadata->>'code' = 'src_valor_rss'
   and name = 'Brazil Journal';
 
 update public.source_catalog
-set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_pipeline_valor_rss'::text), true),
+set metadata = jsonb_set(metadata, '{code}', to_jsonb('src_pipeline_valor_legacy_rss'::text), true),
     updated_at = now()
 where metadata->>'code' = 'src_valor_rss'
   and name = 'Pipeline Valor';
