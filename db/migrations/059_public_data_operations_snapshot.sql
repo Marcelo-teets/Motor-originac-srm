@@ -30,6 +30,10 @@ valid_companies as (
   from public.companies
   where length(regexp_replace(coalesce(cnpj, ''), '[^0-9]', '', 'g')) = 14
 ),
+global_run_state as (
+  select count(*)::integer as total_runs
+  from public.public_dataset_runs
+),
 source_rows as (
   select
     id,
@@ -156,7 +160,8 @@ dataset_rows as (
       else 'waiting'
     end as operational_status,
     case
-      when run.id is null then 'Disponibilizar SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no GitHub Actions e executar o canário autenticado.'
+      when run.id is null and global_run_state.total_runs = 0 then 'Disponibilizar SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no GitHub Actions e executar o canário autenticado.'
+      when run.id is null then 'Executar a primeira coleta deste dataset e validar cobertura, matches e checkpoints.'
       when run.status = 'failed' then 'Corrigir a falha da última execução e reprocessar o dataset.'
       when run.status = 'partial' then 'Reprocessar os recursos com erro até completar a cobertura declarada.'
       when run.status = 'running' then 'Aguardar o término e revisar checkpoints, matches e sinais.'
@@ -165,6 +170,7 @@ dataset_rows as (
       else 'Revisar os sinais company-level e atualizar qualification, patterns, ranking e próxima ação comercial.'
     end as next_action
   from dataset_definitions definition
+  cross join global_run_state
   left join source_rows source on source.source_code = definition.source_code
   left join latest_runs run on run.dataset_code = definition.dataset_code
   left join run_stats on run_stats.dataset_code = definition.dataset_code
