@@ -19,6 +19,8 @@ on:
       - db/migrations/072_factor_outcome_map.sql
       - db/migrations/073_factor_map_backfill.sql
       - db/migrations/074_factor_map_dedup_calibration.sql
+      - db/migrations/075_factor_map_security_hardening.sql
+      - db/migrations/076_factor_map_foreign_key_indexes.sql
   schedule:
     # CVM FRE: semanal, segunda-feira após a janela usual de atualização.
     - cron: "15 09 * * 1"
