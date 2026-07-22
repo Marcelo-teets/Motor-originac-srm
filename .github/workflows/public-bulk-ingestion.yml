@@ -104,7 +104,7 @@ jobs:
           retention-days: 7
 
   ingest:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -135,7 +135,14 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            DATASET="cgu_ceis,cgu_cnep"
+            REFERENCE=""
+            MAX_MATCHED_ROWS="100000"
+            MAX_RESOURCES="2"
+            TRIGGER="manual"
+            FULL_COVERAGE="true"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cgu_ceis,cgu_cnep}"
             [ "$DATASET" = "all-light" ] && DATASET="bndes_financing_operations,cgu_ceis,cgu_cnep,compras_contracts"
             REFERENCE="$REQUESTED_REFERENCE"
