@@ -87,9 +87,10 @@ jobs:
         run: npm -C backend run typecheck
       - name: Test public bulk connector
         shell: bash
+        working-directory: backend
         run: |
           set +e
-          npm -C backend exec -- tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts > public-bulk-test.log 2>&1
+          npx tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts > public-bulk-test.log 2>&1
           STATUS=$?
           cat public-bulk-test.log
           exit $STATUS
@@ -98,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: public-bulk-test-report
-          path: public-bulk-test.log
+          path: backend/public-bulk-test.log
           if-no-files-found: error
           retention-days: 7
 
@@ -171,6 +172,7 @@ jobs:
           echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
           echo "full_coverage=$FULL_COVERAGE" >> "$GITHUB_OUTPUT"
       - name: Run targeted official-data ingestion
+        working-directory: backend
         run: |
           ARGS=(
             --dataset "${{ steps.scope.outputs.dataset }}"
@@ -181,7 +183,7 @@ jobs:
           )
           if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
           if [ "${{ steps.scope.outputs.full_coverage }}" = "true" ]; then ARGS+=(--full-coverage); fi
-          npm -C backend exec -- tsx src/cli/publicBulkData.ts "${ARGS[@]}"
+          npx tsx src/cli/publicBulkData.ts "${ARGS[@]}"
 
   rfb-heavy-guidance:
     if: github.event_name == 'workflow_dispatch' && inputs.dataset == 'rfb_cnpj'
