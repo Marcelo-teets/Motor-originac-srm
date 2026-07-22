@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoveredCandidateToRow } from './searchProfileCaptureRuntime.js';
+import { discoveredCandidateToRow, selectInsertableCandidates } from './searchProfileCaptureRuntime.js';
 import type { DiscoveredCandidateRecord } from './searchProfileCaptureService.js';
 
 const base = (overrides: Partial<DiscoveredCandidateRecord>): DiscoveredCandidateRecord => ({
@@ -50,4 +50,40 @@ test('discoveredCandidateToRow yields identical key sets across a heterogeneous 
   assert.equal(new Set(keySets).size, 1, 'all rows in a bulk insert must share the same key set');
   // JSON.stringify preserva as chaves porque os opcionais viram null, não undefined.
   assert.ok(JSON.stringify(rows[0]).includes('"website":null'));
+});
+
+test('selectInsertableCandidates skips already-captured dedupe_keys (409 re-run guard)', () => {
+  // O runner redescobre as mesmas investidas a cada execução; só as novas
+  // devem ir para o insert, senão o índice único parcial derruba o lote (409).
+  const prepared = [
+    { dedupeKey: 'name:creditas' },
+    { dedupeKey: 'name:drconsulta' },
+    { dedupeKey: 'name:novata' },
+  ];
+  const existing = new Set(['name:creditas', 'name:drconsulta']);
+
+  const result = selectInsertableCandidates(prepared, existing);
+  assert.deepEqual(result.map((row) => row.dedupeKey), ['name:novata']);
+});
+
+test('selectInsertableCandidates drops intra-batch duplicates and keeps null keys', () => {
+  // Mesma empresa em dois fundos gera dedupe_key repetida no mesmo lote; e
+  // candidatos sem dedupe_key (chave nula) nunca colidem no índice parcial.
+  const prepared = [
+    { dedupeKey: 'name:karta' },
+    { dedupeKey: 'name:karta' },
+    { dedupeKey: null },
+    { dedupeKey: undefined },
+    { dedupeKey: '' },
+  ];
+
+  const result = selectInsertableCandidates(prepared, new Set<string>());
+  assert.equal(result.length, 4, 'one karta + three null/empty-key rows');
+  assert.equal(result.filter((row) => row.dedupeKey === 'name:karta').length, 1);
+});
+
+test('selectInsertableCandidates returns empty when everything is already present', () => {
+  const prepared = [{ dedupeKey: 'name:creditas' }, { dedupeKey: 'name:comp' }];
+  const existing = new Set(['name:creditas', 'name:comp']);
+  assert.deepEqual(selectInsertableCandidates(prepared, existing), []);
 });

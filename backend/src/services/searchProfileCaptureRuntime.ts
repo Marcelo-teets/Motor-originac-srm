@@ -40,6 +40,29 @@ export const discoveredCandidateToRow = (candidate: DiscoveredCandidateRecord) =
   updated_at: candidate.updatedAt,
 });
 
+// Seleciona apenas os candidatos ainda não presentes, garantindo idempotência
+// de re-execução contra o índice único parcial
+// uq_discovered_company_candidates_dedupe_key (dedupe_key WHERE dedupe_key IS
+// NOT NULL). O runner redescobre as mesmas investidas de portfólio a cada
+// execução; sem este filtro o insert em lote colide (409) e derruba o batch
+// inteiro. Candidatos já capturados são preservados como estão (não
+// sobrescreve triagem humana); chaves nulas nunca colidem; duplicatas dentro
+// do próprio lote (mesma empresa em dois fundos) também são eliminadas.
+export const selectInsertableCandidates = <T extends { dedupeKey?: string | null }>(
+  prepared: T[],
+  existingKeys: ReadonlySet<string>,
+): T[] => {
+  const seen = new Set<string>();
+  return prepared.filter((row) => {
+    const key = row.dedupeKey;
+    if (!key) return true;
+    if (existingKeys.has(key)) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const mapCompanySeedToRow = (company: CompanySeed) => ({
   id: company.id,
   legal_name: company.legalName,
@@ -237,7 +260,27 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       return prepared;
     }
 
-    const rows = await this.client.insert('discovered_company_candidates', prepared.map(discoveredCandidateToRow));
+    // Idempotência de re-execução: consulta as dedupe_keys já persistidas e
+    // insere apenas o que é novo, evitando o 409 do índice único parcial.
+    const dedupeKeys = Array.from(
+      new Set(prepared.map((row) => row.dedupeKey).filter((key): key is string => typeof key === 'string' && key.length > 0)),
+    );
+
+    const existingKeys = new Set<string>();
+    if (dedupeKeys.length) {
+      const existingRows = await this.client.select('discovered_company_candidates', {
+        select: 'dedupe_key',
+        filters: [{ column: 'dedupe_key', operator: 'in', value: dedupeKeys }],
+      });
+      for (const row of existingRows ?? []) {
+        if (row?.dedupe_key) existingKeys.add(row.dedupe_key);
+      }
+    }
+
+    const toInsert = selectInsertableCandidates(prepared, existingKeys);
+    if (!toInsert.length) return [];
+
+    const rows = await this.client.insert('discovered_company_candidates', toInsert.map(discoveredCandidateToRow));
 
     return (rows ?? []).map(mapCandidateRow);
   }
