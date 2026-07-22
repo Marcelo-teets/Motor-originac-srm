@@ -86,7 +86,7 @@ jobs:
         run: npx tsx --test src/modules/public-data/strategicPublicDatasetConnector.test.ts
 
   ingest:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -117,7 +117,7 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             DATASET="cvm_fre_capital_structure"
             REFERENCE="2026"
             MAX_MATCHED_ROWS="1000"
