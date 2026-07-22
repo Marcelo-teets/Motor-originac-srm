@@ -45,6 +45,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/knowledge-vault',
+    label: 'Knowledge Vault',
+    shortLabel: 'Memória conectada',
+    description: 'Notas, teses, sinais, reuniões, WikiLinks, backlinks e grafo de originação.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/origination-os',
     label: 'Origination OS',
     shortLabel: 'Sistema operacional',
