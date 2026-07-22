@@ -1,0 +1,46 @@
+name: Public Bulk Canary Execution
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/public-bulk-canary-execution.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-bulk-canary-execution
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: github.head_ref == 'agent/public-bulk-canary-execution'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate production ingestion secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Execute CEIS and CNEP production canary
+        working-directory: backend
+        run: |
+          npx tsx src/cli/publicBulkData.ts \
+            --dataset cgu_ceis,cgu_cnep \
+            --max-matched-rows 100000 \
+            --max-resources 2 \
+            --trigger manual \
+            --full-coverage \
+            --require-scan
