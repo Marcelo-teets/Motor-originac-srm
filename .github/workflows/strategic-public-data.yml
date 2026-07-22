@@ -1,6 +1,9 @@
 name: Strategic Public Data
 
 on:
+  push:
+    branches:
+      - ops/strategic-cvm-smoke
   pull_request:
     paths:
       - .github/workflows/strategic-public-data.yml
@@ -22,9 +25,7 @@ on:
       - db/migrations/075_factor_map_security_hardening.sql
       - db/migrations/076_factor_map_foreign_key_indexes.sql
   schedule:
-    # CVM FRE: semanal, segunda-feira após a janela usual de atualização.
     - cron: "15 09 * * 1"
-    # Receita QSA: mensal; checkpoint evita reprocessar a mesma competência.
     - cron: "40 09 8 * *"
   workflow_dispatch:
     inputs:
@@ -85,7 +86,7 @@ jobs:
         run: npx tsx --test src/modules/public-data/strategicPublicDatasetConnector.test.ts
 
   ingest:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -116,7 +117,13 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            DATASET="cvm_fre_capital_structure"
+            REFERENCE="2026"
+            MAX_MATCHED_ROWS="1000"
+            MAX_RESOURCES="1"
+            FULL_COVERAGE="false"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-all}"
             REFERENCE="$REQUESTED_REFERENCE"
             MAX_MATCHED_ROWS="${REQUESTED_MAX_MATCHED_ROWS:-100000}"
