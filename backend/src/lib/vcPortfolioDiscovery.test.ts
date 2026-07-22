@@ -26,6 +26,29 @@ test('extractPortfolioCompanyNames handles empty and junk html', () => {
   assert.deepEqual(extractPortfolioCompanyNames('<p>12345</p><img alt="{{placeholder}}" />'), []);
 });
 
+test('extractPortfolioCompanyNames recovers clean names from real production noise', () => {
+  // Casos reais capturados na primeira execução em produção (portfólios
+  // Kaszek/Canary): prefixo do fundo, sufixo "Logo", placeholder e manchetes.
+  const noisyHtml = `
+    <img alt="Kaszek Creditas Logo" />
+    <img alt="Kaszek drconsulta Logo" />
+    <img alt="Kaszek Camino Education" />
+    <img alt="Image without alt" />
+    <h3>Telepatia Raises $33M</h3>
+    <h3>Comp Raises R$100M Series A</h3>
+    <a href="/x">Get in touch</a>
+    <a href="/y">People</a>
+  `;
+  const names = extractPortfolioCompanyNames(noisyHtml);
+  assert.ok(names.includes('Creditas'), `expected Creditas, got ${names.join(', ')}`);
+  assert.ok(names.includes('drconsulta'));
+  assert.ok(names.includes('Camino Education'));
+  assert.ok(names.includes('Telepatia'));
+  assert.ok(names.includes('Comp'));
+  // Ruído que deve ser eliminado por completo.
+  assert.ok(!names.some((n) => /logo|image without alt|get in touch|^people$/i.test(n)), `noise leaked: ${names.join(', ')}`);
+});
+
 test('discoverVcPortfolioCompanies builds review-ready hits from portfolio pages', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(portfolioHtml, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
