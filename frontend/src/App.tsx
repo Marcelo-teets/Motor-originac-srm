@@ -6,6 +6,7 @@ import { CaptureInboxPage } from './pages/CaptureInboxPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyDetailPage } from './pages/CompanyDetailPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { OriginationOsPage } from './pages/OriginationOsPage';
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
+        <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
