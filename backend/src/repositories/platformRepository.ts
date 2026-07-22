@@ -382,22 +382,34 @@ class SupabasePlatformRepository implements PlatformRepository {
       ]);
       return (profiles ?? []).map((row: any) => {
         const profileFilters = filters.filter((filter: SearchProfileFilter) => filter.profileId === row.id);
+        // Tolerância ao schema vivo: a tabela de produção usa `active` (bool),
+        // `target_segments`/`target_keywords` (arrays) e `config` (jsonb),
+        // enquanto o modelo do backend espera `status` (text) e campos
+        // escalares. Mapeamos os dois formatos para não perder o perfil.
+        const targetSegments: string[] = Array.isArray(row.target_segments) ? row.target_segments : [];
+        const targetKeywords: string[] = Array.isArray(row.target_keywords) ? row.target_keywords : [];
+        const derivedStatus = typeof row.active === 'boolean'
+          ? (row.active ? 'active' : 'paused')
+          : (row.status ?? 'active');
         return {
           id: row.id,
           name: row.name,
-          segment: row.segment,
-          subsegment: row.subsegment,
-          companyType: row.company_type,
+          segment: row.segment ?? targetSegments[0] ?? 'Brasil',
+          subsegment: row.subsegment ?? targetSegments.slice(1, 3).join(', '),
+          companyType: row.company_type ?? 'Middle Market',
           geography: row.geography,
-          creditProduct: row.credit_product,
+          creditProduct: row.credit_product ?? targetKeywords.slice(0, 3).join(' '),
           receivables: row.profile_payload?.receivables ?? ((profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'receivables')?.filterValue as string[]) ?? []),
-          targetStructure: row.target_structure,
+          targetStructure: row.target_structure ?? (targetKeywords.find((keyword: string) => /fidc|deb[êe]nture|nota comercial|cri|cra/i.test(keyword)) ?? ''),
           minimumSignalIntensity: Number(row.minimum_signal_intensity ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumSignalIntensity')?.filterValue ?? 50),
           minimumConfidence: Number(row.minimum_confidence ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumConfidence')?.filterValue ?? 0.6),
           timeWindowDays: Number(row.time_window_days ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'timeWindowDays')?.filterValue ?? 90),
-          status: row.status,
+          status: derivedStatus,
           profilePayload: {
+            ...(row.config ?? {}),
             ...(row.profile_payload ?? {}),
+            targetSegments,
+            targetKeywords,
             filters: profileFilters.reduce((acc: Record<string, unknown>, filter: SearchProfileFilter) => {
               acc[filter.filterKey] = filter.filterValue;
               return acc;
