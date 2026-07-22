@@ -7,6 +7,7 @@ import { PublicDataDownstreamService } from '../backend/src/services/publicDataD
 import { StrategicPublicIngestionService } from '../backend/src/services/strategicPublicIngestionService.js';
 
 const DATASET = 'cvm_fre_capital_structure' as const;
+const RUNTIME_VERSION = 'strategic-public-data-v1';
 
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 
@@ -23,6 +24,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Origination-Runtime', RUNTIME_VERSION);
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ status: 'error', error: 'method_not_allowed' });
@@ -59,6 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         mode: 'probe',
         datasetCode: DATASET,
         runtime: 'vercel_node_in_memory_zip',
+        runtimeVersion: RUNTIME_VERSION,
         startedAt,
         finishedAt: new Date().toISOString(),
         resource: {
@@ -105,6 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(statusCode).json({
       ...ingestion,
       runtime: 'vercel_node_in_memory_zip',
+      runtimeVersion: RUNTIME_VERSION,
       downstream,
     });
   } catch (error) {
@@ -113,6 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       status: 'failed',
       mode,
       datasetCode: DATASET,
+      runtimeVersion: RUNTIME_VERSION,
       startedAt,
       finishedAt: new Date().toISOString(),
       error: errorMessage(error),
