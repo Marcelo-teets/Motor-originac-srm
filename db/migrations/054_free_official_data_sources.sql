@@ -25,6 +25,30 @@ with source_seed (
     ('src_common_crawl_company_history', 'Common Crawl Index API', 'api', 'website_monitoring', 'none', 'real', 'healthy', 'https://index.commoncrawl.org/collinfo.json', 'public_index_api', 'monthly', 'domain', 'Usar índice mais recente e limitar capturas por execução.'),
     ('src_datajud_public_api', 'CNJ DataJud API pública', 'api', 'judicial_risk', 'public_key', 'partial', 'healthy', 'https://datajud-wiki.cnj.jus.br/api-publica/', 'official_case_api', 'event_driven', 'process_number', 'Usar para atualizar processo conhecido; não presumir busca completa por CNPJ.'),
     ('src_comexstat_open_data', 'ComexStat dados abertos', 'bulk_csv', 'international_receivables', 'none', 'partial', 'healthy', 'https://www.gov.br/mdic/pt-br/assuntos/comercio-exterior/estatisticas/base-de-dados-bruta', 'official_bulk_snapshot', 'monthly', 'sector_or_municipality', 'Contexto setorial; não atribuir exportação individual sem evidência empresarial.')
+), updated_sources as (
+  update public.source_catalog existing
+  set
+    name = seed.name,
+    source_type = seed.source_type,
+    category = seed.category,
+    auth_requirement = seed.auth_requirement,
+    status = seed.status,
+    health = seed.health,
+    rate_limit_notes = seed.rate_limit_notes,
+    metadata = coalesce(existing.metadata, '{}'::jsonb) || jsonb_build_object(
+      'code', seed.code,
+      'provider', split_part(seed.code, '_', 2),
+      'baseUrl', seed.base_url,
+      'captureMode', seed.capture_mode,
+      'refreshFrequency', seed.refresh_frequency,
+      'entityKey', seed.entity_key,
+      'accessCost', 'free',
+      'official', seed.code not in ('src_github_public_api', 'src_wayback_company_history', 'src_common_crawl_company_history'),
+      'implementationPhase', case when seed.status = 'real' then 'runtime_active' else 'bulk_loader_required' end
+    )
+  from source_seed seed
+  where existing.metadata->>'code' = seed.code
+  returning seed.code
 )
 insert into public.source_catalog (
   name, source_type, category, auth_requirement, status, metadata,
