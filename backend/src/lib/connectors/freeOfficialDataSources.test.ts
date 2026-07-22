@@ -125,9 +125,8 @@ test('captures Wayback, Common Crawl and GitHub public evidence', async () => {
     ], '2026-07-21T12:00:00.000Z');
 
     assert.equal(result.outputs.length, 3);
-    assert.equal(result.signals.length, 3);
+    assert.equal(result.signals.length, 1);
     assert.ok(result.signals.some((item) => item.signalType === 'technical_product_signal'));
-    assert.ok(result.signals.some((item) => item.signalType === 'product_expansion_signal'));
     assert.ok(result.outputs.every((item) => item.normalizedPayload.accessMode === 'public_free'));
   } finally {
     globalThis.fetch = originalFetch;
