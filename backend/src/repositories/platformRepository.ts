@@ -96,13 +96,44 @@ const profileToFilters = (profile: SearchProfile): SearchProfileFilter[] => ([
   { id: `${profile.id}_time_window_days`, profileId: profile.id, filterKey: 'timeWindowDays', filterValue: profile.timeWindowDays, createdAt: stableFilterTimestamp },
 ]);
 
-const mergeProfilePayload = (profile: SearchProfile, filters: SearchProfileFilter[]) => ({
-  ...profile.profilePayload,
-  receivables: profile.receivables,
-  filters: filters.reduce<Record<string, unknown>>((acc, filter) => {
-    acc[filter.filterKey] = filter.filterValue;
-    return acc;
-  }, {}),
+const splitSubsegment = (subsegment: string | undefined): string[] =>
+  (subsegment ?? '').split(',').map((part) => part.trim()).filter(Boolean);
+
+// Mapeia o modelo de perfil do backend para a linha do schema vivo de
+// `search_profiles`. A tabela de produção só tem
+// id/name/description/target_segments/target_keywords/min_employee_count/
+// geography/active/config — as colunas escalares do modelo antigo
+// (segment, company_type, minimum_*, status, profile_payload...) não existem,
+// então gravá-las derrubava todo o upsert e o save caía silenciosamente na
+// memória. Preservamos o modelo canônico em `config.model` (round-trip exato) e
+// derivamos target_segments/target_keywords/active para os consumidores que
+// leem esses campos (ex.: o runner de descoberta filtra por `active`).
+export const searchProfileToRow = (profile: SearchProfile) => ({
+  id: profile.id,
+  name: profile.name,
+  target_segments: [profile.segment, ...splitSubsegment(profile.subsegment)].filter((value): value is string => Boolean(value)),
+  target_keywords: [
+    ...String(profile.creditProduct ?? '').split(/\s+/).map((word) => word.trim()).filter(Boolean),
+    ...(profile.targetStructure ? [profile.targetStructure] : []),
+  ],
+  geography: profile.geography,
+  active: profile.status !== 'paused',
+  config: {
+    ...profile.profilePayload,
+    model: {
+      segment: profile.segment,
+      subsegment: profile.subsegment,
+      companyType: profile.companyType,
+      creditProduct: profile.creditProduct,
+      targetStructure: profile.targetStructure,
+      receivables: profile.receivables,
+      minimumSignalIntensity: profile.minimumSignalIntensity,
+      minimumConfidence: profile.minimumConfidence,
+      timeWindowDays: profile.timeWindowDays,
+      status: profile.status,
+    },
+  },
+  updated_at: new Date().toISOString(),
 });
 const asPipelineStage = (value: string): PipelineStage => {
   const allowed: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
@@ -326,6 +357,29 @@ class SupabasePlatformRepository implements PlatformRepository {
     }
   }
 
+  // Grava os filtros do perfil de forma best-effort: `search_profile_filters`
+  // existe em alguns ambientes mas não em produção. O modelo já faz round-trip
+  // por `config.model`, então uma falha aqui (tabela ausente) não pode abortar
+  // a persistência do perfil em si.
+  private async persistSearchProfileFilters(
+    client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    profileIds: string[],
+    filters: SearchProfileFilter[],
+  ) {
+    if (!profileIds.length) return;
+    try {
+      await client.delete('search_profile_filters', [{ column: 'profile_id', operator: 'in', value: profileIds }]);
+      await client.insert('search_profile_filters', filters.map((filter) => ({
+        profile_id: filter.profileId,
+        filter_key: filter.filterKey,
+        filter_value: filter.filterValue,
+        created_at: filter.createdAt,
+      })));
+    } catch {
+      // Ambiente sem a tabela de filtros — perfil persiste via config.model.
+    }
+  }
+
   private shouldUseFallbackForRuntime() {
     return !this.client;
   }
@@ -388,22 +442,27 @@ class SupabasePlatformRepository implements PlatformRepository {
         // escalares. Mapeamos os dois formatos para não perder o perfil.
         const targetSegments: string[] = Array.isArray(row.target_segments) ? row.target_segments : [];
         const targetKeywords: string[] = Array.isArray(row.target_keywords) ? row.target_keywords : [];
+        // Modelo canônico persistido por searchProfileToRow. Preferido quando
+        // presente (round-trip exato de save→load); rows legadas/diretas ficam
+        // sem `model` e caem nas derivações de colunas/arrays como antes.
+        const model: Record<string, unknown> = (row.config && typeof row.config === 'object' ? row.config.model : undefined) ?? {};
         const derivedStatus = typeof row.active === 'boolean'
           ? (row.active ? 'active' : 'paused')
           : (row.status ?? 'active');
+        const modelReceivables = Array.isArray(model.receivables) ? (model.receivables as string[]) : undefined;
         return {
           id: row.id,
           name: row.name,
-          segment: row.segment ?? targetSegments[0] ?? 'Brasil',
-          subsegment: row.subsegment ?? targetSegments.slice(1, 3).join(', '),
-          companyType: row.company_type ?? 'Middle Market',
+          segment: (model.segment as string) ?? row.segment ?? targetSegments[0] ?? 'Brasil',
+          subsegment: (model.subsegment as string) ?? row.subsegment ?? targetSegments.slice(1, 3).join(', '),
+          companyType: (model.companyType as string) ?? row.company_type ?? 'Middle Market',
           geography: row.geography,
-          creditProduct: row.credit_product ?? targetKeywords.slice(0, 3).join(' '),
-          receivables: row.profile_payload?.receivables ?? ((profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'receivables')?.filterValue as string[]) ?? []),
-          targetStructure: row.target_structure ?? (targetKeywords.find((keyword: string) => /fidc|deb[êe]nture|nota comercial|cri|cra/i.test(keyword)) ?? ''),
-          minimumSignalIntensity: Number(row.minimum_signal_intensity ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumSignalIntensity')?.filterValue ?? 50),
-          minimumConfidence: Number(row.minimum_confidence ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumConfidence')?.filterValue ?? 0.6),
-          timeWindowDays: Number(row.time_window_days ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'timeWindowDays')?.filterValue ?? 90),
+          creditProduct: (model.creditProduct as string) ?? row.credit_product ?? targetKeywords.slice(0, 3).join(' '),
+          receivables: modelReceivables ?? row.profile_payload?.receivables ?? ((profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'receivables')?.filterValue as string[]) ?? []),
+          targetStructure: (model.targetStructure as string) ?? row.target_structure ?? (targetKeywords.find((keyword: string) => /fidc|deb[êe]nture|nota comercial|cri|cra/i.test(keyword)) ?? ''),
+          minimumSignalIntensity: Number(model.minimumSignalIntensity ?? row.minimum_signal_intensity ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumSignalIntensity')?.filterValue ?? 50),
+          minimumConfidence: Number(model.minimumConfidence ?? row.minimum_confidence ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'minimumConfidence')?.filterValue ?? 0.6),
+          timeWindowDays: Number(model.timeWindowDays ?? row.time_window_days ?? profileFilters.find((item: SearchProfileFilter) => item.filterKey === 'timeWindowDays')?.filterValue ?? 90),
           status: derivedStatus,
           profilePayload: {
             ...(row.config ?? {}),
@@ -684,29 +743,11 @@ class SupabasePlatformRepository implements PlatformRepository {
   async saveSearchProfile(profile: SearchProfile) {
     await this.writeWithFallback(async () => {
       const client = this.ensureClient();
-      const filters = profileToFilters(profile);
-      await client.upsert('search_profiles', [{
-        id: profile.id,
-        name: profile.name,
-        segment: profile.segment,
-        subsegment: profile.subsegment,
-        company_type: profile.companyType,
-        geography: profile.geography,
-        credit_product: profile.creditProduct,
-        target_structure: profile.targetStructure,
-        minimum_signal_intensity: profile.minimumSignalIntensity,
-        minimum_confidence: profile.minimumConfidence,
-        time_window_days: profile.timeWindowDays,
-        status: profile.status,
-        profile_payload: mergeProfilePayload(profile, filters),
-      }], 'id');
-      await client.delete('search_profile_filters', [{ column: 'profile_id', operator: 'eq', value: profile.id }]);
-      await client.insert('search_profile_filters', filters.map((filter) => ({
-        profile_id: filter.profileId,
-        filter_key: filter.filterKey,
-        filter_value: filter.filterValue,
-        created_at: filter.createdAt,
-      })));
+      await client.upsert('search_profiles', [searchProfileToRow(profile)], 'id');
+      // Best-effort: a tabela existe em alguns ambientes mas não em produção; o
+      // modelo já faz round-trip por config.model, então sua ausência não pode
+      // derrubar a persistência do perfil.
+      await this.persistSearchProfileFilters(client, [profile.id], profileToFilters(profile));
     }, async () => {
       await this.fallback.saveSearchProfile(profile);
     });
@@ -901,29 +942,13 @@ class SupabasePlatformRepository implements PlatformRepository {
         default_ranking_impact: item.rankingImpact,
       })), 'id');
 
-      await client.upsert('search_profiles', searchProfileSeeds.map((item) => ({
-        id: item.id,
-        name: item.name,
-        segment: item.segment,
-        subsegment: item.subsegment,
-        company_type: item.companyType,
-        geography: item.geography,
-        credit_product: item.creditProduct,
-        target_structure: item.targetStructure,
-        minimum_signal_intensity: item.minimumSignalIntensity,
-        minimum_confidence: item.minimumConfidence,
-        time_window_days: item.timeWindowDays,
-        status: item.status,
-        profile_payload: mergeProfilePayload(item, profileToFilters(item)),
-      })), 'id');
+      await client.upsert('search_profiles', searchProfileSeeds.map(searchProfileToRow), 'id');
 
-      await client.delete('search_profile_filters', [{ column: 'profile_id', operator: 'in', value: searchProfileSeeds.map((item) => item.id) }]);
-      await client.insert('search_profile_filters', searchProfileFilterSeeds.map((item) => ({
-        profile_id: item.profileId,
-        filter_key: item.filterKey,
-        filter_value: item.filterValue,
-        created_at: item.createdAt,
-      })));
+      await this.persistSearchProfileFilters(
+        client,
+        searchProfileSeeds.map((item) => item.id),
+        searchProfileFilterSeeds,
+      );
 
       await client.upsert('companies', seededCompanies.map((item) => ({
         id: item.id,
