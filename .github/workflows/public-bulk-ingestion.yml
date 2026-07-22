@@ -17,6 +17,7 @@ on:
       - backend/src/cli/publicBulkData.ts
       - backend/src/modules/public-data/**
       - backend/src/services/publicBulkIngestionService.ts
+      - backend/src/services/.public-bulk-trigger
       - db/migrations/057_public_bulk_ingestion.sql
       - db/migrations/058_public_bulk_signal_sync.sql
   schedule:
