@@ -1,0 +1,52 @@
+name: Public Data Downstream Validation
+
+on:
+  pull_request:
+    paths:
+      - backend/src/cli/publicBulkData.ts
+      - backend/src/services/publicDataDownstreamService.ts
+      - backend/src/services/publicDataDownstreamService.test.ts
+      - backend/src/lib/ranking.ts
+      - backend/src/lib/thesis.ts
+      - backend/src/lib/publicEvidenceFlow.test.ts
+      - db/migrations/060_public_evidence_intelligence.sql
+      - db/migrations/061_public_qualification_patterns.sql
+      - db/migrations/062_public_score_lead_guardrails.sql
+      - db/migrations/063_public_pipeline_ranking.sql
+      - .github/workflows/public-data-downstream-validation.yml
+  push:
+    branches: [main]
+    paths:
+      - backend/src/cli/publicBulkData.ts
+      - backend/src/services/publicDataDownstreamService.ts
+      - backend/src/services/publicDataDownstreamService.test.ts
+      - backend/src/lib/ranking.ts
+      - backend/src/lib/thesis.ts
+      - backend/src/lib/publicEvidenceFlow.test.ts
+      - db/migrations/060_public_evidence_intelligence.sql
+      - db/migrations/061_public_qualification_patterns.sql
+      - db/migrations/062_public_score_lead_guardrails.sql
+      - db/migrations/063_public_pipeline_ranking.sql
+      - .github/workflows/public-data-downstream-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test downstream orchestration and public evidence decisions
+        working-directory: backend
+        run: npx tsx --test src/services/publicDataDownstreamService.test.ts src/lib/publicEvidenceFlow.test.ts
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Build frontend
+        run: npm run build --prefix frontend
