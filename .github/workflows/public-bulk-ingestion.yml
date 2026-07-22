@@ -86,7 +86,21 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Test public bulk connector
-        run: npm -C backend exec -- tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts
+        shell: bash
+        run: |
+          set +e
+          npm -C backend exec -- tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts > public-bulk-test.log 2>&1
+          STATUS=$?
+          cat public-bulk-test.log
+          exit $STATUS
+      - name: Upload public bulk test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-bulk-test-report
+          path: public-bulk-test.log
+          if-no-files-found: error
+          retention-days: 7
 
   ingest:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
