@@ -20,6 +20,26 @@ const connectorMetadata = (sourceUrl: string, collectedAt: string, confidenceSco
 
 const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+const SEEDED_SOURCE_CODES = new Map<string, string>([
+  ['rfb cnpj bulk', 'src_rfb_cnpj_bulk'],
+  ['pgfn divida ativa bulk', 'src_pgfn_divida_ativa_bulk'],
+  ['bndes financing operations', 'src_bndes_financing_operations'],
+  ['cgu transparencia bulk', 'src_cgu_transparencia_bulk'],
+  ['compras gov contracts', 'src_compras_gov_contracts'],
+  ['consumidor gov open data', 'src_consumidor_gov_open_data'],
+  ['inlabs dou xml', 'src_inlabs_dou_xml'],
+  ['inpi ip open data', 'src_inpi_ip_open_data'],
+  ['bcb ifdata', 'src_bcb_ifdata'],
+  ['bcb complaints ranking', 'src_bcb_complaints_ranking'],
+  ['github public api', 'src_github_public_api'],
+  ['bcb pix participants', 'src_bcb_pix_participants'],
+  ['transferegov public api', 'src_transferegov_public_api'],
+  ['wayback company history', 'src_wayback_company_history'],
+  ['common crawl company history', 'src_common_crawl_company_history'],
+  ['datajud public api', 'src_datajud_public_api'],
+  ['comexstat open data', 'src_comexstat_open_data'],
+]);
+
 const websiteDomain = (website: string) => {
   try {
     return new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '');
@@ -33,6 +53,9 @@ export const inferSourceCode = (source: SourceCatalogEntry) => {
   if (explicit) return explicit;
 
   const name = normalizeText(source.name ?? '');
+  const seededSourceCode = SEEDED_SOURCE_CODES.get(name.trim());
+  if (seededSourceCode) return seededSourceCode;
+
   const category = normalizeText(source.category ?? '');
   const tags = Array.isArray(source.metadata?.tags)
     ? source.metadata.tags.map((tag) => normalizeText(String(tag))).join(' ')
