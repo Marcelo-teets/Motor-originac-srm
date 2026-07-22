@@ -10,14 +10,18 @@ const MAX_NAME_LENGTH = 40;
 // humana final, mas o extrator não deve inundá-lo de lixo óbvio.
 const STOPWORDS = new Set([
   'portfolio', 'portfólio', 'companies', 'company', 'empresas', 'empresa',
-  'about', 'about us', 'sobre', 'contact', 'contato', 'team', 'time', 'equipe',
+  'about', 'about us', 'sobre', 'contact', 'contato', 'contact us', 'get in touch',
+  'team', 'time', 'equipe', 'people', 'our team', 'our people', 'leadership',
   'home', 'menu', 'news', 'blog', 'jobs', 'careers', 'carreiras', 'vagas',
-  'investors', 'investidores', 'fund', 'fundo', 'funds', 'fundos',
-  'ver mais', 'saiba mais', 'read more', 'learn more', 'see all', 'view all',
-  'privacy', 'privacidade', 'terms', 'termos', 'linkedin', 'twitter', 'instagram',
-  'logo', 'icon', 'image', 'photo', 'newsletter', 'search', 'busca',
-  'kaszek', 'monashees', 'canary', 'astella', 'valor capital group', 'valor capital',
+  'investors', 'investidores', 'fund', 'fundo', 'funds', 'fundos', 'exits', 'exit',
+  'ver mais', 'saiba mais', 'read more', 'learn more', 'see all', 'view all', 'all companies',
+  'privacy', 'privacidade', 'terms', 'termos', 'linkedin', 'twitter', 'instagram', 'follow us',
+  'logo', 'icon', 'image', 'photo', 'newsletter', 'search', 'busca', 'apply', 'apply now',
+  'kaszek', 'monashees', 'canary', 'astella', 'valor capital group', 'valor capital', 'valor',
 ]);
+
+// Nomes de fundos que aparecem como prefixo em alt-text tipo "Kaszek Creditas Logo".
+const FUND_PREFIXES = ['kaszek', 'monashees', 'canary', 'astella', 'valor capital group', 'valor capital'];
 
 const decodeEntities = (value: string) => value
   .replace(/&amp;/g, '&')
@@ -25,17 +29,44 @@ const decodeEntities = (value: string) => value
   .replace(/&#39;/g, "'")
   .replace(/&nbsp;/g, ' ');
 
-const cleanCandidate = (value: string) => decodeEntities(value)
-  .replace(/<[^>]+>/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
+// Recupera o nome real a partir do ruído comum das páginas de portfólio:
+// prefixo do fundo, sufixos "logo/logotipo", placeholders de imagem e
+// manchetes de rodada ("Telepatia Raises $33M" -> "Telepatia").
+const cleanCandidate = (value: string) => {
+  let name = decodeEntities(value)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Placeholder de imagem sem alt.
+  if (/image without alt|sem alt|no alt|placeholder/i.test(name)) return '';
+
+  // Remove prefixo do fundo ("Kaszek Creditas Logo" -> "Creditas Logo").
+  for (const fund of FUND_PREFIXES) {
+    const prefix = new RegExp(`^${fund}\\s+`, 'i');
+    if (prefix.test(name)) { name = name.replace(prefix, '').trim(); break; }
+  }
+
+  // Corta manchetes de captação/rodada, preservando só o nome da empresa.
+  name = name.replace(/\s+(raises|raised|secures|secured|closes|closed|announces|announced|levanta|capta|captou|recebe|recebeu)\b.*/i, '').trim();
+  // Remove marcadores de série/valor residuais.
+  name = name.replace(/\s*[-–|]?\s*(series\s+[a-e]|série\s+[a-e]|\$[\d.,]+\s*[mkb]?|r\$[\d.,]+\s*[mkb]?)\b.*/i, '').trim();
+  // Remove sufixos de mídia.
+  name = name.replace(/\s+(logo|logotype|logotipo|icon|ícone|image|imagem|photo|foto)$/i, '').trim();
+
+  return name;
+};
 
 const isPlausibleCompanyName = (value: string) => {
   if (value.length < MIN_NAME_LENGTH || value.length > MAX_NAME_LENGTH) return false;
   if (!/[a-zA-ZÀ-ÿ]/.test(value)) return false;
   if (/[<>{}[\]@#]/.test(value)) return false;
   if (value.split(' ').length > 5) return false;
-  if (STOPWORDS.has(value.toLowerCase())) return false;
+  const lower = value.toLowerCase();
+  if (STOPWORDS.has(lower)) return false;
+  // Rejeita se todo o nome for uma palavra de mídia/navegação isolada já coberta,
+  // ou se ainda contiver marcadores óbvios de ruído.
+  if (/\b(logo|image|newsletter|cookie|subscribe)\b/i.test(lower)) return false;
   return true;
 };
 
