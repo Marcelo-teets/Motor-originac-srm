@@ -1,6 +1,5 @@
 import { createPlatformRepository } from '../repositories/platformRepository.js';
 import { getSupabaseClient } from '../lib/supabase.js';
-import type { PublicBulkDatasetCode } from '../modules/public-data/publicBulkDatasetConnector.js';
 import { PlatformService } from './platformService.js';
 
 type PublicRecordCompanyRow = {
@@ -10,7 +9,7 @@ type PublicRecordCompanyRow = {
 
 export type PublicDataDownstreamSummary = {
   status: 'real' | 'partial';
-  datasets: PublicBulkDatasetCode[];
+  datasets: string[];
   affectedCompanies: number;
   recomputedCompanies: number;
   qualificationsWritten: number;
@@ -30,7 +29,7 @@ export const uniqueAffectedCompanyIds = (rows: PublicRecordCompanyRow[]) => Arra
 export class PublicDataDownstreamService {
   private readonly client = getSupabaseClient();
 
-  async sync(datasets: PublicBulkDatasetCode[]): Promise<PublicDataDownstreamSummary> {
+  async sync(datasets: string[]): Promise<PublicDataDownstreamSummary> {
     const uniqueDatasets = [...new Set(datasets)];
     const summary: PublicDataDownstreamSummary = {
       status: 'real',
