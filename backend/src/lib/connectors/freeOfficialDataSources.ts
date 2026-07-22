@@ -311,10 +311,10 @@ async function runGitHub(company: CompanySeed): Promise<DirectSourceRun> {
   }
 }
 
-const buildOutput = (company: CompanySeed, run: DirectSourceRun, collectedAt: string): MonitoringOutput => ({
+const buildOutput = (company: CompanySeed, run: DirectSourceRun, collectedAt: string, sourceId: string): MonitoringOutput => ({
   id: crypto.randomUUID(),
   companyId: company.id,
-  sourceId: run.code,
+  sourceId,
   title: run.title,
   summary: run.summary,
   collectedAt,
@@ -330,12 +330,12 @@ const buildOutput = (company: CompanySeed, run: DirectSourceRun, collectedAt: st
   },
 });
 
-const buildSignal = (company: CompanySeed, run: DirectSourceRun, collectedAt: string): CompanySignal | null => {
+const buildSignal = (company: CompanySeed, run: DirectSourceRun, collectedAt: string, sourceId: string): CompanySignal | null => {
   if (!run.signal) return null;
   return {
     id: crypto.randomUUID(),
     companyId: company.id,
-    sourceId: run.code,
+    sourceId,
     signalType: run.signal.type,
     signalStrength: run.signal.strength,
     confidenceScore: run.signal.confidenceScore,
@@ -358,6 +358,7 @@ export async function ingestFreeOfficialCompanySources(
   collectedAt = new Date().toISOString(),
 ) {
   const enabled = enabledSourceCodes(sources);
+  const sourceIdByCode = new Map(sources.map((source) => [sourceCode(source), source.id]));
   const runners: Array<Promise<DirectSourceRun>> = [];
 
   if (enabled.has('src_wayback_company_history')) runners.push(runWayback(company));
@@ -366,11 +367,11 @@ export async function ingestFreeOfficialCompanySources(
 
   const runs = await Promise.all(runners);
   const signals = runs
-    .map((run) => buildSignal(company, run, collectedAt))
+    .map((run) => buildSignal(company, run, collectedAt, sourceIdByCode.get(run.code) ?? run.code))
     .filter((signal): signal is CompanySignal => Boolean(signal));
 
   return {
-    outputs: runs.map((run) => buildOutput(company, run, collectedAt)),
+    outputs: runs.map((run) => buildOutput(company, run, collectedAt, sourceIdByCode.get(run.code) ?? run.code)),
     signals,
     enrichments: [] as never[],
   };
