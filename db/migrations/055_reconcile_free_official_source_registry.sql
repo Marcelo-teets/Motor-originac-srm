@@ -34,13 +34,20 @@ set status = s.status,
 from source_state s
 where sc.metadata->>'code' = s.code;
 
+-- The first activation briefly registered the generic regulatory_event rule for
+-- Receita Federal. Corporate structure change is the canonical, more precise
+-- signal for snapshot comparisons.
+delete from public.source_treatment_rules
+where source_code = 'src_rfb_cnpj_bulk'
+  and signal_type = 'regulatory_event';
+
 insert into public.source_treatment_rules(
   source_code,signal_type,signal_family,strength_floor,confidence_delta,
   structural_score_delta,timing_score_delta,executability_score_delta,
   pattern_tags,treatment_policy
 )
 values
-  ('src_rfb_cnpj_bulk','regulatory_event','corporate_structure',70,0.08,4,4,5,array['governance_signal','timing_trigger'],jsonb_build_object('output','company_signals','risk_disposition','positive')),
+  ('src_rfb_cnpj_bulk','corporate_structure_change','corporate_structure',70,0.08,4,4,5,array['governance_signal','timing_trigger'],jsonb_build_object('output','company_signals','risk_disposition','positive')),
   ('src_pgfn_divida_ativa_bulk','fiscal_stress','risk',82,-0.06,0,4,-8,array['capital_mismatch','risk_signal'],jsonb_build_object('output','company_signals','risk_disposition','caution')),
   ('src_bndes_financing_operations','public_financing_signal','capital_structure',76,0.06,6,4,5,array['capital_structure','funding_gap'],jsonb_build_object('output','company_signals','risk_disposition','positive')),
   ('src_cgu_transparencia_bulk','legal_compliance_risk','risk',84,-0.08,0,4,-10,array['risk_signal'],jsonb_build_object('output','company_signals','risk_disposition','red_flag')),
