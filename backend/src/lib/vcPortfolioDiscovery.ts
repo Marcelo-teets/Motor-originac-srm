@@ -18,6 +18,8 @@ const STOPWORDS = new Set([
   'privacy', 'privacidade', 'terms', 'termos', 'linkedin', 'twitter', 'instagram', 'follow us',
   'logo', 'icon', 'image', 'photo', 'newsletter', 'search', 'busca', 'apply', 'apply now',
   'kaszek', 'monashees', 'canary', 'astella', 'valor capital group', 'valor capital', 'valor',
+  'founders', 'co-founders', 'our founders', 'of us', 'part of us', 'keep in touch',
+  "let's keep in touch", 'summit', 'event', 'events', 'the team', 'our companies',
 ]);
 
 // Nomes de fundos que aparecem como prefixo em alt-text tipo "Kaszek Creditas Logo".
@@ -47,8 +49,8 @@ const cleanCandidate = (value: string) => {
     if (prefix.test(name)) { name = name.replace(prefix, '').trim(); break; }
   }
 
-  // Corta manchetes de captação/rodada, preservando só o nome da empresa.
-  name = name.replace(/\s+(raises|raised|secures|secured|closes|closed|announces|announced|levanta|capta|captou|recebe|recebeu)\b.*/i, '').trim();
+  // Corta manchetes (captação, rodada, lançamento, M&A) preservando só o nome.
+  name = name.replace(/\s+(raises|raised|secures|secured|closes|closed|announces|announced|launches|launched|lança|lançou|acquires|acquired|adquire|buys|bought|levanta|capta|captou|recebe|recebeu)\b.*/i, '').trim();
   // Remove marcadores de série/valor residuais.
   name = name.replace(/\s*[-–|]?\s*(series\s+[a-e]|série\s+[a-e]|\$[\d.,]+\s*[mkb]?|r\$[\d.,]+\s*[mkb]?)\b.*/i, '').trim();
   // Remove sufixos de mídia.
@@ -66,7 +68,7 @@ const isPlausibleCompanyName = (value: string) => {
   if (STOPWORDS.has(lower)) return false;
   // Rejeita se todo o nome for uma palavra de mídia/navegação isolada já coberta,
   // ou se ainda contiver marcadores óbvios de ruído.
-  if (/\b(logo|image|newsletter|cookie|subscribe)\b/i.test(lower)) return false;
+  if (/\b(logo|image|newsletter|cookie|subscribe|regulation|regulação|privacy policy)\b/i.test(lower)) return false;
   return true;
 };
 
