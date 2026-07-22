@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { PublicDataOperationsService } from '../backend/src/services/publicDataOperationsService.js';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
@@ -65,6 +64,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
+    // Vercel bundles this API entrypoint as CommonJS while the backend package is ESM.
+    // Dynamic import preserves that boundary and also keeps the auth gate lightweight.
+    const { PublicDataOperationsService } = await import('../backend/src/services/publicDataOperationsService.js');
     const result = await new PublicDataOperationsService().getSnapshot();
     writeJson(res, result.status === 'real' ? 200 : 207, {
       status: result.status,
