@@ -6,6 +6,40 @@ import type { DiscoveredCandidateRecord, SearchProfileCaptureAdapter, SearchProf
 
 type SupabaseLike = NonNullable<ReturnType<typeof getSupabaseClient>>;
 
+// Mapeia um candidato preparado para a linha do PostgREST. Coage undefined ->
+// null em todos os campos opcionais para que o insert em lote tenha chaves
+// homogêneas (PostgREST PGRST102 "All object keys must match" ocorre quando
+// JSON.stringify omite chaves undefined em parte dos objetos).
+export const discoveredCandidateToRow = (candidate: DiscoveredCandidateRecord) => ({
+  id: candidate.id,
+  search_profile_run_id: candidate.searchProfileRunId ?? null,
+  search_profile_id: candidate.searchProfileId ?? null,
+  company_name: candidate.companyName,
+  legal_name: candidate.legalName ?? null,
+  website: candidate.website ?? null,
+  normalized_domain: candidate.normalizedDomain ?? null,
+  cnpj: candidate.cnpj ?? null,
+  geography: candidate.geography ?? null,
+  segment: candidate.segment ?? null,
+  subsegment: candidate.subsegment ?? null,
+  company_type: candidate.companyType ?? null,
+  credit_product: candidate.creditProduct ?? null,
+  target_structure: candidate.targetStructure ?? null,
+  source_ref: candidate.sourceRef,
+  source_url: candidate.sourceUrl ?? null,
+  evidence_summary: candidate.evidenceSummary ?? null,
+  receivables: candidate.receivables ?? [],
+  confidence: candidate.confidence,
+  candidate_status: candidate.candidateStatus,
+  company_id: candidate.companyId ?? null,
+  dedupe_key: candidate.dedupeKey,
+  raw_payload: candidate.rawPayload ?? {},
+  captured_at: candidate.capturedAt,
+  promoted_at: candidate.promotedAt ?? null,
+  created_at: candidate.createdAt,
+  updated_at: candidate.updatedAt,
+});
+
 const mapCompanySeedToRow = (company: CompanySeed) => ({
   id: company.id,
   legal_name: company.legalName,
@@ -203,35 +237,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       return prepared;
     }
 
-    const rows = await this.client.insert('discovered_company_candidates', prepared.map((candidate) => ({
-      id: candidate.id,
-      search_profile_run_id: candidate.searchProfileRunId,
-      search_profile_id: candidate.searchProfileId,
-      company_name: candidate.companyName,
-      legal_name: candidate.legalName,
-      website: candidate.website,
-      normalized_domain: candidate.normalizedDomain,
-      cnpj: candidate.cnpj,
-      geography: candidate.geography,
-      segment: candidate.segment,
-      subsegment: candidate.subsegment,
-      company_type: candidate.companyType,
-      credit_product: candidate.creditProduct,
-      target_structure: candidate.targetStructure,
-      source_ref: candidate.sourceRef,
-      source_url: candidate.sourceUrl,
-      evidence_summary: candidate.evidenceSummary,
-      receivables: candidate.receivables,
-      confidence: candidate.confidence,
-      candidate_status: candidate.candidateStatus,
-      company_id: candidate.companyId,
-      dedupe_key: candidate.dedupeKey,
-      raw_payload: candidate.rawPayload,
-      captured_at: candidate.capturedAt,
-      promoted_at: candidate.promotedAt,
-      created_at: candidate.createdAt,
-      updated_at: candidate.updatedAt,
-    })));
+    const rows = await this.client.insert('discovered_company_candidates', prepared.map(discoveredCandidateToRow));
 
     return (rows ?? []).map(mapCandidateRow);
   }
