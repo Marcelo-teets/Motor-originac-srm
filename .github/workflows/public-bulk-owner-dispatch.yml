@@ -1,0 +1,58 @@
+name: Public Bulk Owner Dispatch
+
+on:
+  issues:
+    types:
+      - opened
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: public-bulk-owner-dispatch
+  cancel-in-progress: false
+
+jobs:
+  ceis-cnep-canary:
+    if: >-
+      github.event.issue.user.login == 'Marcelo-teets' &&
+      github.event.issue.title == '[public-bulk-run] ceis-cnep-canary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate production ingestion secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Execute CEIS and CNEP production canary
+        working-directory: backend
+        run: |
+          npx tsx src/cli/publicBulkData.ts \
+            --dataset cgu_ceis,cgu_cnep \
+            --max-matched-rows 100000 \
+            --max-resources 2 \
+            --trigger manual \
+            --full-coverage \
+            --require-scan
+      - name: Report execution result
+        if: always()
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Public bulk CEIS/CNEP canary finished with workflow status: **${{ job.status }}**. Operational details are persisted in \`public_dataset_runs\` and \`public_dataset_resource_checkpoints\`."
