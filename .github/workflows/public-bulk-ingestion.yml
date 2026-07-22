@@ -1,6 +1,14 @@
 name: Public Bulk Data Ingestion
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/public-bulk-ingestion.yml
+      - backend/src/cli/publicBulkData.ts
+      - backend/src/modules/public-data/**
+      - backend/src/services/publicBulkIngestionService.ts
+      - db/migrations/057_public_bulk_ingestion.sql
+      - db/migrations/058_public_bulk_signal_sync.sql
   push:
     branches:
       - main
@@ -10,6 +18,7 @@ on:
       - backend/src/modules/public-data/**
       - backend/src/services/publicBulkIngestionService.ts
       - db/migrations/057_public_bulk_ingestion.sql
+      - db/migrations/058_public_bulk_signal_sync.sql
   schedule:
     # Sanções oficiais: captura diária após atualização do Portal.
     - cron: "35 10 * * *"
@@ -57,7 +66,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: public-bulk-ingestion-${{ github.event.schedule || inputs.dataset || 'validation' }}
+  group: public-bulk-ingestion-${{ github.event.schedule || inputs.dataset || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -80,7 +89,7 @@ jobs:
         run: npm -C backend exec -- tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts
 
   ingest:
-    if: github.event_name != 'push'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 360
