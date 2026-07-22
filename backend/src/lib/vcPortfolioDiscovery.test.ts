@@ -49,6 +49,22 @@ test('extractPortfolioCompanyNames recovers clean names from real production noi
   assert.ok(!names.some((n) => /logo|image without alt|get in touch|^people$/i.test(n)), `noise leaked: ${names.join(', ')}`);
 });
 
+test('extractPortfolioCompanyNames drops residual nav/heading noise seen on live pages', () => {
+  const html = `
+    <h3>Inner AI launches Squad.com</h3>
+    <a>let's keep in touch</a>
+    <a>of us</a>
+    <a>founders</a>
+    <h3>SUMMIT</h3>
+    <h3>CVM Regulation</h3>
+    <img alt="Creditas Logo" />
+  `;
+  const names = extractPortfolioCompanyNames(html);
+  assert.ok(names.includes('Inner AI'), `expected 'Inner AI', got ${names.join(', ')}`);
+  assert.ok(names.includes('Creditas'));
+  assert.ok(!names.some((n) => /keep in touch|^of us$|^founders$|^summit$|regulation/i.test(n)), `noise leaked: ${names.join(', ')}`);
+});
+
 test('discoverVcPortfolioCompanies builds review-ready hits from portfolio pages', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(portfolioHtml, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
