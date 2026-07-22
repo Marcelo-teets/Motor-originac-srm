@@ -1,0 +1,197 @@
+name: Public Bulk Data Ingestion
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/public-bulk-ingestion.yml
+      - backend/src/cli/publicBulkData.ts
+      - backend/src/modules/public-data/**
+      - backend/src/services/publicBulkIngestionService.ts
+      - db/migrations/057_public_bulk_ingestion.sql
+      - db/migrations/058_public_bulk_signal_sync.sql
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/public-bulk-ingestion.yml
+      - backend/src/cli/publicBulkData.ts
+      - backend/src/modules/public-data/**
+      - backend/src/services/publicBulkIngestionService.ts
+      - db/migrations/057_public_bulk_ingestion.sql
+      - db/migrations/058_public_bulk_signal_sync.sql
+  schedule:
+    # Sanções oficiais: captura diária após atualização do Portal.
+    - cron: "35 10 * * *"
+    # BNDES e contratos públicos: captura semanal aos domingos.
+    - cron: "20 11 * * 0"
+    # PGFN: checagem mensal; checkpoint evita reprocessar o mesmo trimestre.
+    - cron: "50 11 5 * *"
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Fonte pública ou all-light
+        required: true
+        default: cgu_ceis,cgu_cnep
+        type: choice
+        options:
+          - all-light
+          - bndes_financing_operations
+          - pgfn_debt
+          - cgu_ceis
+          - cgu_cnep
+          - cgu_ceis,cgu_cnep
+          - compras_contracts
+          - rfb_cnpj
+      reference:
+        description: Competência opcional (YYYY-MM, YYYYMM ou YYYYMMDD)
+        required: false
+        type: string
+      max_matched_rows:
+        description: Máximo de registros aderentes ao Company Master
+        required: true
+        default: "100000"
+        type: string
+      max_resources:
+        description: Máximo de arquivos oficiais no ciclo
+        required: true
+        default: "20"
+        type: string
+      full_coverage:
+        description: Marcar cobertura completa somente quando todos os recursos da competência forem processados
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-bulk-ingestion-${{ github.event.schedule || inputs.dataset || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Test public bulk connector
+        shell: bash
+        working-directory: backend
+        run: |
+          set +e
+          npx tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts > public-bulk-test.log 2>&1
+          STATUS=$?
+          cat public-bulk-test.log
+          exit $STATUS
+      - name: Upload public bulk test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-bulk-test-report
+          path: backend/public-bulk-test.log
+          if-no-files-found: error
+          retention-days: 7
+
+  ingest:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
+      REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '' }}
+      REQUESTED_MAX_RESOURCES: ${{ inputs.max_resources || '' }}
+      REQUESTED_FULL_COVERAGE: ${{ inputs.full_coverage || false }}
+      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate ingestion secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Resolve ingestion scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            DATASET="${REQUESTED_DATASET:-cgu_ceis,cgu_cnep}"
+            [ "$DATASET" = "all-light" ] && DATASET="bndes_financing_operations,cgu_ceis,cgu_cnep,compras_contracts"
+            REFERENCE="$REQUESTED_REFERENCE"
+            MAX_MATCHED_ROWS="${REQUESTED_MAX_MATCHED_ROWS:-100000}"
+            MAX_RESOURCES="${REQUESTED_MAX_RESOURCES:-20}"
+            TRIGGER="manual"
+            FULL_COVERAGE="$REQUESTED_FULL_COVERAGE"
+          elif [ "$SCHEDULE_EXPRESSION" = "35 10 * * *" ]; then
+            DATASET="cgu_ceis,cgu_cnep"
+            REFERENCE=""
+            MAX_MATCHED_ROWS="100000"
+            MAX_RESOURCES="2"
+            TRIGGER="schedule"
+            FULL_COVERAGE="true"
+          elif [ "$SCHEDULE_EXPRESSION" = "20 11 * * 0" ]; then
+            DATASET="bndes_financing_operations,compras_contracts"
+            REFERENCE=""
+            MAX_MATCHED_ROWS="100000"
+            MAX_RESOURCES="20"
+            TRIGGER="schedule"
+            FULL_COVERAGE="true"
+          else
+            DATASET="pgfn_debt"
+            REFERENCE=""
+            MAX_MATCHED_ROWS="100000"
+            MAX_RESOURCES="6"
+            TRIGGER="schedule"
+            FULL_COVERAGE="true"
+          fi
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "max_matched_rows=$MAX_MATCHED_ROWS" >> "$GITHUB_OUTPUT"
+          echo "max_resources=$MAX_RESOURCES" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+          echo "full_coverage=$FULL_COVERAGE" >> "$GITHUB_OUTPUT"
+      - name: Run targeted official-data ingestion
+        working-directory: backend
+        run: |
+          ARGS=(
+            --dataset "${{ steps.scope.outputs.dataset }}"
+            --max-matched-rows "${{ steps.scope.outputs.max_matched_rows }}"
+            --max-resources "${{ steps.scope.outputs.max_resources }}"
+            --trigger "${{ steps.scope.outputs.trigger }}"
+            --require-scan
+          )
+          if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
+          if [ "${{ steps.scope.outputs.full_coverage }}" = "true" ]; then ARGS+=(--full-coverage); fi
+          npx tsx src/cli/publicBulkData.ts "${ARGS[@]}"
+
+  rfb-heavy-guidance:
+    if: github.event_name == 'workflow_dispatch' && inputs.dataset == 'rfb_cnpj'
+    needs: ingest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain RFB partitioning
+        run: |
+          echo "RFB is processed one monthly partition at a time."
+          echo "Use reference=YYYY-MM and max_resources aligned to the runner time/disk budget."
+          echo "The loader persists only Company Master CNPJs and remains partial until every Empresas/Estabelecimentos partition is checkpointed."
