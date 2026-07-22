@@ -54,9 +54,26 @@ test('runner executes active profiles and ignores paused ones', async () => {
   });
 
   assert.deepEqual(captured, ['sp_1']);
+  assert.equal(summary.totalProfiles, 2);
   assert.equal(summary.activeProfiles, 1);
+  assert.equal(summary.inactiveProfiles, 1);
   assert.equal(summary.executed, 1);
   assert.equal(summary.results[0]!.candidatesInserted, 4);
+});
+
+test('runner surfaces a diagnostic note when profiles exist but none are active', async () => {
+  const summary = await runScheduledSearchProfiles({
+    listSearchProfiles: async () => [profile('sp_1', 'paused')],
+    listRuns: async () => [],
+    runCapture: async () => {
+      throw new Error('must not run');
+    },
+  });
+
+  assert.equal(summary.totalProfiles, 1);
+  assert.equal(summary.activeProfiles, 0);
+  assert.equal(summary.inactiveProfiles, 1);
+  assert.match(summary.note ?? '', /nenhum com status 'active'/);
 });
 
 test('runner skips profiles with a recent completed run (idempotência de cadência)', async () => {

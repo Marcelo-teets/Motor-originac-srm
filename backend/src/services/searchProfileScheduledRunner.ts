@@ -34,10 +34,15 @@ export type ScheduledProfileResult = {
 
 export type ScheduledRunnerSummary = {
   triggeredAt: string;
+  // Diagnóstico de funil (P1): totalProfiles distingue "não há perfis" de
+  // "perfis existem mas nenhum está ativo" — sem isso, activeProfiles=0 é opaco.
+  totalProfiles: number;
   activeProfiles: number;
+  inactiveProfiles: number;
   executed: number;
   skipped: number;
   failed: number;
+  note?: string;
   results: ScheduledProfileResult[];
 };
 
@@ -62,7 +67,8 @@ export async function runScheduledSearchProfiles(
   const now = clock();
   const startedAtMs = now.getTime();
 
-  const profiles = (await deps.listSearchProfiles()).filter((profile) => profile.status === 'active');
+  const allProfiles = await deps.listSearchProfiles();
+  const profiles = allProfiles.filter((profile) => profile.status === 'active');
   const results: ScheduledProfileResult[] = [];
 
   // Sequencial de propósito: evita tempestade de fetches paralelos por perfil
@@ -128,12 +134,22 @@ export async function runScheduledSearchProfiles(
     }
   }
 
+  const inactiveProfiles = allProfiles.length - profiles.length;
+  const note = allProfiles.length === 0
+    ? 'Nenhum search profile cadastrado.'
+    : profiles.length === 0
+      ? `${allProfiles.length} profile(s) cadastrado(s), mas nenhum com status 'active' — ative um profile para popular o Capture Inbox.`
+      : undefined;
+
   return {
     triggeredAt: now.toISOString(),
+    totalProfiles: allProfiles.length,
     activeProfiles: profiles.length,
+    inactiveProfiles,
     executed: results.filter((item) => item.action === 'executed').length,
     skipped: results.filter((item) => item.action.startsWith('skipped') || item.action === 'deferred_time_budget').length,
     failed: results.filter((item) => item.action === 'failed').length,
+    ...(note ? { note } : {}),
     results,
   };
 }
