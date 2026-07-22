@@ -166,6 +166,20 @@ const redactQsaRow = (row: Record<string, string>) => ({
 export const classifyCvmFreEntry = (entryName: string) => CVM_FRE_ENTRY_TYPES
   .find(({ pattern }) => pattern.test(entryName))?.recordType ?? null;
 
+export const isStrategicArchiveEntry = (
+  datasetCode: StrategicPublicDatasetCode,
+  entryName: string,
+  archiveEntryPattern?: string,
+) => {
+  if (entryName.endsWith('/')) return false;
+  const pattern = archiveEntryPattern ? new RegExp(archiveEntryPattern, 'i') : null;
+  if (datasetCode === 'rfb_qsa') {
+    return /(Socios|SOCIOCSV|SOCIO)/i.test(entryName) && (!pattern || pattern.test(entryName));
+  }
+  if (!/\.(csv|txt)$/i.test(entryName)) return false;
+  return Boolean(classifyCvmFreEntry(entryName)) && (!pattern || pattern.test(entryName));
+};
+
 export async function discoverStrategicPublicResources(
   datasetCode: StrategicPublicDatasetCode,
   options: { reference?: string; maxResources?: number } = {},
@@ -461,14 +475,11 @@ export async function streamStrategicPublicResource(input: {
     const allEntries = (await commandOutput('unzip', ['-Z1', archive]))
       .split(/\r?\n/)
       .filter(Boolean);
-    const pattern = input.resource.archiveEntryPattern
-      ? new RegExp(input.resource.archiveEntryPattern, 'i')
-      : null;
-    const entries = allEntries.filter((entry) => {
-      if (!/\.(csv|txt)$/i.test(entry)) return false;
-      if (input.datasetCode === 'rfb_qsa') return /(Socios|SOCIOCSV|SOCIO)/i.test(entry);
-      return Boolean(classifyCvmFreEntry(entry)) && (!pattern || pattern.test(entry));
-    });
+    const entries = allEntries.filter((entry) => isStrategicArchiveEntry(
+      input.datasetCode,
+      entry,
+      input.resource.archiveEntryPattern,
+    ));
     if (!entries.length) throw new Error(`Archive contains no compatible strategic entries: ${input.resource.name}`);
 
     for (const entry of entries) {
