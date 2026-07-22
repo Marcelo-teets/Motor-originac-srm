@@ -118,8 +118,17 @@ Validar carteira, aging, concentração, inadimplência e estrutura atual de fun
 - [x] busca e filtros;
 - [x] editor Markdown;
 - [x] preview, conexões e grafo;
-- [ ] merge e deploy da PR;
-- [ ] smoke test no domínio de produção após o deploy.
+- [x] PR #200 revisada pelo CI e integrada à `main`;
+- [x] preview Vercel em estado `READY`, carregando `/knowledge-vault` e o bundle da funcionalidade;
+- [ ] smoke test autenticado no domínio canônico após o deployment de produção.
+
+## Evidências do rollout
+
+- merge principal: `1964e9d4a9566cb1869502302d97d1dfede93a55`;
+- CI: typecheck e build de frontend e backend concluídos com sucesso;
+- Supabase: teste transacional com rollback validou criação, versionamento, WikiLink e backlink;
+- Vercel preview: deployment final da branch em estado `READY`;
+- produção: novo evento de deployment solicitado por esta atualização de rollout.
 
 ## Regra de produto
 
