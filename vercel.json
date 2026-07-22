@@ -17,6 +17,10 @@
     "api/capital-market-health.ts": {
       "maxDuration": 15,
       "memory": 512
+    },
+    "api/public-data-operations.ts": {
+      "maxDuration": 15,
+      "memory": 512
     }
   },
   "crons": [
@@ -33,6 +37,10 @@
     {
       "source": "/api/capital-markets/health",
       "destination": "/api/capital-market-health"
+    },
+    {
+      "source": "/api/sources/public-operations",
+      "destination": "/api/public-data-operations"
     },
     {
       "source": "/api/:path*",
