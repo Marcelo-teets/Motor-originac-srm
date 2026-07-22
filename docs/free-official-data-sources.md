@@ -19,8 +19,8 @@ Expandir a Origination Intelligence Platform com fontes gratuitas, rastreáveis 
 
 | Código | Fonte | Saída |
 |---|---|---|
-| `src_wayback_company_history` | Wayback CDX | `monitoring_outputs` + `product_expansion_signal` |
-| `src_common_crawl_company_history` | Common Crawl Index | `monitoring_outputs` + `product_expansion_signal` |
+| `src_wayback_company_history` | Wayback CDX | `monitoring_outputs` para comparação histórica |
+| `src_common_crawl_company_history` | Common Crawl Index | `monitoring_outputs` para comparação histórica |
 | `src_github_public_api` | GitHub REST pública | `monitoring_outputs` + `technical_product_signal` |
 
 Os conectores leves:
@@ -110,7 +110,7 @@ Exigem validação de identidade, papel da parte, materialidade e status. DataJu
 
 ### Wayback e Common Crawl
 
-A existência de snapshots é apenas um gatilho para comparação. Quantidade de capturas não prova expansão.
+A existência de snapshots é apenas um gatilho para comparação. Quantidade de capturas não prova expansão e, por isso, esses conectores não geram sinal de score sem um diff real de conteúdo.
 
 ### ComexStat
 
