@@ -42,10 +42,13 @@ Fonte oficial
 
 ## CLI
 
+Os comandos abaixo partem da raiz do monorepo e entram explicitamente no backend.
+
 Descobrir recursos sem baixar:
 
 ```bash
-npm -C backend exec -- tsx src/cli/publicBulkData.ts \
+cd backend
+npx tsx src/cli/publicBulkData.ts \
   --dataset bndes_financing_operations \
   --discover-only
 ```
@@ -53,7 +56,8 @@ npm -C backend exec -- tsx src/cli/publicBulkData.ts \
 Executar BNDES:
 
 ```bash
-npm -C backend exec -- tsx src/cli/publicBulkData.ts \
+cd backend
+npx tsx src/cli/publicBulkData.ts \
   --dataset bndes_financing_operations \
   --max-matched-rows 100000 \
   --max-resources 20 \
@@ -65,7 +69,8 @@ npm -C backend exec -- tsx src/cli/publicBulkData.ts \
 Executar Receita por competência e partição controlada:
 
 ```bash
-npm -C backend exec -- tsx src/cli/publicBulkData.ts \
+cd backend
+npx tsx src/cli/publicBulkData.ts \
   --dataset rfb_cnpj \
   --reference 2026-01 \
   --max-resources 4 \
@@ -98,7 +103,7 @@ Cadências:
 - CEIS/CNEP: diária;
 - BNDES e contratos: semanal;
 - PGFN: mensal, com checkpoint evitando repetição;
-- Receita: manual por competência, por ser uma base de aproximadamente dezenas de gigabytes.
+- Receita: manual por competência, por ser uma base nacional muito volumosa.
 
 Secrets já utilizados pelo projeto:
 
@@ -111,7 +116,8 @@ SUPABASE_SERVICE_ROLE_KEY
 
 ```bash
 npm -C backend run typecheck
-npm -C backend exec -- tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts
+cd backend
+npx tsx --test src/modules/public-data/publicBulkDatasetConnector.test.ts
 ```
 
 SQL operacional:
