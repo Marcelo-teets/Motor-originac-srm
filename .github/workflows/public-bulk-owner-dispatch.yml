@@ -37,22 +37,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Validate production ingestion secrets
+        id: secrets
+        continue-on-error: true
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
       - name: Execute CEIS and CNEP production canary
+        id: ingestion
+        if: steps.secrets.outcome == 'success'
+        continue-on-error: true
         working-directory: backend
         run: |
+          set +e
           npx tsx src/cli/publicBulkData.ts \
             --dataset cgu_ceis,cgu_cnep \
             --max-matched-rows 100000 \
             --max-resources 2 \
             --trigger manual \
             --full-coverage \
-            --require-scan
+            --require-scan > public-bulk-canary.log 2>&1
+          STATUS=$?
+          cat public-bulk-canary.log
+          exit $STATUS
       - name: Report execution result
         if: always()
+        shell: bash
         run: |
-          gh issue comment "${{ github.event.issue.number }}" \
-            --repo "${{ github.repository }}" \
-            --body "Public bulk CEIS/CNEP canary finished with workflow status: **${{ job.status }}**. Operational details are persisted in \`public_dataset_runs\` and \`public_dataset_resource_checkpoints\`."
+          SECRET_OUTCOME="${{ steps.secrets.outcome }}"
+          INGESTION_OUTCOME="${{ steps.ingestion.outcome }}"
+          LOG_TAIL="No ingestion log was created."
+          if [ -f backend/public-bulk-canary.log ]; then
+            LOG_TAIL=$(tail -n 35 backend/public-bulk-canary.log | sed 's/`/\`/g')
+          fi
+          BODY=$(cat <<EOF
+          Public bulk CEIS/CNEP canary diagnostics:
+
+          - secret check: **${SECRET_OUTCOME}**
+          - ingestion: **${INGESTION_OUTCOME}**
+
+          Sanitized log tail:
+
+          \`\`\`text
+          ${LOG_TAIL}
+          \`\`\`
+
+          Operational details, when initialization succeeds, are persisted in \`public_dataset_runs\` and \`public_dataset_resource_checkpoints\`.
+          EOF
+          )
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$BODY"
+      - name: Enforce successful canary
+        if: always()
+        run: |
+          test "${{ steps.secrets.outcome }}" = "success"
+          test "${{ steps.ingestion.outcome }}" = "success"
