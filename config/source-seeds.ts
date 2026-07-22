@@ -11,5 +11,25 @@ export const sourceSeeds = [
   { name: 'CVM FII Informes Mensais', type: 'dataset_api', category: 'Regulatório', status: 'real' },
   { name: 'Empresa Website Monitor', type: 'sitemap', category: 'Website monitoring', status: 'partial' },
   { name: 'LinkedIn Hiring Signals', type: 'scraper', category: 'Digital signals', status: 'mock' },
-  { name: 'Banco Central Registrations', type: 'api', category: 'Regulatório', status: 'planned' }
+  { name: 'Banco Central Registrations', type: 'api', category: 'Regulatório', status: 'planned' },
+
+  // Free official sources. Bulk datasets are marked partial until their
+  // streaming loaders persist normalized rows; lightweight APIs run directly.
+  { name: 'RFB CNPJ Bulk', type: 'bulk_zip', category: 'Cadastral', status: 'partial' },
+  { name: 'PGFN Divida Ativa Bulk', type: 'bulk_csv', category: 'Risco fiscal', status: 'partial' },
+  { name: 'BNDES Financing Operations', type: 'ckan_csv', category: 'Estrutura de capital', status: 'partial' },
+  { name: 'CGU Transparencia Bulk', type: 'bulk_csv', category: 'Compliance e setor público', status: 'partial' },
+  { name: 'Compras Gov Contracts', type: 'api_csv', category: 'Recebíveis públicos', status: 'partial' },
+  { name: 'Consumidor Gov Open Data', type: 'bulk_csv', category: 'Qualidade de demanda', status: 'partial' },
+  { name: 'INLABS DOU XML', type: 'xml', category: 'Regulatório', status: 'partial' },
+  { name: 'INPI IP Open Data', type: 'bulk_zip', category: 'Produto e inovação', status: 'partial' },
+  { name: 'BCB IFData', type: 'dataset_api', category: 'Instituições reguladas', status: 'partial' },
+  { name: 'BCB Complaints Ranking', type: 'dataset_api', category: 'Qualidade de demanda', status: 'partial' },
+  { name: 'GitHub Public API', type: 'api', category: 'Digital signals', status: 'real' },
+  { name: 'BCB Pix Participants', type: 'dataset_http', category: 'Embedded finance', status: 'partial' },
+  { name: 'Transferegov Public API', type: 'api', category: 'Recebíveis públicos', status: 'partial' },
+  { name: 'Wayback Company History', type: 'api', category: 'Website monitoring', status: 'real' },
+  { name: 'Common Crawl Company History', type: 'api', category: 'Website monitoring', status: 'real' },
+  { name: 'DataJud Public API', type: 'api', category: 'Risco judicial', status: 'partial' },
+  { name: 'ComexStat Open Data', type: 'bulk_csv', category: 'Recebíveis internacionais', status: 'partial' },
 ];
