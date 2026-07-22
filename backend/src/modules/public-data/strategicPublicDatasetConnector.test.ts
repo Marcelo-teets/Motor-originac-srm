@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   classifyCvmFreEntry,
+  isStrategicArchiveEntry,
   normalizeStrategicPublicRow,
 } from './strategicPublicDatasetConnector.js';
 import type { PublicBulkResource } from './publicBulkDatasetConnector.js';
@@ -68,6 +69,15 @@ test('RFB QSA ignores companies outside the monitored Company Master roots', () 
     },
   });
   assert.equal(record, null);
+});
+
+test('RFB QSA accepts official SOCIOCSV archive entries without a file extension', () => {
+  assert.equal(
+    isStrategicArchiveEntry('rfb_qsa', 'K3241.K03200Y0.D60713.SOCIOCSV', '(Socios|SOCIOCSV|SOCIO)'),
+    true,
+  );
+  assert.equal(isStrategicArchiveEntry('rfb_qsa', 'Paises.csv'), false);
+  assert.equal(isStrategicArchiveEntry('rfb_qsa', 'directory/'), false);
 });
 
 test('CVM FRE entry classification accepts only capital-structure sections used by origination', () => {
