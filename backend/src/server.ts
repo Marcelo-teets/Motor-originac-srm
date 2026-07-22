@@ -128,6 +128,36 @@ app.get('/search-profile-runs', wrap(async (req, res) => {
     createdAt: row.createdAt ?? row.created_at,
   }))));
 }));
+app.get('/search-profiles/discovery-health', wrap(async (_req, res) => {
+  const { buildDiscoveryHealth } = await import('./services/discoveryHealth.js');
+  const [profiles, runRows, candidateRows] = await Promise.all([
+    service.listSearchProfiles(),
+    searchCaptureRuntime.listRuns(),
+    searchCaptureRuntime.listCandidates(),
+  ]);
+  // Normaliza runs/candidatos: memória devolve camelCase, Supabase snake_case.
+  const runs = (runRows as any[]).map((row) => ({
+    id: row.id,
+    searchProfileId: row.searchProfileId ?? row.search_profile_id,
+    runStatus: row.runStatus ?? row.run_status,
+    triggerMode: row.triggerMode ?? row.trigger_mode,
+    sourceCount: Number(row.sourceCount ?? row.source_count ?? 0),
+    candidatesFound: Number(row.candidatesFound ?? row.candidates_found ?? 0),
+    candidatesInserted: Number(row.candidatesInserted ?? row.candidates_inserted ?? 0),
+    candidatesPromoted: Number(row.candidatesPromoted ?? row.candidates_promoted ?? 0),
+    metadata: row.metadata ?? {},
+    startedAt: row.startedAt ?? row.started_at,
+    finishedAt: row.finishedAt ?? row.finished_at,
+    createdAt: row.createdAt ?? row.created_at,
+    updatedAt: row.updatedAt ?? row.updated_at,
+  }));
+  const candidates = (candidateRows as any[]).map((row) => ({
+    ...row,
+    candidateStatus: row.candidateStatus ?? row.candidate_status,
+    sourceRef: row.sourceRef ?? row.source_ref,
+  }));
+  res.json(ok(platformMode, buildDiscoveryHealth(profiles, runs as any, candidates as any)));
+}));
 app.get('/discovered-candidates', wrap(async (req, res) => {
   const profileId = req.query?.searchProfileId ? String(req.query.searchProfileId) : undefined;
   const rows = await searchCaptureRuntime.listCandidates(profileId);
