@@ -7,6 +7,10 @@ import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
+  extractZipArchiveEntry,
+  listZipArchiveEntries,
+} from '../../lib/zipArchive.js';
+import {
   digits,
   parseDelimitedText,
   type PublicBulkResource,
@@ -407,6 +411,10 @@ async function* decodeNode(stream: NodeJS.ReadableStream, encoding: string) {
   if (tail) yield tail;
 }
 
+async function* decodeBuffer(buffer: Buffer, encoding: string) {
+  yield new TextDecoder(encoding).decode(buffer);
+}
+
 const commandOutput = (command: string, args: string[]) => new Promise<string>((resolve, reject) => {
   const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
@@ -452,6 +460,36 @@ async function consumeRows(input: {
   }
 }
 
+async function streamCvmFreInMemory(input: {
+  datasetCode: StrategicPublicDatasetCode;
+  resource: PublicBulkResource;
+  targetCnpjs: Set<string>;
+  targetRoots: Set<string>;
+  maxMatchedRows: number;
+  onRecord: (record: StrategicPublicRecord) => Promise<void>;
+}, response: Response, stats: StrategicPublicStreamStats) {
+  const archive = Buffer.from(await response.arrayBuffer());
+  const entries = listZipArchiveEntries(archive, {
+    maxEntries: 500,
+    maxEntryBytes: 64 * 1024 * 1024,
+    maxTotalUncompressedBytes: 256 * 1024 * 1024,
+  }).filter((entry) => isStrategicArchiveEntry(
+    input.datasetCode,
+    entry.name,
+    input.resource.archiveEntryPattern,
+  ));
+  if (!entries.length) throw new Error(`Archive contains no compatible strategic entries: ${input.resource.name}`);
+
+  for (const entry of entries) {
+    if (stats.recordsMatched >= input.maxMatchedRows) break;
+    const extracted = extractZipArchiveEntry(archive, entry);
+    const rows = parseDelimitedText(decodeBuffer(extracted, input.resource.encoding), input.resource.delimiter);
+    await consumeRows({ ...input, entryName: entry.name, rows, stats });
+    stats.archiveEntries += 1;
+  }
+  return stats;
+}
+
 export async function streamStrategicPublicResource(input: {
   datasetCode: StrategicPublicDatasetCode;
   resource: PublicBulkResource;
@@ -466,6 +504,10 @@ export async function streamStrategicPublicResource(input: {
     headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' },
   });
   if (!response.ok) throw new Error(`Download failed: ${response.status} ${input.resource.url}`);
+
+  if (input.datasetCode === 'cvm_fre_capital_structure') {
+    return streamCvmFreInMemory(input, response, stats);
+  }
   if (!response.body) throw new Error(`Archive response did not include a body: ${input.resource.url}`);
 
   const directory = await mkdtemp(join(tmpdir(), 'origination-strategic-data-'));

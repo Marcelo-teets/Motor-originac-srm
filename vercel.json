@@ -21,12 +21,20 @@
     "api/public-data-operations.ts": {
       "maxDuration": 15,
       "memory": 512
+    },
+    "api/strategic-public-data-run.ts": {
+      "maxDuration": 300,
+      "memory": 2048
     }
   },
   "crons": [
     {
       "path": "/api/data-capture/cron/run",
       "schedule": "30 10 * * *"
+    },
+    {
+      "path": "/api/strategic-public-data-run",
+      "schedule": "15 9 * * 1"
     }
   ],
   "rewrites": [
@@ -41,6 +49,10 @@
     {
       "source": "/api/sources/public-operations",
       "destination": "/api/public-data-operations"
+    },
+    {
+      "source": "/api/sources/strategic-run",
+      "destination": "/api/strategic-public-data-run"
     },
     {
       "source": "/api/:path*",

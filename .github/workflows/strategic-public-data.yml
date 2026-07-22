@@ -4,39 +4,30 @@ on:
   pull_request:
     paths:
       - .github/workflows/strategic-public-data.yml
+      - api/strategic-public-data-run.ts
+      - vercel.json
       - backend/src/cli/strategicPublicData.ts
+      - backend/src/cli/probeStrategicPublicData.ts
+      - backend/src/lib/zipArchive.ts
+      - backend/src/lib/zipArchive.test.ts
       - backend/src/modules/public-data/strategicPublicDatasetConnector.ts
       - backend/src/modules/public-data/strategicPublicDatasetConnector.test.ts
       - backend/src/services/strategicPublicIngestionService.ts
       - backend/src/services/publicDataDownstreamService.ts
-      - db/migrations/065_strategic_source_governance.sql
-      - db/migrations/066_origination_factor_map_schema.sql
-      - db/migrations/067_strategic_record_signal_sync.sql
-      - db/migrations/068_factor_map_runtime.sql
-      - db/migrations/069_factor_qualification_integration.sql
-      - db/migrations/070_factor_pattern_integration.sql
-      - db/migrations/071_factor_lead_pipeline_integration.sql
-      - db/migrations/072_factor_outcome_map.sql
-      - db/migrations/073_factor_map_backfill.sql
-      - db/migrations/074_factor_map_dedup_calibration.sql
-      - db/migrations/075_factor_map_security_hardening.sql
-      - db/migrations/076_factor_map_foreign_key_indexes.sql
   schedule:
-    # CVM FRE: semanal, segunda-feira após a janela usual de atualização.
-    - cron: "15 09 * * 1"
-    # Receita QSA: mensal; checkpoint evita reprocessar a mesma competência.
+    # Receita QSA: mensal e particionada. CVM FRE roda na Vercel.
     - cron: "40 09 8 * *"
   workflow_dispatch:
     inputs:
       dataset:
         description: Fonte estratégica
         required: true
-        default: all
+        default: rfb_qsa
         type: choice
         options:
-          - all
-          - cvm_fre_capital_structure
           - rfb_qsa
+          - cvm_fre_capital_structure
+          - all
       reference:
         description: Competência opcional (YYYY ou YYYY-MM)
         required: false
@@ -80,9 +71,12 @@ jobs:
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Test strategic public connector
+      - name: Test bounded ZIP reader and strategic connector
         working-directory: backend
-        run: npx tsx --test src/modules/public-data/strategicPublicDatasetConnector.test.ts
+        run: npx tsx --test src/lib/zipArchive.test.ts src/modules/public-data/strategicPublicDatasetConnector.test.ts
+      - name: Probe official CVM FRE archive without persistence
+        working-directory: backend
+        run: npx tsx src/cli/probeStrategicPublicData.ts --reference 2026
 
   ingest:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -97,7 +91,6 @@ jobs:
       REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '' }}
       REQUESTED_MAX_RESOURCES: ${{ inputs.max_resources || '' }}
       REQUESTED_FULL_COVERAGE: ${{ inputs.full_coverage || false }}
-      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,26 +101,34 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Validate ingestion secrets
+      - name: Inspect ingestion credential readiness
+        id: credentials
+        shell: bash
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Supabase ingestion credentials are configured."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=QSA ingestion blocked::Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as GitHub Actions secrets. The source remains visible as waiting/degraded in the Sources control plane."
+            {
+              echo "## QSA ingestion not executed"
+              echo ""
+              echo "Required GitHub Actions secrets are missing: SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY."
+              echo "The workflow is healthy, but the heavy monthly loader is intentionally blocked until the credentials are configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Resolve ingestion scope
+        if: steps.credentials.outputs.configured == 'true'
         id: scope
         shell: bash
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            DATASET="${REQUESTED_DATASET:-all}"
+            DATASET="${REQUESTED_DATASET:-rfb_qsa}"
             REFERENCE="$REQUESTED_REFERENCE"
             MAX_MATCHED_ROWS="${REQUESTED_MAX_MATCHED_ROWS:-100000}"
             MAX_RESOURCES="${REQUESTED_MAX_RESOURCES:-20}"
             FULL_COVERAGE="$REQUESTED_FULL_COVERAGE"
-          elif [ "$SCHEDULE_EXPRESSION" = "15 09 * * 1" ]; then
-            DATASET="cvm_fre_capital_structure"
-            REFERENCE=""
-            MAX_MATCHED_ROWS="100000"
-            MAX_RESOURCES="2"
-            FULL_COVERAGE="true"
           else
             DATASET="rfb_qsa"
             REFERENCE=""
@@ -141,6 +142,7 @@ jobs:
           echo "max_resources=$MAX_RESOURCES" >> "$GITHUB_OUTPUT"
           echo "full_coverage=$FULL_COVERAGE" >> "$GITHUB_OUTPUT"
       - name: Run strategic official-data ingestion
+        if: steps.credentials.outputs.configured == 'true'
         working-directory: backend
         shell: bash
         run: |
