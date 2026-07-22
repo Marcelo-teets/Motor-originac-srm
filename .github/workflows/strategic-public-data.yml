@@ -7,6 +7,7 @@ on:
       - api/strategic-public-data-run.ts
       - vercel.json
       - backend/src/cli/strategicPublicData.ts
+      - backend/src/cli/probeStrategicPublicData.ts
       - backend/src/lib/zipArchive.ts
       - backend/src/lib/zipArchive.test.ts
       - backend/src/modules/public-data/strategicPublicDatasetConnector.ts
@@ -73,6 +74,9 @@ jobs:
       - name: Test bounded ZIP reader and strategic connector
         working-directory: backend
         run: npx tsx --test src/lib/zipArchive.test.ts src/modules/public-data/strategicPublicDatasetConnector.test.ts
+      - name: Probe official CVM FRE archive without persistence
+        working-directory: backend
+        run: npx tsx src/cli/probeStrategicPublicData.ts --reference 2026
 
   ingest:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
