@@ -112,10 +112,6 @@ async function runWayback(company: CompanySeed): Promise<DirectSourceRun> {
       digest: String(row[2] ?? ''),
       statusCode: String(row[3] ?? ''),
     }));
-    const latest = snapshots[0];
-    const evidenceUrl = latest?.timestamp && latest?.url
-      ? `https://web.archive.org/web/${latest.timestamp}/${latest.url}`
-      : endpoint.toString();
 
     return {
       code,
@@ -127,15 +123,6 @@ async function runWayback(company: CompanySeed): Promise<DirectSourceRun> {
         : 'Nenhuma versão recente foi localizada no recorte consultado.',
       confidenceScore: snapshots.length ? 0.78 : 0.62,
       payload: { domain, snapshotCount: snapshots.length, snapshots },
-      ...(snapshots.length ? {
-        signal: {
-          type: 'product_expansion_signal',
-          strength: Math.min(74, 66 + snapshots.length),
-          confidenceScore: 0.74,
-          note: `Histórico público do domínio com ${snapshots.length} versões distintas; comparar páginas para detectar lançamento ou retirada de produtos.`,
-          evidenceUrl,
-        },
-      } : {}),
     };
   } catch (error) {
     return partialRun(code, endpoint.toString(), `Wayback history · ${company.tradeName}`, error);
@@ -199,15 +186,6 @@ async function runCommonCrawl(company: CompanySeed): Promise<DirectSourceRun> {
         : 'Nenhuma captura foi localizada no índice mais recente.',
       confidenceScore: captures.length ? 0.75 : 0.6,
       payload: { domain, collection: collections?.[0]?.id ?? null, captureCount: captures.length, captures },
-      ...(captures.length ? {
-        signal: {
-          type: 'product_expansion_signal',
-          strength: Math.min(72, 65 + captures.length),
-          confidenceScore: 0.71,
-          note: `Common Crawl localizou ${captures.length} páginas históricas; usar como evidência complementar de mudança de produto e narrativa.`,
-          evidenceUrl: endpoint.toString(),
-        },
-      } : {}),
     };
   } catch (error) {
     return partialRun(code, collectionsEndpoint, `Common Crawl history · ${company.tradeName}`, error);
