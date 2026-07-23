@@ -262,6 +262,18 @@ export const knowledgeVaultApi = {
     return mapDetail(row);
   },
 
+  captureMonitoringOutputNote: async (
+    session: SessionData | null,
+    monitoringOutputId: string,
+    visibility: KnowledgeVisibility = 'team',
+  ) => {
+    const row = await rpc<DetailRow>(session, 'knowledge_capture_monitoring_output_note', {
+      p_monitoring_output_id: monitoringOutputId,
+      p_visibility: visibility,
+    });
+    return mapDetail(row);
+  },
+
   captureQualificationNote: async (
     session: SessionData | null,
     companyId: string,

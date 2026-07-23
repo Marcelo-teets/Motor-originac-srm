@@ -196,7 +196,11 @@ export type KnowledgeMonitoringOutput = {
   outputType: string;
   confidenceScore: number | null;
   connectorStatus: string;
+  status: string;
+  observedVsInferred: string;
+  sourceName: string | null;
   observedAt: string;
+  capturedNodeId: string | null;
 };
 
 export type KnowledgePipelineSnapshot = {

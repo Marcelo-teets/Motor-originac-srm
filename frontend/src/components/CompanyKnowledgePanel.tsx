@@ -47,6 +47,11 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
     [workspace?.signals],
   );
 
+  const capturedMonitoringOutputs = useMemo(
+    () => workspace?.monitoringOutputs.filter((output) => Boolean(output.capturedNodeId)).length ?? 0,
+    [workspace?.monitoringOutputs],
+  );
+
   const referenceCount = useMemo(
     () => workspace?.nodes.reduce((sum, node) => sum + (node.referenceCount ?? 0), 0) ?? 0,
     [workspace?.nodes],
@@ -84,10 +89,26 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
     }
   };
 
+  const captureMonitoringOutput = async (monitoringOutputId: string) => {
+    setBusyAction(`monitoring:${monitoringOutputId}`);
+    setNotice(null);
+    setError(null);
+    try {
+      const captured = await knowledgeVaultApi.captureMonitoringOutputNote(session, monitoringOutputId);
+      setLastCaptured(captured);
+      setNotice('Output preservado como observação auditável. Nenhum sinal ou score foi alterado automaticamente.');
+      await loadWorkspace();
+    } catch (captureError) {
+      setError(captureError instanceof Error ? captureError.message : 'Falha ao capturar o output de monitoramento no Vault.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   return (
     <Card
       title="Knowledge Vault / Memória da empresa"
-      subtitle="Teses, sinais e evidências rastreáveis conectados ao Company Master"
+      subtitle="Teses, sinais, outputs e evidências rastreáveis conectados ao Company Master"
       className="dense-card company-knowledge-card"
       tone="accent"
     >
@@ -95,6 +116,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
         <div className="pill-row">
           <Pill tone="info">{workspace?.nodes.length ?? 0} notas</Pill>
           <Pill tone="success">{referenceCount} evidências</Pill>
+          <Pill tone="default">{capturedMonitoringOutputs}/{workspace?.monitoringOutputs.length ?? 0} outputs preservados</Pill>
           <Pill tone="warning">{capturedSignals}/{workspace?.signals.length ?? 0} sinais capturados</Pill>
         </div>
         <div className="actions">
@@ -103,7 +125,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
         </div>
       </div>
 
-      {loading ? <p className="table-helper">Carregando memória, sinais e qualificação reais...</p> : null}
+      {loading ? <p className="table-helper">Carregando memória, outputs, sinais e qualificação reais...</p> : null}
       {error ? <div className="data-banner data-banner-warning"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
       {notice ? (
         <div className="data-banner data-banner-success">
@@ -172,14 +194,60 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
                 ))}
               </div>
             ) : (
-              <EmptyState title={`Ainda não há memória consolidada para ${workspace.company.name}.`} description="Gere a tese do snapshot, capture um sinal ou crie uma nota manual vinculada à empresa." />
+              <EmptyState title={`Ainda não há memória consolidada para ${workspace.company.name}.`} description="Gere a tese, preserve um output, capture um sinal ou crie uma nota manual vinculada à empresa." />
+            )}
+          </section>
+
+          <section className="company-knowledge-section company-knowledge-monitoring">
+            <div className="company-knowledge-section-head">
+              <div>
+                <span className="section-label">Outputs monitorados</span>
+                <h4>Preservar observação antes de interpretar</h4>
+              </div>
+              <Pill tone="default">não altera score</Pill>
+            </div>
+            {workspace.monitoringOutputs.length ? (
+              <div className="company-monitoring-list">
+                {workspace.monitoringOutputs.map((output) => (
+                  <article key={output.id} className="company-monitoring-row">
+                    <div className="company-monitoring-copy">
+                      <div className="row-between">
+                        <strong>{output.title || output.sourceName || output.outputType.replace(/_/g, ' ')}</strong>
+                        <div className="pill-row">
+                          <Pill tone={output.connectorStatus === 'real' || output.connectorStatus === 'healthy' ? 'success' : 'warning'}>{output.connectorStatus}</Pill>
+                          <Pill tone="default">{Math.round(normalizeConfidence(output.confidenceScore ?? 0))}% confiança</Pill>
+                        </div>
+                      </div>
+                      <p>{output.summary || 'Sem resumo textual. A observação deve ser validada na fonte primária antes de qualquer inferência.'}</p>
+                      <small>
+                        {output.sourceName || 'fonte não identificada'} · {output.observedVsInferred} · {output.status} · {formatDate(output.observedAt)}
+                        {output.url ? <> · <a href={output.url} target="_blank" rel="noreferrer">abrir fonte</a></> : null}
+                      </small>
+                    </div>
+                    {output.capturedNodeId ? (
+                      <Link className="button secondary compact-button" to={vaultHref}>Abrir Vault</Link>
+                    ) : (
+                      <button
+                        type="button"
+                        className="secondary compact-button"
+                        disabled={busyAction === `monitoring:${output.id}`}
+                        onClick={() => void captureMonitoringOutput(output.id)}
+                      >
+                        {busyAction === `monitoring:${output.id}` ? 'Preservando...' : 'Preservar output'}
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Sem outputs de monitoramento disponíveis." description="Execute os conectores da empresa para alimentar observações rastreáveis antes da camada de sinais." />
             )}
           </section>
 
           <section className="company-knowledge-section company-knowledge-signals">
             <div className="company-knowledge-section-head">
               <span className="section-label">Sinais reais</span>
-              <h4>Converter evidência em conhecimento</h4>
+              <h4>Converter evidência validada em conhecimento</h4>
             </div>
             {workspace.signals.length ? (
               <div className="company-signal-list">
@@ -212,7 +280,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
                 ))}
               </div>
             ) : (
-              <EmptyState title="Sem sinais reais disponíveis." description="Mantenha a empresa monitorada; novos outputs tratados aparecerão aqui para captura." />
+              <EmptyState title="Sem sinais reais disponíveis." description="Preserve e valide os outputs monitorados; sinais tratados aparecerão aqui para captura." />
             )}
           </section>
         </div>
