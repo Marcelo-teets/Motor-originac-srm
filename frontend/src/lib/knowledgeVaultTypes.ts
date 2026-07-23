@@ -9,6 +9,8 @@ export type KnowledgeNodeType =
   | 'structure';
 
 export type KnowledgeVisibility = 'team' | 'private';
+export type KnowledgeSavedViewType = 'table' | 'cards' | 'graph';
+export type KnowledgeSortOrder = 'updated_desc' | 'updated_asc' | 'title_asc' | 'title_desc';
 
 export type KnowledgeReferenceType =
   | 'company_signal'
@@ -93,6 +95,39 @@ export type SaveKnowledgeNodeInput = {
   properties?: Record<string, unknown>;
   companyId?: string | null;
   visibility: KnowledgeVisibility;
+};
+
+export type KnowledgeViewFilters = {
+  query?: string;
+  nodeType?: string;
+  companyId?: string;
+  tag?: string;
+};
+
+export type KnowledgeSavedView = {
+  id: string;
+  name: string;
+  description: string;
+  viewType: KnowledgeSavedViewType;
+  filters: KnowledgeViewFilters;
+  sortConfig: { order?: KnowledgeSortOrder };
+  columns: string[];
+  isShared: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  canEdit: boolean;
+};
+
+export type SaveKnowledgeViewInput = {
+  id?: string | null;
+  name: string;
+  description?: string;
+  viewType?: KnowledgeSavedViewType;
+  filters: KnowledgeViewFilters;
+  sortConfig?: { order?: KnowledgeSortOrder };
+  columns?: string[];
+  isShared?: boolean;
 };
 
 export type KnowledgeGraphNode = {
