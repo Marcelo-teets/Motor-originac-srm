@@ -1,6 +1,6 @@
 -- Authenticated Market Map FIDC contract.
--- The public RPC remains callable only by service_role; the Express backend is
--- the authenticated user-facing channel. No company signal, qualification,
+-- The public RPC remains callable only by service_role; the backend is the
+-- authenticated user-facing channel. No company signal, qualification,
 -- pattern, score, ranking or pipeline mutation is performed here.
 
 create or replace function public.agentetome_fidc_market_map_snapshot(
@@ -24,6 +24,7 @@ set search_path = public
 as $$
 declare
   v_search text := nullif(btrim(coalesce(p_search, '')), '');
+  v_search_digits text := nullif(regexp_replace(coalesce(p_search, ''), '\D', '', 'g'), '');
   v_administrator text := nullif(btrim(coalesce(p_administrator, '')), '');
   v_manager text := nullif(btrim(coalesce(p_manager, '')), '');
   v_silence_status text := nullif(upper(btrim(coalesce(p_silence_status, ''))), '');
@@ -83,7 +84,7 @@ begin
     where (
       v_search is null
       or coalesce(m.fund_name, '') ilike '%' || v_search || '%'
-      or coalesce(m.fund_cnpj, '') ilike '%' || regexp_replace(v_search, '\D', '', 'g') || '%'
+      or (v_search_digits is not null and coalesce(m.fund_cnpj, '') ilike '%' || v_search_digits || '%')
       or coalesce(m.manager_name, '') ilike '%' || v_search || '%'
       or coalesce(m.administrator_name, '') ilike '%' || v_search || '%'
     )
@@ -148,7 +149,7 @@ begin
     where (
       v_search is null
       or coalesce(m.fund_name, '') ilike '%' || v_search || '%'
-      or coalesce(m.fund_cnpj, '') ilike '%' || regexp_replace(v_search, '\D', '', 'g') || '%'
+      or (v_search_digits is not null and coalesce(m.fund_cnpj, '') ilike '%' || v_search_digits || '%')
       or coalesce(m.manager_name, '') ilike '%' || v_search || '%'
       or coalesce(m.administrator_name, '') ilike '%' || v_search || '%'
     )
@@ -201,7 +202,8 @@ begin
     'observedAt', observed_at,
     'highDelinquency', coalesce(delinquency_to_nav, 0) >= 0.05,
     'lowSubordination', subordination_pct is not null and subordination_pct < 0.10,
-    'operationalAttention', silence_status in ('DEFASADO', 'SILENCIO') or coalesce(current_violations, 0) > 0
+    'operationalAttention', silence_status in ('DEFASADO', 'SILENCIO') or coalesce(current_violations, 0) > 0,
+    'ratioOutlier', coalesce(delinquency_to_nav, 0) > 1 or coalesce(subordination_pct, 0) > 1
   )), '[]'::jsonb)
   into v_rows
   from ordered;
