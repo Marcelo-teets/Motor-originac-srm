@@ -294,7 +294,11 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] preview Vercel READY;
 - [x] `/knowledge-vault` do preview respondeu HTTP 200;
 - [x] PR #220 integrada na `main`;
-- [ ] novo deployment de produção disparado pela PR documental de rollout.
+- [x] domínio canônico apontado ao deployment validado sem rebuild;
+- [x] bundle canônico contém o painel Outcome Intelligence;
+- [x] runtime sem warnings, errors ou fatals;
+- [x] credencial e funções temporárias de promoção removidas;
+- [x] release audit #223 encerrado como concluído.
 
 ## Rollout de produção consolidado
 
@@ -305,7 +309,9 @@ Diligência de carteira, funding, governança e sponsor interno.
 - Bases: PR `#210`;
 - Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`;
 - Execution V5: PR `#216`, commit `16f8397068150b3857c606c762d9fb43f56ab530`, deployment `dpl_ECTrssjnmmM9wJZ7idBLZ3FBAqwJ`;
-- Outcome Intelligence V6: PR `#220`, commit `c5255aa2046aba6139a80b77b1d511b8b022a5a7`, CI `#555`, preview `dpl_7fT2FnZ6M575RpZBfXJJsiCCTHXT`; produção sendo reacionada após limite temporário de builds.
+- Outcome Intelligence V6: PR `#220`, commit `c5255aa2046aba6139a80b77b1d511b8b022a5a7`, CI `#555`, deployment `dpl_7fT2FnZ6M575RpZBfXJJsiCCTHXT`, domínio canônico validado em 23/07/2026;
+- rollout V6 realizado por atribuição oficial de alias ao deployment validado, evitando novo build durante limite temporário da Vercel;
+- nenhuma credencial temporária permaneceu no Supabase Vault após a operação.
 
 ## Regra de produto
 
