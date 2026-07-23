@@ -196,8 +196,8 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] `capturedNodeId` retornado pelo workspace;
 - [x] rollback confirmou ausência de resíduos de teste;
 - [x] frontend implementado no Company Detail;
-- [ ] CI e preview validados;
-- [ ] produção canônica validada após merge.
+- [x] CI e preview validados;
+- [x] produção canônica validada após merge.
 
 ## Rollout de produção consolidado
 
@@ -205,7 +205,8 @@ Diligência de carteira, funding, governança e sponsor interno.
 - domínio canônico: `motor-originac-srm.vercel.app`;
 - V1: PR `#200`;
 - Company Workspace: PR `#207`;
-- Bases: PR `#210`.
+- Bases: PR `#210`;
+- Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`.
 
 ## Regra de produto
 
