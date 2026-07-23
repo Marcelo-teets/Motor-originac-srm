@@ -4,7 +4,7 @@ import { RequireAuth } from './lib/auth';
 import { AgentsPage } from './pages/AgentsPage';
 import { CaptureInboxPage } from './pages/CaptureInboxPage';
 import { CompaniesPage } from './pages/CompaniesPage';
-import { CompanyDetailPage } from './pages/CompanyDetailPage';
+import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
 import { LoginPage } from './pages/LoginPage';
@@ -30,7 +30,7 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={<CompaniesPage />} />
-        <Route path="companies/:id" element={<CompanyDetailPage />} />
+        <Route path="companies/:id" element={<CompanyDetailKnowledgePage />} />
         <Route path="watch-lists" element={<WatchListPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="capture-inbox" element={<CaptureInboxPage />} />
