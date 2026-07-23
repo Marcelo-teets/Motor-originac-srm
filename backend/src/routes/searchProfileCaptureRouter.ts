@@ -7,6 +7,12 @@ export type SearchProfileCaptureRouterHandlers = {
   promoteCandidate: (candidateId: string) => Promise<unknown>;
 };
 
+const statusCodeFromError = (error: unknown) => {
+  if (typeof error !== 'object' || error === null || !('statusCode' in error)) return null;
+  const value = Number((error as { statusCode?: unknown }).statusCode);
+  return Number.isInteger(value) ? value : null;
+};
+
 export const createSearchProfileCaptureRouter = (handlers: SearchProfileCaptureRouterHandlers) => {
   const router = Router();
 
@@ -50,6 +56,17 @@ export const createSearchProfileCaptureRouter = (handlers: SearchProfileCaptureR
         data: await handlers.promoteCandidate(String(req.params.id)),
       });
     } catch (error) {
+      const statusCode = statusCodeFromError(error);
+      if (statusCode === 422) {
+        res.status(422).json({
+          status: 'partial',
+          error: error instanceof Error ? error.message : String(error),
+          blockers: typeof error === 'object' && error !== null && 'blockers' in error
+            ? (error as { blockers?: unknown }).blockers
+            : [],
+        });
+        return;
+      }
       next(error);
     }
   });
