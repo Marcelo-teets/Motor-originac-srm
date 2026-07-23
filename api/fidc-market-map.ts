@@ -1,10 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import {
-  FidcMarketMapInputError,
-  FidcMarketMapUnavailableError,
-  getFidcMarketMapSnapshot,
-  parseFidcMarketMapQuery,
-} from '../backend/src/lib/fidcMarketMap.js';
 
 const RUNTIME = 'agentetome-fidc-market-map-v1';
 
@@ -28,6 +22,12 @@ const queryRecord = (req: IncomingMessage): Record<string, unknown> => {
   const host = getHeader(req, 'host') ?? 'localhost';
   const url = new URL(req.url ?? '/', `https://${host}`);
   return Object.fromEntries(url.searchParams.entries());
+};
+
+const errorStatusCode = (error: unknown) => {
+  if (typeof error !== 'object' || error === null || !('statusCode' in error)) return null;
+  const value = Number((error as { statusCode?: unknown }).statusCode);
+  return Number.isInteger(value) ? value : null;
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -59,16 +59,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
+    // Vercel bundles this API entrypoint as CommonJS while the backend package is
+    // ESM. Import only after the auth gate so missing/invalid bearer requests
+    // remain lightweight and always return the JSON 401 contract.
+    const { getFidcMarketMapSnapshot, parseFidcMarketMapQuery } = await import('../backend/src/lib/fidcMarketMap.js');
     const filters = parseFidcMarketMapQuery(queryRecord(req));
     const snapshot = await getFidcMarketMapSnapshot(filters);
     writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: snapshot });
   } catch (error) {
-    if (error instanceof FidcMarketMapInputError) {
-      writeJson(res, 400, { status: 'partial', generatedAt: new Date().toISOString(), error: error.message });
-      return;
-    }
-    if (error instanceof FidcMarketMapUnavailableError) {
-      writeJson(res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: error.message });
+    const statusCode = errorStatusCode(error);
+    if (statusCode === 400 || statusCode === 503) {
+      writeJson(res, statusCode, {
+        status: 'partial',
+        generatedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
     console.error('[fidc-market-map]', error);
