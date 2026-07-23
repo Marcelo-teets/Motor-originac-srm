@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { KnowledgeSavedViewsBar } from '../components/KnowledgeSavedViewsBar';
 import { EmptyState, PageIntro, Pill } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -8,11 +9,15 @@ import type {
   KnowledgeNodeDetail,
   KnowledgeNodeSummary,
   KnowledgeNodeType,
+  KnowledgeSavedView,
+  KnowledgeSortOrder,
   KnowledgeVisibility,
   SaveKnowledgeNodeInput,
+  SaveKnowledgeViewInput,
 } from '../lib/knowledgeVaultTypes';
 import type { CompanyListItem } from '../lib/types';
 import '../styles/knowledge-vault.css';
+import '../styles/knowledge-saved-views.css';
 
 const NODE_TYPES: Array<{ value: KnowledgeNodeType; label: string }> = [
   { value: 'note', label: 'Nota' },
@@ -25,8 +30,14 @@ const NODE_TYPES: Array<{ value: KnowledgeNodeType; label: string }> = [
   { value: 'structure', label: 'Estrutura' },
 ];
 
-const TYPE_LABEL = Object.fromEntries(NODE_TYPES.map((item) => [item.value, item.label])) as Record<KnowledgeNodeType, string>;
+const SORT_OPTIONS: Array<{ value: KnowledgeSortOrder; label: string }> = [
+  { value: 'updated_desc', label: 'Mais recentes' },
+  { value: 'updated_asc', label: 'Mais antigas' },
+  { value: 'title_asc', label: 'Título A–Z' },
+  { value: 'title_desc', label: 'Título Z–A' },
+];
 
+const TYPE_LABEL = Object.fromEntries(NODE_TYPES.map((item) => [item.value, item.label])) as Record<KnowledgeNodeType, string>;
 const EMPTY_GRAPH: KnowledgeGraphSnapshot = { nodes: [], companyNodes: [], edges: [], companyEdges: [] };
 
 const emptyDraft = (nodeType: KnowledgeNodeType = 'note'): SaveKnowledgeNodeInput => ({
@@ -57,6 +68,25 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('pt-BR', {
 }).format(new Date(value));
 
 const normalizeTitle = (value: string) => value.trim().toLocaleLowerCase('pt-BR');
+
+const sortNodes = (nodes: KnowledgeNodeSummary[], order: KnowledgeSortOrder) => {
+  const sorted = [...nodes];
+  sorted.sort((left, right) => {
+    if (order === 'title_asc') return left.title.localeCompare(right.title, 'pt-BR');
+    if (order === 'title_desc') return right.title.localeCompare(left.title, 'pt-BR');
+    const leftTime = new Date(left.updatedAt).getTime();
+    const rightTime = new Date(right.updatedAt).getTime();
+    return order === 'updated_asc' ? leftTime - rightTime : rightTime - leftTime;
+  });
+  return sorted;
+};
+
+const isSortOrder = (value: unknown): value is KnowledgeSortOrder => (
+  value === 'updated_desc'
+  || value === 'updated_asc'
+  || value === 'title_asc'
+  || value === 'title_desc'
+);
 
 function WikiText({ text, nodes, onOpen }: { text: string; nodes: KnowledgeNodeSummary[]; onOpen: (nodeId: string) => void }) {
   const parts = text.split(/(\[\[[^\]]+\]\])/g).filter(Boolean);
@@ -127,9 +157,7 @@ function KnowledgeGraph({ graph, selectedId, onOpen }: { graph: KnowledgeGraphSn
 
   const edges = [...graph.edges, ...graph.companyEdges].filter((edge) => edge.target && positions.has(edge.source) && positions.has(edge.target));
 
-  if (!allNodes.length) {
-    return <div className="knowledge-graph-empty">O grafo aparece assim que a primeira nota é criada.</div>;
-  }
+  if (!allNodes.length) return <div className="knowledge-graph-empty">O grafo aparece assim que a primeira nota é criada.</div>;
 
   return (
     <svg className="knowledge-graph" viewBox="0 0 760 440" role="img" aria-label="Grafo de conhecimento da originação">
@@ -165,20 +193,32 @@ export function KnowledgeVaultPage() {
   const { session } = useAuth();
   const [nodes, setNodes] = useState<KnowledgeNodeSummary[]>([]);
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const [savedViews, setSavedViews] = useState<KnowledgeSavedView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [graph, setGraph] = useState<KnowledgeGraphSnapshot>(EMPTY_GRAPH);
   const [detail, setDetail] = useState<KnowledgeNodeDetail | null>(null);
   const [draft, setDraft] = useState<SaveKnowledgeNodeInput>(() => emptyDraft());
   const [query, setQuery] = useState('');
   const [nodeTypeFilter, setNodeTypeFilter] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState<KnowledgeSortOrder>('updated_desc');
   const [tagText, setTagText] = useState('');
   const [rightPanel, setRightPanel] = useState<'preview' | 'connections' | 'graph'>('connections');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingView, setSavingView] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedId = detail?.node.id ?? draft.id ?? null;
+  const displayNodes = useMemo(() => sortNodes(nodes, sortOrder), [nodes, sortOrder]);
+
+  const loadSavedViews = async () => {
+    const loadedViews = await knowledgeVaultApi.listSavedViews(session);
+    setSavedViews(loadedViews);
+    return loadedViews;
+  };
 
   const loadWorkspace = async (preferredNodeId?: string | null) => {
     setError(null);
@@ -187,6 +227,7 @@ export function KnowledgeVaultPage() {
         query,
         nodeType: nodeTypeFilter,
         companyId: companyFilter,
+        tag: tagFilter,
       }),
       knowledgeVaultApi.getGraph(session, companyFilter || undefined),
       api.getCompanies(session),
@@ -195,7 +236,8 @@ export function KnowledgeVaultPage() {
     setGraph(loadedGraph);
     setCompanies(companyState.data);
 
-    const nodeToOpen = preferredNodeId ?? selectedId ?? loadedNodes[0]?.id;
+    const orderedNodes = sortNodes(loadedNodes, sortOrder);
+    const nodeToOpen = preferredNodeId ?? selectedId ?? orderedNodes[0]?.id;
     if (nodeToOpen && loadedNodes.some((node) => node.id === nodeToOpen)) {
       const loadedDetail = await knowledgeVaultApi.getNode(session, nodeToOpen);
       setDetail(loadedDetail);
@@ -205,6 +247,15 @@ export function KnowledgeVaultPage() {
       setDetail(null);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    void loadSavedViews().catch((loadError) => {
+      if (active) setError(loadError instanceof Error ? loadError.message : 'Falha ao carregar as Bases do Vault.');
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token]);
 
   useEffect(() => {
     let active = true;
@@ -221,7 +272,7 @@ export function KnowledgeVaultPage() {
     };
     // selectedId/draft are intentionally excluded: filters drive list reloads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, query, nodeTypeFilter, companyFilter]);
+  }, [session?.access_token, query, nodeTypeFilter, companyFilter, tagFilter]);
 
   const openNode = async (nodeId: string) => {
     setError(null);
@@ -289,6 +340,63 @@ export function KnowledgeVaultPage() {
     }
   };
 
+  const applyView = (view: KnowledgeSavedView) => {
+    setQuery(view.filters.query ?? '');
+    setNodeTypeFilter(view.filters.nodeType ?? '');
+    setCompanyFilter(view.filters.companyId ?? '');
+    setTagFilter(view.filters.tag ?? '');
+    setSortOrder(isSortOrder(view.sortConfig.order) ? view.sortConfig.order : 'updated_desc');
+    setRightPanel(view.viewType === 'graph' ? 'graph' : 'connections');
+    setActiveViewId(view.id);
+    setNotice(`Base “${view.name}” aplicada ao Vault.`);
+  };
+
+  const clearView = () => {
+    setQuery('');
+    setNodeTypeFilter('');
+    setCompanyFilter('');
+    setTagFilter('');
+    setSortOrder('updated_desc');
+    setActiveViewId(null);
+    setNotice('Filtros limpos. O Vault voltou para a visão livre.');
+  };
+
+  const saveView = async (input: SaveKnowledgeViewInput) => {
+    setSavingView(true);
+    setError(null);
+    try {
+      const saved = await knowledgeVaultApi.saveView(session, input);
+      const refreshed = await loadSavedViews();
+      setActiveViewId(saved.id);
+      setNotice(`Base “${saved.name}” ${input.id ? 'atualizada' : 'criada'} no Supabase.`);
+      return refreshed.find((view) => view.id === saved.id) ?? saved;
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Falha ao salvar a Base.';
+      setError(message);
+      throw saveError;
+    } finally {
+      setSavingView(false);
+    }
+  };
+
+  const deleteView = async (view: KnowledgeSavedView) => {
+    if (!window.confirm(`Excluir a Base “${view.name}”? As notas não serão alteradas.`)) return;
+    setSavingView(true);
+    setError(null);
+    try {
+      const deleted = await knowledgeVaultApi.deleteView(session, view.id);
+      if (!deleted) throw new Error('A Base não foi excluída ou não pertence ao usuário atual.');
+      await loadSavedViews();
+      if (activeViewId === view.id) setActiveViewId(null);
+      setNotice(`Base “${view.name}” excluída. O conhecimento do Vault foi preservado.`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Falha ao excluir a Base.');
+    } finally {
+      setSavingView(false);
+    }
+  };
+
+  const markManualChange = () => setActiveViewId(null);
   const filteredCountLabel = nodes.length === 1 ? '1 nota' : `${nodes.length} notas`;
   const totalConnections = nodes.reduce((sum, node) => sum + node.outboundCount, 0);
 
@@ -297,7 +405,7 @@ export function KnowledgeVaultPage() {
       <PageIntro
         eyebrow="Origination Knowledge Vault"
         title="Memória conectada da originação"
-        description="Workspace interno inspirado no Obsidian: Markdown, WikiLinks, backlinks, grafo e propriedades estruturadas — conectado a empresas, teses, sinais, reuniões, fontes e estruturas de crédito."
+        description="Workspace interno inspirado no Obsidian: Markdown, WikiLinks, backlinks, grafo e Bases operacionais — conectado a empresas, teses, sinais, reuniões, fontes e estruturas de crédito."
         actions={(
           <div className="page-intro-actions">
             <Pill tone="success">Supabase real + RLS</Pill>
@@ -310,7 +418,7 @@ export function KnowledgeVaultPage() {
         <div><span>Notas visíveis</span><strong>{nodes.length}</strong><small>Equipe + privadas do usuário</small></div>
         <div><span>Conexões</span><strong>{totalConnections}</strong><small>WikiLinks resolvidos ou pendentes</small></div>
         <div><span>Empresas conectadas</span><strong>{graph.companyNodes.length}</strong><small>Links com Company Master</small></div>
-        <div><span>Versões da nota</span><strong>{detail?.versions.length ?? 0}</strong><small>Histórico auditável carregado</small></div>
+        <div><span>Bases disponíveis</span><strong>{savedViews.length}</strong><small>Visões próprias + compartilhadas</small></div>
       </section>
 
       {error ? <div className="data-banner data-banner-warning"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
@@ -319,24 +427,58 @@ export function KnowledgeVaultPage() {
       <section className="knowledge-vault-toolbar">
         <label>
           <span>Busca global</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, tese, sinal, estrutura..." />
+          <input
+            value={query}
+            onChange={(event) => { markManualChange(); setQuery(event.target.value); }}
+            placeholder="Empresa, tese, sinal, estrutura..."
+          />
         </label>
         <label>
           <span>Tipo</span>
-          <select value={nodeTypeFilter} onChange={(event) => setNodeTypeFilter(event.target.value)}>
+          <select value={nodeTypeFilter} onChange={(event) => { markManualChange(); setNodeTypeFilter(event.target.value); }}>
             <option value="">Todos os tipos</option>
             {NODE_TYPES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
         <label>
           <span>Empresa</span>
-          <select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}>
+          <select value={companyFilter} onChange={(event) => { markManualChange(); setCompanyFilter(event.target.value); }}>
             <option value="">Todas as empresas</option>
             {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
           </select>
         </label>
+        <label>
+          <span>Tag</span>
+          <input value={tagFilter} onChange={(event) => { markManualChange(); setTagFilter(event.target.value); }} placeholder="fidc, reunião..." />
+        </label>
+        <label>
+          <span>Ordenação</span>
+          <select value={sortOrder} onChange={(event) => { markManualChange(); setSortOrder(event.target.value as KnowledgeSortOrder); }}>
+            {SORT_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
         <div className="knowledge-toolbar-meta"><Pill tone="info">{filteredCountLabel}</Pill></div>
       </section>
+
+      <KnowledgeSavedViewsBar
+        views={savedViews}
+        activeViewId={activeViewId}
+        current={{
+          filters: {
+            query: query || undefined,
+            nodeType: nodeTypeFilter || undefined,
+            companyId: companyFilter || undefined,
+            tag: tagFilter || undefined,
+          },
+          sortOrder,
+          viewType: rightPanel === 'graph' ? 'graph' : 'table',
+        }}
+        saving={savingView}
+        onApply={applyView}
+        onClear={clearView}
+        onSave={saveView}
+        onDelete={deleteView}
+      />
 
       <section className="knowledge-vault-workspace">
         <aside className="knowledge-note-list" aria-label="Notas do Knowledge Vault">
@@ -351,10 +493,10 @@ export function KnowledgeVaultPage() {
           </div>
           <div className="knowledge-note-scroll">
             {loading ? <p className="knowledge-muted">Carregando notas...</p> : null}
-            {!loading && !nodes.length ? (
-              <EmptyState title="O Vault está vazio" description="Crie a primeira tese, reunião ou playbook. Os vínculos aparecem automaticamente quando você usar [[WikiLinks]]." />
+            {!loading && !displayNodes.length ? (
+              <EmptyState title="Nenhum conhecimento nesta visão" description="Ajuste os filtros da Base ou crie a primeira tese, reunião ou playbook." />
             ) : null}
-            {nodes.map((node) => (
+            {displayNodes.map((node) => (
               <button
                 key={node.id}
                 type="button"
@@ -430,9 +572,9 @@ export function KnowledgeVaultPage() {
 
         <aside className="knowledge-context-pane">
           <div className="knowledge-context-tabs">
-            <button type="button" className={rightPanel === 'preview' ? 'active' : ''} onClick={() => setRightPanel('preview')}>Preview</button>
-            <button type="button" className={rightPanel === 'connections' ? 'active' : ''} onClick={() => setRightPanel('connections')}>Conexões</button>
-            <button type="button" className={rightPanel === 'graph' ? 'active' : ''} onClick={() => setRightPanel('graph')}>Grafo</button>
+            <button type="button" className={rightPanel === 'preview' ? 'active' : ''} onClick={() => { markManualChange(); setRightPanel('preview'); }}>Preview</button>
+            <button type="button" className={rightPanel === 'connections' ? 'active' : ''} onClick={() => { markManualChange(); setRightPanel('connections'); }}>Conexões</button>
+            <button type="button" className={rightPanel === 'graph' ? 'active' : ''} onClick={() => { markManualChange(); setRightPanel('graph'); }}>Grafo</button>
           </div>
 
           {rightPanel === 'preview' ? (
