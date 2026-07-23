@@ -29,6 +29,9 @@ por que importa financeiramente, qual estrutura faz sentido, por que agora e qua
 - criação de atividades e tarefas reais a partir de notas;
 - atualização de estágio, próxima ação e prazo pelo pipeline oficial;
 - registro de resultado comercial e follow-up;
+- snapshot imutável do contexto decisório de cada ação;
+- Outcome Intelligence por ação, nota, estrutura, sinal, padrão e fator;
+- Factor Outcome Map conservador, sem antecipar sucesso em `Structuring`;
 - referências auditáveis para sinais, monitoring outputs, qualification, pipeline, activities e tasks.
 
 ## Tipos de conhecimento
@@ -93,6 +96,18 @@ As migrations `085` a `088` conectam o Vault à execução oficial:
 - estágio e próxima ação solicitados versus efetivamente aplicados;
 - reutilização das tabelas `activities`, `tasks` e `pipeline`, sem CRM paralelo.
 
+As migrations `089` a `092` implementam Outcome Intelligence:
+
+- `knowledge_build_execution_context`;
+- trigger que captura e preserva `activities.metadata.outcomeContext`;
+- `knowledge_execution_outcomes_v1`;
+- `knowledge_outcome_dimension_map_v1`;
+- `factor_outcome_observations_v2`;
+- `factor_outcome_map_v2`;
+- RPC autenticada `knowledge_outcome_intelligence`;
+- views `security_invoker` e acesso anônimo removido;
+- nenhuma alteração automática de score, peso, qualification ou ranking.
+
 ## Fluxo manual
 
 1. O usuário abre **Knowledge Vault** no menu.
@@ -102,6 +117,7 @@ As migrations `085` a `088` conectam o Vault à execução oficial:
 5. Salva.
 6. O Supabase cria uma versão, recompõe os links e atualiza backlinks.
 7. O usuário pode salvar filtros e ordenação como uma Base reutilizável.
+8. O painel Outcome Intelligence respeita o filtro de empresa da Base aplicada.
 
 ## Fluxo pelo Company Detail
 
@@ -115,9 +131,11 @@ As migrations `085` a `088` conectam o Vault à execução oficial:
 8. **Executar ação** transforma uma nota em activity, task e atualização do pipeline oficial.
 9. O usuário registra contexto, próxima ação, prazo e estágio solicitado.
 10. O motor preserva o solicitado e o estado efetivamente aceito pelos guardrails.
-11. **Registrar resultado** conclui a tarefa anterior e cria um follow-up opcional.
-12. `knowledge_references` mantém a relação entre nota, evidência, activity, task e pipeline.
-13. Requisições concorrentes e repetidas são idempotentes.
+11. A criação da ação congela qualification, lead score, pipeline, sinais, padrões e fatores observados naquele momento.
+12. **Registrar resultado** conclui a tarefa anterior e cria um follow-up opcional.
+13. `knowledge_references` mantém a relação entre nota, evidência, activity, task e pipeline.
+14. Requisições concorrentes e repetidas são idempotentes.
+15. Os resultados alimentam somente mapas observacionais, sem reponderação automática.
 
 ## Regra observação → sinal
 
@@ -140,6 +158,19 @@ baixa confiança ou informação ainda não confirmada. Por isso:
 6. uma ação concluída não pode ser sobrescrita por outra requisição;
 7. execução comercial não altera automaticamente qualification, patterns ou scores;
 8. o resultado passa a ser parte auditável da memória institucional.
+
+## Regra resultado → aprendizado
+
+1. `won / (won + lost)` é a única taxa denominada win rate;
+2. `progress`, `blocked`, `no_change` e ações abertas permanecem fora do denominador terminal;
+3. menos de 5 decisões terminais significa amostra insuficiente;
+4. de 5 a 19 decisões significa leitura direcional;
+5. 20 ou mais decisões significa amostra mais robusta, não causalidade comprovada;
+6. contexto capturado no momento da ação é distinguido de contexto reconstruído;
+7. `Mandated` e `ClosedWon` são positivos no mapa de fatores;
+8. `ClosedLost` é negativo;
+9. `Identified`, `Qualified`, `Approach` e `Structuring` permanecem pipeline ativo;
+10. nenhuma associação altera automaticamente pesos ou priorização.
 
 ## Exemplo de tese
 
@@ -175,16 +206,21 @@ Diligência de carteira, funding, governança e sponsor interno.
 - estágio e próxima ação do `pipeline`;
 - `activities` e `tasks` ligadas a notas;
 - registro de outcome e follow-up;
+- contexto decisório imutável por ação;
+- mapas observacionais de conversão;
+- Factor Outcome Map V2;
 - histórico, visibilidade e identidade via Supabase Auth;
 - Bases operacionais;
-- painel operacional no Company Detail.
+- painel operacional no Company Detail;
+- painel Outcome Intelligence dentro do Vault.
 
 ### Próximas fatias
 
-- medir conversão por tipo de sinal, tese, ação e estrutura sugerida;
+- aumentar a amostra real registrando outcomes no Company Detail;
 - pesquisa semântica com `pgvector`;
 - usar Bases e subgrafos como contexto controlado do Copilot;
-- briefing pré-call e memo de comitê gerados a partir das evidências e ações selecionadas;
+- briefing pré-call e memo de comitê gerados a partir das evidências, ações e resultados selecionados;
+- governança humana para qualquer proposta futura de ajuste de pesos;
 - regras de captura automática apenas para sinais acima de thresholds aprovados.
 
 ## Critérios de aceite
@@ -244,6 +280,22 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] Company Detail do preview respondeu HTTP 200;
 - [x] produção canônica validada após merge.
 
+### Outcome Intelligence V6
+
+- [x] migrations aplicadas no Supabase real;
+- [x] contexto decisório capturado e preservado;
+- [x] funções e views sem acesso anônimo;
+- [x] classificação conservadora de pipeline aplicada;
+- [x] smoke autenticado com rollback;
+- [x] sinal, padrão e fatores refletidos nas dimensões;
+- [x] tentativa de sobrescrita do contexto bloqueada;
+- [x] nenhum outcome sintético inserido;
+- [x] CI da PR #220 concluída com sucesso;
+- [x] preview Vercel READY;
+- [x] `/knowledge-vault` do preview respondeu HTTP 200;
+- [x] PR #220 integrada na `main`;
+- [ ] novo deployment de produção disparado pela PR documental de rollout.
+
 ## Rollout de produção consolidado
 
 - Supabase oficial: `hdghpmssudrqhsbvrdyt`;
@@ -252,7 +304,8 @@ Diligência de carteira, funding, governança e sponsor interno.
 - Company Workspace: PR `#207`;
 - Bases: PR `#210`;
 - Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`;
-- Execution V5: PR `#216`, commit `16f8397068150b3857c606c762d9fb43f56ab530`, deployment `dpl_ECTrssjnmmM9wJZ7idBLZ3FBAqwJ`.
+- Execution V5: PR `#216`, commit `16f8397068150b3857c606c762d9fb43f56ab530`, deployment `dpl_ECTrssjnmmM9wJZ7idBLZ3FBAqwJ`;
+- Outcome Intelligence V6: PR `#220`, commit `c5255aa2046aba6139a80b77b1d511b8b022a5a7`, CI `#555`, preview `dpl_7fT2FnZ6M575RpZBfXJJsiCCTHXT`; produção sendo reacionada após limite temporário de builds.
 
 ## Regra de produto
 
