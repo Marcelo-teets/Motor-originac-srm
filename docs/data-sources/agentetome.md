@@ -51,7 +51,9 @@ Regras:
 - configurar a chave somente como segredo server-side;
 - nunca usar prefixo `VITE_`;
 - nunca registrar a chave em logs, banco, payload de erro ou documentação;
-- rotação de chave deve ser feita no Agentetome e no cofre de segredos do runtime.
+- rotação de chave deve ser feita no Agentetome e no cofre de segredos do runtime;
+- o rollout padrão do projeto mantém chaves de integrações externas no Vercel Environment Variables, em `Preview` e `Production`;
+- o código deve permanecer funcional e retornar `partial/503` quando a chave não estiver configurada.
 
 ## Endpoints internos
 
@@ -165,4 +167,4 @@ Após o MCP/API estar operacional e um pacote real ser inspecionado, implementar
 - a falha inicial `FUNCTION_INVOCATION_FAILED` foi corrigida com handler Vercel resiliente, autenticação Supabase via REST e import dinâmico capturável;
 - CI, Strategic Public Data e Public Data Operations Validation concluídos com sucesso.
 
-O probe autenticado contra o provedor continua condicionado à configuração de `AGENTETOME_API_KEY` nos ambientes Vercel.
+O probe autenticado contra o provedor continua condicionado à configuração de `AGENTETOME_API_KEY` nos ambientes Vercel. A chave enviada em conversa deve ser rotacionada antes de entrar em produção.
