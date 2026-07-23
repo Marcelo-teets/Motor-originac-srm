@@ -242,7 +242,7 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] frontend compilado no preview;
 - [x] CI da PR #216 concluída com sucesso;
 - [x] Company Detail do preview respondeu HTTP 200;
-- [ ] produção canônica validada após merge.
+- [x] produção canônica validada após merge.
 
 ## Rollout de produção consolidado
 
@@ -252,7 +252,7 @@ Diligência de carteira, funding, governança e sponsor interno.
 - Company Workspace: PR `#207`;
 - Bases: PR `#210`;
 - Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`;
-- Execution V5: PR `#216`, rollout de produção pendente do merge.
+- Execution V5: PR `#216`, commit `16f8397068150b3857c606c762d9fb43f56ab530`, deployment `dpl_ECTrssjnmmM9wJZ7idBLZ3FBAqwJ`.
 
 ## Regra de produto
 
