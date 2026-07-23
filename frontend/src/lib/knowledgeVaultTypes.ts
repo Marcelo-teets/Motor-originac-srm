@@ -11,12 +11,17 @@ export type KnowledgeNodeType =
 export type KnowledgeVisibility = 'team' | 'private';
 export type KnowledgeSavedViewType = 'table' | 'cards' | 'graph';
 export type KnowledgeSortOrder = 'updated_desc' | 'updated_asc' | 'title_asc' | 'title_desc';
+export type KnowledgePipelineStage = 'Identified' | 'Qualified' | 'Approach' | 'Structuring' | 'Mandated' | 'ClosedWon' | 'ClosedLost' | 'Recycled';
+export type KnowledgeActivityType = 'follow_up' | 'meeting' | 'email' | 'call' | 'research' | 'committee' | 'other';
+export type KnowledgeOutcomeStatus = 'progress' | 'won' | 'lost' | 'blocked' | 'no_change';
 
 export type KnowledgeReferenceType =
   | 'company_signal'
   | 'monitoring_output'
   | 'qualification_snapshot'
-  | 'pipeline';
+  | 'pipeline'
+  | 'activity'
+  | 'task';
 
 export type KnowledgeNodeSummary = {
   id: string;
@@ -215,6 +220,67 @@ export type KnowledgePipelineSnapshot = {
   updatedAt: string;
 };
 
+export type KnowledgeExecutionPipeline = KnowledgePipelineSnapshot & {
+  owner: string | null;
+};
+
+export type KnowledgeExecutionItem = {
+  activityId: string;
+  nodeId: string;
+  nodeTitle: string;
+  activityType: KnowledgeActivityType;
+  title: string;
+  description: string | null;
+  owner: string | null;
+  occurredAt: string;
+  status: 'open' | 'done';
+  outcomeStatus: KnowledgeOutcomeStatus | null;
+  outcome: string | null;
+  fromStage: string | null;
+  toStage: string | null;
+  requestedStage: string | null;
+  requestedNextAction: string | null;
+  actualNextAction: string | null;
+  resultFromStage: string | null;
+  resultToStage: string | null;
+  resultRequestedStage: string | null;
+  resultRequestedNextAction: string | null;
+  resultActualNextAction: string | null;
+  completedAt: string | null;
+  taskId: string | null;
+  taskTitle: string | null;
+  taskStatus: string | null;
+  dueAt: string | null;
+};
+
+export type KnowledgeExecutionWorkspace = {
+  companyId: string;
+  pipeline: KnowledgeExecutionPipeline | null;
+  executions: KnowledgeExecutionItem[];
+  openTaskCount: number;
+};
+
+export type CreateKnowledgeExecutionInput = {
+  nodeId: string;
+  idempotencyKey: string;
+  activityType: KnowledgeActivityType;
+  title: string;
+  description?: string | null;
+  nextAction?: string | null;
+  dueAt?: string | null;
+  targetStage?: KnowledgePipelineStage | null;
+};
+
+export type CompleteKnowledgeExecutionInput = {
+  activityId: string;
+  idempotencyKey: string;
+  outcomeStatus: KnowledgeOutcomeStatus;
+  outcome: string;
+  nextAction?: string | null;
+  dueAt?: string | null;
+  targetStage?: KnowledgePipelineStage | null;
+};
+
 export type KnowledgeCompanyWorkspace = {
   company: {
     id: string;
@@ -227,4 +293,5 @@ export type KnowledgeCompanyWorkspace = {
   signals: KnowledgeCompanySignal[];
   monitoringOutputs: KnowledgeMonitoringOutput[];
   pipeline: KnowledgePipelineSnapshot | null;
+  execution: KnowledgeExecutionWorkspace;
 };

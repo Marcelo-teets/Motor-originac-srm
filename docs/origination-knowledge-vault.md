@@ -26,7 +26,10 @@ por que importa financeiramente, qual estrutura faz sentido, por que agora e qua
 - preservação de `monitoring_outputs` como observações auditáveis;
 - captura de sinais reais em notas;
 - geração de tese a partir do último `qualification_snapshot`;
-- referências auditáveis para sinais, monitoring outputs, qualification e pipeline.
+- criação de atividades e tarefas reais a partir de notas;
+- atualização de estágio, próxima ação e prazo pelo pipeline oficial;
+- registro de resultado comercial e follow-up;
+- referências auditáveis para sinais, monitoring outputs, qualification, pipeline, activities e tasks.
 
 ## Tipos de conhecimento
 
@@ -79,6 +82,17 @@ A migration `083_knowledge_monitoring_output_capture.sql` adiciona:
 - `capturedNodeId`, fonte, status e natureza no workspace da empresa;
 - separação explícita entre observação, sinal e impacto no score.
 
+As migrations `085` a `088` conectam o Vault à execução oficial:
+
+- referências `activity` e `task` com validação de empresa;
+- `knowledge_company_execution_workspace`;
+- `knowledge_create_execution_action`;
+- `knowledge_complete_execution_action`;
+- advisory locks e chaves de idempotência;
+- bloqueio de sobrescrita de resultado concluído;
+- estágio e próxima ação solicitados versus efetivamente aplicados;
+- reutilização das tabelas `activities`, `tasks` e `pipeline`, sem CRM paralelo.
+
 ## Fluxo manual
 
 1. O usuário abre **Knowledge Vault** no menu.
@@ -93,14 +107,17 @@ A migration `083_knowledge_monitoring_output_capture.sql` adiciona:
 
 1. O usuário abre uma empresa.
 2. O painel **Knowledge Vault / Memória da empresa** carrega dados reais.
-3. O painel mostra qualification, notas, outputs monitorados e sinais.
+3. O painel mostra qualification, notas, execução, outputs monitorados e sinais.
 4. **Preservar output** cria uma nota `source` com a observação e lineage do `monitoring_output`.
 5. A nota deixa explícito que a observação não é um sinal confirmado e não altera score.
 6. Após validação analítica, **Capturar sinal** cria uma nota `signal` baseada na evidência tratada.
 7. **Gerar / abrir tese** cria uma nota `thesis` baseada no snapshot mais recente.
-8. `knowledge_references` preserva o ID e um snapshot sanitizado da evidência original.
-9. Uma segunda captura da mesma evidência é idempotente: abre/reutiliza a nota existente.
-10. Requisições concorrentes são serializadas no banco para impedir notas duplicadas.
+8. **Executar ação** transforma uma nota em activity, task e atualização do pipeline oficial.
+9. O usuário registra contexto, próxima ação, prazo e estágio solicitado.
+10. O motor preserva o solicitado e o estado efetivamente aceito pelos guardrails.
+11. **Registrar resultado** conclui a tarefa anterior e cria um follow-up opcional.
+12. `knowledge_references` mantém a relação entre nota, evidência, activity, task e pipeline.
+13. Requisições concorrentes e repetidas são idempotentes.
 
 ## Regra observação → sinal
 
@@ -112,6 +129,17 @@ baixa confiança ou informação ainda não confirmada. Por isso:
 3. a captura não altera qualification, patterns, lead score, ranking ou pipeline;
 4. somente evidência validada deve virar sinal;
 5. toda inferência deve permanecer distinguível da observação original.
+
+## Regra conhecimento → execução
+
+1. toda ação precisa nascer de uma nota ativa, acessível e vinculada à empresa;
+2. a V5 usa `activities`, `tasks` e `pipeline` existentes;
+3. referências entre empresas são rejeitadas;
+4. o trigger oficial do pipeline permanece soberano;
+5. solicitado e efetivo são armazenados separadamente;
+6. uma ação concluída não pode ser sobrescrita por outra requisição;
+7. execução comercial não altera automaticamente qualification, patterns ou scores;
+8. o resultado passa a ser parte auditável da memória institucional.
 
 ## Exemplo de tese
 
@@ -144,17 +172,19 @@ Diligência de carteira, funding, governança e sponsor interno.
 - `monitoring_outputs` com preservação auditável;
 - `company_signals`;
 - último `qualification_snapshot`;
-- leitura do estágio e próxima ação do `pipeline`;
+- estágio e próxima ação do `pipeline`;
+- `activities` e `tasks` ligadas a notas;
+- registro de outcome e follow-up;
 - histórico, visibilidade e identidade via Supabase Auth;
 - Bases operacionais;
 - painel operacional no Company Detail.
 
 ### Próximas fatias
 
-- vincular notas a atividades e mudanças de estágio do pipeline;
+- medir conversão por tipo de sinal, tese, ação e estrutura sugerida;
 - pesquisa semântica com `pgvector`;
 - usar Bases e subgrafos como contexto controlado do Copilot;
-- briefing pré-call e memo de comitê gerados a partir das evidências selecionadas;
+- briefing pré-call e memo de comitê gerados a partir das evidências e ações selecionadas;
 - regras de captura automática apenas para sinais acima de thresholds aprovados.
 
 ## Critérios de aceite
@@ -199,6 +229,21 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] CI e preview validados;
 - [x] produção canônica validada após merge.
 
+### Execution V5
+
+- [x] migrations aplicadas no Supabase real;
+- [x] nenhuma tabela paralela de CRM criada;
+- [x] activity, task e pipeline ligados a uma nota;
+- [x] criação e conclusão idempotentes;
+- [x] segunda conclusão não sobrescreve resultado;
+- [x] referência entre empresas rejeitada;
+- [x] solicitado versus efetivo preservados;
+- [x] teste transacional real com rollback;
+- [x] frontend compilado no preview;
+- [x] CI da PR #216 concluída com sucesso;
+- [x] Company Detail do preview respondeu HTTP 200;
+- [ ] produção canônica validada após merge.
+
 ## Rollout de produção consolidado
 
 - Supabase oficial: `hdghpmssudrqhsbvrdyt`;
@@ -206,7 +251,8 @@ Diligência de carteira, funding, governança e sponsor interno.
 - V1: PR `#200`;
 - Company Workspace: PR `#207`;
 - Bases: PR `#210`;
-- Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`.
+- Monitoring Capture: PR `#212`, commit `f66fc0626cc5093e50faee765c1f98e6e5b8dc6d`, deployment `dpl_94N2jNCuQ4AuW4VzphhVZ85ZaRqn`;
+- Execution V5: PR `#216`, rollout de produção pendente do merge.
 
 ## Regra de produto
 

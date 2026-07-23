@@ -1,7 +1,10 @@
 import type { SessionData } from './types';
 import type {
+  CompleteKnowledgeExecutionInput,
+  CreateKnowledgeExecutionInput,
   KnowledgeBacklink,
   KnowledgeCompanyWorkspace,
+  KnowledgeExecutionWorkspace,
   KnowledgeGraphSnapshot,
   KnowledgeNode,
   KnowledgeNodeDetail,
@@ -175,6 +178,16 @@ const mapSavedView = (row: SavedViewRow): KnowledgeSavedView => ({
   canEdit: row.can_edit,
 });
 
+const normalizeExecutionWorkspace = (
+  row: KnowledgeExecutionWorkspace | null,
+  companyId: string,
+): KnowledgeExecutionWorkspace => ({
+  companyId: row?.companyId ?? companyId,
+  pipeline: row?.pipeline ?? null,
+  executions: row?.executions ?? [],
+  openTaskCount: Number(row?.openTaskCount ?? 0),
+});
+
 export const knowledgeVaultApi = {
   listNodes: async (
     session: SessionData | null,
@@ -225,8 +238,8 @@ export const knowledgeVaultApi = {
     return rows.map(mapSavedView);
   },
 
-  saveView: async (session: SessionData | null, input: SaveKnowledgeViewInput) => {
-    return rpc<KnowledgeSavedView>(session, 'knowledge_save_view', {
+  saveView: async (session: SessionData | null, input: SaveKnowledgeViewInput) => (
+    rpc<KnowledgeSavedView>(session, 'knowledge_save_view', {
       p_view_id: input.id ?? null,
       p_name: input.name,
       p_description: input.description ?? '',
@@ -235,20 +248,62 @@ export const knowledgeVaultApi = {
       p_sort_config: input.sortConfig ?? {},
       p_columns: input.columns ?? [],
       p_is_shared: input.isShared ?? false,
-    });
-  },
+    })
+  ),
 
   deleteView: (session: SessionData | null, viewId: string) => (
     rpc<boolean>(session, 'knowledge_delete_view', { p_view_id: viewId })
   ),
 
-  getCompanyWorkspace: async (session: SessionData | null, companyId: string) => {
-    const workspace = await rpc<KnowledgeCompanyWorkspace | null>(session, 'knowledge_company_workspace', {
+  getExecutionWorkspace: async (session: SessionData | null, companyId: string) => {
+    const execution = await rpc<KnowledgeExecutionWorkspace | null>(session, 'knowledge_company_execution_workspace', {
       p_company_id: companyId,
     });
-    if (!workspace?.company) throw new Error('Empresa não encontrada para o Knowledge Vault.');
-    return workspace;
+    return normalizeExecutionWorkspace(execution, companyId);
   },
+
+  getCompanyWorkspace: async (session: SessionData | null, companyId: string) => {
+    const [workspace, execution] = await Promise.all([
+      rpc<Omit<KnowledgeCompanyWorkspace, 'execution'> | null>(session, 'knowledge_company_workspace', {
+        p_company_id: companyId,
+      }),
+      rpc<KnowledgeExecutionWorkspace | null>(session, 'knowledge_company_execution_workspace', {
+        p_company_id: companyId,
+      }),
+    ]);
+    if (!workspace?.company) throw new Error('Empresa não encontrada para o Knowledge Vault.');
+    return {
+      ...workspace,
+      execution: normalizeExecutionWorkspace(execution, companyId),
+    };
+  },
+
+  createExecutionAction: async (
+    session: SessionData | null,
+    input: CreateKnowledgeExecutionInput,
+  ) => normalizeExecutionWorkspace(await rpc<KnowledgeExecutionWorkspace>(session, 'knowledge_create_execution_action', {
+    p_node_id: input.nodeId,
+    p_idempotency_key: input.idempotencyKey,
+    p_activity_type: input.activityType,
+    p_title: input.title,
+    p_description: input.description ?? null,
+    p_next_action: input.nextAction ?? null,
+    p_due_at: input.dueAt ?? null,
+    p_target_stage: input.targetStage ?? null,
+  }), ''),
+
+  completeExecutionAction: async (
+    session: SessionData | null,
+    input: CompleteKnowledgeExecutionInput,
+  ) => normalizeExecutionWorkspace(await rpc<KnowledgeExecutionWorkspace>(session, 'knowledge_complete_execution_action', {
+    p_activity_id: input.activityId,
+    p_idempotency_key: input.idempotencyKey,
+    p_outcome_status: input.outcomeStatus,
+    p_outcome: input.outcome,
+    p_next_action: input.nextAction ?? null,
+    p_due_at: input.dueAt ?? null,
+    p_target_stage: input.targetStage ?? null,
+  }), ''),
 
   captureSignalNote: async (
     session: SessionData | null,
