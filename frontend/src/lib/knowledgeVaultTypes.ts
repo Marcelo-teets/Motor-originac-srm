@@ -241,6 +241,11 @@ export type KnowledgeExecutionItem = {
   requestedStage: string | null;
   requestedNextAction: string | null;
   actualNextAction: string | null;
+  resultFromStage: string | null;
+  resultToStage: string | null;
+  resultRequestedStage: string | null;
+  resultRequestedNextAction: string | null;
+  resultActualNextAction: string | null;
   completedAt: string | null;
   taskId: string | null;
   taskTitle: string | null;
