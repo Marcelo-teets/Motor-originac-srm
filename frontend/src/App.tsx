@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { CompanyDecisionReadinessBoundary } from './components/CompanyDecisionReadinessBoundary';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './lib/auth';
 import { AgentsPage } from './pages/AgentsPage';
@@ -16,6 +18,10 @@ import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
 import { WatchListPage } from './pages/WatchListPage';
 
+const portfolioGate = (children: ReactNode) => (
+  <CompanyDecisionReadinessBoundary>{children}</CompanyDecisionReadinessBoundary>
+);
+
 export default function App() {
   return (
     <Routes>
@@ -28,19 +34,19 @@ export default function App() {
           </RequireAuth>
         )}
       >
-        <Route index element={<DashboardPage />} />
+        <Route index element={portfolioGate(<DashboardPage />)} />
         <Route path="search-profiles" element={<SearchProfilesPage />} />
-        <Route path="companies" element={<CompaniesPage />} />
-        <Route path="companies/:id" element={<CompanyDetailKnowledgePage />} />
+        <Route path="companies" element={portfolioGate(<CompaniesPage />)} />
+        <Route path="companies/:id" element={<CompanyDecisionReadinessBoundary scope="company"><CompanyDetailKnowledgePage /></CompanyDecisionReadinessBoundary>} />
         <Route path="market-map" element={<FidcMarketMapPage />} />
-        <Route path="watch-lists" element={<WatchListPage />} />
+        <Route path="watch-lists" element={portfolioGate(<WatchListPage />)} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="capture-inbox" element={<CaptureInboxPage />} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
-        <Route path="pipeline" element={<PipelinePage />} />
+        <Route path="pipeline" element={portfolioGate(<PipelinePage />)} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
