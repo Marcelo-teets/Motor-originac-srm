@@ -120,7 +120,7 @@ export async function getFidcMarketMap(
   params.set('page', String(filters.page ?? 1));
   params.set('pageSize', String(filters.pageSize ?? 25));
 
-  const path = `/market-map/fidc?${params.toString()}`;
+  const path = `/fidc-market-map?${params.toString()}`;
   const response = await fetch(buildApiUrl(path), {
     headers: {
       'Content-Type': 'application/json',
