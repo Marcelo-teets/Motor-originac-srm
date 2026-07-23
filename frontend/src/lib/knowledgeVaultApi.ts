@@ -1,12 +1,15 @@
 import type { SessionData } from './types';
 import type {
   KnowledgeBacklink,
+  KnowledgeCompanyWorkspace,
   KnowledgeGraphSnapshot,
   KnowledgeNode,
   KnowledgeNodeDetail,
   KnowledgeNodeSummary,
   KnowledgeOutgoingLink,
+  KnowledgeReference,
   KnowledgeVersion,
+  KnowledgeVisibility,
   SaveKnowledgeNodeInput,
 } from './knowledgeVaultTypes';
 
@@ -38,6 +41,7 @@ type NodeRow = {
   updated_at: string;
   backlink_count: number | string;
   outbound_count: number | string;
+  reference_count?: number | string;
 };
 
 type DetailRow = {
@@ -61,6 +65,7 @@ type DetailRow = {
   outgoing: KnowledgeOutgoingLink[] | null;
   backlinks: KnowledgeBacklink[] | null;
   versions: KnowledgeVersion[] | null;
+  references: KnowledgeReference[] | null;
 };
 
 const requireConfiguration = () => {
@@ -111,6 +116,7 @@ const mapSummary = (row: NodeRow): KnowledgeNodeSummary => ({
   updatedAt: row.updated_at,
   backlinkCount: Number(row.backlink_count ?? 0),
   outboundCount: Number(row.outbound_count ?? 0),
+  referenceCount: Number(row.reference_count ?? 0),
 });
 
 const mapDetail = (row: DetailRow): KnowledgeNodeDetail => ({
@@ -134,6 +140,7 @@ const mapDetail = (row: DetailRow): KnowledgeNodeDetail => ({
   outgoing: row.outgoing ?? [],
   backlinks: row.backlinks ?? [],
   versions: row.versions ?? [],
+  references: row.references ?? [],
 });
 
 export const knowledgeVaultApi = {
@@ -180,4 +187,36 @@ export const knowledgeVaultApi = {
       p_limit: 160,
     })
   ),
+
+  getCompanyWorkspace: async (session: SessionData | null, companyId: string) => {
+    const workspace = await rpc<KnowledgeCompanyWorkspace | null>(session, 'knowledge_company_workspace', {
+      p_company_id: companyId,
+    });
+    if (!workspace?.company) throw new Error('Empresa não encontrada para o Knowledge Vault.');
+    return workspace;
+  },
+
+  captureSignalNote: async (
+    session: SessionData | null,
+    signalId: string,
+    visibility: KnowledgeVisibility = 'team',
+  ) => {
+    const row = await rpc<DetailRow>(session, 'knowledge_capture_signal_note', {
+      p_signal_id: signalId,
+      p_visibility: visibility,
+    });
+    return mapDetail(row);
+  },
+
+  captureQualificationNote: async (
+    session: SessionData | null,
+    companyId: string,
+    visibility: KnowledgeVisibility = 'team',
+  ) => {
+    const row = await rpc<DetailRow>(session, 'knowledge_capture_qualification_note', {
+      p_company_id: companyId,
+      p_visibility: visibility,
+    });
+    return mapDetail(row);
+  },
 };
