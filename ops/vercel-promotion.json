@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "deploymentId": "dpl_7fT2FnZ6M575RpZBfXJJsiCCTHXT",
+  "sourceCommit": "bfe35e77daec6b8401643d6399d84ed4f99b5948",
+  "reason": "Promote the PR #220 preview validated by CI #555, HTTP 200 smoke and clean runtime logs after Git build-rate limiting blocked the automatic production rebuild.",
+  "requestedAt": "2026-07-23T22:05:00Z"
+}
