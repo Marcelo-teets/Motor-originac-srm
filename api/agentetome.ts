@@ -1,91 +1,93 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { verifySupabaseJwt } from '../backend/src/lib/auth.js';
-import {
-  AgenteTomeError,
-  buildAgenteTomeRequestFingerprint,
-  fetchAgenteTomeAdminManifest,
-  getAgenteTomeRuntimeStatus,
-  recordAgenteTomeOperation,
-  requestAgenteTomeAdminExport,
-  summarizeAgenteTomePayload,
-  validateAgenteTomeXml,
-  type AgenteTomeAuditInput,
-  type AgenteTomeCut,
-  type AgenteTomeExportFormat,
-} from '../backend/src/lib/agenteTome.js';
+import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 
-const MAX_JSON_BODY_BYTES = 7_250_000;
-
-const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  });
-  res.end(JSON.stringify(payload));
+type AgentetomeRequest = VercelRequest & { body?: unknown };
+type AgentetomeModule = typeof import('../backend/src/lib/agenteTome.js');
+type AuditInput = Parameters<AgentetomeModule['recordAgenteTomeOperation']>[0];
+type ProviderResult = {
+  data: Record<string, any>;
+  httpStatus: number;
+  durationMs: number;
+  retryAfterSeconds?: number;
+  providerError: boolean;
+  requestFingerprint?: string;
+  xmlBytes?: number;
 };
 
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const requestUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL(req.url ?? '/', `https://${host}`);
-};
-
-const readJsonBody = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MAX_JSON_BODY_BYTES) throw new AgenteTomeError('Corpo da requisição acima do limite permitido.', 413);
-    chunks.push(buffer);
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode = 500,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
-  if (!chunks.length) return {} as Record<string, unknown>;
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
-  } catch {
-    throw new AgenteTomeError('JSON inválido.', 400);
-  }
-};
+}
 
-const authenticate = async (req: IncomingMessage) => {
-  const authorization = getHeader(req, 'authorization');
-  if (!authorization?.startsWith('Bearer ')) throw new AgenteTomeError('Missing bearer token.', 401);
-  try {
-    return await verifySupabaseJwt(authorization.slice('Bearer '.length));
-  } catch (error) {
-    throw new AgenteTomeError(error instanceof Error ? error.message : 'Unauthorized.', 401);
-  }
-};
-
-const operationFromUrl = (url: URL) => url.searchParams.get('operation') ?? 'status';
-
-const auditStatusForError = (error: unknown): AgenteTomeAuditInput['status'] => {
-  if (error instanceof AgenteTomeError && [429, 503].includes(error.statusCode)) return 'blocked';
-  return 'failed';
-};
-
-const errorStatusCode = (error: unknown) => error instanceof AgenteTomeError ? error.statusCode : 500;
+const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected error.';
+const errorStatusCode = (error: unknown) => typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 500;
+const retryAfterSeconds = (error: unknown) => typeof (error as any)?.retryAfterSeconds === 'number' ? (error as any).retryAfterSeconds : undefined;
 
-async function auditedCall<T extends { data: Record<string, any>; httpStatus: number; durationMs: number; retryAfterSeconds?: number; providerError: boolean }>(
-  input: Omit<AgenteTomeAuditInput, 'status' | 'responseSummary' | 'httpStatus' | 'retryAfterSeconds' | 'durationMs'>,
-  runner: () => Promise<T>,
+const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  return res.status(statusCode).json(payload);
+};
+
+const readBody = (req: AgentetomeRequest) => {
+  const body = req.body;
+  if (!body) return {} as Record<string, unknown>;
+  if (typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
+  if (typeof body === 'string') {
+    if (Buffer.byteLength(body, 'utf8') > 7_250_000) throw new ApiError('Corpo da requisição acima do limite permitido.', 413);
+    try {
+      return JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      throw new ApiError('JSON inválido.', 400);
+    }
+  }
+  throw new ApiError('Corpo da requisição inválido.', 400);
+};
+
+const authenticate = async (req: AgentetomeRequest) => {
+  const authorization = requestValue(req.headers.authorization);
+  if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) throw new ApiError('Supabase Auth não está configurado no runtime.', 503);
+
+  const response = await fetch(`${supabaseUrl.replace(/\/+$/, '')}/auth/v1/user`, {
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: authorization,
+    },
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, any>;
+  if (!response.ok || !payload.id) {
+    throw new ApiError(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Unauthorized.'), 401);
+  }
+  return { id: String(payload.id), email: typeof payload.email === 'string' ? payload.email : undefined };
+};
+
+const auditStatusForError = (error: unknown): AuditInput['status'] => [429, 503].includes(errorStatusCode(error)) ? 'blocked' : 'failed';
+
+async function auditedCall(
+  module: AgentetomeModule,
+  input: Omit<AuditInput, 'status' | 'responseSummary' | 'httpStatus' | 'retryAfterSeconds' | 'durationMs'>,
+  runner: () => Promise<ProviderResult>,
 ) {
   const startedAt = Date.now();
   try {
     const result = await runner();
-    const runtimeMetadata = result as T & { requestFingerprint?: string; xmlBytes?: number };
-    await recordAgenteTomeOperation({
+    await module.recordAgenteTomeOperation({
       ...input,
-      requestFingerprint: input.requestFingerprint ?? runtimeMetadata.requestFingerprint,
+      requestFingerprint: input.requestFingerprint ?? result.requestFingerprint,
       status: result.providerError ? 'partial' : 'completed',
       responseSummary: {
-        ...summarizeAgenteTomePayload(input.operation, result.data),
-        ...(typeof runtimeMetadata.xmlBytes === 'number' ? { xmlBytes: runtimeMetadata.xmlBytes } : {}),
+        ...module.summarizeAgenteTomePayload(input.operation, result.data),
+        ...(typeof result.xmlBytes === 'number' ? { xmlBytes: result.xmlBytes } : {}),
       },
       httpStatus: result.httpStatus,
       retryAfterSeconds: result.retryAfterSeconds,
@@ -93,94 +95,88 @@ async function auditedCall<T extends { data: Record<string, any>; httpStatus: nu
     });
     return result;
   } catch (error) {
-    await recordAgenteTomeOperation({
+    await module.recordAgenteTomeOperation({
       ...input,
       status: auditStatusForError(error),
       responseSummary: { error: errorMessage(error) },
       httpStatus: errorStatusCode(error),
-      retryAfterSeconds: error instanceof AgenteTomeError ? error.retryAfterSeconds : undefined,
+      retryAfterSeconds: retryAfterSeconds(error),
       durationMs: Date.now() - startedAt,
-    });
+    }).catch(() => undefined);
     throw error;
   }
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
+export default async function handler(req: AgentetomeRequest, res: VercelResponse) {
+  res.setHeader('X-Origination-Runtime', 'agentetome-v1');
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    });
-    res.end();
-    return;
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    return res.status(204).json(null);
   }
 
   try {
     const user = await authenticate(req);
-    const url = requestUrl(req);
-    const operation = operationFromUrl(url);
+    const operation = requestValue(req.query.operation) ?? 'status';
+    const module = await import('../backend/src/lib/agenteTome.js');
 
     if (operation === 'status' && req.method === 'GET') {
-      const runtimeStatus = getAgenteTomeRuntimeStatus();
-      writeJson(res, 200, {
+      const runtimeStatus = module.getAgenteTomeRuntimeStatus();
+      return writeJson(res, 200, {
         status: runtimeStatus.status,
         generatedAt: new Date().toISOString(),
         data: runtimeStatus,
       });
-      return;
     }
 
     if (operation === 'admin-manifest' && req.method === 'GET') {
-      const administrator = String(url.searchParams.get('admin') ?? '').trim();
-      const cut = String(url.searchParams.get('corte') ?? 'recente') as AgenteTomeCut;
-      const competence = url.searchParams.get('competencia') ?? undefined;
-      const requestFingerprint = buildAgenteTomeRequestFingerprint({ administrator, cut, competence });
-      const result = await auditedCall({
+      const administrator = String(requestValue(req.query.admin) ?? '').trim();
+      const cut = String(requestValue(req.query.corte) ?? 'recente') as 'recente' | 'competencia';
+      const competence = requestValue(req.query.competencia);
+      const requestFingerprint = module.buildAgenteTomeRequestFingerprint({ administrator, cut, competence });
+      const result = await auditedCall(module, {
         operation: 'admin_manifest',
         requestedBy: user.id,
         administrator,
         competence,
         requestFingerprint,
-      }, () => fetchAgenteTomeAdminManifest({ administrator, cut, competence }));
-      writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: result.data });
-      return;
+      }, () => module.fetchAgenteTomeAdminManifest({ administrator, cut, competence }));
+      return writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: result.data });
     }
 
     if (operation === 'admin-export' && req.method === 'POST') {
-      const body = await readJsonBody(req);
+      const body = readBody(req);
       const administrator = String(body.admin ?? body.administrator ?? '').trim();
-      const cut = String(body.corte ?? body.cut ?? 'recente') as AgenteTomeCut;
-      const competence = body.competencia ?? body.competence;
-      const format = String(body.formato ?? body.format ?? 'csv') as AgenteTomeExportFormat;
-      const competenceValue = typeof competence === 'string' ? competence : undefined;
-      const requestFingerprint = buildAgenteTomeRequestFingerprint({ administrator, cut, competence: competenceValue, format });
-      const result = await auditedCall({
+      const cut = String(body.corte ?? body.cut ?? 'recente') as 'recente' | 'competencia';
+      const competence = typeof (body.competencia ?? body.competence) === 'string' ? String(body.competencia ?? body.competence) : undefined;
+      const format = String(body.formato ?? body.format ?? 'csv') as 'csv' | 'xlsx';
+      const requestFingerprint = module.buildAgenteTomeRequestFingerprint({ administrator, cut, competence, format });
+      const result = await auditedCall(module, {
         operation: 'admin_export',
         requestedBy: user.id,
         administrator,
-        competence: competenceValue,
+        competence,
         format,
         requestFingerprint,
-      }, () => requestAgenteTomeAdminExport({ administrator, cut, competence: competenceValue, format }));
-      writeJson(res, result.providerError ? 207 : 200, {
+      }, () => module.requestAgenteTomeAdminExport({ administrator, cut, competence, format }));
+      return writeJson(res, result.providerError ? 207 : 200, {
         status: result.providerError ? 'partial' : 'real',
         generatedAt: new Date().toISOString(),
         data: result.data,
         warning: 'O link de download é temporário e não é persistido pela plataforma.',
       });
-      return;
     }
 
     if (operation === 'validate-xml' && req.method === 'POST') {
-      const body = await readJsonBody(req);
+      const body = readBody(req);
       const xmlBase64 = typeof body.xmlBase64 === 'string' ? body.xmlBase64 : typeof body.xml_base64 === 'string' ? body.xml_base64 : '';
-      const result = await auditedCall({
+      const result = await auditedCall(module, {
         operation: 'validate_fidc_xml',
         requestedBy: user.id,
-      }, () => validateAgenteTomeXml(xmlBase64));
+      }, () => module.validateAgenteTomeXml(xmlBase64));
       const ok = result.data.ok === true && !result.providerError;
-      writeJson(res, ok ? 200 : 207, {
+      return writeJson(res, ok ? 200 : 207, {
         status: ok ? 'real' : 'partial',
         generatedAt: new Date().toISOString(),
         data: result.data,
@@ -190,21 +186,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           rawXmlPersisted: false,
         },
       });
-      return;
     }
 
-    writeJson(res, 404, {
+    return writeJson(res, 404, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
       error: `Operação Agentetome não encontrada: ${operation}.`,
     });
   } catch (error) {
-    const statusCode = errorStatusCode(error);
-    writeJson(res, statusCode, {
+    console.error('[agentetome]', error);
+    return writeJson(res, errorStatusCode(error), {
       status: 'partial',
       generatedAt: new Date().toISOString(),
       error: errorMessage(error),
-      retryAfterSeconds: error instanceof AgenteTomeError ? error.retryAfterSeconds : undefined,
+      retryAfterSeconds: retryAfterSeconds(error),
     });
   }
 }
