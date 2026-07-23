@@ -6,6 +6,7 @@ import { CaptureInboxPage } from './pages/CaptureInboxPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
+import { FidcMarketMapPage } from './pages/FidcMarketMapPage';
 import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="companies/:id" element={<CompanyDetailKnowledgePage />} />
+        <Route path="market-map" element={<FidcMarketMapPage />} />
         <Route path="watch-lists" element={<WatchListPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="capture-inbox" element={<CaptureInboxPage />} />
