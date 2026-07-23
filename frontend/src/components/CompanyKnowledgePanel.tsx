@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, EmptyState, Pill, Stat } from './UI';
+import { KnowledgeExecutionPanel } from './KnowledgeExecutionPanel';
 import { useAuth } from '../lib/auth';
 import { knowledgeVaultApi } from '../lib/knowledgeVaultApi';
 import type { KnowledgeCompanyWorkspace, KnowledgeNodeDetail } from '../lib/knowledgeVaultTypes';
@@ -108,7 +109,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
   return (
     <Card
       title="Knowledge Vault / Memória da empresa"
-      subtitle="Teses, sinais, outputs e evidências rastreáveis conectados ao Company Master"
+      subtitle="Teses, evidências, ações e resultados conectados ao Company Master e ao pipeline real"
       className="dense-card company-knowledge-card"
       tone="accent"
     >
@@ -116,6 +117,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
         <div className="pill-row">
           <Pill tone="info">{workspace?.nodes.length ?? 0} notas</Pill>
           <Pill tone="success">{referenceCount} evidências</Pill>
+          <Pill tone="info">{workspace?.execution.executions.length ?? 0} ações rastreáveis</Pill>
           <Pill tone="default">{capturedMonitoringOutputs}/{workspace?.monitoringOutputs.length ?? 0} outputs preservados</Pill>
           <Pill tone="warning">{capturedSignals}/{workspace?.signals.length ?? 0} sinais capturados</Pill>
         </div>
@@ -125,7 +127,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
         </div>
       </div>
 
-      {loading ? <p className="table-helper">Carregando memória, outputs, sinais e qualificação reais...</p> : null}
+      {loading ? <p className="table-helper">Carregando memória, execução, outputs, sinais e qualificação reais...</p> : null}
       {error ? <div className="data-banner data-banner-warning"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
       {notice ? (
         <div className="data-banner data-banner-success">
@@ -197,6 +199,13 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
               <EmptyState title={`Ainda não há memória consolidada para ${workspace.company.name}.`} description="Gere a tese, preserve um output, capture um sinal ou crie uma nota manual vinculada à empresa." />
             )}
           </section>
+
+          <KnowledgeExecutionPanel
+            companyId={companyId}
+            nodes={workspace.nodes}
+            execution={workspace.execution}
+            onRefresh={loadWorkspace}
+          />
 
           <section className="company-knowledge-section company-knowledge-monitoring">
             <div className="company-knowledge-section-head">
