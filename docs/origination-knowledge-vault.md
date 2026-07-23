@@ -148,8 +148,18 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] capturas concorrentes serializadas no banco;
 - [x] teste transacional real com criação de duas notas e rollback;
 - [x] painel implementado no Company Detail;
-- [ ] CI da PR concluído;
-- [ ] preview e produção validados após merge.
+- [x] CI da PR #207 concluído com sucesso;
+- [x] preview e produção validados após merge;
+- [x] domínio canônico respondeu HTTP 200 no Company Detail;
+- [x] deployment de produção sem logs de erro ou fatal no smoke inicial.
+
+## Rollout de produção
+
+- PR funcional: `#207`;
+- commit da `main`: `b7694c7f0561abda9dddfaf1344e41d8c7cfb656`;
+- Supabase oficial: `hdghpmssudrqhsbvrdyt`;
+- deployment Vercel: `dpl_2ykjcVJSHz4RifAZEAKYJzjPzXsS`;
+- domínio canônico: `motor-originac-srm.vercel.app`.
 
 ## Regra de produto
 
