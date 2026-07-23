@@ -180,7 +180,7 @@ export function CaptureInboxPage() {
       />
 
       <DataStatusBanner source="real" note="A fila usa dados reais do Supabase. Classificações genéricas de perfil foram removidas quando não havia evidência individual." />
-      {error ? <Card title="Atenção operacional" subtitle="Ação não executada" tone="warning">{error}</Card> : null}
+      {error ? <Card title="Atenção operacional" subtitle="Ação não executada" tone="accent">{error}</Card> : null}
 
       <section className="grid cols-4">
         <Card title="Runs" subtitle="Execuções registradas"><Stat label="Total" value={String(runs.length)} helper="captures por search profile" /></Card>
