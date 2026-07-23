@@ -58,6 +58,10 @@ A migration `076_knowledge_company_workspace.sql` adiciona:
 A migration `077_knowledge_vault_function_grants_hardening.sql` remove acesso `PUBLIC`/`anon`
 de todas as funções do Vault e mantém execução apenas para `authenticated` e `service_role`.
 
+A migration `078_knowledge_capture_concurrency_lock.sql` serializa capturas por evidência com
+transaction advisory locks. Cliques ou requisições simultâneas reutilizam a mesma nota em vez de
+criar duplicidades de sinais ou teses.
+
 ## Fluxo manual
 
 1. O usuário abre **Knowledge Vault** no menu.
@@ -76,6 +80,7 @@ de todas as funções do Vault e mantém execução apenas para `authenticated` 
 5. **Capturar sinal** cria uma nota `signal` baseada na evidência real.
 6. `knowledge_references` preserva o ID e um snapshot da evidência original.
 7. Uma segunda captura da mesma evidência é idempotente: abre/reutiliza a nota existente.
+8. Requisições concorrentes são serializadas no banco para impedir notas duplicadas.
 
 ## Exemplo de tese
 
@@ -140,6 +145,7 @@ Diligência de carteira, funding, governança e sponsor interno.
 - [x] RPC consolidada por empresa;
 - [x] captura idempotente de sinal;
 - [x] geração idempotente de tese por qualification snapshot;
+- [x] capturas concorrentes serializadas no banco;
 - [x] teste transacional real com criação de duas notas e rollback;
 - [x] painel implementado no Company Detail;
 - [ ] CI da PR concluído;
