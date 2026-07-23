@@ -29,6 +29,10 @@
     "api/agentetome.ts": {
       "maxDuration": 30,
       "memory": 512
+    },
+    "api/fidc-market-map.ts": {
+      "maxDuration": 20,
+      "memory": 512
     }
   },
   "crons": [
@@ -65,6 +69,10 @@
     {
       "source": "/api/sources/agentetome/:operation",
       "destination": "/api/agentetome?operation=:operation"
+    },
+    {
+      "source": "/api/market-map/fidc",
+      "destination": "/api/fidc-market-map"
     },
     {
       "source": "/api/:path*",
