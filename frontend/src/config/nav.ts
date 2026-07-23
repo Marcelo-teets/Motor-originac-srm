@@ -31,6 +31,13 @@ export const navItems = [
     group: 'Radar',
   },
   {
+    to: '/market-map',
+    label: 'Market Map FIDC',
+    shortLabel: 'Comparáveis FIDC',
+    description: 'Fundos comparáveis por PL, carteira, inadimplência, subordinação e qualidade operacional.',
+    group: 'Radar',
+  },
+  {
     to: '/watch-lists',
     label: 'Watch Lists',
     shortLabel: 'Watchlist',
