@@ -155,3 +155,14 @@ Após o MCP/API estar operacional e um pacote real ser inspecionado, implementar
 6. resolução CNPJ/nome com Company Master;
 7. sinais `existing_fidc_structure`, `fidc_admin_relationship`, `receivables_aging_quality` e `fund_operational_quality`;
 8. integração explicável em market map, thesis e comparables, sem sobrescrever evidência CVM oficial.
+
+## Validação de Preview — 23/07/2026
+
+- deployment Vercel da PR #209 concluído em estado `READY`;
+- rota direta `/api/agentetome?operation=status` e rewrite canônico `/api/sources/agentetome/status` validados;
+- chamadas sem bearer retornam `401` em JSON, como esperado;
+- headers `X-Origination-Runtime: agentetome-v1` e `Cache-Control: no-store` confirmados;
+- a falha inicial `FUNCTION_INVOCATION_FAILED` foi corrigida com handler Vercel resiliente, autenticação Supabase via REST e import dinâmico capturável;
+- CI, Strategic Public Data e Public Data Operations Validation concluídos com sucesso.
+
+O probe autenticado contra o provedor continua condicionado à configuração de `AGENTETOME_API_KEY` nos ambientes Vercel.
