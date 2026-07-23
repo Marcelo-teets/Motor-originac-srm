@@ -1,0 +1,21 @@
+# Agentetome export ingestion — acceptance checklist
+
+- [x] API key read only from Supabase Vault.
+- [x] Export requested through authenticated MCP.
+- [x] Provider host allowlisted.
+- [x] Signed URL never persisted.
+- [x] One-time token stored only as SHA-256.
+- [x] Private Storage bucket.
+- [x] ZIP size and SHA-256 validated.
+- [x] Schema version validated.
+- [x] Expected files and row counts validated.
+- [x] Bronze keys idempotent.
+- [x] Package, operation, connector, document and dataset lineage persisted.
+- [x] Recovery from private package validated.
+- [x] Recovery idempotency smoke returned HTTP 200.
+- [x] FIDC silver events created.
+- [x] Service-role-only market-map view created.
+- [x] Company Master exact resolution attempted.
+- [x] No automatic score impact without entity resolution.
+- [x] Security advisor has no Agentetome-specific warning.
+- [x] Rate limit respected.
