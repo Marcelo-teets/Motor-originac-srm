@@ -1,5 +1,6 @@
 import type { CompanySeed, SearchProfile } from '../types/platform.js';
-import { candidateDraftToCompanySeed, discoveryHitToCandidateDraft, type DiscoveredCandidateDraft } from '../lib/candidatePromotion.js';
+import { discoveryHitToCandidateDraft, type DiscoveredCandidateDraft } from '../lib/candidatePromotion.js';
+import { assertCandidatePromotionReady } from '../lib/candidatePromotionReadiness.js';
 import { runSearchProfileDiscovery } from '../lib/discoveryCapture.js';
 import { findBestCompanyMatch, type ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
 
@@ -145,35 +146,36 @@ export class SearchProfileCaptureService {
   async promoteCandidate(candidateId: string) {
     const candidate = await this.adapter.getDiscoveredCandidate(candidateId);
     if (!candidate) throw new Error(`Candidate not found: ${candidateId}`);
-    if (candidate.candidateStatus === 'discarded') throw new Error(`Discarded candidate cannot be promoted: ${candidateId}`);
 
-    const companySeed = candidateDraftToCompanySeed(candidate);
-    const companyResult = await this.adapter.upsertCompanySeed(companySeed);
+    // Promotion is now a finalization step for an already reviewed and linked
+    // real company. It never creates a Company Master row from a name-only hit.
+    assertCandidatePromotionReady(candidate);
+    const companyId = candidate.companyId!;
 
     await this.adapter.linkCandidateToCompany(
-      companyResult.companyId,
+      companyId,
       candidateId,
       candidate.confidence,
-      candidate.companyId ? 'deduped_promotion' : 'manual_promotion',
+      'reviewed_identity_promotion',
     );
 
     const promoted = await this.adapter.updateDiscoveredCandidate(candidateId, {
       candidateStatus: 'promoted',
-      companyId: companyResult.companyId,
+      companyId,
       promotedAt: nowIso(),
     });
 
     if (this.hooks.refreshMonitoring) {
-      await this.hooks.refreshMonitoring(companyResult.companyId).catch(() => undefined);
+      await this.hooks.refreshMonitoring(companyId).catch(() => undefined);
     }
 
     if (this.hooks.recomputeDerivedData) {
-      await this.hooks.recomputeDerivedData(companyResult.companyId).catch(() => undefined);
+      await this.hooks.recomputeDerivedData(companyId).catch(() => undefined);
     }
 
     return {
-      companyId: companyResult.companyId,
-      created: companyResult.created,
+      companyId,
+      created: false,
       candidate: promoted,
     };
   }
