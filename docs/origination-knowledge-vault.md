@@ -7,13 +7,10 @@ Ele foi inspirado nos princípios mais úteis do Obsidian, mas não é um editor
 Cada conhecimento precisa melhorar uma decisão de originação: quem priorizar, o que mudou,
 por que importa financeiramente, qual estrutura faz sentido, por que agora e qual é a próxima ação.
 
-## O que ficou real nesta primeira entrega
+## Capacidades reais
 
 - notas em Markdown;
-- `[[WikiLinks]]` entre notas;
-- resolução automática de links por slug;
-- backlinks;
-- grafo de notas e empresas;
+- `[[WikiLinks]]`, backlinks e grafo;
 - vínculo direto com `companies`;
 - tipos próprios de originação;
 - tags e propriedades JSON;
@@ -21,9 +18,13 @@ por que importa financeiramente, qual estrutura faz sentido, por que agora e qua
 - histórico automático de versões;
 - busca textual em português;
 - filtros por tipo e empresa;
-- arquivamento sem apagar o histórico;
+- arquivamento auditável;
 - RLS no Supabase;
-- workspace interno em `/knowledge-vault`.
+- workspace interno em `/knowledge-vault`;
+- painel de memória dentro do Company Detail;
+- captura de sinais reais em notas;
+- geração de tese a partir do último `qualification_snapshot`;
+- referências auditáveis para sinais, monitoring outputs, qualification e pipeline.
 
 ## Tipos de conhecimento
 
@@ -47,88 +48,102 @@ A migration `060_origination_knowledge_vault.sql` cria:
 - `knowledge_node_versions`: snapshots auditáveis;
 - `knowledge_saved_views`: fundação para views no estilo Bases.
 
-Funções RPC expostas somente para usuários autenticados:
+A migration `076_knowledge_company_workspace.sql` adiciona:
 
-- `knowledge_list_nodes`;
-- `knowledge_get_node`;
-- `knowledge_save_node`;
-- `knowledge_archive_node`;
-- `knowledge_graph_snapshot`;
-- `refresh_knowledge_links`.
+- `knowledge_references`: vínculo auditável entre uma nota e a evidência operacional que a originou;
+- `knowledge_company_workspace`: leitura consolidada da memória, qualification, sinais, monitoring e pipeline de uma empresa;
+- `knowledge_capture_signal_note`: transforma um `company_signal` real em nota rastreável;
+- `knowledge_capture_qualification_note`: transforma o último snapshot em tese estruturada.
 
-O frontend usa o JWT já emitido pelo Supabase Auth. As operações passam pelas políticas RLS;
-não há service role no navegador.
+A migration `077_knowledge_vault_function_grants_hardening.sql` remove acesso `PUBLIC`/`anon`
+de todas as funções do Vault e mantém execução apenas para `authenticated` e `service_role`.
 
-## Fluxo de uso
+## Fluxo manual
 
 1. O usuário abre **Knowledge Vault** no menu.
-2. Cria uma nota ou escolhe um template de tese, reunião ou playbook.
-3. Vincula a nota a uma empresa do Company Master quando aplicável.
-4. Escreve em Markdown e usa `[[Nome da nota]]` para conectar conhecimentos.
+2. Cria uma nota ou escolhe um template.
+3. Vincula a nota a uma empresa.
+4. Escreve em Markdown e usa `[[Nome da nota]]`.
 5. Salva.
-6. O Supabase cria uma versão, recompõe os links e atualiza os backlinks.
-7. A nota passa a aparecer na busca, nos filtros e no grafo.
+6. O Supabase cria uma versão, recompõe os links e atualiza backlinks.
+
+## Fluxo pelo Company Detail
+
+1. O usuário abre uma empresa.
+2. O painel **Knowledge Vault / Memória da empresa** carrega dados reais.
+3. O painel mostra o último snapshot de qualificação, notas e sinais.
+4. **Gerar / abrir tese** cria uma nota `thesis` baseada no snapshot mais recente.
+5. **Capturar sinal** cria uma nota `signal` baseada na evidência real.
+6. `knowledge_references` preserva o ID e um snapshot da evidência original.
+7. Uma segunda captura da mesma evidência é idempotente: abre/reutiliza a nota existente.
 
 ## Exemplo de tese
 
 ```md
-# Tese preliminar
+# Tese de crédito
 
-## O que mudou
-- A empresa acelerou concessão de crédito aos clientes.
-- O crescimento da carteira parece superar o funding disponível.
+## Diagnóstico atual
+- Qualification score
+- Funding need
+- Urgência
+- Confiança das fontes
+- Funding gap
+- Fit FIDC / DCM
 
-## Por que importa
-O padrão se aproxima de [[Receivables strong / funding weak]].
+## Rationale
+Leitura da estrutura de capital e do padrão dominante.
 
 ## Estrutura sugerida
-Avaliar [[FIDC de recebíveis comerciais]] com conta vinculada e critérios de elegibilidade.
+FIDC, DCM ou estrutura alternativa conforme evidências.
 
 ## Próxima ação
-Validar carteira, aging, concentração, inadimplência e estrutura atual de funding.
+Diligência de carteira, funding, governança e sponsor interno.
 ```
 
 ## Integração com o motor
 
-### Agora
+### Implementado
 
-- Company Master: vínculo por `company_id`;
-- Originação: teses, reuniões, estruturas e playbooks no mesmo grafo;
-- Supabase Auth: identidade do criador e do último editor;
-- Governança: versões e visibilidade.
+- Company Master por `company_id`;
+- `company_signals`;
+- último `qualification_snapshot`;
+- leitura de `monitoring_outputs`;
+- leitura do estágio e próxima ação do `pipeline`;
+- histórico, visibilidade e identidade via Supabase Auth;
+- painel operacional no Company Detail.
 
-### Próxima fatia
+### Próximas fatias
 
-- criar notas automaticamente a partir de novos sinais relevantes;
-- adicionar bloco do Vault no Company Detail;
-- conectar notas a `company_signals`, `monitoring_outputs`, `qualification_snapshots` e pipeline;
+- capturar `monitoring_outputs` diretamente no Vault;
+- vincular notas a atividades e mudanças de estágio do pipeline;
 - criar views salvas no estilo Bases;
-- incluir pesquisa semântica com `pgvector`;
-- usar o Vault como contexto controlado do Copilot;
-- gerar briefing pré-call e memo de comitê a partir do subgrafo da empresa.
+- pesquisa semântica com `pgvector`;
+- usar o subgrafo como contexto controlado do Copilot;
+- briefing pré-call e memo de comitê gerados a partir das evidências selecionadas;
+- regras de captura automática apenas para sinais acima de thresholds aprovados.
 
-## Critérios de aceite da V1
+## Critérios de aceite
+
+### V1
 
 - [x] migration aplicada no Supabase real;
-- [x] tabelas e índices criados;
-- [x] RLS habilitado;
-- [x] RPCs autenticadas;
-- [x] teste transacional de criação, versão, WikiLink e backlink;
-- [x] rota frontend protegida por Auth;
-- [x] busca e filtros;
-- [x] editor Markdown;
-- [x] preview, conexões e grafo;
-- [x] PR #200 revisada pelo CI e integrada à `main`;
-- [x] preview Vercel em estado `READY`, carregando `/knowledge-vault` e o bundle da funcionalidade;
-- [ ] smoke test autenticado no domínio canônico após o deployment de produção.
+- [x] RLS e RPCs autenticadas;
+- [x] criação, versão, WikiLink e backlink testados com rollback;
+- [x] editor, preview, busca, filtros e grafo;
+- [x] PR #200 integrada e produção validada.
 
-## Evidências do rollout
+### Company Workspace V2
 
-- merge principal: `1964e9d4a9566cb1869502302d97d1dfede93a55`;
-- CI: typecheck e build de frontend e backend concluídos com sucesso;
-- Supabase: teste transacional com rollback validou criação, versionamento, WikiLink e backlink;
-- Vercel preview: deployment final da branch em estado `READY`;
-- produção: novo evento de deployment solicitado por esta atualização de rollout.
+- [x] schema aplicado no Supabase real;
+- [x] referências auditáveis com RLS;
+- [x] acesso `anon` removido de tabelas e funções do Vault;
+- [x] RPC consolidada por empresa;
+- [x] captura idempotente de sinal;
+- [x] geração idempotente de tese por qualification snapshot;
+- [x] teste transacional real com criação de duas notas e rollback;
+- [x] painel implementado no Company Detail;
+- [ ] CI da PR concluído;
+- [ ] preview e produção validados após merge.
 
 ## Regra de produto
 
