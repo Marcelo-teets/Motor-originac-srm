@@ -1,0 +1,84 @@
+.fidc-market-map-page { align-content: start; }
+
+.fidc-kpi-strip { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+.fidc-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(150px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.fidc-filter-grid label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.fidc-filter-grid label > span {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.fidc-filter-wide { grid-column: span 2; }
+
+.fidc-filter-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.fidc-use-grid .card { min-height: 175px; }
+.fidc-use-grid .table-helper { margin-top: 12px; line-height: 1.55; }
+
+.fidc-results-card { overflow: hidden; }
+.fidc-table-wrap { overflow-x: auto; margin: 0 -2px; }
+.fidc-table { min-width: 1180px; }
+.fidc-table th:nth-child(1) { width: 30%; }
+.fidc-table th:nth-child(2) { width: 14%; }
+.fidc-table th:nth-child(3) { width: 13%; }
+.fidc-table th:nth-child(4) { width: 12%; }
+.fidc-table th:nth-child(5) { width: 19%; }
+.fidc-table th:nth-child(6) { width: 12%; }
+
+.fidc-table td { vertical-align: top; }
+.fidc-table td > strong { display: block; margin-bottom: 5px; line-height: 1.35; }
+.fidc-fund-cell > strong { color: var(--text); }
+.fidc-row-flags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.fidc-row-flags .pill { padding: 3px 7px; font-size: 10px; }
+
+.fidc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+@media (max-width: 1280px) {
+  .fidc-kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fidc-filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .fidc-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fidc-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fidc-filter-wide { grid-column: span 2; }
+  .fidc-use-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .fidc-kpi-strip, .fidc-filter-grid { grid-template-columns: 1fr; }
+  .fidc-filter-wide { grid-column: auto; }
+  .fidc-filter-actions { align-items: stretch; }
+  .fidc-filter-actions button { flex: 1; }
+  .fidc-pagination { align-items: stretch; flex-direction: column; }
+}
