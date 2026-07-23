@@ -12,7 +12,6 @@ import {
   type AgenteTomeAuditInput,
   type AgenteTomeCut,
   type AgenteTomeExportFormat,
-  type AgenteTomeOperation,
 } from '../backend/src/lib/agenteTome.js';
 
 const MAX_JSON_BODY_BYTES = 7_250_000;
@@ -79,10 +78,15 @@ async function auditedCall<T extends { data: Record<string, any>; httpStatus: nu
   const startedAt = Date.now();
   try {
     const result = await runner();
+    const runtimeMetadata = result as T & { requestFingerprint?: string; xmlBytes?: number };
     await recordAgenteTomeOperation({
       ...input,
+      requestFingerprint: input.requestFingerprint ?? runtimeMetadata.requestFingerprint,
       status: result.providerError ? 'partial' : 'completed',
-      responseSummary: summarizeAgenteTomePayload(input.operation, result.data),
+      responseSummary: {
+        ...summarizeAgenteTomePayload(input.operation, result.data),
+        ...(typeof runtimeMetadata.xmlBytes === 'number' ? { xmlBytes: runtimeMetadata.xmlBytes } : {}),
+      },
       httpStatus: result.httpStatus,
       retryAfterSeconds: result.retryAfterSeconds,
       durationMs: result.durationMs,
@@ -118,10 +122,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const operation = operationFromUrl(url);
 
     if (operation === 'status' && req.method === 'GET') {
+      const runtimeStatus = getAgenteTomeRuntimeStatus();
       writeJson(res, 200, {
-        status: getAgenteTomeRuntimeStatus().status,
+        status: runtimeStatus.status,
         generatedAt: new Date().toISOString(),
-        data: getAgenteTomeRuntimeStatus(),
+        data: runtimeStatus,
       });
       return;
     }
@@ -173,10 +178,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const result = await auditedCall({
         operation: 'validate_fidc_xml',
         requestedBy: user.id,
-      }, async () => {
-        const validation = await validateAgenteTomeXml(xmlBase64);
-        return validation;
-      });
+      }, () => validateAgenteTomeXml(xmlBase64));
       const ok = result.data.ok === true && !result.providerError;
       writeJson(res, ok ? 200 : 207, {
         status: ok ? 'real' : 'partial',
