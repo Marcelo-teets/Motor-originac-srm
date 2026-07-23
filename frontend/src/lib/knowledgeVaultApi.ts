@@ -8,9 +8,11 @@ import type {
   KnowledgeNodeSummary,
   KnowledgeOutgoingLink,
   KnowledgeReference,
+  KnowledgeSavedView,
   KnowledgeVersion,
   KnowledgeVisibility,
   SaveKnowledgeNodeInput,
+  SaveKnowledgeViewInput,
 } from './knowledgeVaultTypes';
 
 const env = import.meta.env;
@@ -66,6 +68,21 @@ type DetailRow = {
   backlinks: KnowledgeBacklink[] | null;
   versions: KnowledgeVersion[] | null;
   references: KnowledgeReference[] | null;
+};
+
+type SavedViewRow = {
+  id: string;
+  name: string;
+  description: string;
+  view_type: KnowledgeSavedView['viewType'];
+  filters: KnowledgeSavedView['filters'] | null;
+  sort_config: KnowledgeSavedView['sortConfig'] | null;
+  columns: string[] | null;
+  is_shared: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  can_edit: boolean;
 };
 
 const requireConfiguration = () => {
@@ -143,6 +160,21 @@ const mapDetail = (row: DetailRow): KnowledgeNodeDetail => ({
   references: row.references ?? [],
 });
 
+const mapSavedView = (row: SavedViewRow): KnowledgeSavedView => ({
+  id: row.id,
+  name: row.name,
+  description: row.description ?? '',
+  viewType: row.view_type,
+  filters: row.filters ?? {},
+  sortConfig: row.sort_config ?? {},
+  columns: row.columns ?? [],
+  isShared: row.is_shared,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  canEdit: row.can_edit,
+});
+
 export const knowledgeVaultApi = {
   listNodes: async (
     session: SessionData | null,
@@ -186,6 +218,28 @@ export const knowledgeVaultApi = {
       p_company_id: companyId || null,
       p_limit: 160,
     })
+  ),
+
+  listSavedViews: async (session: SessionData | null) => {
+    const rows = await rpc<SavedViewRow[]>(session, 'knowledge_list_saved_views', {});
+    return rows.map(mapSavedView);
+  },
+
+  saveView: async (session: SessionData | null, input: SaveKnowledgeViewInput) => {
+    return rpc<KnowledgeSavedView>(session, 'knowledge_save_view', {
+      p_view_id: input.id ?? null,
+      p_name: input.name,
+      p_description: input.description ?? '',
+      p_view_type: input.viewType ?? 'table',
+      p_filters: input.filters,
+      p_sort_config: input.sortConfig ?? {},
+      p_columns: input.columns ?? [],
+      p_is_shared: input.isShared ?? false,
+    });
+  },
+
+  deleteView: (session: SessionData | null, viewId: string) => (
+    rpc<boolean>(session, 'knowledge_delete_view', { p_view_id: viewId })
   ),
 
   getCompanyWorkspace: async (session: SessionData | null, companyId: string) => {
