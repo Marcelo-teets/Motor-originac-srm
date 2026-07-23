@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: vercel-production-promotion
@@ -22,6 +23,7 @@ jobs:
     env:
       VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
       VERCEL_TEAM_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      PROMOTION_ISSUE: "223"
 
     steps:
       - name: Checkout
@@ -35,6 +37,7 @@ jobs:
           deployment_id="$(jq -r '.deploymentId // empty' ops/vercel-promotion.json)"
           enabled="$(jq -r '.enabled // false' ops/vercel-promotion.json)"
           source_commit="$(jq -r '.sourceCommit // empty' ops/vercel-promotion.json)"
+          requested_at="$(jq -r '.requestedAt // empty' ops/vercel-promotion.json)"
 
           if [[ ! "$deployment_id" =~ ^dpl_[A-Za-z0-9]+$ ]]; then
             echo "Invalid Vercel deployment id." >&2
@@ -48,18 +51,25 @@ jobs:
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
           echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "requested_at=$requested_at" >> "$GITHUB_OUTPUT"
 
       - name: Check Vercel token
         id: token
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           if [[ -n "${VERCEL_TOKEN:-}" ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "VERCEL_TOKEN is not configured; promotion was not attempted." >> "$GITHUB_STEP_SUMMARY"
+            message="[vercel-promotion] token-missing | deployment=${{ steps.control.outputs.deployment_id }} | request=${{ steps.control.outputs.requested_at }} | VERCEL_TOKEN is not configured; promotion was not attempted."
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$PROMOTION_ISSUE/comments" \
+              -f body="$message" >/dev/null
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Promote validated deployment
@@ -67,9 +77,11 @@ jobs:
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           DEPLOYMENT_ID: ${{ steps.control.outputs.deployment_id }}
+          REQUESTED_AT: ${{ steps.control.outputs.requested_at }}
         run: |
-          set -euo pipefail
+          set -u
           response_file="$(mktemp)"
           http_code="$(curl --silent --show-error \
             --output "$response_file" \
@@ -78,14 +90,29 @@ jobs:
             --header "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/promote/$DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID")"
 
-          if [[ "$http_code" != "201" && "$http_code" != "202" ]]; then
-            cat "$response_file" >&2
-            echo "Vercel promotion failed with HTTP $http_code." >&2
-            exit 1
+          if [[ "$http_code" == "201" || "$http_code" == "202" ]]; then
+            message="[vercel-promotion] success | deployment=$DEPLOYMENT_ID | request=$REQUESTED_AT | HTTP $http_code"
+            exit_code=0
+          else
+            response_preview="$(tr '\n' ' ' < "$response_file" | cut -c1-500)"
+            message="[vercel-promotion] failure | deployment=$DEPLOYMENT_ID | request=$REQUESTED_AT | HTTP $http_code | response=$response_preview"
+            exit_code=1
           fi
 
-          echo "Promoted $DEPLOYMENT_ID to production (HTTP $http_code)." >> "$GITHUB_STEP_SUMMARY"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/issues/$PROMOTION_ISSUE/comments" \
+            -f body="$message" >/dev/null
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit "$exit_code"
 
       - name: Report disabled promotion
         if: steps.control.outputs.enabled != 'true'
-        run: echo "Promotion control is disabled." >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          message="[vercel-promotion] disabled | deployment=${{ steps.control.outputs.deployment_id }} | request=${{ steps.control.outputs.requested_at }}"
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/issues/$PROMOTION_ISSUE/comments" \
+            -f body="$message" >/dev/null
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
