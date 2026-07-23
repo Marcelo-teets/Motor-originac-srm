@@ -109,7 +109,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
         <div className="data-banner data-banner-success">
           <Pill tone="success">ok</Pill>
           <span>{notice}</span>
-          {lastCaptured ? <Link to={vaultHref}>Abrir nota</Link> : null}
+          {lastCaptured ? <Link to={vaultHref}>Abrir Vault</Link> : null}
         </div>
       ) : null}
 
@@ -162,7 +162,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
             {workspace.nodes.length ? (
               <div className="company-knowledge-notes">
                 {workspace.nodes.slice(0, 6).map((node) => (
-                  <Link key={node.id} to={vaultHref} className="company-knowledge-note">
+                  <Link key={node.id} to={vaultHref} className="company-knowledge-note" title="Abrir no Knowledge Vault">
                     <div>
                       <strong>{node.title}</strong>
                       <span>{node.nodeType} · {node.referenceCount ?? 0} evidências · {node.backlinkCount} backlinks</span>
@@ -197,7 +197,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
                       <small>{signal.isExplicit ? 'explícito' : 'inferido'} · {formatDate(signal.observedAt)}</small>
                     </div>
                     {signal.capturedNodeId ? (
-                      <Link className="button secondary compact-button" to={vaultHref}>Abrir nota</Link>
+                      <Link className="button secondary compact-button" to={vaultHref}>Abrir Vault</Link>
                     ) : (
                       <button
                         type="button"
