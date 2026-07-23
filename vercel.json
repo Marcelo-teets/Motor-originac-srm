@@ -25,6 +25,10 @@
     "api/strategic-public-data-run.ts": {
       "maxDuration": 300,
       "memory": 2048
+    },
+    "api/agentetome.ts": {
+      "maxDuration": 30,
+      "memory": 512
     }
   },
   "crons": [
@@ -53,6 +57,14 @@
     {
       "source": "/api/sources/strategic-run",
       "destination": "/api/strategic-public-data-run"
+    },
+    {
+      "source": "/api/sources/agentetome",
+      "destination": "/api/agentetome?operation=status"
+    },
+    {
+      "source": "/api/sources/agentetome/:operation",
+      "destination": "/api/agentetome?operation=:operation"
     },
     {
       "source": "/api/:path*",
