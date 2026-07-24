@@ -1,0 +1,42 @@
+name: Diagnose Candidate Decision Queue
+
+on:
+  push:
+    branches:
+      - feat/candidate-decision-queue
+    paths:
+      - .github/workflows/diagnose-candidate-queue.yml
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Capture frontend diagnostics
+        shell: bash
+        run: |
+          set +e
+          npm -C frontend run typecheck > candidate-queue-typecheck.log 2>&1
+          STATUS=$?
+          TAIL=$(tail -n 120 candidate-queue-typecheck.log | sed 's/`/\`/g')
+          BODY=$(cat <<EOF
+          Candidate Decision Queue frontend diagnostics (exit ${STATUS}):
+
+          \`\`\`text
+          ${TAIL}
+          \`\`\`
+          EOF
+          )
+          gh issue comment 294 --repo "${{ github.repository }}" --body "$BODY"
+          exit 0
+        env:
+          GH_TOKEN: ${{ github.token }}
