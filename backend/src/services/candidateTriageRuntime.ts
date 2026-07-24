@@ -27,7 +27,7 @@ type UserProfileRow = { id: string; role: string; status: string };
 export class CandidateTriageRuntime {
   private readonly client = getSupabaseClient();
 
-  private async assertGodMode(userId: string) {
+  async requireGodMode(userId: string) {
     if (!this.client) throw new Error('Supabase is required for candidate triage.');
     const rows = await this.client.select('user_profiles', {
       select: 'id,role,status',
@@ -40,10 +40,11 @@ export class CandidateTriageRuntime {
       error.statusCode = 403;
       throw error;
     }
+    return profile;
   }
 
   async list(userId: string, query: CandidateTriageQuery = {}) {
-    await this.assertGodMode(userId);
+    await this.requireGodMode(userId);
     if (!this.client) throw new Error('Supabase is required for candidate triage.');
     const limit = Math.max(1, Math.min(Math.trunc(Number(query.limit ?? 100)), 500));
     return this.client.rpc<Record<string, unknown>>('get_candidate_identity_triage', {
@@ -60,7 +61,7 @@ export class CandidateTriageRuntime {
     finalEntityType: CandidateEntityType;
     reviewNotes?: string;
   }) {
-    await this.assertGodMode(input.userId);
+    await this.requireGodMode(input.userId);
     if (!this.client) throw new Error('Supabase is required for candidate classification review.');
     return this.client.rpc<Record<string, unknown>>('confirm_candidate_entity_classification', {
       p_candidate_id: input.candidateId,
