@@ -10,6 +10,7 @@ import type { PublicBulkResource } from '../modules/public-data/publicBulkDatase
 
 const STALE_RUN_MS = 6 * 60 * 60 * 1_000;
 const BATCH_SIZE = 100;
+const TARGET_ELIGIBILITY_POLICY = 'real_identity_verified_monitoring_v1';
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 const sourceCodeFor = (dataset: StrategicPublicDatasetCode) => ({
@@ -25,6 +26,40 @@ export type StrategicPublicIngestionOptions = {
   triggerType?: 'manual' | 'schedule' | 'backfill';
   discoverOnly?: boolean;
   fullCoverage?: boolean;
+};
+
+export type StrategicTargetCompanyRow = {
+  id: string;
+  cnpj: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export const normalizeCnpj = (value: unknown) => String(value ?? '').replace(/\D/g, '');
+
+export const isValidCnpj = (value: unknown) => {
+  const digits = normalizeCnpj(value);
+  if (digits.length !== 14 || /^(\d)\1{13}$/.test(digits)) return false;
+
+  const calculateDigit = (base: string, weights: number[]) => {
+    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * weights[index]!, 0);
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+
+  const first = calculateDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = calculateDigit(`${digits.slice(0, 12)}${first}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return digits.endsWith(`${first}${second}`);
+};
+
+export const isEligibleStrategicMonitoringTarget = (row: StrategicTargetCompanyRow) => {
+  const metadata = row.metadata ?? {};
+  return isValidCnpj(row.cnpj)
+    && metadata.data_status === 'real'
+    && metadata.synthetic_seed !== true
+    && metadata.identity_verified === true
+    && metadata.monitoring_eligible === true
+    && metadata.excluded_from_monitoring !== true
+    && metadata.entity_resolution_eligible !== false;
 };
 
 type Summary = {
@@ -154,17 +189,14 @@ export class StrategicPublicIngestionService {
     }
 
     const targetRows = await this.client.select('companies', {
-      select: 'id,cnpj',
+      select: 'id,cnpj,metadata',
       limit: 50_000,
-    }) as Array<{ id: string; cnpj: string | null }>;
-    const targetCnpjs = new Set(
-      targetRows
-        .map((row) => String(row.cnpj ?? '').replace(/\D/g, ''))
-        .filter((cnpj) => cnpj.length === 14),
-    );
+    }) as StrategicTargetCompanyRow[];
+    const eligibleTargets = targetRows.filter(isEligibleStrategicMonitoringTarget);
+    const targetCnpjs = new Set(eligibleTargets.map((row) => normalizeCnpj(row.cnpj)));
     const targetRoots = new Set([...targetCnpjs].map((cnpj) => cnpj.slice(0, 8)));
     if (!targetCnpjs.size) {
-      summary.errors.push('Company Master has no valid CNPJ targets.');
+      summary.errors.push('Company Master has no real, identity-verified, monitoring-eligible CNPJ targets.');
       return summary;
     }
 
@@ -195,6 +227,7 @@ export class StrategicPublicIngestionService {
           maxMatchedRows: options.maxMatchedRows,
           maxResources: options.maxResources,
           targetCompanyCount: targetCnpjs.size,
+          targetEligibilityPolicy: TARGET_ELIGIBILITY_POLICY,
           fullCoverageRequested: options.fullCoverage,
           connectorFamily: 'strategic_public_sources_v1',
         },
@@ -313,6 +346,7 @@ export class StrategicPublicIngestionService {
       metadata: {
         reference: options.reference ?? null,
         targetCompanyCount: targetCnpjs.size,
+        targetEligibilityPolicy: TARGET_ELIGIBILITY_POLICY,
         connectorFamily: 'strategic_public_sources_v1',
         errors: summary.errors,
       },
@@ -329,6 +363,8 @@ export class StrategicPublicIngestionService {
         ...(source.metadata ?? {}),
         implementedRuntime: true,
         implementationPhase: fullCoverage ? 'runtime_active' : 'loader_active_partial_coverage',
+        targetEligibilityPolicy: TARGET_ELIGIBILITY_POLICY,
+        lastTargetCompanyCount: targetCnpjs.size,
         lastLoaderRunAt: finishedAt,
         lastLoaderStatus: summary.status,
         lastRowsScanned: summary.rowsScanned,
