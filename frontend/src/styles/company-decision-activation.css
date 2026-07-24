@@ -1,0 +1,25 @@
+.company-decision-activation-card { scroll-margin-top: 64px; }
+.company-decision-activation-head, .company-decision-activation-footer { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.company-decision-activation-metrics { margin-top: 16px; }
+.company-decision-activation-form { background: var(--surface-subtle, #f8fafc); border: 1px solid var(--border, #d8dee8); border-radius: 14px; display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; padding: 16px; }
+.company-decision-activation-form label { display: flex; flex-direction: column; gap: 6px; }
+.company-decision-activation-form label > span { color: var(--text-muted, #64748b); font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.company-decision-activation-form input, .company-decision-activation-form select, .company-decision-activation-form textarea { box-sizing: border-box; width: 100%; }
+.company-decision-activation-form textarea { resize: vertical; }
+.company-decision-activation-form small { color: var(--text-muted, #64748b); }
+.company-decision-activation-wide { grid-column: 1 / -1; }
+.company-decision-activation-objective { background: var(--surface, #fff); border: 1px solid var(--border, #d8dee8); border-radius: 12px; padding: 14px; }
+.company-decision-activation-objective p { margin: 6px 0 0; }
+.company-decision-activation-confirmation { align-items: flex-start; display: flex !important; flex-direction: row !important; font-size: 13px; gap: 8px !important; line-height: 1.45; max-width: 720px; }
+.company-decision-activation-confirmation input { margin-top: 2px; width: auto; }
+.company-decision-open-action { align-items: flex-start; background: color-mix(in srgb, var(--warning, #f59e0b) 8%, var(--surface, #fff)); border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 32%, var(--border, #d8dee8)); border-radius: 14px; display: flex; gap: 16px; justify-content: space-between; margin-top: 16px; padding: 16px; }
+.company-decision-open-action strong { display: block; margin-top: 4px; }
+.company-decision-open-action p { margin: 8px 0; white-space: pre-line; }
+.company-decision-open-action small { color: var(--text-muted, #64748b); }
+.company-decision-activation-result { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+.company-decision-activation-history { border-top: 1px solid var(--border, #d8dee8); display: grid; gap: 10px; margin-top: 18px; padding-top: 16px; }
+.company-decision-activation-history article { align-items: center; border: 1px solid var(--border, #d8dee8); border-radius: 12px; display: flex; gap: 12px; justify-content: space-between; padding: 12px 14px; }
+.company-decision-activation-history strong, .company-decision-activation-history small { display: block; }
+.company-decision-activation-history small { color: var(--text-muted, #64748b); margin-top: 3px; }
+@media (max-width: 900px) { .company-decision-activation-form, .company-decision-activation-result { grid-template-columns: 1fr; } .company-decision-activation-wide { grid-column: auto; } }
+@media (max-width: 780px) { .company-decision-activation-head, .company-decision-activation-footer, .company-decision-open-action { align-items: stretch; flex-direction: column; } }
