@@ -71,6 +71,15 @@ jobs:
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
+      - name: Compile strategic Vercel function
+        run: npx tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node api/strategic-public-data-run.ts
+      - name: Guard Vercel ESM boundary
+        shell: bash
+        run: |
+          if grep -Eq "^import .*from '../backend/src/" api/strategic-public-data-run.ts; then
+            echo "Static backend imports are not allowed in the Vercel CommonJS wrapper. Use dynamic import()."
+            exit 1
+          fi
       - name: Test bounded ZIP reader and strategic connector
         working-directory: backend
         run: npx tsx --test src/lib/zipArchive.test.ts src/modules/public-data/strategicPublicDatasetConnector.test.ts
