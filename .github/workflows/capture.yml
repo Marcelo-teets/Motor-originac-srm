@@ -1,11 +1,22 @@
 name: Capture Data
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/capture.yml
+      - scripts/capture/bounded-capture-fanout.sh
+      - api/bounded-capture-*.ts
+      - backend/src/services/capture*Service.ts
+      - backend/src/lib/boundedCapture.ts
+      - backend/src/lib/captureAudit.ts
   push:
     branches:
       - main
     paths:
       - .github/workflows/capture.yml
+      - scripts/capture/bounded-capture-fanout.sh
       - api/bounded-capture-*.ts
       - backend/src/modules/data-capture/**
       - backend/src/services/capture*Service.ts
@@ -22,7 +33,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate_fanout:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate bounded fanout shell
+        shell: bash
+        run: bash -n scripts/capture/bounded-capture-fanout.sh
+
   run_capture:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -32,99 +53,7 @@ jobs:
       MAX_PARALLELISM: "3"
 
     steps:
-      - name: Validate capture configuration
+      - uses: actions/checkout@v4
+      - name: Run bounded company-source fanout
         shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${CAPTURE_TOKEN:-}" || (echo "capture token is missing" && exit 1)
-          test -n "${TARGETS_URL:-}" || (echo "targets url is missing" && exit 1)
-          test -n "${CAPTURE_URL:-}" || (echo "capture url is missing" && exit 1)
-
-      - name: Load authorized fanout targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          http_code="$(curl --silent --show-error \
-            --output targets.json \
-            --write-out '%{http_code}' \
-            --max-time 25 \
-            --header "Authorization: Bearer ${CAPTURE_TOKEN}" \
-            "${TARGETS_URL}")"
-          if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
-            echo "Target discovery failed with HTTP $http_code" >&2
-            cat targets.json >&2
-            exit 1
-          fi
-          jq -e '.data.policy.boundedScopeRequired == true' targets.json >/dev/null
-          jq -r '.data.targets[] | [.companyId, .sourceId, .companyName, .sourceName] | @tsv' targets.json > capture-targets.tsv
-          echo "companies=$(jq -r '.data.counts.companies' targets.json)" >> "$GITHUB_STEP_SUMMARY"
-          echo "sources=$(jq -r '.data.counts.sources' targets.json)" >> "$GITHUB_STEP_SUMMARY"
-          echo "targets=$(jq -r '.data.counts.targets' targets.json)" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Execute bounded captures
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p capture-results
-          if [[ ! -s capture-targets.tsv ]]; then
-            echo "No monitoring-eligible capture targets." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          capture_pair() {
-            local company_id="$1"
-            local source_id="$2"
-            local company_name="$3"
-            local source_name="$4"
-            local key body_file status_file http_code curl_exit
-            key="$(printf '%s|%s' "$company_id" "$source_id" | sha256sum | cut -d' ' -f1)"
-            body_file="capture-results/${key}.json"
-            status_file="capture-results/${key}.status"
-            set +e
-            http_code="$(curl --silent --show-error \
-              --output "$body_file" \
-              --write-out '%{http_code}' \
-              --max-time 29 \
-              --request POST \
-              --header "Authorization: Bearer ${CAPTURE_TOKEN}" \
-              "${CAPTURE_URL}?companyId=${company_id}&sourceId=${source_id}")"
-            curl_exit=$?
-            set -e
-            if [[ $curl_exit -eq 0 && "$http_code" -ge 200 && "$http_code" -lt 300 ]]; then
-              printf 'success\t%s\t%s\t%s\n' "$company_name" "$source_name" "$http_code" > "$status_file"
-            else
-              printf 'failure\t%s\t%s\t%s\n' "$company_name" "$source_name" "${http_code:-000}" > "$status_file"
-            fi
-          }
-          export -f capture_pair
-          export CAPTURE_TOKEN CAPTURE_URL
-          xargs -P "${MAX_PARALLELISM}" -L 1 -d '\n' bash -c '
-            IFS=$'"'"'\t'"'"' read -r company_id source_id company_name source_name <<< "$1"
-            capture_pair "$company_id" "$source_id" "$company_name" "$source_name"
-          ' _ < capture-targets.tsv
-
-      - name: Summarize bounded captures
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! compgen -G 'capture-results/*.status' > /dev/null; then
-            echo "No bounded capture result files were produced." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          cat capture-results/*.status | sort > capture-summary.tsv
-          total="$(wc -l < capture-summary.tsv | tr -d ' ')"
-          failures="$(awk -F '\t' '$1 == "failure" {count++} END {print count+0}' capture-summary.tsv)"
-          successes="$((total - failures))"
-          {
-            echo "successes=$successes"
-            echo "failures=$failures"
-            echo ''
-            echo '| status | company | source | http |'
-            echo '|---|---|---|---:|'
-            awk -F '\t' '{printf "| %s | %s | %s | %s |\n", $1, $2, $3, $4}' capture-summary.tsv
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$failures" -gt 0 ]]; then
-            echo "$failures bounded capture target(s) failed; inspect audited source_connector_runs." >&2
-            exit 1
-          fi
+        run: bash scripts/capture/bounded-capture-fanout.sh
