@@ -19,7 +19,7 @@ O smoke é deliberadamente fail-closed: uma página que apenas retorna HTTP 200 
    - rotas de Auth incluídas;
    - provedor CAPTCHA;
    - presença da site key pública no build;
-   - transporte do token como `captcha_token`;
+   - transporte do token como `gotrue_meta_security.captcha_token`;
    - descoberta dinâmica de OAuth;
    - suporte de frontend a GitHub e Google.
 3. Frontend e backend possuem o mesmo SHA.
@@ -30,6 +30,7 @@ O smoke é deliberadamente fail-closed: uma página que apenas retorna HTTP 200 
    - `/reset-password`;
    - `/auth/callback`.
 6. O bundle JavaScript contém os marcadores críticos:
+   - `gotrue_meta_security`;
    - `captcha_token`;
    - `/forgot-password`;
    - `/reset-password`;
@@ -39,6 +40,20 @@ O smoke é deliberadamente fail-closed: uma página que apenas retorna HTTP 200 
    - `google`;
    - `god_mode`.
 7. O build declara descoberta dinâmica de providers OAuth e a camada GOD-MODE.
+
+## Contrato CAPTCHA
+
+O smoke rejeita o transporte legado com `captcha_token` no nível superior. O formato obrigatório é:
+
+```json
+{
+  "gotrue_meta_security": {
+    "captcha_token": "token"
+  }
+}
+```
+
+Esse formato é aplicado tanto ao password grant quanto ao pedido de recuperação de senha.
 
 ## Descoberta OAuth
 
@@ -91,6 +106,7 @@ São publicados apenas:
 - identificadores de build;
 - estado booleano da site key pública;
 - nome do provedor CAPTCHA;
+- contrato do transporte CAPTCHA;
 - providers OAuth suportados pelo frontend;
 - capacidades funcionais esperadas.
 
@@ -102,13 +118,17 @@ A site key CAPTCHA é pública por natureza, mas o arquivo registra apenas se el
 
 O código está publicado, porém a variável pública não entrou no build da Vercel. Configurar a variável em Production e gerar novo deployment.
 
+### `CAPTCHA token transport is incorrect`
+
+O build ainda declara ou utiliza o contrato legado. Não aprovar o rollout.
+
 ### SHA de frontend e backend divergentes
 
 O deployment está inconsistente ou o alias canônico aponta para artefatos diferentes. Não aprovar o rollout.
 
-### Bundle sem `captcha_token`
+### Bundle sem `gotrue_meta_security`
 
-A produção ainda serve uma versão anterior ao conserto do CAPTCHA.
+A produção ainda envia o CAPTCHA em formato incompatível com o GoTrue.
 
 ### Bundle sem `/auth/v1/settings`
 
