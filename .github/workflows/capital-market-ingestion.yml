@@ -136,19 +136,29 @@ jobs:
 
       - name: Test capital-market connector and delivery
         if: github.event_name == 'push'
-        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts src/services/capitalMarketIngestionService.test.ts src/services/capitalMarketDeliveryService.test.ts
+        shell: bash
+        run: |
+          cd backend
+          npm exec -- tsx --test \
+            src/modules/capital-markets/cvmCapitalMarketConnector.test.ts \
+            src/services/capitalMarketIngestionService.test.ts \
+            src/services/capitalMarketDeliveryService.test.ts
 
       - name: Persist recent CVM offers canary directly
         if: github.event_name == 'push'
+        shell: bash
         run: |
           for ATTEMPT in $(seq 1 12); do
             echo "Direct ingestion attempt ${ATTEMPT}/12"
-            if npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
-              --dataset cvm_offers \
-              --max-rows 250 \
-              --trigger manual \
-              --require-records \
-              --require-delivery; then
+            if (
+              cd backend
+              npm exec -- tsx src/cli/capitalMarkets.ts \
+                --dataset cvm_offers \
+                --max-rows 250 \
+                --trigger manual \
+                --require-records \
+                --require-delivery
+            ); then
               exit 0
             fi
             sleep 15
@@ -159,8 +169,10 @@ jobs:
 
       - name: Prove CVM canary idempotency
         if: github.event_name == 'push'
+        shell: bash
         run: |
-          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts \
             --dataset cvm_offers \
             --max-rows 250 \
             --trigger manual \
@@ -178,7 +190,8 @@ jobs:
             exit 0
           fi
 
-          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts \
             --dataset all \
             --max-rows 100000 \
             --trigger backfill \
@@ -256,7 +269,10 @@ jobs:
           if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
 
           set +e
-          npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}" > /tmp/cvm-ingestion.raw.log 2>&1
+          (
+            cd backend
+            npm exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
+          ) > /tmp/cvm-ingestion.raw.log 2>&1
           EXIT_STATUS=$?
           set -e
 
@@ -291,7 +307,12 @@ jobs:
 
       - name: Verify persisted delivery without redownloading
         if: github.event_name != 'push'
-        run: npm -C backend exec -- tsx src/cli/capitalMarketDelivery.ts --dataset "${{ steps.scope.outputs.dataset }}" --require-delivery
+        shell: bash
+        run: |
+          cd backend
+          npm exec -- tsx src/cli/capitalMarketDelivery.ts \
+            --dataset "${{ steps.scope.outputs.dataset }}" \
+            --require-delivery
 
       - name: Upload sanitized CVM diagnostics
         if: always() && github.event_name != 'push'
