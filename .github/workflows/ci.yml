@@ -43,6 +43,9 @@ jobs:
       - name: Validate production Auth smoke contract
         run: npm run test:auth-production-smoke
 
+      - name: Validate company credit review command contract
+        run: npm run test:company-credit-review
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
