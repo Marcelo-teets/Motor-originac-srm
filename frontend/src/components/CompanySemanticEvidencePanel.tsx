@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { EmptyState, Pill, Stat } from './UI';
+import { Card, EmptyState, Pill, Stat } from './UI';
 import { useAuth } from '../lib/auth';
 import { knowledgeSearchApi } from '../lib/knowledgeSearchApi';
 import { knowledgeVaultApi } from '../lib/knowledgeVaultApi';
@@ -8,7 +8,7 @@ import type {
   KnowledgeSearchResponse,
   KnowledgeSearchResult,
 } from '../lib/knowledgeSearchTypes';
-import type { KnowledgeQualificationSnapshot } from '../lib/knowledgeVaultTypes';
+import type { KnowledgeCompanyWorkspace } from '../lib/knowledgeVaultTypes';
 
 const vaultHref = '/knowledge-vault';
 
@@ -43,10 +43,6 @@ type EvidenceLens = typeof lenses[number];
 
 type CompanySemanticEvidencePanelProps = {
   companyId: string;
-  companyName: string;
-  qualification: KnowledgeQualificationSnapshot | null;
-  pipelineNextAction?: string | null;
-  onNoteCreated?: () => Promise<void> | void;
 };
 
 const sourceLabel = (value: string) => value
@@ -57,11 +53,8 @@ const percentage = (value: number | null) => value === null
   ? '—'
   : `${Math.round(value * 100).toLocaleString('pt-BR')}%`;
 
-const buildQuery = (
-  lens: EvidenceLens,
-  companyName: string,
-  qualification: KnowledgeQualificationSnapshot | null,
-) => {
+const buildQuery = (lens: EvidenceLens, workspace: KnowledgeCompanyWorkspace) => {
+  const qualification = workspace.latestQualification;
   const context = [
     lens.query,
     qualification?.suggestedStructure ? `estrutura sugerida ${qualification.suggestedStructure}` : null,
@@ -70,7 +63,7 @@ const buildQuery = (
     qualification?.fitDcm ? 'fit para DCM' : null,
   ].filter(Boolean);
 
-  return `${companyName}: ${context.join('; ')}`;
+  return `${workspace.company.name}: ${context.join('; ')}`;
 };
 
 const evidenceMarkdown = (result: KnowledgeSearchResult, index: number) => [
@@ -88,14 +81,10 @@ const evidenceMarkdown = (result: KnowledgeSearchResult, index: number) => [
   `- Vector document: ${result.lineage.vectorDocumentId}`,
 ].join('\n');
 
-export function CompanySemanticEvidencePanel({
-  companyId,
-  companyName,
-  qualification,
-  pipelineNextAction,
-  onNoteCreated,
-}: CompanySemanticEvidencePanelProps) {
+export function CompanySemanticEvidencePanel({ companyId }: CompanySemanticEvidencePanelProps) {
   const { session } = useAuth();
+  const [workspace, setWorkspace] = useState<KnowledgeCompanyWorkspace | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [selectedLensId, setSelectedLensId] = useState<EvidenceLens['id']>('funding-gap');
   const [data, setData] = useState<KnowledgeSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -103,19 +92,33 @@ export function CompanySemanticEvidencePanel({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    setWorkspaceLoading(true);
+    void knowledgeVaultApi.getCompanyWorkspace(session, companyId)
+      .then((loaded) => { if (active) setWorkspace(loaded); })
+      .catch((loadError) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : 'Falha ao carregar o contexto da empresa.');
+      })
+      .finally(() => { if (active) setWorkspaceLoading(false); });
+    return () => { active = false; };
+  }, [companyId, session]);
+
   const selectedLens = useMemo(
     () => lenses.find((lens) => lens.id === selectedLensId) ?? lenses[0],
     [selectedLensId],
   );
 
   const searchEvidence = async (lens: EvidenceLens = selectedLens) => {
+    if (!workspace) return;
+
     setSelectedLensId(lens.id);
     setLoading(true);
     setError(null);
     setNotice(null);
     try {
       const response = await knowledgeSearchApi.search(session, {
-        query: buildQuery(lens, companyName, qualification),
+        query: buildQuery(lens, workspace),
         companyId,
         limit: 8,
       });
@@ -129,37 +132,38 @@ export function CompanySemanticEvidencePanel({
   };
 
   const saveAsThesis = async () => {
-    if (!data?.results.length) return;
+    if (!workspace || !data?.results.length) return;
 
+    const qualification = workspace.latestQualification;
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
       const evidence = data.results.slice(0, 6);
       const content = [
-        `# Mapa de evidências — ${companyName}`,
+        `# Mapa de evidências — ${workspace.company.name}`,
         '',
-        `## Lente de decisão`,
+        '## Lente de decisão',
         '',
         `**${selectedLens.label}:** ${selectedLens.description}`,
         '',
-        `## Consulta executada`,
+        '## Consulta executada',
         '',
         data.query,
         '',
-        `## Contexto atual`,
+        '## Contexto atual',
         '',
         `- Qualification: ${qualification?.totalScore ?? 'não disponível'}`,
         `- Funding need: ${qualification?.fundingNeedScore ?? 'não disponível'}`,
         `- Urgência: ${qualification?.urgencyScore ?? 'não disponível'}`,
         `- Estrutura sugerida: ${qualification?.suggestedStructure ?? 'em avaliação'}`,
         `- Funding gap: ${qualification?.fundingGapLevel ?? 'em avaliação'}`,
-        `- Próxima ação: ${qualification?.nextAction || pipelineNextAction || 'validar evidências e definir abordagem'}`,
+        `- Próxima ação: ${qualification?.nextAction || workspace.pipeline?.nextAction || 'validar evidências e definir abordagem'}`,
         '',
-        `## Evidências recuperadas`,
+        '## Evidências recuperadas',
         '',
         ...evidence.flatMap((result, index) => [evidenceMarkdown(result, index), '']),
-        `## Leitura e próximos passos`,
+        '## Leitura e próximos passos',
         '',
         '- Confirmar cada evidência na fonte primária antes de usar em abordagem, qualificação ou comitê.',
         '- Separar fato observado de inferência analítica.',
@@ -169,7 +173,7 @@ export function CompanySemanticEvidencePanel({
       ].join('\n');
 
       await knowledgeVaultApi.saveNode(session, {
-        title: `Mapa de evidências — ${companyName} — ${selectedLens.label}`,
+        title: `Mapa de evidências — ${workspace.company.name} — ${selectedLens.label}`,
         nodeType: 'thesis',
         contentMarkdown: content,
         tags: ['decision-context', 'semantic-evidence', selectedLens.id],
@@ -190,7 +194,6 @@ export function CompanySemanticEvidencePanel({
       });
 
       setNotice('Mapa de evidências salvo como tese auditável no Knowledge Vault.');
-      await onNoteCreated?.();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Falha ao salvar o mapa de evidências no Vault.');
     } finally {
@@ -199,88 +202,96 @@ export function CompanySemanticEvidencePanel({
   };
 
   return (
-    <section className="company-knowledge-section company-semantic-evidence" data-feature-build="knowledge-company-evidence-v11">
-      <div className="company-knowledge-section-head">
-        <div>
-          <span className="section-label">Contexto de decisão</span>
-          <h4>Evidências semânticas da empresa</h4>
-          <p>Recupere fatos do corpus institucional por uma lente financeira. A busca só roda quando solicitada e não altera os motores.</p>
-        </div>
-        <div className="pill-row">
-          <Pill tone="info">company scoped</Pill>
-          <Pill tone="default">human in the loop</Pill>
-        </div>
-      </div>
-
-      <div className="company-evidence-lenses" role="group" aria-label="Lentes de evidência">
-        {lenses.map((lens) => (
-          <button
-            key={lens.id}
-            type="button"
-            className={selectedLens.id === lens.id ? 'active' : ''}
-            disabled={loading}
-            onClick={() => void searchEvidence(lens)}
-          >
-            <strong>{lens.label}</strong>
-            <span>{lens.description}</span>
-          </button>
-        ))}
-      </div>
-
-      {error ? <div className="data-banner data-banner-warning" role="alert"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
-      {notice ? <div className="data-banner data-banner-success" role="status"><Pill tone="success">salvo</Pill><span>{notice}</span><Link to={vaultHref}>Abrir Vault</Link></div> : null}
-      {loading ? <p className="table-helper">Recuperando evidências reais de {companyName}...</p> : null}
-
-      {!loading && data ? (
-        <>
-          <div className="mini-metric-grid company-evidence-metrics">
-            <Stat label="Resultados" value={String(data.results.length)} helper={selectedLens.label} />
-            <Stat label="Modo" value={data.mode === 'hybrid' ? 'Híbrido' : 'Lexical'} helper={data.semantic.model ?? data.semantic.fallbackReason ?? 'índice textual'} />
-            <Stat label="Corpus da empresa" value={data.corpus.documents.toLocaleString('pt-BR')} helper={`${data.corpus.embeddedDocuments.toLocaleString('pt-BR')} com vetor real`} />
-            <Stat label="Embedding sintético" value="Não" helper="guardrail obrigatório" />
+    <Card
+      title="Contexto de decisão / Evidências semânticas"
+      subtitle="Recuperação company-scoped por lente financeira, com confirmação humana antes de salvar no Vault"
+      className="dense-card company-semantic-evidence-card"
+      tone="accent"
+    >
+      <section className="company-semantic-evidence" data-feature-build="knowledge-company-evidence-v11">
+        <div className="company-knowledge-section-head">
+          <div>
+            <span className="section-label">Company Detail</span>
+            <h4>{workspace?.company.name || 'Carregando empresa...'}</h4>
+            <p>A busca só roda quando solicitada, preserva lineage e não altera os motores.</p>
           </div>
+          <div className="pill-row">
+            <Pill tone="info">company scoped</Pill>
+            <Pill tone="default">human in the loop</Pill>
+          </div>
+        </div>
 
-          <div className="company-evidence-toolbar">
-            <p>{data.caveat}</p>
-            <div className="actions">
-              <button type="button" className="secondary compact-button" onClick={() => void searchEvidence()} disabled={loading}>Atualizar</button>
-              <button type="button" className="compact-button" onClick={() => void saveAsThesis()} disabled={saving || data.results.length === 0}>
-                {saving ? 'Salvando...' : 'Salvar mapa como tese'}
-              </button>
+        <div className="company-evidence-lenses" role="group" aria-label="Lentes de evidência">
+          {lenses.map((lens) => (
+            <button
+              key={lens.id}
+              type="button"
+              className={selectedLens.id === lens.id ? 'active' : ''}
+              disabled={loading || workspaceLoading || !workspace}
+              onClick={() => void searchEvidence(lens)}
+            >
+              <strong>{lens.label}</strong>
+              <span>{lens.description}</span>
+            </button>
+          ))}
+        </div>
+
+        {error ? <div className="data-banner data-banner-warning" role="alert"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
+        {notice ? <div className="data-banner data-banner-success" role="status"><Pill tone="success">salvo</Pill><span>{notice}</span><Link to={vaultHref}>Abrir Vault</Link></div> : null}
+        {workspaceLoading ? <p className="table-helper">Carregando qualification, pipeline e escopo da empresa...</p> : null}
+        {loading ? <p className="table-helper">Recuperando evidências reais de {workspace?.company.name ?? 'empresa'}...</p> : null}
+
+        {!loading && data ? (
+          <>
+            <div className="mini-metric-grid company-evidence-metrics">
+              <Stat label="Resultados" value={String(data.results.length)} helper={selectedLens.label} />
+              <Stat label="Modo" value={data.mode === 'hybrid' ? 'Híbrido' : 'Lexical'} helper={data.semantic.model ?? data.semantic.fallbackReason ?? 'índice textual'} />
+              <Stat label="Corpus da empresa" value={data.corpus.documents.toLocaleString('pt-BR')} helper={`${data.corpus.embeddedDocuments.toLocaleString('pt-BR')} com vetor real`} />
+              <Stat label="Embedding sintético" value="Não" helper="guardrail obrigatório" />
             </div>
-          </div>
 
-          {data.results.length ? (
-            <div className="company-evidence-results">
-              {data.results.slice(0, 6).map((result, index) => (
-                <article key={result.id} className="company-evidence-result">
-                  <div className="company-evidence-rank">{index + 1}</div>
-                  <div>
-                    <div className="pill-row">
-                      <Pill tone="info">{sourceLabel(result.sourceTable)}</Pill>
-                      {result.signalType ? <Pill tone="warning">{result.signalType}</Pill> : null}
-                      {result.observedVsInferred ? <Pill tone={result.observedVsInferred === 'observed' ? 'success' : 'warning'}>{result.observedVsInferred}</Pill> : null}
+            <div className="company-evidence-toolbar">
+              <p>{data.caveat}</p>
+              <div className="actions">
+                <button type="button" className="secondary compact-button" onClick={() => void searchEvidence()} disabled={loading}>Atualizar</button>
+                <button type="button" className="compact-button" onClick={() => void saveAsThesis()} disabled={saving || data.results.length === 0}>
+                  {saving ? 'Salvando...' : 'Salvar mapa como tese'}
+                </button>
+              </div>
+            </div>
+
+            {data.results.length ? (
+              <div className="company-evidence-results">
+                {data.results.slice(0, 6).map((result, index) => (
+                  <article key={result.id} className="company-evidence-result">
+                    <div className="company-evidence-rank">{index + 1}</div>
+                    <div>
+                      <div className="pill-row">
+                        <Pill tone="info">{sourceLabel(result.sourceTable)}</Pill>
+                        {result.signalType ? <Pill tone="warning">{result.signalType}</Pill> : null}
+                        {result.observedVsInferred ? <Pill tone={result.observedVsInferred === 'observed' ? 'success' : 'warning'}>{result.observedVsInferred}</Pill> : null}
+                      </div>
+                      <p>{result.content}</p>
+                      <small>
+                        RRF {result.rrfScore.toFixed(5)} · semântico {percentage(result.semanticSimilarity)} · origem {result.sourceId || result.id}
+                      </small>
                     </div>
-                    <p>{result.content}</p>
-                    <small>
-                      RRF {result.rrfScore.toFixed(5)} · semântico {percentage(result.semanticSimilarity)} · origem {result.sourceId || result.id}
-                    </small>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState title="Nenhuma evidência encontrada nesta lente." description="Tente outra lente ou valide se a empresa já possui sinais e outputs indexados no corpus institucional." />
-          )}
-        </>
-      ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Nenhuma evidência encontrada nesta lente." description="Tente outra lente ou valide se a empresa já possui sinais e outputs indexados no corpus institucional." />
+            )}
+          </>
+        ) : null}
 
-      {!loading && !data ? (
-        <EmptyState
-          title="Escolha uma lente para mapear as evidências."
-          description="A consulta será restrita à empresa e poderá ser salva como tese somente após sua revisão."
-        />
-      ) : null}
-    </section>
+        {!workspaceLoading && !loading && !data ? (
+          <EmptyState
+            title="Escolha uma lente para mapear as evidências."
+            description="A consulta será restrita à empresa e poderá ser salva como tese somente após sua revisão."
+          />
+        ) : null}
+      </section>
+    </Card>
   );
 }
