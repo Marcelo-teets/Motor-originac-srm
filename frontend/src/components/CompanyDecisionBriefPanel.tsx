@@ -4,16 +4,39 @@ import { Card, EmptyState, Pill } from './UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { knowledgeVaultApi } from '../lib/knowledgeVaultApi';
-import type { KnowledgeCompanyWorkspace, KnowledgeNodeDetail } from '../lib/knowledgeVaultTypes';
+import type {
+  KnowledgeActivityType,
+  KnowledgeCompanyWorkspace,
+  KnowledgeNodeDetail,
+} from '../lib/knowledgeVaultTypes';
 import type { DataSourceKind, PreCallBriefing } from '../lib/types';
 import '../styles/company-decision-brief.css';
 
-type CompanyDecisionBriefPanelProps = { companyId: string };
+type CompanyDecisionBriefPanelProps = {
+  companyId: string;
+  onKnowledgeChanged?: () => void;
+};
 
 type PreCallState = {
   data: PreCallBriefing | null;
   source: DataSourceKind | 'unavailable';
 };
+
+type ExecutionDraft = {
+  idempotencyKey: string;
+  activityType: KnowledgeActivityType;
+  title: string;
+  description: string;
+  nextAction: string;
+  dueAt: string;
+};
+
+const executionTypes: Array<{ value: KnowledgeActivityType; label: string }> = [
+  { value: 'meeting', label: 'Reunião realizada / em andamento' },
+  { value: 'follow_up', label: 'Follow-up / preparação' },
+  { value: 'call', label: 'Ligação' },
+  { value: 'email', label: 'E-mail' },
+];
 
 const formatDate = (value: string | null | undefined) => {
   if (!value) return 'não informado';
@@ -35,6 +58,19 @@ const preCallSourceLabel = (source: PreCallState['source']) => {
   if (source === 'partial') return 'backend ABM parcial';
   if (source === 'mock') return 'fallback ABM mock — validar';
   return 'ABM indisponível — validar manualmente';
+};
+
+const createKey = (prefix: string) => {
+  const token = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}:${token}`;
+};
+
+const toIso = (value: string) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
 function buildDecisionBrief(workspace: KnowledgeCompanyWorkspace, preCallState: PreCallState) {
@@ -185,7 +221,7 @@ Preencher após a conversa.
 `;
 }
 
-export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPanelProps) {
+export function CompanyDecisionBriefPanel({ companyId, onKnowledgeChanged }: CompanyDecisionBriefPanelProps) {
   const { session } = useAuth();
   const [workspace, setWorkspace] = useState<KnowledgeCompanyWorkspace | null>(null);
   const [preCallState, setPreCallState] = useState<PreCallState>({ data: null, source: 'unavailable' });
@@ -193,7 +229,11 @@ export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPan
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [executing, setExecuting] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [executionDraft, setExecutionDraft] = useState<ExecutionDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [executionNotice, setExecutionNotice] = useState<string | null>(null);
   const [savedNode, setSavedNode] = useState<KnowledgeNodeDetail | null>(null);
 
   const load = useCallback(async () => {
@@ -212,6 +252,9 @@ export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPan
     setDraft(buildDecisionBrief(loadedWorkspace, loadedPreCall));
     setConfirmed(false);
     setSavedNode(null);
+    setHandoffOpen(false);
+    setExecutionDraft(null);
+    setExecutionNotice(null);
   }, [companyId, session]);
 
   useEffect(() => {
@@ -238,6 +281,7 @@ export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPan
     if (!workspace || !confirmed || !draft.trim()) return;
     setSaving(true);
     setError(null);
+    setExecutionNotice(null);
     try {
       const today = new Intl.DateTimeFormat('pt-BR').format(new Date());
       const saved = await knowledgeVaultApi.saveNode(session, {
@@ -261,10 +305,67 @@ export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPan
       });
       setSavedNode(saved);
       setConfirmed(false);
+      setHandoffOpen(false);
+      setExecutionDraft(null);
+      onKnowledgeChanged?.();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Falha ao salvar briefing no Vault.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openExecutionHandoff = () => {
+    if (!workspace || !savedNode) return;
+    const nextAction = preCallState.data?.recommended_next_step
+      || workspace.latestQualification?.nextAction
+      || workspace.pipeline?.nextAction
+      || '';
+    const cta = preCallState.data?.suggested_cta
+      || 'Validar funding gap, ativo financiável, sponsor e janela de execução.';
+
+    setExecutionDraft({
+      idempotencyKey: createKey(`brief-execution:${savedNode.node.id}`),
+      activityType: 'follow_up',
+      title: `Preparar abordagem — ${workspace.company.name}`,
+      description: `Ação originada do briefing revisado "${savedNode.node.title}". Objetivo comercial: ${cta}`,
+      nextAction,
+      dueAt: '',
+    });
+    setExecutionNotice(null);
+    setError(null);
+    setHandoffOpen(true);
+  };
+
+  const submitExecutionHandoff = async () => {
+    if (!savedNode || !executionDraft) return;
+    if (!executionDraft.title.trim()) {
+      setError('Informe o título da ação antes de enviar o briefing para execução.');
+      return;
+    }
+
+    setExecuting(true);
+    setError(null);
+    setExecutionNotice(null);
+    try {
+      await knowledgeVaultApi.createExecutionAction(session, {
+        nodeId: savedNode.node.id,
+        idempotencyKey: executionDraft.idempotencyKey,
+        activityType: executionDraft.activityType,
+        title: executionDraft.title.trim(),
+        description: executionDraft.description.trim() || null,
+        nextAction: executionDraft.nextAction.trim() || null,
+        dueAt: toIso(executionDraft.dueAt),
+        targetStage: null,
+      });
+      setExecutionNotice('Ação criada no CRM real e vinculada ao briefing. O resultado será registrado na Execução da tese / Outcome Workbench.');
+      setHandoffOpen(false);
+      setExecutionDraft(null);
+      onKnowledgeChanged?.();
+    } catch (executionError) {
+      setError(executionError instanceof Error ? executionError.message : 'Falha ao enviar o briefing para execução.');
+    } finally {
+      setExecuting(false);
     }
   };
 
@@ -280,11 +381,67 @@ export function CompanyDecisionBriefPanel({ companyId }: CompanyDecisionBriefPan
         </div>
         <button type="button" className="secondary compact-button" disabled={loading} onClick={() => void load()}>Regerar do estado atual</button>
       </div>
+
       {loading ? <p className="table-helper">Consolidando Company Master, Qualification, Signals, Monitoring, Pipeline, ABM e memória...</p> : null}
       {error ? <div className="data-banner data-banner-warning" role="alert"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
-      {savedNode ? <div className="data-banner data-banner-success" role="status"><Pill tone="success">salvo</Pill><span>Briefing registrado como nota versionada e vinculado à empresa.</span><Link to="/knowledge-vault">Abrir Vault</Link></div> : null}
+      {executionNotice ? <div className="data-banner data-banner-success" role="status"><Pill tone="success">execução</Pill><span>{executionNotice}</span><a href="#bloco-knowledge">Ver execução</a></div> : null}
+      {savedNode ? (
+        <div className="data-banner data-banner-success company-decision-saved-banner" role="status">
+          <Pill tone="success">salvo</Pill>
+          <span>Briefing registrado como nota versionada e vinculado à empresa.</span>
+          <div className="actions">
+            <Link to="/knowledge-vault">Abrir Vault</Link>
+            <button type="button" className="secondary compact-button" onClick={openExecutionHandoff}>Enviar para execução</button>
+          </div>
+        </div>
+      ) : null}
+
+      {handoffOpen && executionDraft ? (
+        <section className="company-decision-handoff" aria-label="Handoff do briefing para execução">
+          <div className="company-decision-handoff-head">
+            <div>
+              <span className="section-label">Handoff V13</span>
+              <h4>Briefing → ação rastreável</h4>
+              <p>Revise a ação. Estágio não será alterado; o prazo abaixo é apenas do próximo passo.</p>
+            </div>
+            <Pill tone="info">idempotente</Pill>
+          </div>
+          <div className="company-decision-handoff-grid">
+            <label>
+              <span>Tipo de ação</span>
+              <select value={executionDraft.activityType} onChange={(event) => setExecutionDraft({ ...executionDraft, activityType: event.target.value as KnowledgeActivityType })}>
+                {executionTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="company-decision-handoff-wide">
+              <span>Título</span>
+              <input value={executionDraft.title} onChange={(event) => setExecutionDraft({ ...executionDraft, title: event.target.value })} />
+            </label>
+            <label className="company-decision-handoff-wide">
+              <span>Contexto / objetivo</span>
+              <textarea rows={3} value={executionDraft.description} onChange={(event) => setExecutionDraft({ ...executionDraft, description: event.target.value })} />
+            </label>
+            <label>
+              <span>Próxima ação no pipeline</span>
+              <input value={executionDraft.nextAction} onChange={(event) => setExecutionDraft({ ...executionDraft, nextAction: event.target.value })} placeholder="Opcional; será aplicada somente após este clique" />
+            </label>
+            <label>
+              <span>Prazo do próximo passo</span>
+              <input type="datetime-local" value={executionDraft.dueAt} onChange={(event) => setExecutionDraft({ ...executionDraft, dueAt: event.target.value })} />
+            </label>
+          </div>
+          <div className="company-decision-handoff-actions">
+            <small>Nenhum score, pattern, qualification ou estágio será alterado. A ação e o briefing permanecem ligados por lineage.</small>
+            <div className="actions">
+              <button type="button" className="secondary" disabled={executing} onClick={() => { setHandoffOpen(false); setExecutionDraft(null); }}>Cancelar</button>
+              <button type="button" disabled={executing || !executionDraft.title.trim()} onClick={() => void submitExecutionHandoff()}>{executing ? 'Criando...' : 'Criar ação rastreável'}</button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {!loading && workspace ? <>
-        <textarea className="company-decision-brief-editor" value={draft} onChange={(event) => { setDraft(event.target.value); setSavedNode(null); setConfirmed(false); }} aria-label="Briefing decisório editável" />
+        <textarea className="company-decision-brief-editor" value={draft} onChange={(event) => { setDraft(event.target.value); setSavedNode(null); setConfirmed(false); setHandoffOpen(false); setExecutionDraft(null); setExecutionNotice(null); }} aria-label="Briefing decisório editável" />
         <div className="company-decision-brief-footer">
           <label className="company-decision-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Revisei fatos, inferências, lacunas, contexto ABM e fontes antes de salvar.</label>
           <button type="button" disabled={!confirmed || !draft.trim() || saving} onClick={() => void saveBrief()}>{saving ? 'Salvando...' : 'Salvar briefing no Vault'}</button>
