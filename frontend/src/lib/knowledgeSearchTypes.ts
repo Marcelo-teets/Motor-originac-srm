@@ -50,3 +50,38 @@ export type KnowledgeSearchResponse = {
     syntheticEmbedding: false;
   };
 };
+
+export type KnowledgeEmbeddingCoverage = {
+  generatedAt: string;
+  modelContract: {
+    provider: string;
+    model: string;
+    dimensions: number;
+    syntheticEmbeddingsAllowed: false;
+  };
+  documents: {
+    total: number;
+    embedded: number;
+    pending: number;
+    coveragePct: number;
+  };
+  jobs: {
+    total: number;
+    pending: number;
+    processing: number;
+    completed: number;
+    dead: number;
+    completedToday: number;
+    baselineEmbedded: number;
+    oldestPendingAt: string | null;
+    lastCompletedAt: string | null;
+  };
+  bySource: Array<{
+    sourceTable: string;
+    documents: number;
+    embedded: number;
+    pending: number;
+    coveragePct: number;
+  }>;
+  caveat: string;
+};
