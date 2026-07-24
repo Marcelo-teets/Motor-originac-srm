@@ -1,3 +1,5 @@
+import { fetchCvmWithRetry } from './cvmHttp.js';
+
 export type CvmDatasetCode =
   | 'cvm_offers'
   | 'cvm_fund_registry'
@@ -160,6 +162,13 @@ const resourcePriority = (definition: CvmDatasetDefinition, resource: CvmResourc
   return 0;
 };
 
+export const isCvmMetadataResource = (resource: CvmResource) => {
+  const key = normalizeKey(`${resource.name} ${resource.url}`);
+  return key.includes('dicionariodedados')
+    || key.includes('datadictionary')
+    || key.includes('documentacaodados');
+};
+
 export const selectDatasetResources = (
   definition: CvmDatasetDefinition,
   resources: CvmResource[],
@@ -167,7 +176,9 @@ export const selectDatasetResources = (
 ): CvmResource[] => {
   const referenceKey = normalizeReference(reference);
   const supported = resources
-    .filter((resource) => Boolean(resource.url) && definition.resourcePattern.test(`${resource.name} ${resource.url}`));
+    .filter((resource) => Boolean(resource.url)
+      && !isCvmMetadataResource(resource)
+      && definition.resourcePattern.test(`${resource.name} ${resource.url}`));
   const referenced = referenceKey
     ? supported.filter((resource) => normalizeReference(`${resource.name} ${resource.url}`).includes(referenceKey))
     : supported;
@@ -203,7 +214,11 @@ export const discoverCvmResources = async (
 ): Promise<CvmResource[]> => {
   const definition = CVM_DATASETS[datasetCode];
   const endpoint = `https://dados.cvm.gov.br/api/3/action/package_show?id=${encodeURIComponent(definition.packageId)}`;
-  const response = await fetch(endpoint, { headers: { accept: 'application/json', 'user-agent': 'Motor-Origination/1.0' } });
+  const response = await fetchCvmWithRetry(endpoint, {
+    headers: { accept: 'application/json' },
+  }, {
+    label: `CKAN package ${definition.packageId}`,
+  });
   if (!response.ok) throw new Error(`CVM CKAN ${definition.packageId} failed: ${response.status} ${await response.text()}`);
   const body = await response.json() as CkanPackageResponse;
   if (!body.success || !body.result) throw new Error(`CVM CKAN ${definition.packageId} returned an invalid package response.`);
