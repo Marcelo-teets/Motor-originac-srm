@@ -13,5 +13,10 @@
   },
   "include": [
     "api/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "frontend/dist",
+    "backend/dist"
   ]
 }
