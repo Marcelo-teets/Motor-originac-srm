@@ -180,8 +180,8 @@ function inspectSheet(xml: string, sharedStrings: string[]) {
 function inspectWorkbook(buffer: Buffer) {
   const listed = listZipArchiveEntries(buffer, {
     maxEntries: 5_000,
-    maxEntryBytes: 96 * 1024 * 1024,
-    maxTotalUncompressedBytes: 512 * 1024 * 1024,
+    maxEntryBytes: 512 * 1024 * 1024,
+    maxTotalUncompressedBytes: 2 * 1024 * 1024 * 1024,
   });
   const wanted = listed.filter((entry) => entry.name === 'xl/workbook.xml'
     || entry.name === 'xl/_rels/workbook.xml.rels'
