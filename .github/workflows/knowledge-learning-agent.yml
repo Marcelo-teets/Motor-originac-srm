@@ -1,0 +1,56 @@
+name: Knowledge Learning Agent
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: Jobs máximos por execução
+        required: false
+        default: '2'
+      daily_limit:
+        description: Limite diário de empresas processadas
+        required: false
+        default: '48'
+
+concurrency:
+  group: knowledge-learning-agent
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Validate required secret
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo 'CRON_SECRET ausente'; exit 1; }
+
+      - name: Process governed learning queue
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BATCH_SIZE: ${{ inputs.batch_size || '2' }}
+          DAILY_LIMIT: ${{ inputs.daily_limit || '48' }}
+        run: |
+          set -euo pipefail
+          response_file="$(mktemp)"
+          status=$(curl --silent --show-error --location \
+            --connect-timeout 15 --max-time 330 \
+            --output "$response_file" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header 'Content-Type: application/json' \
+            --data "{\"batchSize\":${BATCH_SIZE},\"dailyLimit\":${DAILY_LIMIT},\"workerId\":\"github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"}" \
+            'https://motor-originac-srm.vercel.app/api/knowledge-learning-agent')
+          cat "$response_file"
+          echo
+          if [[ "$status" != "200" && "$status" != "207" ]]; then
+            echo "Knowledge Learning Agent retornou HTTP $status"
+            exit 1
+          fi
