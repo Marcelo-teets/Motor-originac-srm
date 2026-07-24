@@ -109,6 +109,14 @@ export const navItems = [
     group: 'Operação & governança',
   },
   {
+    to: '/credit-review',
+    label: 'Credit Review',
+    shortLabel: 'Produto, recebíveis e funding',
+    description: 'Gate GOD-MODE que libera qualification e score somente após revisão de crédito baseada em evidência.',
+    group: 'Operação & governança',
+    godOnly: true,
+  },
+  {
     to: '/sources',
     label: 'Sources',
     shortLabel: 'Fontes',
