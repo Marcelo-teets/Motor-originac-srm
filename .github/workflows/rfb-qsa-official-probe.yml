@@ -52,6 +52,31 @@ jobs:
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
+      - name: Diagnose Receita endpoint behavior
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/qsa-diag"
+          : > "$RUNNER_TEMP/qsa-diag/http-status.txt"
+          URLS=(
+            "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/"
+            "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/2026-01/"
+            "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/"
+            "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/2026-01/"
+          )
+          USER_AGENTS=(
+            "OriginationIntelligencePlatform/1.0"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36"
+          )
+          for USER_AGENT in "${USER_AGENTS[@]}"; do
+            echo "UA=$USER_AGENT" >> "$RUNNER_TEMP/qsa-diag/http-status.txt"
+            for URL in "${URLS[@]}"; do
+              curl --location --silent --show-error --output /dev/null \
+                --user-agent "$USER_AGENT" \
+                --write-out "%{http_code} %{url_effective}\n" \
+                "$URL" >> "$RUNNER_TEMP/qsa-diag/http-status.txt" || true
+            done
+          done
+          cat "$RUNNER_TEMP/qsa-diag/http-status.txt"
       - name: Probe official RFB QSA without persistence
         id: qsa_probe
         working-directory: backend
@@ -66,17 +91,17 @@ jobs:
           )
           if [ -n "$TARGET_REFERENCE" ]; then ARGS+=(--reference "$TARGET_REFERENCE"); fi
           set +e
-          npx tsx src/cli/probeRfbQsa.ts "${ARGS[@]}" > "$RUNNER_TEMP/qsa-probe.log" 2>&1
+          npx tsx src/cli/probeRfbQsa.ts "${ARGS[@]}" > "$RUNNER_TEMP/qsa-diag/qsa-probe.log" 2>&1
           EXIT_CODE=$?
           set -e
-          cat "$RUNNER_TEMP/qsa-probe.log"
+          cat "$RUNNER_TEMP/qsa-diag/qsa-probe.log"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
       - name: Upload QSA probe diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rfb-qsa-probe-diagnostics
-          path: ${{ runner.temp }}/qsa-probe.log
+          path: ${{ runner.temp }}/qsa-diag
           if-no-files-found: error
           retention-days: 7
       - name: Enforce QSA probe result
