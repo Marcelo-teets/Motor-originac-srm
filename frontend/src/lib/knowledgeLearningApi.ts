@@ -6,7 +6,7 @@ const supabaseUrl = String(env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
 const supabaseAnonKey = String(env.VITE_SUPABASE_ANON_KEY ?? '');
 
 type RpcError = { message?: string; details?: string; hint?: string };
-type RawRun = KnowledgeLearningRun & {
+type RawRun = Omit<KnowledgeLearningRun, 'nodesCreated' | 'nodesUpdated' | 'linksApplied' | 'referencesApplied'> & {
   nodesCreated: number | string;
   nodesUpdated: number | string;
   linksApplied: number | string;
