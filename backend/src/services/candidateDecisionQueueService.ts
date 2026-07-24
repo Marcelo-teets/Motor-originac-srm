@@ -1,14 +1,14 @@
 import { getSupabaseClient } from '../lib/supabase.js';
 
 export type CandidateDecisionQueueQuery = {
-  queue?: 'commercial' | 'market_map' | 'identity' | 'promoted' | 'all';
+  queue?: 'commercial' | 'market_map' | 'identity' | 'promoted' | 'reviewable' | 'all';
   priority?: string;
   search?: string;
   limit?: number;
   offset?: number;
 };
 
-const queueValues = new Set(['commercial', 'market_map', 'identity', 'promoted', 'all']);
+const queueValues = new Set(['commercial', 'market_map', 'identity', 'promoted', 'reviewable', 'all']);
 const integer = (value: unknown, fallback: number) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : fallback;
