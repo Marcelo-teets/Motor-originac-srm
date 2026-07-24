@@ -1,0 +1,100 @@
+
+  const item = await discoverPortalArchive('compras', options.reference, true);
+  return [{
+    key: `compras-contracts:${item.referenceDate}`,
+    name: `Contratos públicos ${item.referenceDate}`,
+    url: item.url,
+    format: 'zip',
+    encoding: 'windows-1252',
+    delimiter: ';',
+    referenceDate: item.referenceDate,
+    modifiedAt: item.modifiedAt,
+    etag: item.etag,
+    archiveEntryPattern: '(?:^|[/_])Compras(?:[._]|$)',
+  }];
+}
+
+export async function* parseDelimitedText(chunks: AsyncIterable<string>, delimiter: string): AsyncGenerator<string[]> {
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  let quotePending = false;
+  for await (const chunk of chunks) {
+    for (let index = 0; index < chunk.length; index += 1) {
+      const char = chunk[index];
+      if (quoted) {
+        if (quotePending) {
+          if (char === '"') { field += '"'; quotePending = false; continue; }
+          quoted = false;
+          quotePending = false;
+        }
+        if (quoted) {
+          if (char === '"') quotePending = true;
+          else field += char;
+          continue;
+        }
+      }
+      if (char === '"' && field.length === 0) quoted = true;
+      else if (char === delimiter) { row.push(field); field = ''; }
+      else if (char === '\n') {
+        row.push(field.replace(/\r$/, ''));
+        if (row.some(Boolean)) yield row;
+        row = [];
+        field = '';
+      } else if (char !== '\r') field += char;
+    }
+  }
+  if (field.length || row.length) {
+    row.push(field);
+    if (row.some(Boolean)) yield row;
+  }
+}
+
+async function* decodeWeb(response: Response, encoding: string) {
+  if (!response.body) throw new Error(`Empty response body for ${response.url}`);
+  const decoder = new TextDecoder(encoding);
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    yield decoder.decode(value, { stream: true });
+  }
+  const tail = decoder.decode();
+  if (tail) yield tail;
+}
+async function* decodeNode(stream: NodeJS.ReadableStream, encoding: string) {
+  const decoder = new TextDecoder(encoding);
+  for await (const chunk of stream as AsyncIterable<Buffer>) yield decoder.decode(chunk, { stream: true });
+  const tail = decoder.decode();
+  if (tail) yield tail;
+}
+const commandOutput = (command: string, args: string[]) => new Promise<string>((resolve, reject) => {
+  const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { err += chunk.toString(); });
+  child.on('error', reject);
+  child.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`${command} exited ${code}: ${err}`)));
+});
+const nodeRows = (stream: NodeJS.ReadableStream, encoding: string, delimiter: string) => parseDelimitedText(decodeNode(stream, encoding), delimiter);
+const rowObject = (headers: string[], values: string[]) => Object.fromEntries(headers.map((header, index) => [normalizeHeader(header), clean(values[index] ?? '')]));
+const rfbHeaders = (name: string) => /(Estabelecimentos|ESTABELE)/i.test(name) ? RFB_ESTABLISHMENT_HEADERS : RFB_COMPANY_HEADERS;
+const targetMatch = (cnpj: string, targets: Set<string>, roots: Set<string>) => cnpj.length === 14
+  ? targets.has(cnpj) || roots.has(cnpj.slice(0, 8))
+  : roots.has(cnpj.slice(0, 8));
+
+export function normalizePublicBulkRow(input: {
+  datasetCode: PublicBulkDatasetCode;
+  row: Record<string, string>;
+  resource: PublicBulkResource;
+  targetCnpjs: Set<string>;
+  targetRoots: Set<string>;
+}): PublicBulkRecord | null {
+  const { datasetCode, row, resource, targetCnpjs, targetRoots } = input;
+  let entityCnpj = '';
+  let entityName = '';
+  let recordType = '';
+  let referenceDate = resource.referenceDate;
+  let amount: number | null = null;
+  let status = '';
