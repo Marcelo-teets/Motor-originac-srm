@@ -1,0 +1,87 @@
+name: Patch Candidate CVM Metrics
+
+on:
+  push:
+    branches:
+      - fix/candidate-cvm-registry-determinism
+    paths:
+      - .github/workflows/patch-candidate-cvm-metrics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/candidate-cvm-registry-determinism
+          fetch-depth: 0
+      - name: Apply guarded service patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/src/services/candidateCvmRegistryService.ts')
+          text = path.read_text(encoding='utf-8')
+          old = """    let pending: Array<Record<string, unknown>> = [];
+    let enrichmentsWritten = 0;
+    const matchedCandidateIds = new Set<string>();
+    const observedAt = this.now().toISOString();
+    const flush = async () => {
+      if (!pending.length || !this.client) return;
+      await this.client.upsert(
+        'candidate_official_enrichments',
+        pending,
+        'candidate_id,dataset_code,source_record_key',
+      );
+      enrichmentsWritten += pending.length;
+      pending = [];
+    };
+"""
+          new = """    const pending = new Map<string, Record<string, unknown>>();
+    let enrichmentsWritten = 0;
+    const matchedCandidateIds = new Set<string>();
+    const observedAt = this.now().toISOString();
+    const flush = async () => {
+      if (!pending.size || !this.client) return;
+      const rows = [...pending.values()];
+      for (let index = 0; index < rows.length; index += BATCH_SIZE) {
+        const batch = rows.slice(index, index + BATCH_SIZE);
+        const persisted = await this.client.upsert(
+          'candidate_official_enrichments',
+          batch,
+          'candidate_id,dataset_code,source_record_key',
+        );
+        enrichmentsWritten += Array.isArray(persisted) ? persisted.length : batch.length;
+      }
+      pending.clear();
+    };
+"""
+          if old not in text:
+              raise SystemExit('pending buffer anchor not found')
+          text = text.replace(old, new, 1)
+          old = """            pending.push(this.enrichmentRow(candidateId, source.id, record, observedAt));
+            if (pending.length >= BATCH_SIZE) await flush();
+"""
+          new = """            pending.set(
+              `${candidateId}:${record.recordKey}`,
+              this.enrichmentRow(candidateId, source.id, record, observedAt),
+            );
+"""
+          if old not in text:
+              raise SystemExit('onRecord buffer anchor not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm .github/workflows/patch-candidate-cvm-metrics.yml
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(data): count unique CVM enrichment rows"
+          git push origin HEAD:fix/candidate-cvm-registry-determinism
