@@ -61,3 +61,11 @@ Em modo Supabase, o runtime:
 - filtra pipeline, atividades e tarefas pelo mesmo gate;
 - preserva snapshots sintéticos apenas para auditoria;
 - mantém o fallback demonstrativo somente no modo memória local.
+
+## Validação final
+
+- branch sincronizada com a `main` corrente;
+- Company Master: 1 entidade real e 0 empresas decisoriamente elegíveis;
+- gate de Dashboard/Leads/Pipeline fechado;
+- Creditas liberada apenas para monitoring e enrichment;
+- CI e Preview obrigatórios antes do merge.
