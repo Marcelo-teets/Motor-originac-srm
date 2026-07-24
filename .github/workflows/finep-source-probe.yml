@@ -1,0 +1,262 @@
+name: Finep Official Data
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/finep-source-probe.yml
+      - backend/src/cli/finepPublicData.ts
+      - backend/src/lib/zipArchive.ts
+      - backend/src/modules/public-data/finepPublicDataConnector.ts
+      - backend/src/services/finepPublicIngestionService.ts
+      - db/migrations/104_finep_public_funding.sql
+      - db/migrations/105_finep_operations_panel_performance.sql
+  pull_request:
+    paths:
+      - .github/workflows/finep-source-probe.yml
+      - backend/src/cli/probeFinepPublicData.ts
+      - backend/src/cli/finepPublicData.ts
+      - backend/src/lib/zipArchive.ts
+      - backend/src/modules/public-data/finepPublicDataConnector.ts
+      - backend/src/modules/public-data/finepPublicDataConnector.test.ts
+      - backend/src/services/finepPublicIngestionService.ts
+      - db/migrations/104_finep_public_funding.sql
+      - db/migrations/105_finep_operations_panel_performance.sql
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Ignorar checkpoints e reprocessar os dois workbooks
+        required: true
+        default: false
+        type: boolean
+      max_matched_rows:
+        description: Limite máximo de registros Finep aderentes ao Company Master
+        required: true
+        default: "100000"
+        type: string
+  schedule:
+    # Arquivos oficiais têm atualização semanal. A execução ocorre terça-feira, 10h10 BRT.
+    - cron: "10 13 * * 2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finep-official-data
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck backend
+        id: typecheck
+        shell: bash
+        run: |
+          set +e
+          npm -C backend run typecheck > backend/finep-typecheck.log 2>&1
+          STATUS=$?
+          cat backend/finep-typecheck.log
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Test Finep source normalization
+        working-directory: backend
+        run: npx tsx --test src/modules/public-data/finepPublicDataConnector.test.ts
+
+      - name: Guard Finep governance contract
+        shell: bash
+        run: |
+          grep -F "non_reimbursable_grant" backend/src/modules/public-data/finepPublicDataConnector.ts
+          grep -F "equity_investment" backend/src/modules/public-data/finepPublicDataConnector.ts
+          grep -F "decision_eligible === true" backend/src/services/finepPublicIngestionService.ts
+          grep -F "não inferir funding gap automaticamente" db/migrations/104_finep_public_funding.sql
+          grep -F "sync_finep_company_signals" db/migrations/104_finep_public_funding.sql
+          grep -F "idx_monitoring_outputs_dataset_code_observed" db/migrations/105_finep_operations_panel_performance.sql
+
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finep-typecheck-${{ github.run_attempt }}
+          path: backend/finep-typecheck.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  probe:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Probe official Finep XLSX resources
+        id: probe
+        working-directory: backend
+        shell: bash
+        run: |
+          set +e
+          npx tsx src/cli/probeFinepPublicData.ts \
+            > finep-probe.json \
+            2> finep-probe.stderr
+          STATUS=$?
+          cat finep-probe.json || true
+          cat finep-probe.stderr >&2 || true
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Upload sanitized Finep probe diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finep-official-source-probe-${{ github.run_attempt }}
+          path: |
+            backend/finep-probe.json
+            backend/finep-probe.stderr
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize probe result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Finep official source validation"
+            echo
+            echo "- probe status: \`${{ steps.probe.outputs.status || 'not_started' }}\`"
+            echo "- expected resources: operations and disbursements XLSX"
+            echo "- persistence in PR validation: disabled"
+            echo "- row contents: not emitted; diagnostics contain resource metadata, sheets and detected headers only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  ingest:
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REQUESTED_FORCE: ${{ inputs.force || false }}
+      REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '100000' }}
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate production secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: Resolve ingestion scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            FORCE="true"
+            TRIGGER="backfill"
+            MAX_MATCHED_ROWS="100000"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            FORCE="$REQUESTED_FORCE"
+            TRIGGER="manual"
+            MAX_MATCHED_ROWS="$REQUESTED_MAX_MATCHED_ROWS"
+          else
+            FORCE="false"
+            TRIGGER="schedule"
+            MAX_MATCHED_ROWS="100000"
+          fi
+          echo "force=$FORCE" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+          echo "max_matched_rows=$MAX_MATCHED_ROWS" >> "$GITHUB_OUTPUT"
+
+      - name: Execute governed Finep ingestion
+        id: ingestion
+        working-directory: backend
+        shell: bash
+        run: |
+          ARGS=(
+            --trigger "${{ steps.scope.outputs.trigger }}"
+            --max-matched-rows "${{ steps.scope.outputs.max_matched_rows }}"
+            --require-scan
+            --require-zero-errors
+          )
+          if [ "${{ steps.scope.outputs.force }}" = "true" ]; then ARGS+=(--force); fi
+          set +e
+          npx tsx src/cli/finepPublicData.ts "${ARGS[@]}" > finep-ingestion.raw.log 2>&1
+          STATUS=$?
+          set -e
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          source = Path('finep-ingestion.raw.log')
+          target = Path('finep-ingestion.log')
+          text = source.read_text(encoding='utf-8', errors='replace') if source.exists() else ''
+          for name in ('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL'):
+              value = os.environ.get(name, '')
+              if value:
+                  text = text.replace(value, f'[{name}_REDACTED]')
+          target.write_text(text, encoding='utf-8')
+          source.unlink(missing_ok=True)
+          PY
+          cat finep-ingestion.log
+          exit "$STATUS"
+
+      - name: Upload sanitized ingestion diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finep-ingestion-${{ github.run_id }}
+          path: backend/finep-ingestion.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize ingestion
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Finep production ingestion"
+            echo
+            echo "- event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- trigger: \`${{ steps.scope.outputs.trigger || 'not_started' }}\`"
+            echo "- force: \`${{ steps.scope.outputs.force || 'not_started' }}\`"
+            echo "- ingestion outcome: \`${{ steps.ingestion.outcome }}\`"
+            echo "- source authority: official primary"
+            echo "- downstream decision recomputation: decision-eligible companies only"
+          } >> "$GITHUB_STEP_SUMMARY"
