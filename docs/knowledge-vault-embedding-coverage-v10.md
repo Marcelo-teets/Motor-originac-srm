@@ -23,6 +23,7 @@ Dimensão: 1024
 Input type do corpus: document
 Input type da consulta: query
 Embedding sintético: proibido
+Local do VOYAGE_API_KEY: Vercel only
 ```
 
 A troca de modelo ou dimensão exige reindexação integral. Vetores de espaços diferentes não devem ser misturados.
@@ -109,33 +110,53 @@ Falhas usam backoff exponencial limitado:
 
 O valor pode respeitar `Retry-After` do provedor, entre 30 segundos e 24 horas.
 
-## Edge Function
+## Worker serverless no Vercel
 
 Arquivo:
 
 ```text
-supabase/functions/knowledge-embedding-worker/index.ts
+api/knowledge-embedding-worker.ts
 ```
 
-Deploy:
+O handler:
 
-```text
-knowledge-embedding-worker
-status: ACTIVE
-verify_jwt: true
-```
+- roda no runtime server-side do Vercel;
+- exige `Authorization: Bearer <CRON_SECRET>`;
+- usa `VOYAGE_API_KEY` somente no Vercel;
+- usa `SUPABASE_SERVICE_ROLE_KEY` somente no servidor;
+- faz claim da fila antes do lote;
+- chama Voyage com `voyage-3.5`, `input_type=document` e 1.024 dimensões;
+- valida exatamente 1.024 números finitos por embedding;
+- respeita `Retry-After` e agenda retry;
+- conclui ou libera cada job individualmente;
+- persiste modelo, dimensão, hash, horário, request ID e tokens;
+- registra `syntheticEmbedding=false` em todas as respostas;
+- devolve o SHA exato do deployment para smoke operacional.
 
-Guardrails:
+### Edge Function desativada
 
-- invocação exige o JWT exato de `service_role`;
-- nenhum usuário autenticado comum pode disparar o consumo;
-- nenhuma chave chega ao frontend;
-- batch máximo de 128 documentos;
-- limite diário máximo configurável;
-- validação de exatamente 1.024 números finitos por embedding;
-- erros do Voyage liberam jobs com retry;
-- resposta registra `syntheticEmbedding=false`;
-- conclusão persiste modelo, dimensão, hash, horário, request ID e tokens.
+A primeira versão experimental tentou executar o Voyage no Supabase e o smoke confirmou que `VOYAGE_API_KEY` não estava configurada naquele ambiente.
+
+Como a política anterior do projeto exige a chave somente no Vercel, a função Supabase `knowledge-embedding-worker` foi redeployada em versão segura que responde `410 worker_moved_to_vercel` e não faz claim da fila.
+
+Assim:
+
+- nenhuma chave foi duplicada;
+- nenhum job ficou preso;
+- nenhuma cota foi consumida;
+- o caminho oficial ficou único: GitHub Actions → Vercel → Voyage + Supabase.
+
+## Remoção de mock legado
+
+O backend possuía um `VectorIndexService` que fabricava vetores determinísticos de 1.536 dimensões.
+
+A V10 remove esse comportamento:
+
+- novos documentos são persistidos com `embedding = null`;
+- metadata registra `synthetic_embedding=false`;
+- o trigger cria um job real;
+- buscas internas sem embedding de consulta usam o índice lexical oficial;
+- nenhum vetor de 1.536 dimensões é criado ou consultado pelo serviço.
 
 ## Automação
 
@@ -159,7 +180,25 @@ iterations: 4
 daily_limit: 128
 ```
 
+Fluxo:
+
+```text
+GitHub Actions
+→ CRON_SECRET
+→ endpoint Vercel
+→ VOYAGE_API_KEY no Vercel
+→ claim / complete / retry no Supabase
+```
+
 O teto diário é aplicado no banco, não apenas no workflow. Execuções concorrentes não conseguem ultrapassar a cota contabilizada por jobs concluídos.
+
+Smoke manual:
+
+```text
+.github/workflows/knowledge-embedding-worker-smoke.yml
+```
+
+O smoke fica em `workflow_dispatch` e só deve ser executado após o deployment conter o SHA da V10.
 
 ## Produto
 
@@ -184,6 +223,8 @@ A telemetria é observacional e não altera score, qualification, patterns, rank
 - agregação privilegiada isolada no schema `private`;
 - wrapper público de cobertura como `security invoker`;
 - policy explícita apenas para `service_role`;
+- `VOYAGE_API_KEY` permanece somente no Vercel;
+- execução do worker exige `CRON_SECRET` com comparação constante;
 - advisors sem alertas novos ligados à V10 após hardening;
 - permanece apenas o alerta global conhecido de leaked-password protection desativado no Auth.
 
@@ -213,6 +254,15 @@ Resíduos smoke: 0
 
 O primeiro smoke identificou que `pgvector` não possui operador de igualdade para `IS DISTINCT FROM`. A comparação foi corrigida pelo texto canônico do vetor antes da ativação do worker.
 
+## Validação de engenharia
+
+- migration aplicada no Supabase real;
+- Edge Function experimental desativada sem claim;
+- CI normal passou após a troca de arquitetura;
+- `api/knowledge-embedding-worker.ts` ganhou typecheck dedicado via `tsconfig.serverless.json`;
+- preview e deployment Vercel permanecem bloqueados pela capacidade `build-rate-limit` da conta;
+- o smoke Voyage persistente aguarda o endpoint Vercel conter esta versão.
+
 ## Critérios de aceite
 
 - [x] fila criada e populada no Supabase real;
@@ -222,14 +272,15 @@ O primeiro smoke identificou que `pgvector` não possui operador de igualdade pa
 - [x] baseline histórico separado do consumo diário;
 - [x] invalidação de vetores obsoletos;
 - [x] smoke transacional completo com rollback;
-- [x] Edge Function ativa com JWT obrigatório;
+- [x] worker implementado no Vercel com secret Vercel-only;
+- [x] Edge Function antiga desativada com segurança;
 - [x] workflow diário bounded;
 - [x] telemetria autenticada no frontend;
+- [x] mock legado de 1.536 dimensões removido;
 - [x] advisors de segurança limpos para a V10;
-- [ ] smoke persistente de um documento com Voyage real;
-- [ ] CI da PR funcional;
+- [ ] smoke persistente de um documento com Voyage real após deployment;
 - [ ] merge na `main`;
-- [ ] rollout do frontend após liberação da capacidade de build Vercel.
+- [ ] rollout do frontend e endpoint após liberação da capacidade de build Vercel.
 
 ## Próxima evolução
 
