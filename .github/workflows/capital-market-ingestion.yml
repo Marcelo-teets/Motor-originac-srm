@@ -21,6 +21,8 @@ on:
       - db/migrations/038_cleanup_legacy_cvm_canary.sql
       - db/migrations/043_capital_market_single_running_guard.sql
       - db/migrations/092_cvm_delivery_hardening.sql
+  pull_request:
+    types: [opened]
   issues:
     types: [opened]
   schedule:
@@ -63,8 +65,10 @@ concurrency:
 jobs:
   ingest:
     if: >-
-      github.event_name != 'issues' ||
-      (github.actor == 'Marcelo-teets' && startsWith(github.event.issue.title, '[OPS][CVM_BOOTSTRAP]'))
+      (github.event_name != 'issues' && github.event_name != 'pull_request') ||
+      (github.actor == 'Marcelo-teets' &&
+        ((github.event_name == 'issues' && startsWith(github.event.issue.title, '[OPS][CVM_BOOTSTRAP]')) ||
+         (github.event_name == 'pull_request' && startsWith(github.event.pull_request.title, '[OPS][CVM_BOOTSTRAP]'))))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -191,7 +195,7 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "issues" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             DATASET="all"
             REFERENCE=""
             MAX_ROWS="100000"
