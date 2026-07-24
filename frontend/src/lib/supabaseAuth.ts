@@ -2,6 +2,13 @@ import type { SessionData } from './types';
 
 export type UserRole = 'god_mode' | 'common';
 export type UserStatus = 'active' | 'invited' | 'disabled';
+export type OAuthProvider = 'github' | 'google';
+
+export type OAuthProviderOption = {
+  provider: OAuthProvider;
+  label: string;
+  mark: string;
+};
 
 export type UserProfile = {
   id: string;
@@ -21,6 +28,11 @@ export type UserProfile = {
 
 const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
 const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '');
+
+const supportedOAuthProviders: OAuthProviderOption[] = [
+  { provider: 'github', label: 'GitHub', mark: 'GH' },
+  { provider: 'google', label: 'Google', mark: 'G' },
+];
 
 export const captchaConfig = {
   // O projeto Supabase está com proteção CAPTCHA ativa. O padrão seguro é
@@ -128,10 +140,23 @@ export const supabaseAuth = {
     return payload;
   },
 
-  getGoogleOAuthUrl() {
+  async getEnabledOAuthProviders(): Promise<OAuthProviderOption[]> {
+    requireConfig();
+    const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+      headers: { ...authHeaders(), Accept: 'application/json' },
+    });
+    const payload = await readPayload(response);
+    if (!response.ok) throw authError(payload, 'Não foi possível consultar os provedores OAuth.');
+    const external = payload.external && typeof payload.external === 'object'
+      ? payload.external as Record<string, unknown>
+      : {};
+    return supportedOAuthProviders.filter(({ provider }) => external[provider] === true);
+  },
+
+  getOAuthUrl(provider: OAuthProvider) {
     requireConfig();
     const redirectTo = `${window.location.origin}/auth/callback`;
-    return `${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+    return `${supabaseUrl}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}`;
   },
 
   async sessionFromLocation(): Promise<SessionData> {
