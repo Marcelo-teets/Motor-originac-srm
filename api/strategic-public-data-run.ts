@@ -1,13 +1,18 @@
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import {
-  discoverStrategicPublicResources,
-  streamStrategicPublicResource,
-} from '../backend/src/modules/public-data/strategicPublicDatasetConnector.js';
-import { PublicDataDownstreamService } from '../backend/src/services/publicDataDownstreamService.js';
-import { StrategicPublicIngestionService } from '../backend/src/services/strategicPublicIngestionService.js';
+
+// Node 24 emits DEP0169 from a legacy transitive dependency during ZIP discovery.
+// The handler and connector use WHATWG URL; filter only that known warning code.
+const originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+  const code = typeof args[0] === 'object' && args[0] !== null
+    ? (args[0] as { code?: string }).code
+    : typeof args[1] === 'string' ? args[1] : undefined;
+  if (code === 'DEP0169') return;
+  return originalEmitWarning(warning as string, ...(args as [never]));
+}) as typeof process.emitWarning;
 
 const DATASET = 'cvm_fre_capital_structure' as const;
-const RUNTIME_VERSION = 'strategic-public-data-v1';
+const RUNTIME_VERSION = 'strategic-public-data-v2';
 
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 
@@ -19,7 +24,6 @@ const isAuthorized = (req: VercelRequest) => {
 };
 
 const isProtectedPreviewProbe = (mode: string) => mode === 'probe' && process.env.VERCEL_ENV === 'preview';
-
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -43,12 +47,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (mode === 'probe') {
-      const resources = await discoverStrategicPublicResources(DATASET, {
+      const connector = await import('../backend/src/modules/public-data/strategicPublicDatasetConnector.js');
+      const resources = await connector.discoverStrategicPublicResources(DATASET, {
         reference,
         maxResources: 1,
       });
       const resource = resources[0];
-      const stats = await streamStrategicPublicResource({
+      const stats = await connector.streamStrategicPublicResource({
         datasetCode: DATASET,
         resource,
         targetCnpjs: new Set(),
@@ -60,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         status: 'real',
         mode: 'probe',
         datasetCode: DATASET,
-        runtime: 'vercel_node_in_memory_zip',
+        runtime: 'vercel_node_dynamic_esm',
         runtimeVersion: RUNTIME_VERSION,
         startedAt,
         finishedAt: new Date().toISOString(),
@@ -89,6 +94,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const [{ StrategicPublicIngestionService }, { PublicDataDownstreamService }] = await Promise.all([
+      import('../backend/src/services/strategicPublicIngestionService.js'),
+      import('../backend/src/services/publicDataDownstreamService.js'),
+    ]);
+
     const ingestion = await new StrategicPublicIngestionService().run({
       datasets: [DATASET],
       reference,
@@ -107,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(statusCode).json({
       ...ingestion,
-      runtime: 'vercel_node_in_memory_zip',
+      runtime: 'vercel_node_dynamic_esm',
       runtimeVersion: RUNTIME_VERSION,
       downstream,
     });
