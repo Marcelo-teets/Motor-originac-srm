@@ -12,6 +12,7 @@ CVM CKAN
 → capital_market_events
 → resolução de CNPJ
 → company_signals
+→ discovered_company_candidates
 → qualification / patterns / score / ranking / pipeline
 ```
 
@@ -31,7 +32,11 @@ CVM CKAN
 ```bash
 SUPABASE_URL="..." \
 SUPABASE_SERVICE_ROLE_KEY="..." \
-npm -C backend exec -- tsx src/cli/capitalMarkets.ts --dataset all --max-rows 250000
+npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+  --dataset all \
+  --max-rows 100000 \
+  --trigger manual \
+  --require-delivery
 ```
 
 Competência específica:
@@ -41,17 +46,34 @@ npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
   --dataset cvm_fidc_monthly \
   --reference 2026-06 \
   --trigger backfill \
-  --max-rows 500000
+  --max-rows 500000 \
+  --require-delivery
+```
+
+Reprocessamento somente da camada de entrega, sem baixar novamente os arquivos:
+
+```bash
+npm -C backend exec -- tsx src/cli/capitalMarketDelivery.ts \
+  --dataset all \
+  --require-delivery
 ```
 
 ## Operação no GitHub Actions
 
-Use **Actions → Capital Market Ingestion → Run workflow**. O job diário executa automaticamente todos os datasets. Para backfill, escolha um dataset e informe `reference`.
+Use **Actions → Capital Market Ingestion → Run workflow**. O job diário executa `cvm_offers`; o job semanal executa cadastro de fundos e informes de FIDC, CRI, CRA e FII.
+
+O workflow separa duas responsabilidades:
+
+1. em pushes relacionados ao runtime CVM, executa typecheck, testes, canário, idempotência e probe do deploy exato;
+2. em agendas e execuções manuais, prioriza a entrega dos dados e não permite que testes não relacionados do monorepo bloqueiem a captura.
+
+Quando a migration `092_cvm_delivery_hardening.sql` entra na `main`, o push executa um bootstrap único dos datasets atuais.
 
 Secrets necessários:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `CRON_SECRET` para o probe serverless em pushes
 
 ## Persistência
 
@@ -71,16 +93,45 @@ A integração reutiliza `bronze_historical_records`, com deduplicação por `da
 - volume e status;
 - origem, arquivo e payload completo.
 
-### Sinais
+### Entrega para originação
 
-A função `sync_capital_market_company_signals` resolve o emissor contra `companies.cnpj` e cria sinais explícitos e idempotentes em `company_signals`.
+A função `sync_capital_market_delivery(dataset)` fecha o ciclo após cada ingestão:
+
+1. resolve eventos contra `companies.cnpj`;
+2. cria sinais explícitos e idempotentes em `company_signals`;
+3. converte emissores CVM ainda não cadastrados em candidatos governados do Capture Inbox;
+4. registra `signals_written` e `candidates_written` na execução;
+5. atualiza a saúde da fonte no `source_catalog`;
+6. expõe métricas por dataset em `capital_market_delivery_health`.
+
+A promoção de candidatos para `companies` continua sujeita à revisão de identidade e aos gates de elegibilidade do projeto. Dado regulatório não autoriza score automático sem qualificação.
+
+## Validação operacional
+
+Após uma execução, validar:
+
+```sql
+select *
+from public.capital_market_delivery_health
+order by dataset_code;
+```
+
+Critérios mínimos:
+
+- `delivery_status = 'healthy'`;
+- `event_count > 0`;
+- `checkpoint_count > 0` após execução incremental;
+- `candidate_count > 0` para ofertas quando existirem emissores elegíveis não cadastrados;
+- sinais apenas quando houver CNPJ correspondente em `companies`.
 
 ## Guardrails
 
 - uma coleta global por dataset, sem baixar o mesmo arquivo para cada empresa;
 - ausência de chaves externas;
 - `service_role` somente no backend/job;
-- RLS habilitado nas tabelas novas;
+- RLS habilitado nas tabelas de persistência;
 - acesso de leitura apenas para usuários autenticados;
 - deduplicação e lineage preservados;
-- falha de um arquivo deixa o dataset como `partial`, sem apagar dados anteriores.
+- falha de um arquivo deixa o dataset como `partial`, sem apagar dados anteriores;
+- candidatos CVM não são promovidos automaticamente;
+- sinais e score não devem confundir securitizadora, fundo, devedor e originador sem validação do papel da entidade.
