@@ -55,7 +55,7 @@ const result = {
 };
 
 console.log(JSON.stringify(result, null, 2));
-if (ingestion.status === 'failed' || downstream?.status === 'partial') process.exitCode = 1;
+if (ingestion.status !== 'real' || downstream?.status === 'partial') process.exitCode = 1;
 if (args.includes('--require-scan') && ingestion.totals.rowsScanned <= 0) {
   console.error('Public bulk ingestion completed without scanning source rows.');
   process.exitCode = 1;
