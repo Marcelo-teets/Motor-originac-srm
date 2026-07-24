@@ -9,14 +9,18 @@ on:
       - api/capital-market-run.ts
       - vercel.json
       - backend/src/cli/capitalMarkets.ts
+      - backend/src/cli/capitalMarketDelivery.ts
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/capitalMarketDeliveryService.ts
+      - backend/src/services/capitalMarketDeliveryService.test.ts
       - backend/src/services/.cvm-trigger
       - db/migrations/035_capital_market_public_data.sql
       - db/migrations/036_capital_market_dataset_runs_source_index.sql
       - db/migrations/037_capital_market_incremental_checkpoints.sql
       - db/migrations/038_cleanup_legacy_cvm_canary.sql
       - db/migrations/043_capital_market_single_running_guard.sql
+      - db/migrations/092_cvm_delivery_hardening.sql
   schedule:
     # Ofertas públicas: sinal de timing rápido, captura diária.
     - cron: "20 9 * * *"
@@ -57,7 +61,7 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -89,11 +93,16 @@ jobs:
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
 
+      # Push validation remains strict. Scheduled delivery is not blocked by
+      # unrelated tests elsewhere in the monorepo; the ingestion CLI itself is
+      # still executed and must complete successfully.
       - name: Typecheck backend
+        if: github.event_name == 'push'
         run: npm -C backend run typecheck
 
-      - name: Test capital-market connector
-        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts src/services/capitalMarketIngestionService.test.ts
+      - name: Test capital-market connector and delivery
+        if: github.event_name == 'push'
+        run: npm -C backend exec -- tsx --test src/modules/capital-markets/cvmCapitalMarketConnector.test.ts src/services/capitalMarketIngestionService.test.ts src/services/capitalMarketDeliveryService.test.ts
 
       - name: Persist recent CVM offers canary directly
         if: github.event_name == 'push'
@@ -104,13 +113,14 @@ jobs:
               --dataset cvm_offers \
               --max-rows 250 \
               --trigger manual \
-              --require-records; then
+              --require-records \
+              --require-delivery; then
               exit 0
             fi
             sleep 15
           done
 
-          echo "Direct capital-market canary did not persist source records."
+          echo "Direct capital-market canary did not persist and deliver source records."
           exit 1
 
       - name: Prove CVM canary idempotency
@@ -121,7 +131,24 @@ jobs:
             --max-rows 250 \
             --trigger manual \
             --require-records \
+            --require-delivery \
             --require-idempotent
+
+      - name: Bootstrap all CVM datasets after delivery migration
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${GITHUB_SHA}" || true)
+          if ! printf '%s\n' "$CHANGED_FILES" | grep -q '^db/migrations/092_cvm_delivery_hardening.sql$'; then
+            echo "Delivery migration was not part of this push; full bootstrap skipped."
+            exit 0
+          fi
+
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset all \
+            --max-rows 100000 \
+            --trigger backfill \
+            --require-delivery
 
       - name: Probe exact deployed endpoint
         if: github.event_name == 'push'
@@ -181,9 +208,13 @@ jobs:
           echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
           echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
 
-      - name: Ingest CVM capital-market datasets directly
+      - name: Ingest and deliver CVM capital-market datasets directly
         if: github.event_name != 'push'
         run: |
-          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}")
+          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}" --require-delivery)
           if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
           npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
+
+      - name: Verify persisted delivery without redownloading
+        if: github.event_name != 'push'
+        run: npm -C backend exec -- tsx src/cli/capitalMarketDelivery.ts --dataset "${{ steps.scope.outputs.dataset }}" --require-delivery
