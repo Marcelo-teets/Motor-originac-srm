@@ -20,6 +20,7 @@
     "test:company-credit-review": "npx tsx --test backend/src/lib/companyCreditReview.test.ts",
     "test:vercel-deploy-guard": "node scripts/vercel-deployment-config.test.mjs && bash scripts/vercel-ignore-build.test.sh",
     "test:vercel-production-control": "node scripts/vercel-production-control.test.mjs",
+    "ops:materialize-company-decision": "npx tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
     "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless"
