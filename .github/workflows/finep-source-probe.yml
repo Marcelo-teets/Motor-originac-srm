@@ -1,0 +1,76 @@
+name: Finep Official Source Probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/finep-source-probe.yml
+      - backend/src/cli/probeFinepPublicData.ts
+      - backend/src/lib/zipArchive.ts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finep-source-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+
+      - name: Probe official Finep XLSX resources
+        id: probe
+        working-directory: backend
+        shell: bash
+        run: |
+          set +e
+          npx tsx src/cli/probeFinepPublicData.ts \
+            > finep-probe.json \
+            2> finep-probe.stderr
+          STATUS=$?
+          cat finep-probe.json || true
+          cat finep-probe.stderr >&2 || true
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Upload sanitized Finep probe diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finep-official-source-probe-${{ github.run_attempt }}
+          path: |
+            backend/finep-probe.json
+            backend/finep-probe.stderr
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize probe result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Finep official source probe"
+            echo
+            echo "- exit status: \`${{ steps.probe.outputs.status || 'not_started' }}\`"
+            echo "- source page: Finep Central de Downloads"
+            echo "- expected resources: operations and disbursements XLSX"
+            echo "- persistence: disabled"
+            echo "- row contents: not emitted; diagnostics contain resource metadata, sheets and detected headers only"
+          } >> "$GITHUB_STEP_SUMMARY"
