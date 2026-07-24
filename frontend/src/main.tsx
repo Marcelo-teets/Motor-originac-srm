@@ -6,6 +6,7 @@ import { AuthProvider } from './lib/auth';
 import './styles/app.css';
 import './styles/states.css';
 import './styles/fidc-market-map.css';
+import './styles/auth-profile.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
