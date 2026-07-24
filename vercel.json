@@ -37,6 +37,10 @@
     "api/agentetome.ts": {
       "maxDuration": 300,
       "memory": 1024
+    },
+    "api/dcm-daily-operating-loop.ts": {
+      "maxDuration": 10,
+      "memory": 512
     }
   },
   "crons": [
@@ -85,6 +89,14 @@
     {
       "source": "/api/sources/agentetome/:operation",
       "destination": "/api/agentetome?operation=:operation"
+    },
+    {
+      "source": "/api/origination/daily-operating-loop",
+      "destination": "/api/dcm-daily-operating-loop?view=loop"
+    },
+    {
+      "source": "/api/origination/business-analyst",
+      "destination": "/api/dcm-daily-operating-loop?view=business-analyst"
     },
     {
       "source": "/api/:path*",
