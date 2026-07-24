@@ -6,6 +6,7 @@ import { runAuthProductionSmoke } from './smoke-auth-production.mjs';
 const sha = '1234567890abcdef1234567890abcdef12345678';
 const appShell = '<!doctype html><html><head><script type="module" src="/assets/index-test.js"></script></head><body><div id="root"></div></body></html>';
 const bundle = [
+  'gotrue_meta_security',
   'captcha_token',
   '/forgot-password',
   '/reset-password',
@@ -36,7 +37,7 @@ const buildMetadata = (siteKeyConfigured = true) => ({
       enabled: true,
       provider: 'turnstile',
       siteKeyConfigured,
-      tokenTransport: 'captcha_token',
+      tokenTransport: 'gotrue_meta_security.captcha_token',
     },
     oauthProviderDiscovery: true,
     supportedOAuthProviders: ['github', 'google'],
