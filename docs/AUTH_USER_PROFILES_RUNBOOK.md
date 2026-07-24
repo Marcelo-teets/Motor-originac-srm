@@ -46,23 +46,64 @@ Configurar em Production e Preview:
 VITE_SUPABASE_URL=https://hdghpmssudrqhsbvrdyt.supabase.co
 VITE_SUPABASE_ANON_KEY=<publishable ou anon key ativa>
 VITE_CAPTCHA_ENABLED=true
-VITE_CAPTCHA_PROVIDER=turnstile
+VITE_CAPTCHA_PROVIDER=<turnstile ou hcaptcha>
 VITE_CAPTCHA_SITE_KEY=<site key pública>
 ```
 
-`VITE_CAPTCHA_PROVIDER` aceita `turnstile` ou `hcaptcha`. A site key deve pertencer ao mesmo provedor configurado no Supabase Auth.
+`VITE_CAPTCHA_PROVIDER` e `VITE_CAPTCHA_SITE_KEY` devem pertencer ao mesmo provedor configurado no Supabase Auth.
 
-O frontend trabalha em modo fail-closed: com CAPTCHA ativo e sem site key/token, o botão permanece bloqueado e nenhuma chamada inválida é enviada ao `/auth/v1/token`.
+Estado auditado na Vercel em 24/07/2026:
+
+- `VITE_CAPTCHA_ENABLED=true`: configurado em Production, Preview e Development;
+- `VITE_CAPTCHA_PROVIDER=turnstile`: configurado em Production, Preview e Development;
+- `VITE_CAPTCHA_SITE_KEY`: ausente.
+
+O valor `turnstile` foi preparado como padrão do frontend, mas o rollout permanece bloqueado até a obtenção da site key real e a confirmação de que ela corresponde ao provedor selecionado no Supabase.
+
+O frontend trabalha em modo fail-closed: com CAPTCHA ativo e sem site key/token, o botão permanece bloqueado e nenhuma chamada de autenticação é enviada.
 
 ## 5. Configuração do Supabase Auth
 
 ### CAPTCHA
 
 1. Abra Authentication > Bot and Abuse Protection.
-2. Escolha Cloudflare Turnstile ou hCaptcha.
-3. Cadastre a secret key do provedor.
-4. Use a site key correspondente em `VITE_CAPTCHA_SITE_KEY` na Vercel.
-5. Confirme que `VITE_CAPTCHA_ENABLED` reflete o estado real do Supabase.
+2. Confirme se o provedor ativo é Cloudflare Turnstile ou hCaptcha.
+3. Confirme a secret key cadastrada no Supabase.
+4. Copie a site key pública do mesmo widget/site.
+5. Defina `VITE_CAPTCHA_PROVIDER` e `VITE_CAPTCHA_SITE_KEY` na Vercel.
+6. Gere novo deployment e execute o Production Auth Smoke.
+
+### Contrato REST do GoTrue
+
+O token CAPTCHA **não** é enviado no nível superior do JSON. O formato aceito pelo GoTrue é:
+
+```json
+{
+  "email": "usuario@empresa.com",
+  "password": "senha",
+  "gotrue_meta_security": {
+    "captcha_token": "token-verificado"
+  }
+}
+```
+
+Para recuperação de senha:
+
+```json
+{
+  "email": "usuario@empresa.com",
+  "gotrue_meta_security": {
+    "captcha_token": "token-verificado"
+  }
+}
+```
+
+Um probe controlado confirmou a diferença:
+
+- campo superior `captcha_token`: `no captcha_token found`;
+- campo aninhado `gotrue_meta_security.captcha_token`: token reconhecido e validado pelo provedor, retornando `invalid-input-response` para o token propositalmente inválido.
+
+O contrato é protegido pelo teste `test:auth-captcha-payload` e pelo smoke de produção.
 
 ### OAuth dinâmico
 
@@ -130,6 +171,9 @@ Sintoma observado:
 captcha protection: request disallowed (no captcha_token found)
 ```
 
-Causa: o fluxo anterior enviava e-mail e senha ao backend, e o backend chamava o endpoint de token do Supabase sem `captcha_token`.
+Causas encontradas:
 
-Correção: login e recuperação agora obtêm o token do widget no navegador e enviam `captcha_token` no corpo da requisição ao Supabase Auth. O backend continua recebendo e validando o JWT resultante.
+1. O fluxo antigo não enviava token CAPTCHA.
+2. A primeira correção enviava `captcha_token` no nível superior, formato que o GoTrue não reconhece.
+
+Correção final: login e recuperação obtêm o token do widget no navegador e o enviam em `gotrue_meta_security.captcha_token`. O backend continua recebendo e validando apenas o JWT resultante.
