@@ -152,34 +152,61 @@ async function discoverPortalArchive(slug: string, reference?: string, monthly =
   throw new Error(`No downloadable Portal da Transparência archive found for ${slug}.`);
 }
 
+type BndesCkanResource = Record<string, unknown>;
+const isBndesCsv = (resource: BndesCkanResource) => String(resource.format ?? '').toUpperCase() === 'CSV'
+  && /operac/i.test(String(resource.name ?? resource.url ?? ''));
+const isBndesNonAutomatic = (resource: BndesCkanResource) => /n[aã]o[-_\s]?autom|nao[-_\s]?autom/i
+  .test(String(resource.name ?? resource.url ?? ''));
+const mapBndesResource = (resource: BndesCkanResource): PublicBulkResource => ({
+  key: String(resource.id ?? `bndes:${hash(resource.url).slice(0, 24)}`),
+  name: String(resource.name ?? basename(String(resource.url)) ?? 'BNDES CSV'),
+  url: String(resource.url),
+  format: 'csv',
+  encoding: 'windows-1252',
+  delimiter: ';',
+  referenceDate: parseDate(resource.last_modified) ?? new Date().toISOString().slice(0, 10),
+  modifiedAt: clean(resource.last_modified) || null,
+  etag: clean(resource.hash) || null,
+});
+
+async function discoverBndesResources(maxResources: number): Promise<PublicBulkResource[]> {
+  const apiUrl = 'https://dadosabertos.bndes.gov.br/api/3/action/package_show?id=operacoes-financiamento';
+  let candidates: BndesCkanResource[] = [];
+  try {
+    const response = await fetch(apiUrl, { headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' } });
+    if (response.ok) {
+      const payload = await response.json() as { result?: { resources?: BndesCkanResource[] } };
+      candidates = (payload.result?.resources ?? []).filter(isBndesCsv);
+    }
+  } catch {
+    candidates = [];
+  }
+
+  if (!candidates.length) {
+    const pageUrl = 'https://dadosabertos.bndes.gov.br/dataset/operacoes-financiamento';
+    candidates = linksFromHtml(await fetchText(pageUrl), pageUrl)
+      .filter((url) => /\/download\/.*\.csv(?:\?|$)/i.test(url))
+      .map((url) => ({
+        id: `bndes:${hash(url).slice(0, 24)}`,
+        name: decodeURIComponent(basename(url)).replace(/[-_]+/g, ' '),
+        url,
+        format: 'CSV',
+      }));
+  }
+
+  const ordered = [...candidates].sort((left, right) => Number(isBndesNonAutomatic(right)) - Number(isBndesNonAutomatic(left)));
+  const resources = ordered.slice(0, maxResources).map(mapBndesResource);
+  if (!resources.length) throw new Error('BNDES returned no financing CSV resources through CKAN or dataset-page fallback.');
+  return resources;
+}
+
 export async function discoverPublicBulkResources(
   datasetCode: PublicBulkDatasetCode,
   options: { reference?: string; maxResources?: number } = {},
 ): Promise<PublicBulkResource[]> {
   const maxResources = Math.max(1, Math.min(options.maxResources ?? 20, 100));
 
-  if (datasetCode === 'bndes_financing_operations') {
-    const response = await fetch('https://dadosabertos.bndes.gov.br/api/3/action/package_show?id=operacoes-financiamento');
-    if (!response.ok) throw new Error(`BNDES CKAN discovery failed: ${response.status}`);
-    const payload = await response.json() as { result?: { resources?: Array<Record<string, unknown>> } };
-    const resources = (payload.result?.resources ?? [])
-      .filter((resource) => String(resource.format ?? '').toUpperCase() === 'CSV')
-      .filter((resource) => /operac/i.test(String(resource.name ?? '')))
-      .slice(0, maxResources)
-      .map((resource) => ({
-        key: String(resource.id ?? resource.url),
-        name: String(resource.name ?? 'BNDES CSV'),
-        url: String(resource.url),
-        format: 'csv' as const,
-        encoding: 'windows-1252' as const,
-        delimiter: ';' as const,
-        referenceDate: parseDate(resource.last_modified) ?? new Date().toISOString().slice(0, 10),
-        modifiedAt: clean(resource.last_modified) || null,
-        etag: clean(resource.hash) || null,
-      }));
-    if (!resources.length) throw new Error('BNDES CKAN returned no financing CSV resources.');
-    return resources;
-  }
+  if (datasetCode === 'bndes_financing_operations') return discoverBndesResources(maxResources);
 
   if (datasetCode === 'pgfn_debt') {
     const pageUrl = 'https://www.gov.br/pgfn/pt-br/assuntos/divida-ativa-da-uniao/transparencia-fiscal-1/dados-abertos';
@@ -243,7 +270,7 @@ export async function discoverPublicBulkResources(
     }];
   }
 
-  const item = await discoverPortalArchive('contratos', options.reference, true);
+  const item = await discoverPortalArchive('compras', options.reference, true);
   return [{
     key: `compras-contracts:${item.referenceDate}`,
     name: `Contratos públicos ${item.referenceDate}`,
@@ -254,7 +281,7 @@ export async function discoverPublicBulkResources(
     referenceDate: item.referenceDate,
     modifiedAt: item.modifiedAt,
     etag: item.etag,
-    archiveEntryPattern: 'contrat',
+    archiveEntryPattern: '(?:^|[/_])Compras(?:[._]|$)',
   }];
 }
 
@@ -346,15 +373,17 @@ export function normalizePublicBulkRow(input: {
   let normalizedPayload: Record<string, unknown> = {};
 
   if (datasetCode === 'bndes_financing_operations') {
-    entityCnpj = digits(pick(row, ['cpf_cnpj', 'cpf/cnpj']));
+    entityCnpj = digits(pick(row, ['cpf_cnpj', 'cpf/cnpj', 'cnpj', 'cnpj_do_cliente']));
     if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
     entityName = pick(row, ['cliente']);
     recordType = 'bndes_financing';
     referenceDate = parseDate(pick(row, ['data_da_contratacao', 'data da contratacao'])) ?? referenceDate;
-    amount = parseNumber(pick(row, ['valor_da_operacao_em_reais', 'valor da operacao em reais']));
-    status = pick(row, ['situacao_da_operacao', 'situacao da operacao']);
+    amount = parseNumber(pick(row, ['valor_da_operacao_em_reais', 'valor da operacao em reais', 'valor_contratado_reais']));
+    status = pick(row, ['situacao_da_operacao', 'situacao da operacao', 'situacao_do_contrato']);
     normalizedPayload = {
       summary: `${entityName} · operação BNDES${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
+      contractNumber: pick(row, ['numero_do_contrato', 'numero do contrato']),
+      projectDescription: pick(row, ['descricao_do_projeto', 'descricao do projeto']),
       disbursedAmount: parseNumber(pick(row, ['valor_desembolsado_reais'])),
       financialCost: pick(row, ['custo_financeiro']),
       interestRate: parseNumber(pick(row, ['juros'])),
@@ -365,7 +394,14 @@ export function normalizePublicBulkRow(input: {
       customerSize: pick(row, ['porte_do_cliente']),
       financialAgent: pick(row, ['instituicao_financeira_credenciada']),
     };
-    identity = { entityCnpj, referenceDate, amount, product: normalizedPayload.product, instrument: normalizedPayload.instrument };
+    identity = {
+      entityCnpj,
+      referenceDate,
+      amount,
+      contractNumber: normalizedPayload.contractNumber,
+      product: normalizedPayload.product,
+      instrument: normalizedPayload.instrument,
+    };
   } else if (datasetCode === 'pgfn_debt') {
     entityCnpj = digits(pick(row, ['cpf_cnpj', 'cpf/cnpj', 'cpf ou cnpj', 'numero_documento']));
     if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
@@ -403,20 +439,47 @@ export function normalizePublicBulkRow(input: {
     };
     identity = { entityCnpj, category, sanctioningBody, referenceDate };
   } else if (datasetCode === 'compras_contracts') {
-    entityCnpj = digits(pick(row, ['cnpj_contratado', 'cpf_cnpj_fornecedor', 'cpf/cnpj fornecedor', 'documento fornecedor']));
+    entityCnpj = digits(pick(row, [
+      'codigo_contratado',
+      'cnpj_contratado',
+      'cpf_cnpj_fornecedor',
+      'cpf/cnpj fornecedor',
+      'documento fornecedor',
+    ]));
     if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
     entityName = pick(row, ['nome_contratado', 'nome_fornecedor', 'razao_social_fornecedor']);
     recordType = 'public_contract';
-    referenceDate = parseDate(pick(row, ['data_assinatura', 'data assinatura', 'data_inicio_vigencia'])) ?? referenceDate;
-    amount = parseNumber(pick(row, ['valor_global', 'valor contrato', 'valor_contrato']));
-    status = pick(row, ['situacao', 'status_contrato']);
-    const contractNumber = pick(row, ['numero_contrato', 'numero do contrato', 'contrato']);
+    referenceDate = parseDate(pick(row, [
+      'data_assinatura_contrato',
+      'data_assinatura',
+      'data assinatura',
+      'data_inicio_da_vigencia',
+      'data_inicio_vigencia',
+    ])) ?? referenceDate;
+    amount = parseNumber(pick(row, [
+      'valor_final_da_compra',
+      'valor_inicial_da_compra',
+      'valor_global',
+      'valor contrato',
+      'valor_contrato',
+    ]));
+    status = pick(row, ['situacao_contrato', 'situacao', 'status_contrato']);
+    const contractNumber = pick(row, ['numero_do_contrato', 'numero_contrato', 'contrato']);
     normalizedPayload = {
       summary: `${entityName || entityCnpj} · contrato público ${contractNumber}${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
       contractNumber,
       object: pick(row, ['objeto', 'objeto_contrato']),
-      contractingBody: pick(row, ['orgao_superior', 'orgao_contratante', 'unidade_gestora']),
-      endDate: parseDate(pick(row, ['data_fim_vigencia', 'data final vigencia'])),
+      contractingBody: pick(row, [
+        'nome_orgao_superior',
+        'nome_orgao',
+        'nome_ug',
+        'orgao_superior',
+        'orgao_contratante',
+        'unidade_gestora',
+      ]),
+      endDate: parseDate(pick(row, ['data_fim_da_vigencia', 'data_fim_vigencia', 'data final vigencia'])),
+      initialAmount: parseNumber(pick(row, ['valor_inicial_da_compra'])),
+      finalAmount: parseNumber(pick(row, ['valor_final_da_compra'])),
     };
     identity = { entityCnpj, contractNumber, referenceDate, amount };
   } else {
