@@ -1,0 +1,8 @@
+.company-decision-brief-card { scroll-margin-top: 64px; }
+.company-decision-brief-header, .company-decision-brief-footer { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.company-decision-brief-editor { background: var(--surface-subtle, #f8fafc); border: 1px solid var(--border, #d8dee8); border-radius: 12px; box-sizing: border-box; color: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; line-height: 1.6; margin-top: 16px; min-height: 560px; padding: 18px; resize: vertical; width: 100%; }
+.company-decision-brief-editor:focus { border-color: var(--accent, #2563eb); outline: 2px solid color-mix(in srgb, var(--accent, #2563eb) 18%, transparent); }
+.company-decision-brief-footer { margin-top: 14px; }
+.company-decision-confirmation { align-items: flex-start; display: flex; font-size: 13px; gap: 8px; line-height: 1.4; max-width: 620px; }
+.company-decision-confirmation input { margin-top: 2px; }
+@media (max-width: 780px) { .company-decision-brief-header, .company-decision-brief-footer { align-items: stretch; flex-direction: column; } .company-decision-brief-editor { min-height: 460px; } }
