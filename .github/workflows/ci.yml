@@ -34,6 +34,9 @@ jobs:
       - name: Validate GoTrue CAPTCHA payload contract
         run: npm run test:auth-captcha-payload
 
+      - name: Validate sanitized Supabase Auth config audit
+        run: npm run test:auth-config-audit
+
       - name: Validate production Auth smoke contract
         run: npm run test:auth-production-smoke
 
