@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/public-bulk-ingestion.yml
+      - .github/workflows/public-bulk-owner-dispatch.yml
       - backend/src/cli/publicBulkData.ts
       - backend/src/modules/public-data/**
       - backend/src/services/publicBulkIngestionService.ts
@@ -14,6 +15,7 @@ on:
       - main
     paths:
       - .github/workflows/public-bulk-ingestion.yml
+      - .github/workflows/public-bulk-owner-dispatch.yml
       - backend/src/cli/publicBulkData.ts
       - backend/src/modules/public-data/**
       - backend/src/services/publicBulkIngestionService.ts
@@ -23,7 +25,7 @@ on:
   schedule:
     # Sanções oficiais: captura diária após atualização do Portal.
     - cron: "35 10 * * *"
-    # BNDES e contratos públicos: captura semanal aos domingos.
+    # BNDES leve e contratos públicos: captura semanal aos domingos.
     - cron: "20 11 * * 0"
     # PGFN: checagem mensal; checkpoint evita reprocessar o mesmo trimestre.
     - cron: "50 11 5 * *"
@@ -136,6 +138,7 @@ jobs:
         id: scope
         shell: bash
         run: |
+          MODE="standard"
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             DATASET="cgu_ceis,cgu_cnep"
             REFERENCE=""
@@ -145,12 +148,12 @@ jobs:
             FULL_COVERAGE="true"
           elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cgu_ceis,cgu_cnep}"
-            [ "$DATASET" = "all-light" ] && DATASET="bndes_financing_operations,cgu_ceis,cgu_cnep,compras_contracts"
             REFERENCE="$REQUESTED_REFERENCE"
             MAX_MATCHED_ROWS="${REQUESTED_MAX_MATCHED_ROWS:-100000}"
             MAX_RESOURCES="${REQUESTED_MAX_RESOURCES:-20}"
             TRIGGER="manual"
             FULL_COVERAGE="$REQUESTED_FULL_COVERAGE"
+            if [ "$DATASET" = "all-light" ]; then MODE="all-light"; fi
           elif [ "$SCHEDULE_EXPRESSION" = "35 10 * * *" ]; then
             DATASET="cgu_ceis,cgu_cnep"
             REFERENCE=""
@@ -159,12 +162,13 @@ jobs:
             TRIGGER="schedule"
             FULL_COVERAGE="true"
           elif [ "$SCHEDULE_EXPRESSION" = "20 11 * * 0" ]; then
+            MODE="weekly-light"
             DATASET="bndes_financing_operations,compras_contracts"
             REFERENCE=""
             MAX_MATCHED_ROWS="100000"
-            MAX_RESOURCES="20"
+            MAX_RESOURCES="1"
             TRIGGER="schedule"
-            FULL_COVERAGE="true"
+            FULL_COVERAGE="false"
           else
             DATASET="pgfn_debt"
             REFERENCE=""
@@ -173,6 +177,7 @@ jobs:
             TRIGGER="schedule"
             FULL_COVERAGE="true"
           fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
           echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
           echo "max_matched_rows=$MAX_MATCHED_ROWS" >> "$GITHUB_OUTPUT"
@@ -181,17 +186,50 @@ jobs:
           echo "full_coverage=$FULL_COVERAGE" >> "$GITHUB_OUTPUT"
       - name: Run targeted official-data ingestion
         working-directory: backend
+        shell: bash
         run: |
-          ARGS=(
-            --dataset "${{ steps.scope.outputs.dataset }}"
-            --max-matched-rows "${{ steps.scope.outputs.max_matched_rows }}"
-            --max-resources "${{ steps.scope.outputs.max_resources }}"
-            --trigger "${{ steps.scope.outputs.trigger }}"
-            --require-scan
-          )
-          if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
-          if [ "${{ steps.scope.outputs.full_coverage }}" = "true" ]; then ARGS+=(--full-coverage); fi
-          npx tsx src/cli/publicBulkData.ts "${ARGS[@]}"
+          set +e
+          STATUS=0
+
+          run_dataset() {
+            local dataset="$1"
+            local max_resources="$2"
+            local full_coverage="$3"
+            local trigger="$4"
+            local reference="$5"
+            local args=(
+              --dataset "$dataset"
+              --max-matched-rows "${{ steps.scope.outputs.max_matched_rows }}"
+              --max-resources "$max_resources"
+              --trigger "$trigger"
+              --require-scan
+            )
+            if [ -n "$reference" ]; then args+=(--reference "$reference"); fi
+            if [ "$full_coverage" = "true" ]; then args+=(--full-coverage); fi
+            npx tsx src/cli/publicBulkData.ts "${args[@]}"
+            local command_status=$?
+            if [ "$command_status" -ne 0 ]; then STATUS=1; fi
+          }
+
+          MODE="${{ steps.scope.outputs.mode }}"
+          TRIGGER="${{ steps.scope.outputs.trigger }}"
+          REFERENCE="${{ steps.scope.outputs.reference }}"
+          if [ "$MODE" = "all-light" ]; then
+            run_dataset "bndes_financing_operations" "1" "false" "$TRIGGER" "$REFERENCE"
+            run_dataset "compras_contracts" "1" "true" "$TRIGGER" "$REFERENCE"
+            run_dataset "cgu_ceis,cgu_cnep" "2" "true" "$TRIGGER" "$REFERENCE"
+          elif [ "$MODE" = "weekly-light" ]; then
+            run_dataset "bndes_financing_operations" "1" "false" "$TRIGGER" "$REFERENCE"
+            run_dataset "compras_contracts" "1" "true" "$TRIGGER" "$REFERENCE"
+          else
+            run_dataset \
+              "${{ steps.scope.outputs.dataset }}" \
+              "${{ steps.scope.outputs.max_resources }}" \
+              "${{ steps.scope.outputs.full_coverage }}" \
+              "$TRIGGER" \
+              "$REFERENCE"
+          fi
+          exit "$STATUS"
 
   rfb-heavy-guidance:
     if: github.event_name == 'workflow_dispatch' && inputs.dataset == 'rfb_cnpj'
