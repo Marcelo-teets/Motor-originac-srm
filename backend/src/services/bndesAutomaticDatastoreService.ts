@@ -16,6 +16,7 @@ const DATASET_CODE = 'bndes_financing_operations';
 const SOURCE_CODE = 'src_bndes_financing_operations';
 const STALE_RUN_MS = 3 * 60 * 60 * 1_000;
 const PERSIST_BATCH_SIZE = 100;
+
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const numeric = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -31,7 +32,6 @@ const toStringRecord = (row: Record<string, unknown>) => Object.fromEntries(
 type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type CheckpointRow = {
-  resource_key: string;
   status: 'completed' | 'partial' | 'failed';
   rows_scanned: number | string;
   records_matched: number | string;
@@ -78,6 +78,13 @@ type Dependencies = {
   now?: () => Date;
 };
 
+type PersistSummary = {
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  written: number;
+};
+
 export class BndesAutomaticDatastoreService {
   private readonly client: SupabaseClient | null;
   private readonly discoverResource: typeof discoverBndesAutomaticResource;
@@ -93,25 +100,31 @@ export class BndesAutomaticDatastoreService {
 
   async run(options: BndesAutomaticDatastoreOptions = {}): Promise<BndesAutomaticDatastoreResult> {
     if (!this.client) throw new Error('Supabase client not configured for BNDES automatic ingestion.');
+
     const targetBatchSize = Math.max(1, Math.min(options.targetBatchSize ?? 25, 250));
     const maxTargetBatches = Math.max(1, Math.min(options.maxTargetBatches ?? 100, 10_000));
     const pageSize = Math.max(1, Math.min(options.pageSize ?? 1_000, 5_000));
     const maxPagesPerTargetBatch = Math.max(1, Math.min(options.maxPagesPerTargetBatch ?? 100, 1_000));
     const triggerType = options.triggerType ?? 'manual';
+
     const resource = await this.discoverResource();
     if (!resource.datastoreActive) throw new Error('BNDES automatic resource does not expose an active CKAN Datastore.');
 
-    const targetRows = await this.client.select('companies', { select: 'id,cnpj', limit: 50_000 }) as Array<{ id: string; cnpj: string | null }>;
-    const targetCnpjs = [...new Set(targetRows
+    const companyRows = await this.client.select('companies', { select: 'id,cnpj', limit: 50_000 }) as Array<{ id: string; cnpj: string | null }>;
+    const targetCnpjs = [...new Set(companyRows
       .map((row) => cleanCnpj(row.cnpj))
       .filter((cnpj) => cnpj.length === 14))]
       .sort();
     if (!targetCnpjs.length) throw new Error('Company Master has no valid CNPJ targets.');
 
+    const sourceRows = await this.client.select('source_catalog', { select: 'id,status,health,metadata', limit: 1_000 }) as SourceRow[];
+    const source = sourceRows.find((row) => row.metadata?.code === SOURCE_CODE);
+    if (!source) throw new Error(`Source catalog entry not found: ${SOURCE_CODE}.`);
+
     const targetFingerprint = fingerprintBndesTargetUniverse(resource.resourceHash, targetCnpjs);
     const checkpointKey = `${resource.key}:targets:${targetFingerprint.slice(0, 24)}`;
     const checkpoints = await this.client.select('public_dataset_resource_checkpoints', {
-      select: 'resource_key,status,rows_scanned,records_matched,last_successful_run_at,metadata',
+      select: 'status,rows_scanned,records_matched,last_successful_run_at,metadata',
       limit: 1,
       filters: [
         { column: 'dataset_code', value: DATASET_CODE },
@@ -127,10 +140,6 @@ export class BndesAutomaticDatastoreService {
     const previousRowsReturned = options.force ? 0 : numeric(previous?.rows_scanned);
     const previousRecordsMatched = options.force ? 0 : numeric(previous?.records_matched);
     const previousRecordsWritten = options.force ? 0 : numeric(previousMetadata.recordsWritten);
-
-    const sourceRows = await this.client.select('source_catalog', { select: 'id,status,health,metadata', limit: 1_000 }) as SourceRow[];
-    const source = sourceRows.find((row) => row.metadata?.code === SOURCE_CODE);
-    if (!source) throw new Error(`Source catalog entry not found: ${SOURCE_CODE}.`);
 
     const runId = crypto.randomUUID();
     const startedAt = this.now().toISOString();
@@ -185,7 +194,7 @@ export class BndesAutomaticDatastoreService {
         },
       });
       await this.updateSource(source, resource, {
-        status: 'completed',
+        status: 'up_to_date',
         targetFingerprint,
         targetCount: targetCnpjs.length,
         nextTargetOffset: previousOffset,
@@ -210,9 +219,13 @@ export class BndesAutomaticDatastoreService {
     try {
       while (nextTargetOffset < targetCnpjs.length && targetBatchesProcessed < maxTargetBatches) {
         const batch = targetCnpjs.slice(nextTargetOffset, nextTargetOffset + targetBatchSize);
+        const batchTargets = new Set(batch);
+        const batchRoots = new Set(batch.map((cnpj) => cnpj.slice(0, 8)));
         const filters = buildCnpjFilterValues(batch);
         let pageOffset = 0;
         let pages = 0;
+        let pageComplete = false;
+
         while (pages < maxPagesPerTargetBatch) {
           const page = await this.fetchPage({
             resourceId: resource.resourceId,
@@ -222,16 +235,18 @@ export class BndesAutomaticDatastoreService {
           });
           pages += 1;
           runRowsReturned += page.records.length;
+
           const normalized = page.records
             .map((row) => normalizePublicBulkRow({
               datasetCode: DATASET_CODE,
               row: toStringRecord(row),
               resource,
-              targetCnpjs: new Set(batch),
-              targetRoots: new Set(batch.map((cnpj) => cnpj.slice(0, 8))),
+              targetCnpjs: batchTargets,
+              targetRoots: batchRoots,
             }))
             .filter((record): record is PublicBulkRecord => Boolean(record));
           runRecordsMatched += normalized.length;
+
           for (let index = 0; index < normalized.length; index += PERSIST_BATCH_SIZE) {
             const persisted = await this.persistRecords(normalized.slice(index, index + PERSIST_BATCH_SIZE));
             runInserted += persisted.inserted;
@@ -239,16 +254,23 @@ export class BndesAutomaticDatastoreService {
             runUnchanged += persisted.unchanged;
             runWritten += persisted.written;
           }
+
           pageOffset += page.records.length;
-          if (!page.records.length || pageOffset >= page.total) break;
+          if (!page.records.length || pageOffset >= page.total) {
+            pageComplete = true;
+            break;
+          }
         }
-        if (pages >= maxPagesPerTargetBatch && pageOffset > 0) {
+
+        if (!pageComplete) {
           throw new Error(`BNDES datastore pagination exceeded ${maxPagesPerTargetBatch} pages for target batch starting at ${nextTargetOffset}.`);
         }
+
         nextTargetOffset += batch.length;
         targetBatchesProcessed += 1;
+        const completed = nextTargetOffset >= targetCnpjs.length;
         await this.saveCheckpoint(source.id, resource, checkpointKey, {
-          status: nextTargetOffset >= targetCnpjs.length ? 'completed' : 'partial',
+          status: completed ? 'completed' : 'partial',
           targetFingerprint,
           targetCount: targetCnpjs.length,
           nextTargetOffset,
@@ -257,7 +279,7 @@ export class BndesAutomaticDatastoreService {
           apiRowsReturned: previousRowsReturned + runRowsReturned,
           recordsMatched: previousRecordsMatched + runRecordsMatched,
           recordsWritten: previousRecordsWritten + runWritten,
-          lastSuccessfulRunAt: nextTargetOffset >= targetCnpjs.length ? this.now().toISOString() : previous?.last_successful_run_at ?? null,
+          lastSuccessfulRunAt: completed ? this.now().toISOString() : previous?.last_successful_run_at ?? null,
           error: null,
         });
       }
@@ -296,6 +318,7 @@ export class BndesAutomaticDatastoreService {
       ? (nextTargetOffset > 0 ? 'partial' : 'failed')
       : completed ? 'completed' : 'partial';
     const finishedAt = this.now().toISOString();
+
     await this.finishRun(runId, {
       status: status === 'failed' ? 'failed' : status === 'partial' ? 'partial' : 'completed',
       finishedAt,
@@ -320,10 +343,12 @@ export class BndesAutomaticDatastoreService {
         cumulativeApiRowsReturned: previousRowsReturned + runRowsReturned,
         cumulativeRecordsMatched: previousRecordsMatched + runRecordsMatched,
         cumulativeRecordsWritten: previousRecordsWritten + runWritten,
+        rowsScannedSemantics: 'api_rows_returned_for_company_master_targets',
         coverageScope: 'company_master_targets',
         sourceWideCoverage: false,
       },
     });
+
     await this.updateSource(source, resource, {
       status,
       targetFingerprint,
@@ -389,8 +414,9 @@ export class BndesAutomaticDatastoreService {
     };
   }
 
-  private async persistRecords(records: PublicBulkRecord[]) {
+  private async persistRecords(records: PublicBulkRecord[]): Promise<PersistSummary> {
     if (!records.length || !this.client) return { inserted: 0, updated: 0, unchanged: 0, written: 0 };
+
     const existingRows = await this.client.select('public_company_records', {
       select: 'record_key,content_hash',
       limit: records.length,
@@ -411,6 +437,7 @@ export class BndesAutomaticDatastoreService {
       return false;
     });
     if (!changed.length) return { inserted, updated, unchanged, written: 0 };
+
     const observedAt = this.now().toISOString();
     await this.client.upsert('bronze_historical_records', changed.map((record) => ({
       dataset_code: record.datasetCode,
@@ -497,6 +524,7 @@ export class BndesAutomaticDatastoreService {
         pageSize: state.pageSize,
         apiRowsReturned: state.apiRowsReturned,
         recordsWritten: state.recordsWritten,
+        rowsScannedSemantics: 'api_rows_returned_for_company_master_targets',
         coverageScope: 'company_master_targets',
         sourceWideCoverage: false,
       },
@@ -552,6 +580,7 @@ export class BndesAutomaticDatastoreService {
     const targetCoverageAchieved = ['completed', 'up_to_date'].includes(state.status)
       && state.nextTargetOffset >= state.targetCount;
     const authoritative = resource.metadataSource === 'resource_show';
+
     await this.client.update('source_catalog', {
       status: targetCoverageAchieved && authoritative ? 'real' : 'partial',
       health: state.error ? 'degraded' : 'healthy',
@@ -573,7 +602,7 @@ export class BndesAutomaticDatastoreService {
         targetCoverageCount: state.targetCount,
         targetCoverageProcessed: state.nextTargetOffset,
         targetCoverageAchieved,
-        fullCoverageAchieved: targetCoverageAchieved,
+        fullCoverageAchieved: false,
       },
       updated_at: state.finishedAt,
     }, [{ column: 'id', value: source.id }]);
