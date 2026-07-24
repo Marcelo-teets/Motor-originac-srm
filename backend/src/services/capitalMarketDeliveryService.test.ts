@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import './capitalMarketAssertions.test.js';
 import { normalizeCapitalMarketDeliveryResult } from './capitalMarketDeliveryService.js';
 
 test('normalizes CVM delivery metrics returned by Supabase RPC', () => {
