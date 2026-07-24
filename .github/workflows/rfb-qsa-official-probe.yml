@@ -15,9 +15,9 @@ on:
         default: "17770708000124"
         type: string
       reference:
-        description: Competência da Receita (YYYY-MM)
+        description: Competência opcional da Receita (YYYY-MM); vazio usa a mais recente
         required: false
-        default: "2026-07"
+        default: ""
         type: string
       max_resources:
         description: Máximo de partições Socios a verificar
@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 180
     env:
       TARGET_CNPJ: ${{ inputs.cnpj || '17770708000124' }}
-      TARGET_REFERENCE: ${{ inputs.reference || '2026-07' }}
+      TARGET_REFERENCE: ${{ inputs.reference || '' }}
       MAX_RESOURCES: ${{ inputs.max_resources || '20' }}
     steps:
       - name: Checkout
@@ -56,9 +56,11 @@ jobs:
         working-directory: backend
         shell: bash
         run: |
-          npx tsx src/cli/probeRfbQsa.ts \
-            --cnpj "$TARGET_CNPJ" \
-            --reference "$TARGET_REFERENCE" \
-            --max-resources "$MAX_RESOURCES" \
-            --max-matched-rows 1000 \
+          ARGS=(
+            --cnpj "$TARGET_CNPJ"
+            --max-resources "$MAX_RESOURCES"
+            --max-matched-rows 1000
             --require-match
+          )
+          if [ -n "$TARGET_REFERENCE" ]; then ARGS+=(--reference "$TARGET_REFERENCE"); fi
+          npx tsx src/cli/probeRfbQsa.ts "${ARGS[@]}"
