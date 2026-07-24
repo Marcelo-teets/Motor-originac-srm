@@ -1,16 +1,6 @@
 name: Knowledge Embedding Worker Smoke
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - .github/workflows/knowledge-embedding-worker-smoke.yml
-      - supabase/functions/knowledge-embedding-worker/index.ts
-      - db/migrations/098_knowledge_embedding_coverage_v10.sql
-      - db/migrations/099_knowledge_embedding_budget_baseline_fix.sql
-      - db/migrations/100_knowledge_embedding_vector_comparison_fix.sql
-      - db/migrations/101_knowledge_embedding_security_hardening.sql
   workflow_dispatch:
 
 permissions:
@@ -22,32 +12,29 @@ concurrency:
 
 jobs:
   real-one-document-smoke:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'agent/knowledge-embedding-coverage-v10'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      KNOWLEDGE_EMBEDDING_API_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/knowledge-embedding-worker
 
     steps:
-      - name: Validate runtime secrets
+      - name: Validate runtime secret
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_URL"
-          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$CRON_SECRET"
 
       - name: Generate exactly one real embedding
         shell: bash
         run: |
           set -euo pipefail
-          ENDPOINT="${SUPABASE_URL%/}/functions/v1/knowledge-embedding-worker"
           RESPONSE_FILE="$(mktemp)"
-          HTTP_CODE="$(curl -sS \
+          HTTP_CODE="$(curl -sS --max-time 120 \
             -o "$RESPONSE_FILE" \
             -w '%{http_code}' \
-            -X POST "$ENDPOINT" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -X POST "$KNOWLEDGE_EMBEDDING_API_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
             -H 'Content-Type: application/json' \
             --data "{\"batchSize\":1,\"dailyLimit\":1,\"leaseSeconds\":600,\"workerId\":\"smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"}")"
 
@@ -56,12 +43,14 @@ jobs:
           COMPLETED="$(jq -r '.completed // 0' "$RESPONSE_FILE")"
           COMPLETED_TODAY="$(jq -r '.completedToday // .coverage.jobs.completedToday // 0' "$RESPONSE_FILE")"
           SYNTHETIC="$(jq -r '.syntheticEmbedding // true' "$RESPONSE_FILE")"
+          DEPLOYED_SHA="$(jq -r '.deploymentCommitSha // ""' "$RESPONSE_FILE")"
           rm -f "$RESPONSE_FILE"
 
           if (( HTTP_CODE < 200 || HTTP_CODE >= 300 )); then
             echo "Smoke returned HTTP $HTTP_CODE" >&2
             exit 1
           fi
+          test -n "$DEPLOYED_SHA"
           test "$SYNTHETIC" = "false"
 
           if [[ "$STATUS" == "completed" ]]; then
