@@ -1,0 +1,51 @@
+name: Production Auth Smoke
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Canonical production URL
+        required: true
+        default: https://motor-originac-srm.vercel.app
+        type: string
+      expected_sha:
+        description: Expected production commit SHA; empty uses the workflow SHA
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: production-auth-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       (github.event.deployment.ref == 'main' ||
+        github.event.deployment.environment == 'Production' ||
+        github.event.deployment.environment == 'production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://motor-originac-srm.vercel.app' }}
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || github.event.deployment.sha }}
+      REQUIRE_CAPTCHA_SITE_KEY: 'true'
+
+    steps:
+      - name: Checkout deployment contract
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run production Auth smoke
+        run: node scripts/smoke-auth-production.mjs
