@@ -1,0 +1,72 @@
+name: Knowledge Embedding Worker Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-embedding-worker-smoke
+  cancel-in-progress: false
+
+jobs:
+  real-one-document-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      KNOWLEDGE_EMBEDDING_API_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/knowledge-embedding-worker
+
+    steps:
+      - name: Validate runtime secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+
+      - name: Generate exactly one real embedding
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS --max-time 120 \
+            -o "$RESPONSE_FILE" \
+            -w '%{http_code}' \
+            -X POST "$KNOWLEDGE_EMBEDDING_API_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Content-Type: application/json' \
+            --data "{\"batchSize\":1,\"dailyLimit\":1,\"leaseSeconds\":600,\"workerId\":\"smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"}")"
+
+          cat "$RESPONSE_FILE" | tee /tmp/knowledge-embedding-worker-smoke.json | jq .
+          STATUS="$(jq -r '.status // "unknown"' "$RESPONSE_FILE")"
+          COMPLETED="$(jq -r '.completed // 0' "$RESPONSE_FILE")"
+          COMPLETED_TODAY="$(jq -r '.completedToday // .coverage.jobs.completedToday // 0' "$RESPONSE_FILE")"
+          SYNTHETIC="$(jq -r '.syntheticEmbedding // true' "$RESPONSE_FILE")"
+          DEPLOYED_SHA="$(jq -r '.deploymentCommitSha // ""' "$RESPONSE_FILE")"
+          rm -f "$RESPONSE_FILE"
+
+          if (( HTTP_CODE < 200 || HTTP_CODE >= 300 )); then
+            echo "Smoke returned HTTP $HTTP_CODE" >&2
+            exit 1
+          fi
+          test -n "$DEPLOYED_SHA"
+          test "$SYNTHETIC" = "false"
+
+          if [[ "$STATUS" == "completed" ]]; then
+            test "$COMPLETED" = "1"
+          elif [[ "$STATUS" == "budget_exhausted" ]]; then
+            test "$COMPLETED_TODAY" -ge 1
+          else
+            echo "Unexpected smoke status: $STATUS" >&2
+            exit 1
+          fi
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-embedding-worker-smoke
+          path: /tmp/knowledge-embedding-worker-smoke.json
+          if-no-files-found: ignore
+          retention-days: 14

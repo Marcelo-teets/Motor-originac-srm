@@ -1,0 +1,125 @@
+name: Knowledge Embedding Coverage
+
+on:
+  schedule:
+    - cron: '15 10 * * *'
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: Documents per worker invocation
+        required: false
+        default: '32'
+      daily_limit:
+        description: Maximum real embeddings completed per UTC day
+        required: false
+        default: '128'
+      iterations:
+        description: Maximum worker invocations in this run
+        required: false
+        default: '4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-embedding-coverage
+  cancel-in-progress: false
+
+jobs:
+  cover-pending-documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      KNOWLEDGE_EMBEDDING_API_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/knowledge-embedding-worker
+      BATCH_SIZE: ${{ inputs.batch_size || '32' }}
+      DAILY_LIMIT: ${{ inputs.daily_limit || '128' }}
+      ITERATIONS: ${{ inputs.iterations || '4' }}
+
+    steps:
+      - name: Validate runtime secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+
+      - name: Run bounded embedding worker
+        id: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BATCH_SIZE=$(( BATCH_SIZE < 1 ? 1 : BATCH_SIZE > 128 ? 128 : BATCH_SIZE ))
+          DAILY_LIMIT=$(( DAILY_LIMIT < 1 ? 1 : DAILY_LIMIT > 5000 ? 5000 : DAILY_LIMIT ))
+          ITERATIONS=$(( ITERATIONS < 1 ? 1 : ITERATIONS > 20 ? 20 : ITERATIONS ))
+          RUN_ID="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          total_claimed=0
+          total_completed=0
+          total_failed=0
+          last_status="not_started"
+          final_response='{}'
+
+          for iteration in $(seq 1 "$ITERATIONS"); do
+            response_file="$(mktemp)"
+            http_code="$(curl -sS --max-time 120 \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              -X POST "$KNOWLEDGE_EMBEDDING_API_URL" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H 'Content-Type: application/json' \
+              --data "{\"batchSize\":$BATCH_SIZE,\"dailyLimit\":$DAILY_LIMIT,\"leaseSeconds\":600,\"workerId\":\"${RUN_ID}-${iteration}\"}")"
+
+            final_response="$(cat "$response_file")"
+            rm -f "$response_file"
+            echo "$final_response" > /tmp/knowledge-embedding-worker-response.json
+            echo "$final_response" | jq .
+
+            last_status="$(echo "$final_response" | jq -r '.status // "unknown"')"
+            claimed="$(echo "$final_response" | jq -r '.claimed // 0')"
+            completed="$(echo "$final_response" | jq -r '.completed // 0')"
+            failed="$(echo "$final_response" | jq -r '.failed // 0')"
+            total_claimed=$((total_claimed + claimed))
+            total_completed=$((total_completed + completed))
+            total_failed=$((total_failed + failed))
+
+            if (( http_code < 200 || http_code >= 300 )); then
+              echo "Worker returned HTTP $http_code" >&2
+              exit 1
+            fi
+
+            if [[ "$last_status" == "empty" || "$last_status" == "budget_exhausted" ]]; then
+              break
+            fi
+          done
+
+          echo "status=$last_status" >> "$GITHUB_OUTPUT"
+          echo "claimed=$total_claimed" >> "$GITHUB_OUTPUT"
+          echo "completed=$total_completed" >> "$GITHUB_OUTPUT"
+          echo "failed=$total_failed" >> "$GITHUB_OUTPUT"
+
+      - name: Publish run summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Knowledge Embedding Coverage'
+            echo
+            echo "- Status: \`${{ steps.worker.outputs.status || 'failed_before_output' }}\`"
+            echo "- Claimed: \`${{ steps.worker.outputs.claimed || '0' }}\`"
+            echo "- Completed: \`${{ steps.worker.outputs.completed || '0' }}\`"
+            echo "- Failed: \`${{ steps.worker.outputs.failed || '0' }}\`"
+            echo "- Daily limit: \`$DAILY_LIMIT\`"
+            echo "- Batch size: \`$BATCH_SIZE\`"
+            echo '- Secret location: `Vercel only`'
+            echo '- Synthetic embeddings: `false`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload worker response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-embedding-worker-response
+          path: /tmp/knowledge-embedding-worker-response.json
+          if-no-files-found: ignore
+          retention-days: 14
