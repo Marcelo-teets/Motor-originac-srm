@@ -362,8 +362,8 @@ export class CapitalMarketIngestionService {
         select: 'dataset_code,record_key,content_hash',
         limit: Math.max(100, batch.length * 2),
         filters: [
-          { column: 'dataset_code', operator: 'in', value: datasets },
-          { column: 'record_key', operator: 'in', value: keys },
+          { column: 'dataset_code', operator: 'in' as const, value: datasets },
+          { column: 'record_key', operator: 'in' as const, value: keys },
         ],
       };
       const [bronze, events] = await Promise.all([
