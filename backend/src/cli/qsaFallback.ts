@@ -30,12 +30,12 @@ console.log(JSON.stringify(result, null, 2));
 
 if (result.status === 'failed') process.exitCode = 1;
 if (args.includes('--require-output')) {
-  const outputsWritten = Number(result.totals?.outputsWritten ?? 0);
+  const outputsAvailable = Number(result.totals?.outputsAvailable ?? result.totals?.outputsWritten ?? 0);
   const recordsWritten = Number(result.totals?.recordsWritten ?? 0);
-  if (outputsWritten <= 0 || recordsWritten <= 0) {
+  if (outputsAvailable <= 0 || recordsWritten <= 0) {
     console.error(JSON.stringify({
-      error: 'QSA fallback ingestion did not persist monitoring evidence.',
-      outputsWritten,
+      error: 'QSA fallback ingestion did not provide monitoring evidence.',
+      outputsAvailable,
       recordsWritten,
     }));
     process.exitCode = 1;
