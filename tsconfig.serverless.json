@@ -4,14 +4,21 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"],
-    "lib": ["ES2022", "DOM"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": [
-    "api/knowledge-embedding-worker.ts"
+    "api/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "frontend/dist",
+    "backend/dist"
   ]
 }

@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -31,8 +31,27 @@ jobs:
       - name: Validate Vercel deployment budget guard
         run: npm run test:vercel-deploy-guard
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+
+      - name: Typecheck frontend
+        run: npm -C frontend run typecheck
+
+      - name: Typecheck Vercel functions
+        id: serverless_typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck:serverless 2>&1 | tee /tmp/serverless-typecheck.log
+
+      - name: Upload serverless typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serverless-typecheck-diagnostics
+          path: /tmp/serverless-typecheck.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build
         run: npm run build
