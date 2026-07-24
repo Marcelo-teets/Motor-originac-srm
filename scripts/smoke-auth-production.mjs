@@ -14,6 +14,9 @@ const BUNDLE_MARKERS = [
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
+  '/auth/v1/settings',
+  'github',
+  'google',
   'god_mode',
 ];
 
@@ -166,9 +169,21 @@ export const runAuthProductionSmoke = async ({
   }
   checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: BUNDLE_MARKERS.join(', ') });
 
-  assert.equal(metadata?.auth?.googleOAuthButtonIncluded, true, 'Google OAuth button is not declared in this build');
+  assert.equal(metadata?.auth?.oauthProviderDiscovery, true, 'OAuth provider discovery is not declared in this build');
+  assert.ok(
+    metadata?.auth?.supportedOAuthProviders?.includes('github'),
+    'GitHub OAuth support is not declared in this build',
+  );
+  assert.ok(
+    metadata?.auth?.supportedOAuthProviders?.includes('google'),
+    'Google OAuth support is not declared in this build',
+  );
   assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support is not declared in this build');
-  checks.push({ check: 'oauth-and-god-mode', status: 'passed', detail: 'declared in build metadata' });
+  checks.push({
+    check: 'oauth-and-god-mode',
+    status: 'passed',
+    detail: 'dynamic provider discovery; github/google supported; GOD-MODE declared',
+  });
 
   return {
     status: 'passed',
