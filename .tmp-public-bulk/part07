@@ -1,0 +1,53 @@
+    headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' },
+  });
+  if (!response.ok) throw new Error(`Download failed: ${response.status} ${input.resource.url}`);
+
+  if (input.resource.format === 'csv') {
+    await consumeRows({
+      ...input,
+      entryName: input.resource.name,
+      rows: parseDelimitedText(decodeWeb(response, input.resource.encoding), input.resource.delimiter),
+      stats,
+    });
+    stats.archiveEntries = 1;
+    return stats;
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), 'origination-public-data-'));
+  const archive = join(directory, input.resource.format === 'zip' ? 'resource.zip' : 'resource.gz');
+  try {
+    if (!response.body) throw new Error('Archive response did not include a body.');
+    await pipeline(Readable.fromWeb(response.body as any), createWriteStream(archive));
+    if (input.resource.format === 'gzip') {
+      const child = spawn('gzip', ['-dc', archive], { stdio: ['ignore', 'pipe', 'pipe'] });
+      await consumeRows({ ...input, entryName: input.resource.name, rows: nodeRows(child.stdout, input.resource.encoding, input.resource.delimiter), stats });
+      stats.archiveEntries = 1;
+      return stats;
+    }
+
+    const allEntries = (await commandOutput('unzip', ['-Z1', archive])).split(/\r?\n/).filter(Boolean);
+    const pattern = input.resource.archiveEntryPattern ? new RegExp(input.resource.archiveEntryPattern, 'i') : null;
+    const entries = allEntries.filter((entry) => {
+      if (input.datasetCode === 'rfb_cnpj') return /(Empresas|Estabelecimentos|EMPRECSV|ESTABELE)/i.test(entry);
+      return /\.(csv|txt)$/i.test(entry) && (!pattern || pattern.test(entry));
+    });
+    if (!entries.length) throw new Error(`Archive contains no compatible data entries: ${input.resource.name}`);
+
+    for (const entry of entries) {
+      if (stats.recordsMatched >= input.maxMatchedRows) break;
+      const child = spawn('unzip', ['-p', archive, entry], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      await consumeRows({ ...input, entryName: entry, rows: nodeRows(child.stdout, input.resource.encoding, input.resource.delimiter), stats });
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', resolve);
+      });
+      if (code !== 0) throw new Error(`unzip failed for ${entry}: ${stderr}`);
+      stats.archiveEntries += 1;
+    }
+    return stats;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
