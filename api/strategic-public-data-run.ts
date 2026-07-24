@@ -1,5 +1,16 @@
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 
+// Node 24 emits DEP0169 from a legacy transitive dependency during ZIP discovery.
+// The handler and connector use WHATWG URL; filter only that known warning code.
+const originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+  const code = typeof args[0] === 'object' && args[0] !== null
+    ? (args[0] as { code?: string }).code
+    : typeof args[1] === 'string' ? args[1] : undefined;
+  if (code === 'DEP0169') return;
+  return originalEmitWarning(warning as string, ...(args as [never]));
+}) as typeof process.emitWarning;
+
 const DATASET = 'cvm_fre_capital_structure' as const;
 const RUNTIME_VERSION = 'strategic-public-data-v2';
 
