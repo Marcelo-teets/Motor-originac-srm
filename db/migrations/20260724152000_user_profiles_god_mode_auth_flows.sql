@@ -16,11 +16,11 @@ alter table public.user_profiles drop constraint if exists user_profiles_role_ch
 
 update public.user_profiles
 set role = case
-  when id = '7fa156a8-72ed-45f1-99b7-2c6f3e572793'::uuid then 'god_mode'
+  when lower(coalesce(email, '')) = 'antunes.p.marcelo@gmail.com' then 'god_mode'
   else 'common'
 end,
 full_name = case
-  when id = '7fa156a8-72ed-45f1-99b7-2c6f3e572793'::uuid then coalesce(full_name, 'Marcelo Pereira Antunes')
+  when lower(coalesce(email, '')) = 'antunes.p.marcelo@gmail.com' then coalesce(full_name, 'Marcelo Pereira Antunes')
   else full_name
 end,
 status = coalesce(status, 'active'),
@@ -114,7 +114,20 @@ begin
     return new;
   end if;
 
+  if old.role = 'god_mode'
+     and (
+       new.id is distinct from old.id
+       or new.email is distinct from old.email
+       or new.role is distinct from 'god_mode'
+       or new.status is distinct from 'active'
+     ) then
+    raise exception 'god_mode_profile_is_protected' using errcode = '42501';
+  end if;
+
   if private.is_god_mode(auth.uid()) then
+    if old.role <> 'god_mode' and new.role = 'god_mode' then
+      raise exception 'god_mode_cannot_be_delegated' using errcode = '42501';
+    end if;
     return new;
   end if;
 
