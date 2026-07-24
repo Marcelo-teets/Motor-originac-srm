@@ -40,7 +40,6 @@ jobs:
         shell: bash
         run: |
           grep -F "https://data.anbima.com.br" scripts/probe-anbima-public.mjs
-          grep -F "no persistence" /dev/null 2>/dev/null || true
           ! grep -E "SUPABASE_|ANBIMA_CLIENT|ANBIMA_SECRET|authorization" scripts/probe-anbima-public.mjs
           ! grep -E "insert\(|upsert\(|delete\(" scripts/probe-anbima-public.mjs
 
@@ -48,6 +47,7 @@ jobs:
         id: probe
         shell: bash
         run: |
+          mkdir -p artifacts
           set +e
           node scripts/probe-anbima-public.mjs > artifacts/anbima-probe.stdout 2> artifacts/anbima-probe.stderr
           STATUS=$?
