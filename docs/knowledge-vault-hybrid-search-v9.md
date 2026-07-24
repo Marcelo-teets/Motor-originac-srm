@@ -175,6 +175,20 @@ lineage preservado
 rollback sem escrita
 ```
 
+## Validação de engenharia
+
+PR funcional:
+
+```text
+#243
+```
+
+CI run `608`:
+
+- install dependencies: success;
+- typecheck: success;
+- build: success.
+
 ## Critérios de aceite
 
 - [x] migration aplicada no Supabase real;
@@ -186,7 +200,7 @@ rollback sem escrita
 - [x] fallback lexical sem vetor sintético;
 - [x] frontend implementado;
 - [x] filtro por empresa e lineage visível;
-- [ ] CI da PR funcional;
+- [x] CI da PR funcional;
 - [ ] preview Vercel;
 - [ ] merge na main;
 - [ ] produção canônica validada.
