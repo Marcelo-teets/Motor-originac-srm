@@ -1,15 +1,14 @@
 name: Diagnose Candidate Decision Queue
 
 on:
-  push:
-    branches:
-      - feat/candidate-decision-queue
+  pull_request:
     paths:
       - .github/workflows/diagnose-candidate-queue.yml
+      - frontend/src/pages/CandidateDecisionQueuePage.tsx
+      - frontend/src/App.tsx
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   diagnose:
@@ -27,17 +26,14 @@ jobs:
         run: |
           set +e
           npm -C frontend run typecheck > candidate-queue-typecheck.log 2>&1
-          STATUS=$?
-          TAIL=$(tail -n 120 candidate-queue-typecheck.log | sed 's/`/\`/g')
-          BODY=$(cat <<EOF
-          Candidate Decision Queue frontend diagnostics (exit ${STATUS}):
-
-          \`\`\`text
-          ${TAIL}
-          \`\`\`
-          EOF
-          )
-          gh issue comment 294 --repo "${{ github.repository }}" --body "$BODY"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat candidate-queue-typecheck.log
           exit 0
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-queue-typecheck
+          path: candidate-queue-typecheck.log
+          if-no-files-found: error
+          retention-days: 7
