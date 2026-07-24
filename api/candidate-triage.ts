@@ -34,7 +34,7 @@ const requestValue = (value: string | string[] | undefined) => Array.isArray(val
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 async function authenticatedUser(req: VercelRequest) {
-  const authorization = req.headers.authorization;
+  const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) return null;
   return verifySupabaseJwt(authorization.slice('Bearer '.length));
 }
@@ -73,7 +73,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ status: 'real', runtimeVersion: RUNTIME_VERSION, data });
     }
 
-    const body = typeof req.body === 'object' && req.body ? req.body as Record<string, unknown> : {};
+    const body = typeof req.body === 'object' && req.body !== null && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
     const action = String(body.action ?? requestValue(req.query.action) ?? '').trim();
     const candidateId = String(body.candidateId ?? body.candidate_id ?? requestValue(req.query.candidateId) ?? '').trim();
     if (!candidateId) return res.status(400).json({ status: 'error', error: 'candidate_id_required' });
@@ -93,9 +95,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ status: 'real', runtimeVersion: RUNTIME_VERSION, data });
     }
 
+    await triage.requireGodMode(user.id);
     const identityRuntime = new CandidateIdentityReviewRuntime();
     if (action === 'approve_identity') {
-      await triage.list(user.id, { limit: 1 });
       const input = normalizeCandidateIdentityApprovalInput(candidateId, body, { userId: user.id, email: user.email });
       const data = await identityRuntime.approve(input);
       if (data.companyId) {
@@ -110,7 +112,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'reject_identity') {
-      await triage.list(user.id, { limit: 1 });
       const input = normalizeCandidateIdentityRejectionInput(candidateId, body, { userId: user.id, email: user.email });
       const data = await identityRuntime.reject(input);
       return res.status(200).json({ status: 'real', runtimeVersion: RUNTIME_VERSION, data });
