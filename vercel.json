@@ -1,6 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD",
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "main": true,
+      "preview/*": true,
+      "release/*": true
+    }
+  },
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "installCommand": "npm install",
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
