@@ -1,0 +1,74 @@
+name: Patch BNDES Datastore Branch
+
+on:
+  push:
+    branches:
+      - feat/bndes-automatic-datastore
+    paths:
+      - .github/workflows/patch-bndes-datastore-branch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/bndes-automatic-datastore
+          fetch-depth: 0
+      - name: Apply guarded replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/src/services/bndesAutomaticDatastoreService.ts')
+          text = path.read_text(encoding='utf-8')
+          old = """        let pageOffset = 0;
+        let pages = 0;
+        while (pages < maxPagesPerTargetBatch) {
+"""
+          new = """        let pageOffset = 0;
+        let pages = 0;
+        let pageComplete = false;
+        while (pages < maxPagesPerTargetBatch) {
+"""
+          if old not in text:
+              raise SystemExit('pagination prelude not found')
+          text = text.replace(old, new, 1)
+          old = """          pageOffset += page.records.length;
+          if (!page.records.length || pageOffset >= page.total) break;
+        }
+        if (pages >= maxPagesPerTargetBatch && pageOffset > 0) {
+          throw new Error(`BNDES datastore pagination exceeded ${maxPagesPerTargetBatch} pages for target batch starting at ${nextTargetOffset}.`);
+        }
+"""
+          new = """          pageOffset += page.records.length;
+          if (!page.records.length || pageOffset >= page.total) {
+            pageComplete = true;
+            break;
+          }
+        }
+        if (!pageComplete) {
+          throw new Error(`BNDES datastore pagination exceeded ${maxPagesPerTargetBatch} pages for target batch starting at ${nextTargetOffset}.`);
+        }
+"""
+          if old not in text:
+              raise SystemExit('pagination completion block not found')
+          text = text.replace(old, new, 1)
+          old = '        fullCoverageAchieved: targetCoverageAchieved,\n'
+          new = '        fullCoverageAchieved: false,\n'
+          if old not in text:
+              raise SystemExit('coverage flag not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm .github/workflows/patch-bndes-datastore-branch.yml
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(data): harden BNDES target pagination semantics"
+          git push origin HEAD:feat/bndes-automatic-datastore
