@@ -1,0 +1,36 @@
+name: Assemble Public Bulk Connector
+
+on:
+  push:
+    branches:
+      - fix/public-bulk-network-timeouts
+    paths:
+      - .tmp-public-bulk/**
+      - .github/workflows/assemble-public-bulk-connector.yml
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/public-bulk-network-timeouts
+          fetch-depth: 0
+      - name: Assemble and verify connector
+        shell: bash
+        run: |
+          cat .tmp-public-bulk/part* > backend/src/modules/public-data/publicBulkDatasetConnector.ts
+          echo "72f401c53c914f4834c4f285724943a6bc8f97c9a43c7f3b5674f8b107ee9f20  backend/src/modules/public-data/publicBulkDatasetConnector.ts" | sha256sum -c -
+          rm -rf .tmp-public-bulk
+          rm .github/workflows/assemble-public-bulk-connector.yml
+      - name: Commit assembled source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(data): assemble bounded official connector"
+          git push origin HEAD:fix/public-bulk-network-timeouts
