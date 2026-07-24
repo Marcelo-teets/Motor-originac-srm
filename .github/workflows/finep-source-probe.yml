@@ -5,7 +5,12 @@ on:
     paths:
       - .github/workflows/finep-source-probe.yml
       - backend/src/cli/probeFinepPublicData.ts
+      - backend/src/cli/finepPublicData.ts
       - backend/src/lib/zipArchive.ts
+      - backend/src/modules/public-data/finepPublicDataConnector.ts
+      - backend/src/modules/public-data/finepPublicDataConnector.test.ts
+      - backend/src/services/finepPublicIngestionService.ts
+      - db/migrations/104_finep_public_funding.sql
   workflow_dispatch:
 
 permissions:
@@ -33,7 +38,19 @@ jobs:
         run: npm ci
 
       - name: Typecheck backend
-        run: npm -C backend run typecheck
+        id: typecheck
+        shell: bash
+        run: |
+          set +e
+          npm -C backend run typecheck > backend/finep-typecheck.log 2>&1
+          STATUS=$?
+          cat backend/finep-typecheck.log
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Test Finep source normalization
+        working-directory: backend
+        run: npx tsx --test src/modules/public-data/finepPublicDataConnector.test.ts
 
       - name: Probe official Finep XLSX resources
         id: probe
@@ -50,12 +67,22 @@ jobs:
           echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
           exit "$STATUS"
 
-      - name: Upload sanitized Finep probe diagnostics
+      - name: Guard Finep governance contract
+        shell: bash
+        run: |
+          grep -F "non_reimbursable_grant" backend/src/modules/public-data/finepPublicDataConnector.ts
+          grep -F "equity_investment" backend/src/modules/public-data/finepPublicDataConnector.ts
+          grep -F "decision_eligible === true" backend/src/services/finepPublicIngestionService.ts
+          grep -F "não inferir funding gap automaticamente" db/migrations/104_finep_public_funding.sql
+          grep -F "sync_finep_company_signals" db/migrations/104_finep_public_funding.sql
+
+      - name: Upload sanitized Finep diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: finep-official-source-probe-${{ github.run_attempt }}
           path: |
+            backend/finep-typecheck.log
             backend/finep-probe.json
             backend/finep-probe.stderr
           if-no-files-found: warn
@@ -66,11 +93,11 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Finep official source probe"
+            echo "## Finep official source validation"
             echo
-            echo "- exit status: \`${{ steps.probe.outputs.status || 'not_started' }}\`"
-            echo "- source page: Finep Central de Downloads"
+            echo "- typecheck status: \`${{ steps.typecheck.outputs.status || 'not_started' }}\`"
+            echo "- probe status: \`${{ steps.probe.outputs.status || 'not_started' }}\`"
             echo "- expected resources: operations and disbursements XLSX"
-            echo "- persistence: disabled"
+            echo "- persistence in PR validation: disabled"
             echo "- row contents: not emitted; diagnostics contain resource metadata, sheets and detected headers only"
           } >> "$GITHUB_STEP_SUMMARY"
