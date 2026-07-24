@@ -1,0 +1,69 @@
+name: Knowledge Embedding Worker Smoke
+
+on:
+  push:
+    branches:
+      - agent/knowledge-embedding-coverage-v10
+    paths:
+      - .github/workflows/knowledge-embedding-worker-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-embedding-worker-smoke
+  cancel-in-progress: false
+
+jobs:
+  real-one-document-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Validate runtime secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+
+      - name: Generate exactly one real embedding
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENDPOINT="${SUPABASE_URL%/}/functions/v1/knowledge-embedding-worker"
+          RESPONSE_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS \
+            -o "$RESPONSE_FILE" \
+            -w '%{http_code}' \
+            -X POST "$ENDPOINT" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data "{\"batchSize\":1,\"dailyLimit\":1,\"leaseSeconds\":600,\"workerId\":\"smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"}")"
+
+          cat "$RESPONSE_FILE" | tee /tmp/knowledge-embedding-worker-smoke.json | jq .
+          STATUS="$(jq -r '.status // "unknown"' "$RESPONSE_FILE")"
+          COMPLETED="$(jq -r '.completed // 0' "$RESPONSE_FILE")"
+          SYNTHETIC="$(jq -r '.syntheticEmbedding // true' "$RESPONSE_FILE")"
+          rm -f "$RESPONSE_FILE"
+
+          if (( HTTP_CODE < 200 || HTTP_CODE >= 300 )); then
+            echo "Smoke returned HTTP $HTTP_CODE" >&2
+            exit 1
+          fi
+          test "$STATUS" = "completed"
+          test "$COMPLETED" = "1"
+          test "$SYNTHETIC" = "false"
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-embedding-worker-smoke
+          path: /tmp/knowledge-embedding-worker-smoke.json
+          if-no-files-found: ignore
+          retention-days: 14
