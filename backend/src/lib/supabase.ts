@@ -21,6 +21,41 @@ const encodeFilterValue = (value: FilterDefinition['value']) => {
   return String(value);
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+export const dedupeUpsertRows = (rows: unknown[], onConflict?: string) => {
+  const conflictColumns = String(onConflict ?? '')
+    .split(',')
+    .map((column) => column.trim())
+    .filter(Boolean);
+  if (!conflictColumns.length || rows.length < 2) return rows;
+
+  const deduped = new Map<string, unknown>();
+  rows.forEach((row, index) => {
+    if (!isRecord(row)) {
+      deduped.set(`row:${index}`, row);
+      return;
+    }
+
+    const values = conflictColumns.map((column) => row[column]);
+    if (values.some((value) => value === null || value === undefined)) {
+      // PostgreSQL unique constraints normally treat NULL values as distinct.
+      deduped.set(`row:${index}`, row);
+      return;
+    }
+
+    const key = JSON.stringify(values);
+    // Last occurrence wins. CVM files can repeat an identity with a later state
+    // in the same resource, and Postgres cannot update the same conflict key
+    // twice inside one INSERT statement.
+    deduped.set(key, row);
+  });
+
+  return [...deduped.values()];
+};
+
 class SupabaseRestClient {
   constructor(
     private readonly baseUrl: string,
@@ -60,13 +95,14 @@ class SupabaseRestClient {
   }
 
   async upsert(table: string, rows: unknown[], onConflict?: string) {
-    if (!rows.length) return [];
+    const payload = dedupeUpsertRows(rows, onConflict);
+    if (!payload.length) return [];
     const url = new URL(this.buildUrl(table));
     if (onConflict) url.searchParams.set('on_conflict', onConflict);
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers: this.headers({ Prefer: 'return=representation,resolution=merge-duplicates' }),
-      body: JSON.stringify(rows),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error(`Supabase upsert failed for ${table}: ${response.status} ${await response.text()}`);
     return response.json().catch(() => []);
