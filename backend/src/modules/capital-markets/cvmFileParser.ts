@@ -8,7 +8,10 @@ export const decodeBuffer = (buffer: Buffer) => {
   return new TextDecoder('windows-1252', { fatal: false }).decode(buffer);
 };
 
-export const extractZipEntries = (buffer: Buffer): Array<{ name: string; data: Buffer }> => {
+export const extractZipEntries = (
+  buffer: Buffer,
+  include: (name: string) => boolean = () => true,
+): Array<{ name: string; data: Buffer }> => {
   let eocdOffset = -1;
   for (let offset = Math.max(0, buffer.length - 65_557); offset <= buffer.length - 22; offset += 1) {
     if (buffer.readUInt32LE(offset) === 0x06054b50) eocdOffset = offset;
@@ -29,18 +32,20 @@ export const extractZipEntries = (buffer: Buffer): Array<{ name: string; data: B
     const localHeaderOffset = buffer.readUInt32LE(centralOffset + 42);
     const name = buffer.subarray(centralOffset + 46, centralOffset + 46 + fileNameLength).toString('utf8');
 
-    if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) throw new Error(`Invalid local ZIP header for ${name}.`);
-    const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
-    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
-    const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
-    const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
+    if (!name.endsWith('/') && include(name)) {
+      if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) throw new Error(`Invalid local ZIP header for ${name}.`);
+      const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+      const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+      const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+      const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
 
-    let data: Buffer;
-    if (compressionMethod === 0) data = Buffer.from(compressed);
-    else if (compressionMethod === 8) data = inflateRawSync(compressed);
-    else throw new Error(`Unsupported ZIP compression method ${compressionMethod} for ${name}.`);
+      let data: Buffer;
+      if (compressionMethod === 0) data = Buffer.from(compressed);
+      else if (compressionMethod === 8) data = inflateRawSync(compressed);
+      else throw new Error(`Unsupported ZIP compression method ${compressionMethod} for ${name}.`);
+      entries.push({ name, data });
+    }
 
-    if (!name.endsWith('/')) entries.push({ name, data });
     centralOffset += 46 + fileNameLength + extraLength + commentLength;
   }
   return entries;
@@ -55,7 +60,7 @@ const detectDelimiter = (text: string) => {
   return semicolons >= commas ? ';' : ',';
 };
 
-export const parseCsv = (text: string): CsvRecord[] => {
+export const parseCsv = (text: string, maxDataRows = Number.POSITIVE_INFINITY): CsvRecord[] => {
   const clean = text.replace(/^\uFEFF/, '');
   const delimiter = detectDelimiter(clean);
   const rows: string[][] = [];
@@ -81,16 +86,18 @@ export const parseCsv = (text: string): CsvRecord[] => {
       field = '';
       if (row.some((value) => value.trim().length > 0)) rows.push(row);
       row = [];
+      if (rows.length > maxDataRows) break;
     } else {
       field += character;
     }
   }
-  if (field.length || row.length) {
+  if ((field.length || row.length) && rows.length <= maxDataRows) {
     row.push(field);
     if (row.some((value) => value.trim().length > 0)) rows.push(row);
   }
   if (!rows.length) return [];
 
   const headers = rows[0].map((header, index) => header.trim() || `column_${index + 1}`);
-  return rows.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index]?.trim() ?? ''])));
+  return rows.slice(1, Number.isFinite(maxDataRows) ? maxDataRows + 1 : undefined)
+    .map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index]?.trim() ?? ''])));
 };

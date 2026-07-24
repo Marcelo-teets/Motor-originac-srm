@@ -12,8 +12,10 @@ import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyCreditReviewPage } from './pages/CompanyCreditReviewPage';
 import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
+import { DcmDailyOutreachPage } from './pages/DcmDailyOutreachPage';
 import { FidcMarketMapPage } from './pages/FidcMarketMapPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { HistoricalArchivePage } from './pages/HistoricalArchivePage';
 import { KnowledgeLearningAgentPage } from './pages/KnowledgeLearningAgentPage';
 import { KnowledgeSearchPage } from './pages/KnowledgeSearchPage';
 import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
@@ -52,6 +54,7 @@ export default function App() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="change-password" element={<ChangePasswordPage />} />
         <Route path="users" element={<RequireGodMode><UsersPage /></RequireGodMode>} />
+        <Route path="historical-archive" element={<RequireGodMode><HistoricalArchivePage /></RequireGodMode>} />
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={portfolioGate(<CompaniesPage />)} />
         <Route path="companies/:id" element={<CompanyDecisionReadinessBoundary scope="company"><CompanyDetailKnowledgePage /></CompanyDecisionReadinessBoundary>} />
@@ -64,6 +67,7 @@ export default function App() {
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
+        <Route path="dcm-daily" element={<DcmDailyOutreachPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
         <Route path="knowledge-learning" element={<KnowledgeLearningAgentPage />} />
         <Route path="knowledge-search" element={<KnowledgeSearchPage />} />

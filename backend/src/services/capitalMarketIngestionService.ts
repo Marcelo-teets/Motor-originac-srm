@@ -9,37 +9,26 @@ import {
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
-// Record keys are SHA-256 strings sent through a PostgREST `in` filter before
-// each idempotent upsert. Seventy-five rows keeps the encoded query comfortably
-// below common proxy URL limits while reducing round trips by ~47% versus 40.
-const DEFAULT_BATCH_SIZE = 75;
-const DEFAULT_MAX_ROWS = 50_000;
-const STALE_RUN_AFTER_MS = 30 * 60 * 1_000;
-const ALL_DATASETS = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
-
-const chunks = <T>(items: T[], size = DEFAULT_BATCH_SIZE) => {
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
-  return result;
+const BATCH_SIZE = 75;
+const MAX_ROWS = 500_000;
+const STALE_RUN_MS = 30 * 60 * 1_000;
+const allDatasets = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
+const chunks = <T>(items: T[]) => Array.from(
+  { length: Math.ceil(items.length / BATCH_SIZE) },
+  (_, index) => items.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
+);
+const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+const isConflict = (error: unknown) => /uq_capital_market_dataset_single_running|duplicate key|23505/i.test(message(error));
+const resourceKey = (resource: CvmResource) => resource.id?.trim() || resource.url;
+const timestamp = (value: string | null | undefined) => {
+  const parsed = Date.parse(value ?? '');
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 };
-
-const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
-const isConcurrentRunConflict = (error: unknown) => {
-  const message = errorMessage(error);
-  return message.includes('uq_capital_market_dataset_single_running')
-    || message.includes('duplicate key value violates unique constraint')
-    || message.includes('23505');
-};
-const resourceFingerprint = (resource: CvmResource) => [
+const fingerprint = (resource: CvmResource) => [
   resource.id ?? resource.url,
   resource.last_modified ?? resource.created ?? 'unknown',
   resource.url,
 ].join('|');
-const resourceKey = (resource: CvmResource) => resource.id?.trim() || resource.url;
-const normalizedTimestamp = (value: string | null | undefined) => {
-  const parsed = Date.parse(value ?? '');
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-};
 const recordsHash = (records: NormalizedCapitalMarketRecord[]) => createHash('sha256')
   .update(records.map((record) => record.event.content_hash).sort().join('|'))
   .digest('hex');
@@ -51,20 +40,14 @@ export type CapitalMarketIngestionOptions = {
   triggerType?: 'manual' | 'schedule' | 'backfill';
 };
 
-type ResourceCheckpoint = {
+type Checkpoint = {
   resource_key: string;
   resource_modified_at: string | null;
   content_hash: string | null;
   status: 'completed' | 'partial' | 'failed';
   last_successful_run_at: string | null;
 };
-
-type DatasetRunRow = {
-  metadata?: {
-    resourceFingerprints?: string[];
-    skippedResourceFingerprints?: string[];
-  };
-};
+type Source = { id: string; name: string; metadata?: Record<string, unknown> };
 
 export type CapitalMarketDatasetSummary = {
   datasetCode: CvmDatasetCode;
@@ -74,6 +57,8 @@ export type CapitalMarketDatasetSummary = {
   recordsSeen: number;
   bronzeRowsWritten: number;
   eventsWritten: number;
+  entityLinksWritten: number;
+  metricsWritten: number;
   recordsInserted: number;
   recordsUpdated: number;
   recordsUnchanged: number;
@@ -81,18 +66,39 @@ export type CapitalMarketDatasetSummary = {
   errors: string[];
 };
 
-const emptySummary = (
-  datasetCode: CvmDatasetCode,
-  status: CapitalMarketDatasetSummary['status'],
-  error: string,
-): CapitalMarketDatasetSummary => ({
+export const shouldSkipCapitalMarketResource = (input: {
+  triggerType: 'manual' | 'schedule' | 'backfill';
+  reference?: string;
+  resource: CvmResource;
+  checkpoint?: Checkpoint;
+}) => input.triggerType === 'schedule'
+  && !input.reference
+  && input.checkpoint?.status === 'completed'
+  && Boolean(timestamp(input.resource.last_modified ?? input.resource.created))
+  && input.checkpoint.resource_modified_at === timestamp(input.resource.last_modified ?? input.resource.created);
+
+export const capitalMarketRunStatus = (input: {
+  resourcesProcessed: number;
+  resourcesSkipped: number;
+  recordsSeen: number;
+  errors: string[];
+}): CapitalMarketDatasetSummary['status'] => {
+  const delivered = input.resourcesProcessed > 0 || input.resourcesSkipped > 0 || input.recordsSeen > 0;
+  if (delivered && input.errors.length === 0) return 'completed';
+  if (delivered) return 'partial';
+  return 'failed';
+};
+
+const emptySummary = (datasetCode: CvmDatasetCode, error: string): CapitalMarketDatasetSummary => ({
   datasetCode,
-  status,
+  status: 'partial',
   resourcesProcessed: 0,
   resourcesSkipped: 0,
   recordsSeen: 0,
   bronzeRowsWritten: 0,
   eventsWritten: 0,
+  entityLinksWritten: 0,
+  metricsWritten: 0,
   recordsInserted: 0,
   recordsUpdated: 0,
   recordsUnchanged: 0,
@@ -100,26 +106,14 @@ const emptySummary = (
   errors: [error],
 });
 
-export const shouldSkipCapitalMarketResource = (input: {
-  triggerType: 'manual' | 'schedule' | 'backfill';
-  reference?: string;
-  resource: CvmResource;
-  checkpoint?: ResourceCheckpoint;
-}) => {
-  if (input.triggerType !== 'schedule' || input.reference || input.checkpoint?.status !== 'completed') return false;
-  const modifiedAt = normalizedTimestamp(input.resource.last_modified ?? input.resource.created);
-  return Boolean(modifiedAt && input.checkpoint.resource_modified_at === modifiedAt);
-};
-
 export class CapitalMarketIngestionService {
   private readonly client = getSupabaseClient();
 
   async run(options: CapitalMarketIngestionOptions = {}) {
     if (!this.client) throw new Error('Supabase client not configured for capital-market ingestion.');
-    const datasets = options.datasets?.length ? [...new Set(options.datasets)] : ALL_DATASETS;
-    const maxRows = Math.max(1, Math.min(options.maxRows ?? DEFAULT_MAX_ROWS, 500_000));
+    const datasets = options.datasets?.length ? [...new Set(options.datasets)] : allDatasets;
+    const maxRows = Math.max(1, Math.min(options.maxRows ?? 50_000, MAX_ROWS));
     const summaries: CapitalMarketDatasetSummary[] = [];
-
     for (const datasetCode of datasets) {
       summaries.push(await this.runDataset(datasetCode, {
         reference: options.reference,
@@ -127,13 +121,10 @@ export class CapitalMarketIngestionService {
         triggerType: options.triggerType ?? 'manual',
       }));
     }
-
     return {
-      status: summaries.every((summary) => summary.status === 'completed')
+      status: summaries.every((item) => item.status === 'completed')
         ? 'real'
-        : summaries.some((summary) => summary.status === 'completed' || summary.status === 'partial')
-          ? 'partial'
-          : 'failed',
+        : summaries.some((item) => item.status !== 'failed') ? 'partial' : 'failed',
       generatedAt: new Date().toISOString(),
       requested: { datasets, reference: options.reference ?? null, maxRows },
       totals: {
@@ -142,6 +133,8 @@ export class CapitalMarketIngestionService {
         recordsSeen: summaries.reduce((sum, item) => sum + item.recordsSeen, 0),
         bronzeRowsWritten: summaries.reduce((sum, item) => sum + item.bronzeRowsWritten, 0),
         eventsWritten: summaries.reduce((sum, item) => sum + item.eventsWritten, 0),
+        entityLinksWritten: summaries.reduce((sum, item) => sum + item.entityLinksWritten, 0),
+        metricsWritten: summaries.reduce((sum, item) => sum + item.metricsWritten, 0),
         recordsInserted: summaries.reduce((sum, item) => sum + item.recordsInserted, 0),
         recordsUpdated: summaries.reduce((sum, item) => sum + item.recordsUpdated, 0),
         recordsUnchanged: summaries.reduce((sum, item) => sum + item.recordsUnchanged, 0),
@@ -151,243 +144,145 @@ export class CapitalMarketIngestionService {
     };
   }
 
-  private async previousResourceFingerprints(datasetCode: CvmDatasetCode) {
-    const rows = await this.client!.select('capital_market_dataset_runs', {
-      select: 'metadata',
-      orderBy: { column: 'started_at', ascending: false },
-      limit: 20,
-      filters: [
-        { column: 'dataset_code', value: datasetCode },
-        { column: 'status', operator: 'in', value: ['completed', 'partial'] },
-      ],
-    }) as DatasetRunRow[];
-
-    return new Set(rows.flatMap((row) => [
-      ...(row.metadata?.resourceFingerprints ?? []),
-      ...(row.metadata?.skippedResourceFingerprints ?? []),
-    ]));
-  }
-
-  private async acquireRun(input: {
-    runId: string;
-    datasetCode: CvmDatasetCode;
-    sourceId: string | null;
-    triggerType: 'manual' | 'schedule' | 'backfill';
-    startedAt: string;
-    reference?: string;
-    maxRows: number;
-    packageId: string;
-  }) {
-    const now = new Date().toISOString();
-    const staleBefore = new Date(Date.now() - STALE_RUN_AFTER_MS).toISOString();
-    await this.client!.update('capital_market_dataset_runs', {
-      status: 'failed',
-      finished_at: now,
-      error_message: 'Automatically closed as a stale capital-market ingestion run.',
-      updated_at: now,
-    }, [
-      { column: 'dataset_code', value: input.datasetCode },
-      { column: 'status', value: 'running' },
-      { column: 'started_at', operator: 'lt', value: staleBefore },
-    ]);
-
-    try {
-      await this.client!.insert('capital_market_dataset_runs', [{
-        id: input.runId,
-        dataset_code: input.datasetCode,
-        source_id: input.sourceId,
-        trigger_type: input.triggerType,
-        status: 'running',
-        started_at: input.startedAt,
-        metadata: {
-          reference: input.reference ?? null,
-          maxRows: input.maxRows,
-          packageId: input.packageId,
-        },
-      }]);
-      return true;
-    } catch (error) {
-      if (isConcurrentRunConflict(error)) return false;
-      throw error;
-    }
-  }
-
   private async runDataset(
     datasetCode: CvmDatasetCode,
     options: { reference?: string; maxRows: number; triggerType: 'manual' | 'schedule' | 'backfill' },
   ): Promise<CapitalMarketDatasetSummary> {
     const definition = CVM_DATASETS[datasetCode];
-    const runId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
-    const errors: string[] = [];
-    const processedFingerprints: string[] = [];
-    const skippedFingerprints: string[] = [];
-    let resourcesProcessed = 0;
-    let resourcesSkipped = 0;
-    let recordsSeen = 0;
-    let bronzeRowsWritten = 0;
-    let eventsWritten = 0;
-    let recordsInserted = 0;
-    let recordsUpdated = 0;
-    let recordsUnchanged = 0;
-    let signalsWritten = 0;
+    const runId = crypto.randomUUID();
+    const sourceRows = await this.client!.select('source_catalog', { select: 'id,name,metadata', limit: 1_000 }) as Source[];
+    const source = sourceRows.find((row) => row.metadata?.code === definition.sourceCode);
 
-    const sourceRows = await this.client!.select('source_catalog', { select: 'id,name,metadata', limit: 1_000 }) as Array<{
-      id: string;
-      name: string;
-      metadata?: Record<string, unknown>;
-    }>;
-    const sourceId = sourceRows.find((row) => row.metadata?.code === definition.sourceCode)?.id ?? null;
-    const acquired = await this.acquireRun({
-      runId,
-      datasetCode,
-      sourceId,
-      triggerType: options.triggerType,
-      startedAt,
-      reference: options.reference,
-      maxRows: options.maxRows,
-      packageId: definition.packageId,
-    });
+    await this.client!.update('capital_market_dataset_runs', {
+      status: 'failed',
+      finished_at: startedAt,
+      error_message: 'Automatically closed as a stale capital-market ingestion run.',
+      updated_at: startedAt,
+    }, [
+      { column: 'dataset_code', value: datasetCode },
+      { column: 'status', value: 'running' },
+      { column: 'started_at', operator: 'lt', value: new Date(Date.now() - STALE_RUN_MS).toISOString() },
+    ]);
 
-    if (!acquired) {
-      return emptySummary(datasetCode, 'partial', `Another ${datasetCode} ingestion is already running.`);
+    try {
+      await this.client!.insert('capital_market_dataset_runs', [{
+        id: runId,
+        dataset_code: datasetCode,
+        source_id: source?.id ?? null,
+        trigger_type: options.triggerType,
+        status: 'running',
+        started_at: startedAt,
+        metadata: { reference: options.reference ?? null, maxRows: options.maxRows, packageId: definition.packageId },
+      }]);
+    } catch (error) {
+      if (isConflict(error)) return emptySummary(datasetCode, `Another ${datasetCode} ingestion is already running.`);
+      throw error;
     }
 
-    const checkpointRows = await this.client!.select('capital_market_resource_checkpoints', {
+    const checkpoints = await this.client!.select('capital_market_resource_checkpoints', {
       select: 'resource_key,resource_modified_at,content_hash,status,last_successful_run_at',
-      limit: 1_000,
+      limit: 2_000,
       filters: [{ column: 'dataset_code', value: datasetCode }],
-    }) as ResourceCheckpoint[];
-    const checkpoints = new Map(checkpointRows.map((row) => [row.resource_key, row]));
-    const incremental = options.triggerType === 'schedule' && !options.reference;
+    }) as Checkpoint[];
+    const checkpointByKey = new Map(checkpoints.map((row) => [row.resource_key, row]));
+    const summary: CapitalMarketDatasetSummary = {
+      datasetCode,
+      status: 'failed',
+      resourcesProcessed: 0,
+      resourcesSkipped: 0,
+      recordsSeen: 0,
+      bronzeRowsWritten: 0,
+      eventsWritten: 0,
+      entityLinksWritten: 0,
+      metricsWritten: 0,
+      recordsInserted: 0,
+      recordsUpdated: 0,
+      recordsUnchanged: 0,
+      signalsWritten: 0,
+      errors: [],
+    };
+    const processedFingerprints: string[] = [];
+    const skippedFingerprints: string[] = [];
 
     try {
       const resources = await discoverCvmResources(datasetCode, options.reference);
-      const previousFingerprints = incremental ? await this.previousResourceFingerprints(datasetCode) : new Set<string>();
-      const resourcesToProcess: Array<{ resource: CvmResource; fingerprint: string; checkpoint?: ResourceCheckpoint }> = [];
+      const candidates = resources.filter((resource) => {
+        const checkpoint = checkpointByKey.get(resourceKey(resource));
+        if (!shouldSkipCapitalMarketResource({ ...options, resource, checkpoint })) return true;
+        summary.resourcesSkipped += 1;
+        skippedFingerprints.push(fingerprint(resource));
+        return false;
+      });
+      const budget = candidates.length ? Math.max(1, Math.floor(options.maxRows / candidates.length)) : 0;
 
-      for (const resource of resources) {
-        const fingerprint = resourceFingerprint(resource);
-        const checkpoint = checkpoints.get(resourceKey(resource));
-        const unchangedByCheckpoint = shouldSkipCapitalMarketResource({ ...options, resource, checkpoint });
-        const unchangedByLegacyFingerprint = incremental && !checkpoint && previousFingerprints.has(fingerprint);
-
-        if (unchangedByCheckpoint || unchangedByLegacyFingerprint) {
-          resourcesSkipped += 1;
-          skippedFingerprints.push(fingerprint);
-          await this.saveCheckpoint({
-            datasetCode,
-            sourceId,
-            resource,
-            contentHash: checkpoint?.content_hash ?? null,
-            status: 'completed',
-            recordsSeen: 0,
-            recordsWritten: 0,
-            lastSuccessfulRunAt: checkpoint?.last_successful_run_at ?? startedAt,
-          });
-        } else {
-          resourcesToProcess.push({ resource, fingerprint, checkpoint });
-        }
-      }
-
-      const perResourceBudget = resourcesToProcess.length
-        ? Math.max(1, Math.floor(options.maxRows / resourcesToProcess.length))
-        : 0;
-
-      for (let index = 0; index < resourcesToProcess.length; index += 1) {
-        const { resource, fingerprint, checkpoint } = resourcesToProcess[index];
-        const remaining = options.maxRows - recordsSeen;
+      for (let index = 0; index < candidates.length; index += 1) {
+        const resource = candidates[index];
+        const checkpoint = checkpointByKey.get(resourceKey(resource));
+        const remaining = options.maxRows - summary.recordsSeen;
         if (remaining <= 0) break;
-        const isLast = index === resourcesToProcess.length - 1;
-        const maxRows = isLast ? remaining : Math.min(remaining, perResourceBudget);
-
         try {
-          const records = await fetchCvmResourceRecords({ datasetCode, resource, maxRows, observedAt: startedAt });
-          recordsSeen += records.length;
-          const aggregateHash = recordsHash(records);
-
-          if (incremental && checkpoint?.status === 'completed' && checkpoint.content_hash === aggregateHash) {
-            resourcesSkipped += 1;
-            recordsUnchanged += records.length;
-            skippedFingerprints.push(fingerprint);
-            await this.saveCheckpoint({
-              datasetCode,
-              sourceId,
-              resource,
-              contentHash: aggregateHash,
-              status: 'completed',
-              recordsSeen: records.length,
-              recordsWritten: 0,
-              lastSuccessfulRunAt: checkpoint.last_successful_run_at ?? startedAt,
-            });
+          const records = await fetchCvmResourceRecords({
+            datasetCode,
+            resource,
+            maxRows: index === candidates.length - 1 ? remaining : Math.min(remaining, budget),
+            observedAt: startedAt,
+          });
+          summary.recordsSeen += records.length;
+          const hash = recordsHash(records);
+          if (options.triggerType === 'schedule' && !options.reference && checkpoint?.status === 'completed' && checkpoint.content_hash === hash) {
+            summary.resourcesSkipped += 1;
+            summary.recordsUnchanged += records.length;
+            skippedFingerprints.push(fingerprint(resource));
+            await this.saveCheckpoint(datasetCode, source?.id ?? null, resource, hash, 'completed', records.length, 0, checkpoint.last_successful_run_at ?? startedAt);
             continue;
           }
 
-          const persisted = await this.persistRecords(records);
-          resourcesProcessed += 1;
-          processedFingerprints.push(fingerprint);
-          bronzeRowsWritten += persisted.bronzeRowsWritten;
-          eventsWritten += persisted.eventsWritten;
-          recordsInserted += persisted.recordsInserted;
-          recordsUpdated += persisted.recordsUpdated;
-          recordsUnchanged += persisted.recordsUnchanged;
-
-          await this.saveCheckpoint({
-            datasetCode,
-            sourceId,
-            resource,
-            contentHash: aggregateHash,
-            status: 'completed',
-            recordsSeen: records.length,
-            recordsWritten: persisted.eventsWritten,
-            lastSuccessfulRunAt: startedAt,
-          });
+          const written = await this.persist(records);
+          summary.resourcesProcessed += 1;
+          summary.bronzeRowsWritten += written.bronzeRowsWritten;
+          summary.eventsWritten += written.eventsWritten;
+          summary.entityLinksWritten += written.entityLinksWritten;
+          summary.metricsWritten += written.metricsWritten;
+          summary.recordsInserted += written.recordsInserted;
+          summary.recordsUpdated += written.recordsUpdated;
+          summary.recordsUnchanged += written.recordsUnchanged;
+          processedFingerprints.push(fingerprint(resource));
+          await this.saveCheckpoint(datasetCode, source?.id ?? null, resource, hash, 'completed', records.length, written.eventsWritten, startedAt);
         } catch (error) {
-          const message = `${resource.name}: ${errorMessage(error)}`;
-          errors.push(message);
-          await this.saveCheckpoint({
-            datasetCode,
-            sourceId,
-            resource,
-            contentHash: null,
-            status: 'failed',
-            recordsSeen: 0,
-            recordsWritten: 0,
-            lastSuccessfulRunAt: checkpoint?.last_successful_run_at ?? null,
-          });
+          summary.errors.push(`${resource.name}: ${message(error)}`);
+          await this.saveCheckpoint(datasetCode, source?.id ?? null, resource, null, 'failed', 0, 0, checkpoint?.last_successful_run_at ?? null);
         }
       }
 
-      if (resourcesProcessed || resourcesSkipped) {
+      if (summary.resourcesProcessed || summary.resourcesSkipped) {
         try {
-          const synced = await this.client!.rpc<number>('sync_capital_market_company_signals', { p_dataset_code: datasetCode });
-          signalsWritten = Number(synced ?? 0);
+          summary.signalsWritten = Number(await this.client!.rpc<number>('sync_capital_market_company_signals', { p_dataset_code: datasetCode }) ?? 0);
         } catch (error) {
-          errors.push(`signal sync: ${errorMessage(error)}`);
+          summary.errors.push(`signal sync: ${message(error)}`);
         }
       }
     } catch (error) {
-      errors.push(errorMessage(error));
+      summary.errors.push(message(error));
     }
 
-    const status: CapitalMarketDatasetSummary['status'] = resourcesProcessed > 0 && errors.length === 0
-      ? 'completed'
-      : resourcesProcessed > 0 || resourcesSkipped > 0 || recordsSeen > 0
-        ? 'partial'
-        : 'failed';
+    summary.status = capitalMarketRunStatus(summary);
     const finishedAt = new Date().toISOString();
     await this.client!.update('capital_market_dataset_runs', {
-      status,
+      status: summary.status,
       finished_at: finishedAt,
-      files_processed: resourcesProcessed,
-      records_seen: recordsSeen,
-      bronze_rows_written: bronzeRowsWritten,
-      events_written: eventsWritten,
-      records_inserted: recordsInserted,
-      records_updated: recordsUpdated,
-      records_unchanged: recordsUnchanged,
-      signals_written: signalsWritten,
-      error_message: errors.join(' | ') || null,
+      files_processed: summary.resourcesProcessed,
+      resources_skipped: summary.resourcesSkipped,
+      records_seen: summary.recordsSeen,
+      bronze_rows_written: summary.bronzeRowsWritten,
+      events_written: summary.eventsWritten,
+      entity_links_written: summary.entityLinksWritten,
+      metrics_written: summary.metricsWritten,
+      records_inserted: summary.recordsInserted,
+      records_updated: summary.recordsUpdated,
+      records_unchanged: summary.recordsUnchanged,
+      signals_written: summary.signalsWritten,
+      error_message: summary.errors.join(' | ') || null,
       metadata: {
         reference: options.reference ?? null,
         maxRows: options.maxRows,
@@ -398,111 +293,116 @@ export class CapitalMarketIngestionService {
       updated_at: finishedAt,
     }, [{ column: 'id', value: runId }]);
 
-    return {
-      datasetCode,
-      status,
-      resourcesProcessed,
-      resourcesSkipped,
-      recordsSeen,
-      bronzeRowsWritten,
-      eventsWritten,
-      recordsInserted,
-      recordsUpdated,
-      recordsUnchanged,
-      signalsWritten,
-      errors,
-    };
+    if (source) {
+      await this.client!.update('source_catalog', {
+        status: summary.status === 'completed' ? 'real' : 'partial',
+        health: summary.status === 'completed' ? 'healthy' : 'degraded',
+        metadata: {
+          ...(source.metadata ?? {}),
+          lastIngestion: {
+            datasetCode,
+            status: summary.status,
+            finishedAt,
+            recordsSeen: summary.recordsSeen,
+            resourcesProcessed: summary.resourcesProcessed,
+            resourcesSkipped: summary.resourcesSkipped,
+            signalsWritten: summary.signalsWritten,
+            errors: summary.errors.slice(0, 10),
+          },
+        },
+        updated_at: finishedAt,
+      }, [{ column: 'id', value: source.id }]);
+    }
+    return summary;
   }
 
-  private async saveCheckpoint(input: {
-    datasetCode: CvmDatasetCode;
-    sourceId: string | null;
-    resource: CvmResource;
-    contentHash: string | null;
-    status: 'completed' | 'partial' | 'failed';
-    recordsSeen: number;
-    recordsWritten: number;
-    lastSuccessfulRunAt: string | null;
-  }) {
+  private async saveCheckpoint(
+    datasetCode: CvmDatasetCode,
+    sourceId: string | null,
+    resource: CvmResource,
+    contentHash: string | null,
+    status: 'completed' | 'failed',
+    recordsSeen: number,
+    recordsWritten: number,
+    lastSuccessfulRunAt: string | null,
+  ) {
     const now = new Date().toISOString();
     await this.client!.upsert('capital_market_resource_checkpoints', [{
-      dataset_code: input.datasetCode,
-      source_id: input.sourceId,
-      resource_key: resourceKey(input.resource),
-      resource_url: input.resource.url,
-      resource_name: input.resource.name,
-      resource_modified_at: normalizedTimestamp(input.resource.last_modified ?? input.resource.created),
-      content_hash: input.contentHash,
-      status: input.status,
-      records_seen: input.recordsSeen,
-      records_written: input.recordsWritten,
+      dataset_code: datasetCode,
+      source_id: sourceId,
+      resource_key: resourceKey(resource),
+      resource_url: resource.url,
+      resource_name: resource.name,
+      resource_modified_at: timestamp(resource.last_modified ?? resource.created),
+      content_hash: contentHash,
+      status,
+      records_seen: recordsSeen,
+      records_written: recordsWritten,
       last_attempted_at: now,
-      last_successful_run_at: input.lastSuccessfulRunAt,
-      error_message: input.status === 'failed' ? `Failed to process ${input.resource.name}.` : null,
+      last_successful_run_at: lastSuccessfulRunAt,
+      error_message: status === 'failed' ? `Failed to process ${resource.name}.` : null,
       updated_at: now,
     }], 'dataset_code,resource_key');
   }
 
-  private async persistRecords(records: NormalizedCapitalMarketRecord[]) {
-    let bronzeRowsWritten = 0;
-    let eventsWritten = 0;
-    let recordsInserted = 0;
-    let recordsUpdated = 0;
-    let recordsUnchanged = 0;
-
+  private async persist(records: NormalizedCapitalMarketRecord[]) {
+    const totals = {
+      bronzeRowsWritten: 0,
+      eventsWritten: 0,
+      entityLinksWritten: 0,
+      metricsWritten: 0,
+      recordsInserted: 0,
+      recordsUpdated: 0,
+      recordsUnchanged: 0,
+    };
     for (const batch of chunks(records)) {
       const keys = batch.map((record) => record.event.record_key);
-      const datasetCodes = [...new Set(batch.map((record) => record.event.dataset_code))];
-      const [existingBronze, existingEvents] = await Promise.all([
-        this.client!.select('bronze_historical_records', {
-          select: 'dataset_code,record_key,content_hash',
-          limit: Math.max(100, batch.length * 2),
-          filters: [
-            { column: 'dataset_code', operator: 'in', value: datasetCodes },
-            { column: 'record_key', operator: 'in', value: keys },
-          ],
-        }) as Promise<Array<{ dataset_code: string; record_key: string; content_hash: string | null }>>,
-        this.client!.select('capital_market_events', {
-          select: 'dataset_code,record_key,content_hash',
-          limit: Math.max(100, batch.length * 2),
-          filters: [
-            { column: 'dataset_code', operator: 'in', value: datasetCodes },
-            { column: 'record_key', operator: 'in', value: keys },
-          ],
-        }) as Promise<Array<{ dataset_code: string; record_key: string; content_hash: string | null }>>,
-      ]);
-      const bronzeByKey = new Map(existingBronze.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
-      const eventByKey = new Map(existingEvents.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
+      const datasets = [...new Set(batch.map((record) => record.event.dataset_code))];
+      const query = {
+        select: 'dataset_code,record_key,content_hash',
+        limit: Math.max(100, batch.length * 2),
+        filters: [
+          { column: 'dataset_code', operator: 'in' as const, value: datasets },
+          { column: 'record_key', operator: 'in' as const, value: keys },
+        ],
+      };
+      const [bronze, events] = await Promise.all([
+        this.client!.select('bronze_historical_records', query),
+        this.client!.select('capital_market_events', query),
+      ]) as [Array<{ dataset_code: string; record_key: string; content_hash: string | null }>, Array<{ dataset_code: string; record_key: string; content_hash: string | null }>];
+      const bronzeMap = new Map(bronze.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
+      const eventMap = new Map(events.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
       const changed = batch.filter((record) => {
         const key = `${record.event.dataset_code}:${record.event.record_key}`;
-        return bronzeByKey.get(key) !== record.event.content_hash || eventByKey.get(key) !== record.event.content_hash;
+        return bronzeMap.get(key) !== record.event.content_hash || eventMap.get(key) !== record.event.content_hash;
       });
-
-      recordsUnchanged += batch.length - changed.length;
-      recordsInserted += changed.filter((record) => {
+      totals.recordsUnchanged += batch.length - changed.length;
+      const insertedThisBatch = changed.filter((record) => {
         const key = `${record.event.dataset_code}:${record.event.record_key}`;
-        return !bronzeByKey.has(key) && !eventByKey.has(key);
+        return !bronzeMap.has(key) && !eventMap.has(key);
       }).length;
-      recordsUpdated += changed.filter((record) => {
-        const key = `${record.event.dataset_code}:${record.event.record_key}`;
-        return bronzeByKey.has(key) || eventByKey.has(key);
-      }).length;
+      totals.recordsInserted += insertedThisBatch;
+      totals.recordsUpdated += changed.length - insertedThisBatch;
 
-      if (!changed.length) continue;
-      const [bronzeWritten, eventsPersisted] = await Promise.all([
-        this.client!.upsert('bronze_historical_records', changed.map((record) => record.bronze), 'dataset_code,record_key'),
-        this.client!.upsert('capital_market_events', changed.map((record) => record.event), 'dataset_code,record_key'),
-      ]);
-      bronzeRowsWritten += Array.isArray(bronzeWritten) ? bronzeWritten.length : changed.length;
-      eventsWritten += Array.isArray(eventsPersisted) ? eventsPersisted.length : changed.length;
+      if (changed.length) {
+        await Promise.all([
+          this.client!.upsert('bronze_historical_records', changed.map((record) => record.bronze), 'dataset_code,record_key'),
+          this.client!.upsert('capital_market_events', changed.map((record) => record.event), 'dataset_code,record_key'),
+        ]);
+        totals.bronzeRowsWritten += changed.length;
+        totals.eventsWritten += changed.length;
+      }
+      const links = batch.flatMap((record) => record.entityLinks);
+      const metrics = batch.flatMap((record) => record.metrics);
+      if (links.length) {
+        await this.client!.upsert('capital_market_entity_links', links, 'dataset_code,record_key,entity_role,entity_key');
+        totals.entityLinksWritten += links.length;
+      }
+      if (metrics.length) {
+        await this.client!.upsert('capital_market_metrics', metrics, 'dataset_code,record_key,metric_code,source_column');
+        totals.metricsWritten += metrics.length;
+      }
     }
-
-    return {
-      bronzeRowsWritten,
-      eventsWritten,
-      recordsInserted,
-      recordsUpdated,
-      recordsUnchanged,
-    };
+    return totals;
   }
 }

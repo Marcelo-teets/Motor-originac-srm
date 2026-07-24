@@ -41,6 +41,10 @@
     "api/dcm-daily-operating-loop.ts": {
       "maxDuration": 10,
       "memory": 512
+    },
+    "api/dcm-daily-leads.ts": {
+      "maxDuration": 15,
+      "memory": 512
     }
   },
   "crons": [
@@ -97,6 +101,10 @@
     {
       "source": "/api/origination/business-analyst",
       "destination": "/api/dcm-daily-operating-loop?view=business-analyst"
+    },
+    {
+      "source": "/api/origination/daily-leads",
+      "destination": "/api/dcm-daily-leads"
     },
     {
       "source": "/api/:path*",

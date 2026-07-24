@@ -53,6 +53,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/dcm-daily',
+    label: 'Fila diária DCM',
+    shortLabel: 'Abordagens do dia',
+    description: 'Leads priorizados, mensagens, envios, próximas ações e aprendizado de escrita.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/knowledge-vault',
     label: 'Knowledge Vault',
     shortLabel: 'Memória conectada',
@@ -129,6 +136,14 @@ export const navItems = [
     shortLabel: 'Agentes',
     description: 'Execução, diagnóstico e confiança dos agentes operacionais.',
     group: 'Operação & governança',
+  },
+  {
+    to: '/historical-archive',
+    label: 'Arquivo histórico',
+    shortLabel: 'Excel & retenção',
+    description: 'Catálogo GOD-MODE dos arquivos Excel, checksums, retenção e espaço liberado no Supabase.',
+    group: 'Operação & governança',
+    godOnly: true,
   },
   {
     to: '/profile',
