@@ -10,6 +10,7 @@ const AUTH_ROUTES = [
 ];
 
 const BUNDLE_MARKERS = [
+  'gotrue_meta_security',
   'captcha_token',
   '/forgot-password',
   '/reset-password',
@@ -134,7 +135,11 @@ export const runAuthProductionSmoke = async ({
   }
 
   assert.equal(metadata?.auth?.captcha?.enabled, true, 'CAPTCHA must be enabled in production');
-  assert.equal(metadata?.auth?.captcha?.tokenTransport, 'captcha_token', 'CAPTCHA token transport is incorrect');
+  assert.equal(
+    metadata?.auth?.captcha?.tokenTransport,
+    'gotrue_meta_security.captcha_token',
+    'CAPTCHA token transport is incorrect',
+  );
   assert.ok(
     ['turnstile', 'hcaptcha'].includes(metadata?.auth?.captcha?.provider),
     `Unsupported CAPTCHA provider: ${metadata?.auth?.captcha?.provider ?? 'missing'}`,
@@ -149,7 +154,7 @@ export const runAuthProductionSmoke = async ({
   checks.push({
     check: 'captcha-config',
     status: 'passed',
-    detail: `${metadata.auth.captcha.provider}; siteKey=${metadata.auth.captcha.siteKeyConfigured}`,
+    detail: `${metadata.auth.captcha.provider}; siteKey=${metadata.auth.captcha.siteKeyConfigured}; transport=${metadata.auth.captcha.tokenTransport}`,
   });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
