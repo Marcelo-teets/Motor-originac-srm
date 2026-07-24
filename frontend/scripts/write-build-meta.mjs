@@ -48,7 +48,7 @@ const metadata = {
       enabled: captchaEnabled,
       provider: captchaProvider,
       siteKeyConfigured: captchaSiteKeyConfigured,
-      tokenTransport: 'captcha_token',
+      tokenTransport: 'gotrue_meta_security.captcha_token',
     },
     oauthProviderDiscovery: true,
     supportedOAuthProviders: ['github', 'google'],

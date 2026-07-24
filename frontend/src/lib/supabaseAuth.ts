@@ -1,4 +1,8 @@
 import type { SessionData } from './types';
+import {
+  buildPasswordGrantPayload,
+  buildPasswordRecoveryPayload,
+} from './supabaseAuthPayload';
 
 export type UserRole = 'god_mode' | 'common';
 export type UserStatus = 'active' | 'invited' | 'disabled';
@@ -99,8 +103,6 @@ const buildSession = async (payload: Record<string, any>): Promise<SessionData> 
   };
 };
 
-const captchaBody = (captchaToken?: string) => (captchaToken ? { captcha_token: captchaToken } : {});
-
 export const supabaseAuth = {
   async signInWithPassword(email: string, password: string, captchaToken?: string) {
     requireConfig();
@@ -108,7 +110,7 @@ export const supabaseAuth = {
     const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ email, password, ...captchaBody(captchaToken) }),
+      body: JSON.stringify(buildPasswordGrantPayload(email, password, captchaToken)),
     });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Falha ao autenticar.');
@@ -122,7 +124,7 @@ export const supabaseAuth = {
     const response = await fetch(`${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ email, ...captchaBody(captchaToken) }),
+      body: JSON.stringify(buildPasswordRecoveryPayload(email, captchaToken)),
     });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível enviar o e-mail de recuperação.');
