@@ -1,21 +1,23 @@
-name: RFB QSA Official Probe
+name: QSA Source Hierarchy Probe
 
 on:
   pull_request:
     paths:
       - .github/workflows/rfb-qsa-official-probe.yml
       - backend/src/cli/probeRfbQsa.ts
+      - backend/src/modules/public-data/brasilApiQsaFallback.ts
+      - backend/src/modules/public-data/brasilApiQsaFallback.test.ts
       - backend/src/modules/public-data/strategicPublicDatasetConnector.ts
       - backend/src/services/strategicPublicIngestionService.ts
   workflow_dispatch:
     inputs:
       cnpj:
-        description: CNPJ revisado para o probe oficial
+        description: CNPJ revisado para o probe de QSA
         required: true
         default: "17770708000124"
         type: string
       reference:
-        description: Competência opcional da Receita (YYYY-MM); vazio usa a mais recente
+        description: Competência opcional da Receita (YYYY-MM); vazio tenta a mais recente
         required: false
         default: ""
         type: string
@@ -29,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rfb-qsa-official-probe-${{ github.ref }}
+  group: qsa-source-hierarchy-probe-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -52,37 +54,16 @@ jobs:
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Diagnose Receita endpoint behavior
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/qsa-diag"
-          : > "$RUNNER_TEMP/qsa-diag/http-status.txt"
-          URLS=(
-            "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/"
-            "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/2026-01/"
-            "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/"
-            "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/2026-01/"
-          )
-          USER_AGENTS=(
-            "OriginationIntelligencePlatform/1.0"
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36"
-          )
-          for USER_AGENT in "${USER_AGENTS[@]}"; do
-            echo "UA=$USER_AGENT" >> "$RUNNER_TEMP/qsa-diag/http-status.txt"
-            for URL in "${URLS[@]}"; do
-              curl --location --silent --show-error --output /dev/null \
-                --user-agent "$USER_AGENT" \
-                --write-out "%{http_code} %{url_effective}\n" \
-                "$URL" >> "$RUNNER_TEMP/qsa-diag/http-status.txt" || true
-            done
-          done
-          cat "$RUNNER_TEMP/qsa-diag/http-status.txt"
-      - name: Probe official RFB QSA without persistence
+      - name: Test BrasilAPI QSA fallback privacy and provenance
+        working-directory: backend
+        run: npx tsx --test src/modules/public-data/brasilApiQsaFallback.test.ts
+      - name: Probe QSA source hierarchy without persistence
         id: qsa_probe
         working-directory: backend
         shell: bash
         continue-on-error: true
         run: |
+          mkdir -p "$RUNNER_TEMP/qsa-diag"
           ARGS=(
             --cnpj "$TARGET_CNPJ"
             --max-resources "$MAX_RESOURCES"
@@ -100,11 +81,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rfb-qsa-probe-diagnostics
+          name: qsa-source-hierarchy-diagnostics
           path: ${{ runner.temp }}/qsa-diag
           if-no-files-found: error
           retention-days: 7
-      - name: Enforce QSA probe result
+      - name: Enforce QSA source hierarchy result
         if: always()
         shell: bash
         run: |
