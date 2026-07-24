@@ -54,7 +54,19 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           COMPANY_ID: fdac3e35-1d23-41d1-a9fd-0376445d3992
-        run: npm run ops:materialize-company-decision
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run ops:materialize-company-decision 2>&1 | tee /tmp/company-credit-materialization.log
+
+      - name: Upload company credit materialization diagnostics
+        if: always() && github.event_name == 'pull_request' && github.head_ref == 'agent/company-credit-review-gate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-credit-materialization-diagnostics
+          path: /tmp/company-credit-materialization.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Typecheck backend
         run: npm -C backend run typecheck
