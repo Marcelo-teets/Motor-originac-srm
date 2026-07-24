@@ -9,7 +9,10 @@ import {
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
-const DEFAULT_BATCH_SIZE = 40;
+// Record keys are SHA-256 strings sent through a PostgREST `in` filter before
+// each idempotent upsert. Seventy-five rows keeps the encoded query comfortably
+// below common proxy URL limits while reducing round trips by ~47% versus 40.
+const DEFAULT_BATCH_SIZE = 75;
 const DEFAULT_MAX_ROWS = 50_000;
 const STALE_RUN_AFTER_MS = 30 * 60 * 1_000;
 const ALL_DATASETS = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
@@ -346,40 +349,37 @@ export class CapitalMarketIngestionService {
             datasetCode,
             sourceId,
             resource,
-            contentHash: checkpoint?.content_hash ?? null,
+            contentHash: null,
             status: 'failed',
             recordsSeen: 0,
             recordsWritten: 0,
             lastSuccessfulRunAt: checkpoint?.last_successful_run_at ?? null,
-            error: message,
-          }).catch(() => undefined);
+          });
         }
       }
 
-      if (eventsWritten > 0) {
+      if (resourcesProcessed || resourcesSkipped) {
         try {
-          const result = await this.client!.rpc<number>('sync_capital_market_company_signals', { p_dataset_code: datasetCode });
-          signalsWritten = Number(result ?? 0);
+          const synced = await this.client!.rpc<number>('sync_capital_market_company_signals', { p_dataset_code: datasetCode });
+          signalsWritten = Number(synced ?? 0);
         } catch (error) {
-          errors.push(`signal_sync: ${errorMessage(error)}`);
+          errors.push(`signal sync: ${errorMessage(error)}`);
         }
       }
     } catch (error) {
       errors.push(errorMessage(error));
     }
 
-    const hadWorkOrCheckpoint = recordsSeen > 0 || resourcesSkipped > 0;
-    const status: CapitalMarketDatasetSummary['status'] = !hadWorkOrCheckpoint
-      ? 'failed'
-      : errors.length
+    const status: CapitalMarketDatasetSummary['status'] = resourcesProcessed > 0 && errors.length === 0
+      ? 'completed'
+      : resourcesProcessed > 0 || resourcesSkipped > 0 || recordsSeen > 0
         ? 'partial'
-        : 'completed';
-
+        : 'failed';
+    const finishedAt = new Date().toISOString();
     await this.client!.update('capital_market_dataset_runs', {
       status,
-      finished_at: new Date().toISOString(),
+      finished_at: finishedAt,
       files_processed: resourcesProcessed,
-      resources_skipped: resourcesSkipped,
       records_seen: recordsSeen,
       bronze_rows_written: bronzeRowsWritten,
       events_written: eventsWritten,
@@ -387,21 +387,15 @@ export class CapitalMarketIngestionService {
       records_updated: recordsUpdated,
       records_unchanged: recordsUnchanged,
       signals_written: signalsWritten,
-      error_message: errors.length ? errors.slice(0, 10).join(' | ') : null,
+      error_message: errors.join(' | ') || null,
       metadata: {
         reference: options.reference ?? null,
         maxRows: options.maxRows,
         packageId: definition.packageId,
-        sourceCode: definition.sourceCode,
         resourceFingerprints: processedFingerprints,
         skippedResourceFingerprints: skippedFingerprints,
-        incremental,
-        recordsInserted,
-        recordsUpdated,
-        recordsUnchanged,
-        resourceBudgetStrategy: 'balanced_across_selected_resources',
-        errors,
       },
+      updated_at: finishedAt,
     }, [{ column: 'id', value: runId }]);
 
     return {
@@ -429,30 +423,23 @@ export class CapitalMarketIngestionService {
     recordsSeen: number;
     recordsWritten: number;
     lastSuccessfulRunAt: string | null;
-    error?: string;
   }) {
-    const checkedAt = new Date().toISOString();
+    const now = new Date().toISOString();
     await this.client!.upsert('capital_market_resource_checkpoints', [{
       dataset_code: input.datasetCode,
       source_id: input.sourceId,
       resource_key: resourceKey(input.resource),
-      resource_name: input.resource.name,
       resource_url: input.resource.url,
+      resource_name: input.resource.name,
       resource_modified_at: normalizedTimestamp(input.resource.last_modified ?? input.resource.created),
       content_hash: input.contentHash,
       status: input.status,
-      last_successful_run_at: input.lastSuccessfulRunAt,
-      last_checked_at: checkedAt,
       records_seen: input.recordsSeen,
       records_written: input.recordsWritten,
-      error_message: input.error ?? null,
-      metadata: {
-        resourceId: input.resource.id ?? null,
-        format: input.resource.format ?? null,
-        createdAt: input.resource.created ?? null,
-        modifiedAt: input.resource.last_modified ?? null,
-      },
-      updated_at: checkedAt,
+      last_attempted_at: now,
+      last_successful_run_at: input.lastSuccessfulRunAt,
+      error_message: input.status === 'failed' ? `Failed to process ${input.resource.name}.` : null,
+      updated_at: now,
     }], 'dataset_code,resource_key');
   }
 
@@ -464,38 +451,58 @@ export class CapitalMarketIngestionService {
     let recordsUnchanged = 0;
 
     for (const batch of chunks(records)) {
-      if (!batch.length) continue;
-      const existingRows = await this.client!.select('capital_market_events', {
-        select: 'record_key,content_hash',
-        limit: batch.length,
-        filters: [
-          { column: 'dataset_code', value: batch[0].event.dataset_code },
-          { column: 'record_key', operator: 'in', value: batch.map((record) => record.event.record_key) },
-        ],
-      }) as Array<{ record_key: string; content_hash: string | null }>;
-      const existing = new Map(existingRows.map((row) => [row.record_key, row.content_hash]));
-      const changed: NormalizedCapitalMarketRecord[] = [];
+      const keys = batch.map((record) => record.event.record_key);
+      const datasetCodes = [...new Set(batch.map((record) => record.event.dataset_code))];
+      const [existingBronze, existingEvents] = await Promise.all([
+        this.client!.select('bronze_historical_records', {
+          select: 'dataset_code,record_key,content_hash',
+          limit: Math.max(100, batch.length * 2),
+          filters: [
+            { column: 'dataset_code', operator: 'in', value: datasetCodes },
+            { column: 'record_key', operator: 'in', value: keys },
+          ],
+        }) as Promise<Array<{ dataset_code: string; record_key: string; content_hash: string | null }>>,
+        this.client!.select('capital_market_events', {
+          select: 'dataset_code,record_key,content_hash',
+          limit: Math.max(100, batch.length * 2),
+          filters: [
+            { column: 'dataset_code', operator: 'in', value: datasetCodes },
+            { column: 'record_key', operator: 'in', value: keys },
+          ],
+        }) as Promise<Array<{ dataset_code: string; record_key: string; content_hash: string | null }>>,
+      ]);
+      const bronzeByKey = new Map(existingBronze.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
+      const eventByKey = new Map(existingEvents.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
+      const changed = batch.filter((record) => {
+        const key = `${record.event.dataset_code}:${record.event.record_key}`;
+        return bronzeByKey.get(key) !== record.event.content_hash || eventByKey.get(key) !== record.event.content_hash;
+      });
 
-      for (const record of batch) {
-        const previousHash = existing.get(record.event.record_key);
-        if (previousHash === undefined) {
-          recordsInserted += 1;
-          changed.push(record);
-        } else if (previousHash !== record.event.content_hash) {
-          recordsUpdated += 1;
-          changed.push(record);
-        } else {
-          recordsUnchanged += 1;
-        }
-      }
+      recordsUnchanged += batch.length - changed.length;
+      recordsInserted += changed.filter((record) => {
+        const key = `${record.event.dataset_code}:${record.event.record_key}`;
+        return !bronzeByKey.has(key) && !eventByKey.has(key);
+      }).length;
+      recordsUpdated += changed.filter((record) => {
+        const key = `${record.event.dataset_code}:${record.event.record_key}`;
+        return bronzeByKey.has(key) || eventByKey.has(key);
+      }).length;
 
       if (!changed.length) continue;
-      await this.client!.upsert('bronze_historical_records', changed.map((record) => record.bronze), 'dataset_code,record_key');
-      bronzeRowsWritten += changed.length;
-      await this.client!.upsert('capital_market_events', changed.map((record) => record.event), 'dataset_code,record_key');
-      eventsWritten += changed.length;
+      const [bronzeWritten, eventsPersisted] = await Promise.all([
+        this.client!.upsert('bronze_historical_records', changed.map((record) => record.bronze), 'dataset_code,record_key'),
+        this.client!.upsert('capital_market_events', changed.map((record) => record.event), 'dataset_code,record_key'),
+      ]);
+      bronzeRowsWritten += Array.isArray(bronzeWritten) ? bronzeWritten.length : changed.length;
+      eventsWritten += Array.isArray(eventsPersisted) ? eventsPersisted.length : changed.length;
     }
 
-    return { bronzeRowsWritten, eventsWritten, recordsInserted, recordsUpdated, recordsUnchanged };
+    return {
+      bronzeRowsWritten,
+      eventsWritten,
+      recordsInserted,
+      recordsUpdated,
+      recordsUnchanged,
+    };
   }
 }
