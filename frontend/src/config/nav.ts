@@ -98,8 +98,9 @@ export const navItems = [
     to: '/identity-review',
     label: 'Identity Review',
     shortLabel: 'CNPJ e entidade',
-    description: 'Revisão humana de razão social, CNPJ, domínio, evidência e promoção transacional.',
+    description: 'Triagem GOD-MODE de entidade, CNPJ, evidência e entrada monitorável no Company Master.',
     group: 'Operação & governança',
+    godOnly: true,
   },
   {
     to: '/sources',
