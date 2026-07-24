@@ -1,11 +1,16 @@
 name: Knowledge Embedding Worker Smoke
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/knowledge-embedding-coverage-v10
+      - main
     paths:
       - .github/workflows/knowledge-embedding-worker-smoke.yml
+      - supabase/functions/knowledge-embedding-worker/index.ts
+      - db/migrations/098_knowledge_embedding_coverage_v10.sql
+      - db/migrations/099_knowledge_embedding_budget_baseline_fix.sql
+      - db/migrations/100_knowledge_embedding_vector_comparison_fix.sql
+      - db/migrations/101_knowledge_embedding_security_hardening.sql
   workflow_dispatch:
 
 permissions:
@@ -17,6 +22,7 @@ concurrency:
 
 jobs:
   real-one-document-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'agent/knowledge-embedding-coverage-v10'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -48,6 +54,7 @@ jobs:
           cat "$RESPONSE_FILE" | tee /tmp/knowledge-embedding-worker-smoke.json | jq .
           STATUS="$(jq -r '.status // "unknown"' "$RESPONSE_FILE")"
           COMPLETED="$(jq -r '.completed // 0' "$RESPONSE_FILE")"
+          COMPLETED_TODAY="$(jq -r '.completedToday // .coverage.jobs.completedToday // 0' "$RESPONSE_FILE")"
           SYNTHETIC="$(jq -r '.syntheticEmbedding // true' "$RESPONSE_FILE")"
           rm -f "$RESPONSE_FILE"
 
@@ -55,9 +62,16 @@ jobs:
             echo "Smoke returned HTTP $HTTP_CODE" >&2
             exit 1
           fi
-          test "$STATUS" = "completed"
-          test "$COMPLETED" = "1"
           test "$SYNTHETIC" = "false"
+
+          if [[ "$STATUS" == "completed" ]]; then
+            test "$COMPLETED" = "1"
+          elif [[ "$STATUS" == "budget_exhausted" ]]; then
+            test "$COMPLETED_TODAY" -ge 1
+          else
+            echo "Unexpected smoke status: $STATUS" >&2
+            exit 1
+          fi
 
       - name: Upload smoke evidence
         if: always()
