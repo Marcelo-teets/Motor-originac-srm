@@ -19,7 +19,9 @@ O smoke é deliberadamente fail-closed: uma página que apenas retorna HTTP 200 
    - rotas de Auth incluídas;
    - provedor CAPTCHA;
    - presença da site key pública no build;
-   - transporte do token como `captcha_token`.
+   - transporte do token como `captcha_token`;
+   - descoberta dinâmica de OAuth;
+   - suporte de frontend a GitHub e Google.
 3. Frontend e backend possuem o mesmo SHA.
 4. O SHA publicado corresponde ao deployment esperado.
 5. As rotas públicas retornam o shell React:
@@ -32,8 +34,29 @@ O smoke é deliberadamente fail-closed: uma página que apenas retorna HTTP 200 
    - `/forgot-password`;
    - `/reset-password`;
    - `/auth/callback`;
+   - `/auth/v1/settings`;
+   - `github`;
+   - `google`;
    - `god_mode`.
-7. O build declara o botão Google OAuth e a camada GOD-MODE.
+7. O build declara descoberta dinâmica de providers OAuth e a camada GOD-MODE.
+
+## Descoberta OAuth
+
+A tela de login não presume que um provider esteja ativo. Ela consulta o endpoint público do Supabase:
+
+```text
+/auth/v1/settings
+```
+
+Somente providers realmente habilitados são exibidos.
+
+Estado auditado em 24/07/2026:
+
+- GitHub: habilitado;
+- Google: desabilitado;
+- e-mail/senha: habilitado.
+
+Portanto, o rollout atual deve oferecer **Continuar com GitHub**. O botão Google aparecerá automaticamente quando o provider for configurado no Supabase, sem nova alteração de frontend.
 
 ## Execução automática
 
@@ -67,10 +90,11 @@ São publicados apenas:
 
 - identificadores de build;
 - estado booleano da site key pública;
-- nome do provedor;
+- nome do provedor CAPTCHA;
+- providers OAuth suportados pelo frontend;
 - capacidades funcionais esperadas.
 
-A site key CAPTCHA é pública por natureza, mas o arquivo registra apenas se ela está configurada. Secret key do CAPTCHA, Google OAuth secret, service role e token da Vercel nunca entram no bundle.
+A site key CAPTCHA é pública por natureza, mas o arquivo registra apenas se ela está configurada. CAPTCHA secret, OAuth secrets, service role e token da Vercel nunca entram no bundle.
 
 ## Falhas esperadas e interpretação
 
@@ -85,6 +109,10 @@ O deployment está inconsistente ou o alias canônico aponta para artefatos dife
 ### Bundle sem `captcha_token`
 
 A produção ainda serve uma versão anterior ao conserto do CAPTCHA.
+
+### Bundle sem `/auth/v1/settings`
+
+A produção ainda contém o botão OAuth fixo ou não possui descoberta dos providers realmente habilitados.
 
 ### Rota retorna conteúdo diferente do shell React
 
