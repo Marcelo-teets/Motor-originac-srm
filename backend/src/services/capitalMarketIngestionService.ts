@@ -9,7 +9,7 @@ import {
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
-const BATCH_SIZE = 75;
+const BATCH_SIZE = 100;
 const MAX_ROWS = 500_000;
 const STALE_RUN_MS = 30 * 60 * 1_000;
 const allDatasets = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
@@ -48,6 +48,23 @@ type Checkpoint = {
   last_successful_run_at: string | null;
 };
 type Source = { id: string; name: string; metadata?: Record<string, unknown> };
+
+type BatchPersistResult = {
+  bronzeRowsWritten: number;
+  eventsWritten: number;
+  entityLinksWritten: number;
+  metricsWritten: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  recordsUnchanged: number;
+};
+
+export const serializeCapitalMarketBatch = (records: NormalizedCapitalMarketRecord[]) => records.map((record) => ({
+  bronze: record.bronze,
+  event: record.event,
+  entity_links: record.entityLinks,
+  metrics: record.metrics,
+}));
 
 export type CapitalMarketDatasetSummary = {
   datasetCode: CvmDatasetCode;
@@ -346,7 +363,7 @@ export class CapitalMarketIngestionService {
   }
 
   private async persist(records: NormalizedCapitalMarketRecord[]) {
-    const totals = {
+    const totals: BatchPersistResult = {
       bronzeRowsWritten: 0,
       eventsWritten: 0,
       entityLinksWritten: 0,
@@ -356,52 +373,17 @@ export class CapitalMarketIngestionService {
       recordsUnchanged: 0,
     };
     for (const batch of chunks(records)) {
-      const keys = batch.map((record) => record.event.record_key);
-      const datasets = [...new Set(batch.map((record) => record.event.dataset_code))];
-      const query = {
-        select: 'dataset_code,record_key,content_hash',
-        limit: Math.max(100, batch.length * 2),
-        filters: [
-          { column: 'dataset_code', operator: 'in' as const, value: datasets },
-          { column: 'record_key', operator: 'in' as const, value: keys },
-        ],
-      };
-      const [bronze, events] = await Promise.all([
-        this.client!.select('bronze_historical_records', query),
-        this.client!.select('capital_market_events', query),
-      ]) as [Array<{ dataset_code: string; record_key: string; content_hash: string | null }>, Array<{ dataset_code: string; record_key: string; content_hash: string | null }>];
-      const bronzeMap = new Map(bronze.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
-      const eventMap = new Map(events.map((row) => [`${row.dataset_code}:${row.record_key}`, row.content_hash]));
-      const changed = batch.filter((record) => {
-        const key = `${record.event.dataset_code}:${record.event.record_key}`;
-        return bronzeMap.get(key) !== record.event.content_hash || eventMap.get(key) !== record.event.content_hash;
+      const persisted = await this.client!.rpc<BatchPersistResult>('persist_capital_market_batch', {
+        p_records: serializeCapitalMarketBatch(batch),
       });
-      totals.recordsUnchanged += batch.length - changed.length;
-      const insertedThisBatch = changed.filter((record) => {
-        const key = `${record.event.dataset_code}:${record.event.record_key}`;
-        return !bronzeMap.has(key) && !eventMap.has(key);
-      }).length;
-      totals.recordsInserted += insertedThisBatch;
-      totals.recordsUpdated += changed.length - insertedThisBatch;
-
-      if (changed.length) {
-        await Promise.all([
-          this.client!.upsert('bronze_historical_records', changed.map((record) => record.bronze), 'dataset_code,record_key'),
-          this.client!.upsert('capital_market_events', changed.map((record) => record.event), 'dataset_code,record_key'),
-        ]);
-        totals.bronzeRowsWritten += changed.length;
-        totals.eventsWritten += changed.length;
-      }
-      const links = batch.flatMap((record) => record.entityLinks);
-      const metrics = batch.flatMap((record) => record.metrics);
-      if (links.length) {
-        await this.client!.upsert('capital_market_entity_links', links, 'dataset_code,record_key,entity_role,entity_key');
-        totals.entityLinksWritten += links.length;
-      }
-      if (metrics.length) {
-        await this.client!.upsert('capital_market_metrics', metrics, 'dataset_code,record_key,metric_code,source_column');
-        totals.metricsWritten += metrics.length;
-      }
+      if (!persisted) throw new Error('persist_capital_market_batch returned no result.');
+      totals.bronzeRowsWritten += Number(persisted.bronzeRowsWritten ?? 0);
+      totals.eventsWritten += Number(persisted.eventsWritten ?? 0);
+      totals.entityLinksWritten += Number(persisted.entityLinksWritten ?? 0);
+      totals.metricsWritten += Number(persisted.metricsWritten ?? 0);
+      totals.recordsInserted += Number(persisted.recordsInserted ?? 0);
+      totals.recordsUpdated += Number(persisted.recordsUpdated ?? 0);
+      totals.recordsUnchanged += Number(persisted.recordsUnchanged ?? 0);
     }
     return totals;
   }
