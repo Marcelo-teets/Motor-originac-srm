@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: public-bulk-owner-dispatch
+  group: public-bulk-owner-dispatch-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       (github.event.issue.title == '[public-bulk-run] ceis-cnep-canary' ||
        github.event.issue.title == '[public-bulk-run] all-light')
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 180
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -106,16 +106,29 @@ const linksFromHtml = (html: string, base: string) => [...html.matchAll(/href=["
   .map((match) => { try { return new URL(match[1], base).toString(); } catch { return null; } })
   .filter((value): value is string => Boolean(value));
 const fetchText = async (url: string) => {
-  const response = await fetch(url, { headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' } });
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' },
+    signal: AbortSignal.timeout(20_000),
+  });
   if (!response.ok) throw new Error(`Discovery failed: ${response.status} ${url}`);
   return response.text();
 };
 
 async function probeResource(url: string) {
   const headers = { 'User-Agent': 'OriginationIntelligencePlatform/1.0' };
-  let response = await fetch(url, { method: 'HEAD', redirect: 'follow', headers }).catch(() => null);
+  let response = await fetch(url, {
+    method: 'HEAD',
+    redirect: 'follow',
+    headers,
+    signal: AbortSignal.timeout(15_000),
+  }).catch(() => null);
   if (!response?.ok) {
-    response = await fetch(url, { method: 'GET', redirect: 'follow', headers: { ...headers, Range: 'bytes=0-0' } }).catch(() => null);
+    response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { ...headers, Range: 'bytes=0-0' },
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
     await response?.body?.cancel().catch(() => undefined);
   }
   return {
@@ -173,7 +186,10 @@ async function discoverBndesResources(maxResources: number): Promise<PublicBulkR
   const apiUrl = 'https://dadosabertos.bndes.gov.br/api/3/action/package_show?id=operacoes-financiamento';
   let candidates: BndesCkanResource[] = [];
   try {
-    const response = await fetch(apiUrl, { headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' } });
+    const response = await fetch(apiUrl, {
+      headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' },
+      signal: AbortSignal.timeout(12_000),
+    });
     if (response.ok) {
       const payload = await response.json() as { result?: { resources?: BndesCkanResource[] } };
       candidates = (payload.result?.resources ?? []).filter(isBndesCsv);
@@ -184,14 +200,27 @@ async function discoverBndesResources(maxResources: number): Promise<PublicBulkR
 
   if (!candidates.length) {
     const pageUrl = 'https://dadosabertos.bndes.gov.br/dataset/operacoes-financiamento';
-    candidates = linksFromHtml(await fetchText(pageUrl), pageUrl)
-      .filter((url) => /\/download\/.*\.csv(?:\?|$)/i.test(url))
-      .map((url) => ({
-        id: `bndes:${hash(url).slice(0, 24)}`,
-        name: decodeURIComponent(basename(url)).replace(/[-_]+/g, ' '),
-        url,
-        format: 'CSV',
-      }));
+    try {
+      candidates = linksFromHtml(await fetchText(pageUrl), pageUrl)
+        .filter((url) => /\/download\/.*\.csv(?:\?|$)/i.test(url))
+        .map((url) => ({
+          id: `bndes:${hash(url).slice(0, 24)}`,
+          name: decodeURIComponent(basename(url)).replace(/[-_]+/g, ' '),
+          url,
+          format: 'CSV',
+        }));
+    } catch {
+      candidates = [];
+    }
+  }
+
+  if (!candidates.length) {
+    candidates = [{
+      id: 'bndes-nonautomatic-official',
+      name: 'Operações não automáticas',
+      url: 'https://dadosabertos.bndes.gov.br/dataset/10e21ad1-568e-45e5-a8af-43f2c05ef1a2/resource/6f56b78c-510f-44b6-8274-78a5b7e931f4/download/operacoes-financiamento-operacoes-nao-automaticas.csv',
+      format: 'CSV',
+    }];
   }
 
   const ordered = [...candidates].sort((left, right) => Number(isBndesNonAutomatic(right)) - Number(isBndesNonAutomatic(left)));
