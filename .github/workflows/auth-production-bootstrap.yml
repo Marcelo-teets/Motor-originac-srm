@@ -1,0 +1,90 @@
+name: Auth Production Bootstrap
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 25/07/2026 14:05 America/Sao_Paulo, after the Vercel quota reset.
+    - cron: '5 17 25 7 *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_TEAM_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      VERCEL_REPOSITORY_ID: '1185535233'
+      VERCEL_REPOSITORY_REF: main
+      REQUESTED_SHA: 7a3fc3d9609e184ff6db535329fe0da02d563155
+
+    steps:
+      - name: Gate the one-time scheduled execution
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%F)" = "2026-07-25" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "One-time production bootstrap window has already passed."
+          fi
+
+      - name: Checkout exact approved SHA
+        if: steps.gate.outputs.deploy == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REQUESTED_SHA }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate protected production input
+        if: steps.gate.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" || {
+            echo "VERCEL_TOKEN is missing from GitHub Actions secrets."
+            exit 1
+          }
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo "A full 40-character SHA is required."
+            exit 1
+          }
+          test "${REQUESTED_SHA,,}" = "$(git rev-parse HEAD)" || {
+            echo "Checked-out SHA does not match the requested production SHA."
+            exit 1
+          }
+
+      - name: Confirm automatic Git deployments are paused
+        if: steps.gate.outputs.deploy == 'true'
+        run: node scripts/vercel-production-control.mjs status
+
+      - name: Create exactly one production deployment
+        if: steps.gate.outputs.deploy == 'true'
+        run: >-
+          node scripts/vercel-production-control.mjs
+          deploy-production
+          --sha=$REQUESTED_SHA
+          --wait=true
+          --timeout-seconds=1200
+          --poll-seconds=10
+
+      - name: Keep automatic deployments disabled
+        if: always() && steps.gate.outputs.deploy == 'true'
+        run: node scripts/vercel-production-control.mjs disable-auto
