@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import ExcelJS from "npm:exceljs@4.4.0";
 
-const RUNTIME = "historical-excel-export-v4";
+const RUNTIME = "historical-excel-export-v5";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ARCHIVE_BUCKET = "historical-excel-archive";
@@ -9,19 +9,39 @@ const MAX_CELL_CHARS = 32_000;
 const MAX_ROWS_PER_INVOCATION = 1_000;
 const encoder = new TextEncoder();
 
-const TABLE_CONFIG: Record<string, { dateColumn: string; datasetColumn?: string }> = {
-  capital_market_events: { dateColumn: "observed_at", datasetColumn: "dataset_code" },
-  bronze_historical_records: { dateColumn: "ingested_at", datasetColumn: "dataset_code" },
-  source_documents: { dateColumn: "observed_at" },
-  monitoring_outputs: { dateColumn: "observed_at" },
-  company_signals: { dateColumn: "observed_at" },
-  company_factor_observations: { dateColumn: "observed_at" },
-  score_snapshots: { dateColumn: "created_at" },
-  qualification_snapshots: { dateColumn: "created_at" },
-  lead_score_snapshots: { dateColumn: "created_at" },
+type TableConfig = {
+  dateColumn: string;
+  datasetColumn?: string;
+  resource: string;
 };
 
-function jsonResponse(status: number, body: unknown): Response {
+const TABLE_CONFIG: Record<string, TableConfig> = {
+  capital_market_events: {
+    dateColumn: "observed_at",
+    datasetColumn: "dataset_code",
+    resource: "historical_archive_capital_market_events",
+  },
+  bronze_historical_records: {
+    dateColumn: "ingested_at",
+    datasetColumn: "dataset_code",
+    resource: "bronze_historical_records",
+  },
+  source_documents: {
+    dateColumn: "observed_at",
+    resource: "historical_archive_source_documents",
+  },
+  monitoring_outputs: {
+    dateColumn: "observed_at",
+    resource: "historical_archive_monitoring_outputs",
+  },
+  company_signals: { dateColumn: "observed_at", resource: "company_signals" },
+  company_factor_observations: { dateColumn: "observed_at", resource: "company_factor_observations" },
+  score_snapshots: { dateColumn: "created_at", resource: "score_snapshots" },
+  qualification_snapshots: { dateColumn: "created_at", resource: "qualification_snapshots" },
+  lead_score_snapshots: { dateColumn: "created_at", resource: "lead_score_snapshots" },
+};
+
+function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -32,11 +52,11 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function sha256Hex(value: string | Uint8Array): Promise<string> {
+async function sha256Hex(value: string | Uint8Array) {
   const bytes = typeof value === "string" ? encoder.encode(value) : value;
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
@@ -44,11 +64,8 @@ async function sha256Hex(value: string | Uint8Array): Promise<string> {
     .join("");
 }
 
-async function supabaseFetch(path: string, init: RequestInit = {}): Promise<any> {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    throw new Error("supabase_runtime_credentials_missing");
-  }
-
+async function supabaseFetch(path: string, init: RequestInit = {}) {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error("supabase_runtime_credentials_missing");
   const response = await fetch(`${SUPABASE_URL}${path}`, {
     ...init,
     headers: {
@@ -69,7 +86,7 @@ async function supabaseFetch(path: string, init: RequestInit = {}): Promise<any>
   }
 }
 
-async function claimToken(rawToken: string): Promise<Record<string, any>> {
+async function claimToken(rawToken: string): Promise<Record<string, unknown>> {
   if (!rawToken || rawToken.length < 32) throw new Error("invalid_archive_token");
   const claim = await supabaseFetch("/rest/v1/rpc/claim_data_archive_token", {
     method: "POST",
@@ -77,10 +94,10 @@ async function claimToken(rawToken: string): Promise<Record<string, any>> {
     body: JSON.stringify({ p_token_hash: await sha256Hex(rawToken) }),
   });
   if (!claim?.metadata) throw new Error("expired_or_consumed_archive_token");
-  return claim.metadata;
+  return claim.metadata as Record<string, unknown>;
 }
 
-function slug(value: string): string {
+function slug(value: string) {
   return value.normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -88,7 +105,7 @@ function slug(value: string): string {
     .replace(/^-|-$/g, "") || "all";
 }
 
-function storageObjectPath(path: string): string {
+function storageObjectPath(path: string) {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
@@ -97,7 +114,6 @@ function splitCell(value: unknown): unknown[] {
   if (typeof value === "number" || typeof value === "boolean") return [value];
   const text = typeof value === "object" ? JSON.stringify(value) : String(value);
   if (text.length <= MAX_CELL_CHARS) return [text];
-
   const parts: string[] = [];
   for (let offset = 0; offset < text.length; offset += MAX_CELL_CHARS) {
     parts.push(text.slice(offset, offset + MAX_CELL_CHARS));
@@ -105,11 +121,7 @@ function splitCell(value: unknown): unknown[] {
   return parts;
 }
 
-function expandRows(rows: Record<string, unknown>[]): {
-  headers: string[];
-  values: unknown[][];
-  baseColumns: string[];
-} {
+function expandRows(rows: Record<string, unknown>[]) {
   const baseColumns: string[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -134,8 +146,8 @@ function expandRows(rows: Record<string, unknown>[]): {
 
   const headers: string[] = [];
   for (const column of baseColumns) {
-    const partCount = maxParts.get(column) ?? 1;
-    for (let part = 1; part <= partCount; part += 1) {
+    const count = maxParts.get(column) ?? 1;
+    for (let part = 1; part <= count; part += 1) {
       headers.push(part === 1 ? column : `${column}__part_${part}`);
     }
   }
@@ -144,10 +156,8 @@ function expandRows(rows: Record<string, unknown>[]): {
     const output: unknown[] = [];
     for (const column of baseColumns) {
       const parts = row[column] ?? [""];
-      const partCount = maxParts.get(column) ?? 1;
-      for (let part = 0; part < partCount; part += 1) {
-        output.push(parts[part] ?? "");
-      }
+      const count = maxParts.get(column) ?? 1;
+      for (let part = 0; part < count; part += 1) output.push(parts[part] ?? "");
     }
     return output;
   });
@@ -155,7 +165,7 @@ function expandRows(rows: Record<string, unknown>[]): {
   return { headers, values, baseColumns };
 }
 
-function resolveOrderColumn(tableName: string, datasetCode: string | null): string {
+function resolveOrderColumn(tableName: string, datasetCode: string | null) {
   if (datasetCode && ["capital_market_events", "bronze_historical_records"].includes(tableName)) {
     return "record_key";
   }
@@ -169,34 +179,33 @@ async function buildWorkbook(input: {
   cutoffAt: string;
   partNumber: number;
   cursor: string | null;
+  resource: string;
   rows: Record<string, unknown>[];
-}): Promise<{
-  bytes: Uint8Array;
-  columns: string[];
-  minRecordAt: string | null;
-  maxRecordAt: string | null;
-}> {
+}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Origination Intelligence Platform";
   workbook.created = new Date();
+  workbook.modified = new Date();
 
   const readme = workbook.addWorksheet("LEIA-ME");
   readme.addRows([
     ["ORIGINATION INTELLIGENCE PLATFORM — ARQUIVO HISTÓRICO"],
-    ["Finalidade", "Camada secundária consultável em Excel. O Supabase continua sendo a base operacional."],
+    ["Finalidade", "Camada histórica consultável. O Supabase permanece como base operacional."],
     ["Run ID", input.runId],
-    ["Tabela", input.tableName],
+    ["Tabela lógica", input.tableName],
+    ["População exportada", input.resource],
     ["Dataset", input.datasetCode ?? "*"],
     ["Corte", input.cutoffAt],
     ["Parte", input.partNumber],
     ["Cursor inicial", input.cursor ?? "<início>"],
     ["Linhas", input.rows.length],
-    ["Regra", "Nenhuma limpeza no Supabase deve ocorrer antes de status verified e checksum SHA-256 válido."],
+    ["Regra", "Prune somente após SHA-256, manifesto e contagem da origem coincidirem."],
   ]);
-  readme.getColumn(1).width = 24;
-  readme.getColumn(2).width = 95;
-  readme.getRow(1).font = { bold: true, size: 16 };
   readme.mergeCells("A1:B1");
+  readme.getRow(1).font = { bold: true, size: 16, color: { argb: "FFFFFFFF" } };
+  readme.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17365D" } };
+  readme.getColumn(1).width = 26;
+  readme.getColumn(2).width = 95;
 
   const expanded = expandRows(input.rows);
   const data = workbook.addWorksheet("DADOS", { views: [{ state: "frozen", ySplit: 1 }] });
@@ -219,6 +228,7 @@ async function buildWorkbook(input: {
     ["campo", "valor"],
     ["run_id", input.runId],
     ["table_name", input.tableName],
+    ["resource", input.resource],
     ["dataset_code", input.datasetCode ?? "*"],
     ["cutoff_at", input.cutoffAt],
     ["part_number", input.partNumber],
@@ -235,9 +245,8 @@ async function buildWorkbook(input: {
 
   const buffer = await workbook.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer as ArrayBuffer);
-  const dateColumn = TABLE_CONFIG[input.tableName].dateColumn;
   const dates = input.rows
-    .map((row) => row[dateColumn])
+    .map((row) => row[TABLE_CONFIG[input.tableName].dateColumn])
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .sort();
 
@@ -249,7 +258,7 @@ async function buildWorkbook(input: {
   };
 }
 
-async function patchRun(runId: string, patch: Record<string, unknown>): Promise<void> {
+async function patchRun(runId: string, patch: Record<string, unknown>) {
   await supabaseFetch(`/rest/v1/data_archive_runs?id=eq.${encodeURIComponent(runId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json", prefer: "return=minimal" },
@@ -257,10 +266,10 @@ async function patchRun(runId: string, patch: Record<string, unknown>): Promise<
   });
 }
 
-async function finalizeRun(runId: string): Promise<{ rows: number; parts: number }> {
+async function finalizeRun(runId: string, resource: string) {
   const parts = await supabaseFetch(
     `/rest/v1/data_archive_parts?run_id=eq.${encodeURIComponent(runId)}&select=part_number,row_count,storage_path,sha256,size_bytes&order=part_number.asc`,
-  ) as Array<Record<string, any>>;
+  ) as Array<Record<string, unknown>>;
   const rows = parts.reduce((sum, part) => sum + Number(part.row_count ?? 0), 0);
   await patchRun(runId, {
     status: "completed",
@@ -270,6 +279,8 @@ async function finalizeRun(runId: string): Promise<{ rows: number; parts: number
     export_metadata: {
       runtime: RUNTIME,
       pagination: "cursor",
+      eligibility_version: 2,
+      resource,
       rows_per_invocation: MAX_ROWS_PER_INVOCATION,
       parts,
     },
@@ -277,10 +288,8 @@ async function finalizeRun(runId: string): Promise<{ rows: number; parts: number
   return { rows, parts: parts.length };
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") {
-    return jsonResponse(405, { status: "error", error: "method_not_allowed" });
-  }
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return jsonResponse(405, { status: "error", error: "method_not_allowed" });
 
   let runId = "";
   let stage = "authenticate";
@@ -288,13 +297,11 @@ Deno.serve(async (req: Request) => {
     const token = await claimToken(req.headers.get("x-archive-token")?.trim() ?? "");
     const body = await req.json().catch(() => ({})) as { runId?: string };
     runId = String(body.runId ?? token.run_id ?? "");
-    if (!runId || runId !== String(token.run_id ?? "")) {
-      throw new Error("archive_run_token_mismatch");
-    }
+    if (!runId || runId !== String(token.run_id ?? "")) throw new Error("archive_run_token_mismatch");
 
     const runRows = await supabaseFetch(
       `/rest/v1/data_archive_runs?id=eq.${encodeURIComponent(runId)}&select=*`,
-    ) as Array<Record<string, any>>;
+    ) as Array<Record<string, unknown>>;
     const run = runRows?.[0];
     if (!run) throw new Error("archive_run_not_found");
     if (!["queued", "running"].includes(String(run.status))) {
@@ -329,17 +336,21 @@ Deno.serve(async (req: Request) => {
     const params = new URLSearchParams();
     params.set("select", "*");
     params.set(config.dateColumn, `lte.${cutoffAt}`);
-    if (datasetCode && config.datasetColumn) {
-      params.set(config.datasetColumn, `eq.${datasetCode}`);
-    }
+    if (datasetCode && config.datasetColumn) params.set(config.datasetColumn, `eq.${datasetCode}`);
     if (cursor) params.set(orderColumn, `gt.${cursor}`);
     params.set("order", `${orderColumn}.asc`);
     params.set("limit", String(limit));
-    const rows = await supabaseFetch(`/rest/v1/${tableName}?${params.toString()}`) as Record<string, unknown>[];
+
+    const rows = await supabaseFetch(
+      `/rest/v1/${config.resource}?${params.toString()}`,
+    ) as Record<string, unknown>[];
 
     if (!rows.length) {
-      const finalized = await finalizeRun(runId);
-      return jsonResponse(200, { status: "completed", runId, ...finalized });
+      return jsonResponse(200, {
+        status: "completed",
+        runId,
+        ...(await finalizeRun(runId, config.resource)),
+      });
     }
 
     if (!includeRawPayload) {
@@ -365,6 +376,7 @@ Deno.serve(async (req: Request) => {
       cutoffAt,
       partNumber,
       cursor,
+      resource: config.resource,
       rows,
     });
     const sha256 = await sha256Hex(workbook.bytes);
@@ -411,6 +423,8 @@ Deno.serve(async (req: Request) => {
         columns: workbook.columns,
         metadata: {
           runtime: RUNTIME,
+          eligibility_version: 2,
+          resource: config.resource,
           include_raw_payload: includeRawPayload,
           cursor,
           order_column: orderColumn,
@@ -421,8 +435,11 @@ Deno.serve(async (req: Request) => {
     const nextCursor = String(rows[rows.length - 1]?.[orderColumn] ?? "");
     if (!nextCursor) throw new Error("archive_next_cursor_missing");
     if (rows.length < limit) {
-      const finalized = await finalizeRun(runId);
-      return jsonResponse(200, { status: "completed", runId, ...finalized });
+      return jsonResponse(200, {
+        status: "completed",
+        runId,
+        ...(await finalizeRun(runId, config.resource)),
+      });
     }
 
     stage = "queue_cursor_continuation";
@@ -457,7 +474,7 @@ Deno.serve(async (req: Request) => {
           error_message: detail,
         });
       } catch {
-        // best effort audit
+        // best-effort audit
       }
     }
     console.error(`[${RUNTIME}] ${detail}`);
