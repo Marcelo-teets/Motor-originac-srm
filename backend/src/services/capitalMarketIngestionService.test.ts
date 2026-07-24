@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import '../lib/supabase.test.js';
 import { shouldSkipCapitalMarketResource } from './capitalMarketIngestionService.js';
 
 const resource = {
