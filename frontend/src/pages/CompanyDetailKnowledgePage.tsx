@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { CompanyDecisionActivationPanel } from '../components/CompanyDecisionActivationPanel';
 import { CompanyDecisionBriefPanel } from '../components/CompanyDecisionBriefPanel';
 import { CompanyKnowledgePanel } from '../components/CompanyKnowledgePanel';
 import { CompanySemanticEvidencePanel } from '../components/CompanySemanticEvidencePanel';
@@ -17,6 +18,9 @@ export function CompanyDetailKnowledgePage() {
         </section>
         <section id="bloco-briefing-decisorio" style={{ scrollMarginTop: 64 }}>
           <CompanyDecisionBriefPanel companyId={id} />
+        </section>
+        <section id="bloco-ativacao-decisoria" style={{ scrollMarginTop: 64 }}>
+          <CompanyDecisionActivationPanel companyId={id} />
         </section>
         <section id="bloco-evidencias-semanticas" style={{ scrollMarginTop: 64 }}>
           <CompanySemanticEvidencePanel companyId={id} />
