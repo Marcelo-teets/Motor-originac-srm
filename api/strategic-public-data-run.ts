@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 
 // Node 24 emits DEP0169 from a legacy transitive dependency during ZIP discovery.
-// The handler and connector use WHATWG URL; filter only that known warning code.
+// The handler and connectors use WHATWG URL; filter only that known warning code.
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
   const code = typeof args[0] === 'object' && args[0] !== null
@@ -12,9 +12,11 @@ process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
 }) as typeof process.emitWarning;
 
 const DATASET = 'cvm_fre_capital_structure' as const;
-const RUNTIME_VERSION = 'strategic-public-data-v2';
+const RUNTIME_VERSION = 'strategic-public-data-v3';
+const ALLOWED_MODES = ['run', 'probe', 'qsa-fallback'] as const;
 
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+const booleanValue = (value: string | undefined) => ['1', 'true', 'yes'].includes(String(value ?? '').toLowerCase());
 
 const isAuthorized = (req: VercelRequest) => {
   const secret = process.env.CRON_SECRET;
@@ -35,8 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const mode = requestValue(req.query.mode) ?? 'run';
-  if (!['run', 'probe'].includes(mode)) {
-    return res.status(400).json({ status: 'error', error: 'invalid_mode', allowed: ['run', 'probe'] });
+  if (!ALLOWED_MODES.includes(mode as typeof ALLOWED_MODES[number])) {
+    return res.status(400).json({ status: 'error', error: 'invalid_mode', allowed: ALLOWED_MODES });
   }
   if (!isAuthorized(req) && !isProtectedPreviewProbe(mode)) {
     return res.status(401).json({ status: 'error', error: 'unauthorized' });
@@ -94,6 +96,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    if (mode === 'qsa-fallback') {
+      const companyId = requestValue(req.query.companyId);
+      const force = booleanValue(requestValue(req.query.force));
+      const parsedMaxCompanies = Number(requestValue(req.query.maxCompanies) ?? '500');
+      const maxCompanies = Number.isFinite(parsedMaxCompanies)
+        ? Math.max(1, Math.min(Math.trunc(parsedMaxCompanies), 5_000))
+        : 500;
+      const { QsaFallbackIngestionService } = await import('../backend/src/services/qsaFallbackIngestionService.js');
+      const result = await new QsaFallbackIngestionService().run({
+        companyId,
+        force,
+        maxCompanies,
+        triggerType: req.headers['x-vercel-cron'] ? 'schedule' : 'manual',
+      });
+      const statusCode = result.status === 'real' ? 200 : result.status === 'partial' ? 207 : 500;
+      return res.status(statusCode).json({
+        ...result,
+        mode,
+        runtime: 'vercel_node_dynamic_esm',
+        runtimeVersion: RUNTIME_VERSION,
+      });
+    }
+
     const [{ StrategicPublicIngestionService }, { PublicDataDownstreamService }] = await Promise.all([
       import('../backend/src/services/strategicPublicIngestionService.js'),
       import('../backend/src/services/publicDataDownstreamService.js'),
@@ -117,6 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(statusCode).json({
       ...ingestion,
+      mode,
       runtime: 'vercel_node_dynamic_esm',
       runtimeVersion: RUNTIME_VERSION,
       downstream,
@@ -126,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({
       status: 'failed',
       mode,
-      datasetCode: DATASET,
+      datasetCode: mode === 'qsa-fallback' ? 'rfb_qsa_fallback' : DATASET,
       runtimeVersion: RUNTIME_VERSION,
       startedAt,
       finishedAt: new Date().toISOString(),
