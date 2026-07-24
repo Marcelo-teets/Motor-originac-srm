@@ -4,6 +4,8 @@ import type { CompanySeed } from '../types/platform.js';
 import {
   attachCompanyDecisionMetadata,
   evaluateCompanyDecisionEligibility,
+  isCompanyEntityEligible,
+  isCompanyMonitoringEligible,
   markCompanyAsDemoSeed,
 } from './companyDecisionEligibility.js';
 
@@ -48,31 +50,65 @@ const baseCompany = (): CompanySeed => ({
   activities: [],
 });
 
-test('demo seed is never decision eligible', () => {
+test('demo seed is excluded from every runtime gate', () => {
   const company = markCompanyAsDemoSeed(baseCompany());
   const result = evaluateCompanyDecisionEligibility(company);
   assert.equal(result.eligible, false);
   assert.equal(result.dataStatus, 'mock');
   assert.equal(result.reason, 'synthetic_demo_seed');
+  assert.equal(isCompanyEntityEligible(company), false);
+  assert.equal(isCompanyMonitoringEligible(company), false);
 });
 
-test('real company requires explicit approval', () => {
-  const partial = attachCompanyDecisionMetadata(baseCompany(), { data_status: 'real' });
-  assert.equal(evaluateCompanyDecisionEligibility(partial).eligible, false);
-  assert.equal(evaluateCompanyDecisionEligibility(partial).reason, 'data_status_real');
+test('identity-approved company may be monitored without becoming a decision lead', () => {
+  const company = attachCompanyDecisionMetadata(baseCompany(), {
+    data_status: 'real',
+    identity_review_status: 'approved',
+    identity_verified: true,
+    entity_resolution_eligible: true,
+    monitoring_eligible: true,
+    decision_eligible: false,
+    excluded_from_qualification: true,
+    excluded_from_scoring: true,
+    decision_eligibility_reason: 'identity_only_pending_credit_review',
+  });
+  assert.equal(isCompanyEntityEligible(company), true);
+  assert.equal(isCompanyMonitoringEligible(company), true);
+  assert.equal(evaluateCompanyDecisionEligibility(company).eligible, false);
+  assert.equal(evaluateCompanyDecisionEligibility(company).reason, 'identity_only_pending_credit_review');
+});
+
+test('decision eligibility requires identity and explicit credit approval', () => {
+  const incomplete = attachCompanyDecisionMetadata(baseCompany(), {
+    data_status: 'real',
+    decision_eligible: true,
+  });
+  assert.equal(evaluateCompanyDecisionEligibility(incomplete).eligible, false);
 
   const approved = attachCompanyDecisionMetadata(baseCompany(), {
     data_status: 'real',
+    identity_review_status: 'approved',
+    identity_verified: true,
+    entity_resolution_eligible: true,
+    monitoring_eligible: true,
     decision_eligible: true,
-    decision_eligibility_reason: 'evidence_review_approved',
+    excluded_from_qualification: false,
+    excluded_from_scoring: false,
+    decision_eligibility_reason: 'credit_evidence_review_approved',
   });
+  assert.equal(isCompanyEntityEligible(approved), true);
+  assert.equal(isCompanyMonitoringEligible(approved), true);
   assert.equal(evaluateCompanyDecisionEligibility(approved).eligible, true);
-  assert.equal(evaluateCompanyDecisionEligibility(approved).reason, 'evidence_review_approved');
+  assert.equal(evaluateCompanyDecisionEligibility(approved).reason, 'credit_evidence_review_approved');
 });
 
-test('exclusion flags override an approval', () => {
+test('qualification or scoring exclusions override an approval', () => {
   const company = attachCompanyDecisionMetadata(baseCompany(), {
     data_status: 'real',
+    identity_review_status: 'approved',
+    identity_verified: true,
+    entity_resolution_eligible: true,
+    monitoring_eligible: true,
     decision_eligible: true,
     excluded_from_scoring: true,
     decision_eligibility_reason: 'manual_hold',

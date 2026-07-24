@@ -3,6 +3,7 @@ import { treatCaptureOutputs } from '../modules/data-capture/captureTreatment.js
 import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
+import { isCompanyDecisionEligible, isCompanyMonitoringEligible } from '../lib/companyDecisionEligibility.js';
 import { getSupabaseClient } from '../lib/supabase.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
@@ -105,7 +106,8 @@ export class PlatformService {
 
   async refreshMonitoring(companyId?: string) {
     const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
-    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+    const monitoringCompanies = env.useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies;
+    const targetCompanies = companyId ? monitoringCompanies.filter((item) => item.id === companyId) : monitoringCompanies;
     const collectedAt = isoNow();
     const ingestions = await Promise.all(targetCompanies.map(async (company) => {
       const raw = await ingestCompanyMonitoring(company, sources);
@@ -233,7 +235,8 @@ export class PlatformService {
       this.repository.listMonitoringOutputs(),
     ]);
 
-    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const targetCompanies = companyId ? decisionCompanies.filter((item) => item.id === companyId) : decisionCompanies;
     const companyIds = new Set(targetCompanies.map((item) => item.id));
     const relevantOutputs = monitoringOutputs.filter((item) => companyIds.has(item.companyId));
     const snapshots = this.buildSnapshots(targetCompanies, relevantOutputs, patternCatalog);
@@ -246,20 +249,24 @@ export class PlatformService {
   }
 
   private async ensureDerivedData() {
-    const [qualifications, leadScores] = await Promise.all([
+    const [companies, qualifications, leadScores] = await Promise.all([
+      this.hydrateCompanies(),
       this.repository.listQualificationSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
-
-    if (!qualifications.length || !leadScores.length) {
-      await this.recomputeDerivedData();
-    }
+    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const decisionIds = new Set(decisionCompanies.map((company) => company.id));
+    if (!decisionIds.size) return;
+    const qualificationIds = new Set(qualifications.map((item) => item.companyId));
+    const leadIds = new Set(leadScores.map((item) => item.companyId));
+    const missing = [...decisionIds].some((id) => !qualificationIds.has(id) || !leadIds.has(id));
+    if (missing) await this.recomputeDerivedData();
   }
 
   private async assembleViews() {
     await this.ensureDerivedData();
 
-    const [companies, sources, patternCatalog, monitoringOutputs, qualificationSnapshots, companyPatterns, scoreSnapshots, leadScoreSnapshots] = await Promise.all([
+    const [allCompanies, sources, patternCatalog, allMonitoringOutputsRaw, allQualificationSnapshots, allCompanyPatterns, allScoreSnapshots, allLeadScoreSnapshots] = await Promise.all([
       this.hydrateCompanies(),
       this.repository.listSources(),
       this.repository.listPatternCatalog(),
@@ -269,6 +276,13 @@ export class PlatformService {
       this.repository.listScoreSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
+    const companies = env.useSupabase ? allCompanies.filter(isCompanyDecisionEligible) : allCompanies;
+    const companyIds = new Set(companies.map((company) => company.id));
+    const monitoringOutputs = allMonitoringOutputsRaw.filter((item) => companyIds.has(item.companyId));
+    const qualificationSnapshots = allQualificationSnapshots.filter((item) => companyIds.has(item.companyId));
+    const companyPatterns = allCompanyPatterns.filter((item) => companyIds.has(item.companyId));
+    const scoreSnapshots = allScoreSnapshots.filter((item) => companyIds.has(item.companyId));
+    const leadScoreSnapshots = allLeadScoreSnapshots.filter((item) => companyIds.has(item.companyId));
 
     const latestQualifications = latestByCompany(qualificationSnapshots);
     const latestLeads = latestByCompany(leadScoreSnapshots);
@@ -559,21 +573,32 @@ export class PlatformService {
   }
 
   async listSources() { return this.repository.listSources(); }
-  async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
+  async listMonitoringOutputsAll() {
+    const [companies, outputs] = await Promise.all([this.hydrateCompanies(), this.repository.listMonitoringOutputs()]);
+    if (!env.useSupabase) return outputs;
+    const ids = new Set(companies.filter(isCompanyMonitoringEligible).map((company) => company.id));
+    return outputs.filter((output) => ids.has(output.companyId));
+  }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
-  async listPipelineRows() { return this.repository.listPipelineRows(); }
+  async listPipelineRows() {
+    const [companies, rows] = await Promise.all([this.hydrateCompanies(), this.repository.listPipelineRows()]);
+    if (!env.useSupabase) return rows;
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
   async getMonitoringSnapshot() {
-    const [dashboard, companies, sources, signals] = await Promise.all([
+    const [dashboard, hydratedCompanies, sources, signals] = await Promise.all([
       this.getDashboard(),
-      this.listCompanies(),
+      this.hydrateCompanies(),
       this.listSources(),
       this.repository.listCompanySignals(),
     ]);
-
-    const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
+    const companies = env.useSupabase ? hydratedCompanies.filter(isCompanyMonitoringEligible) : hydratedCompanies;
+    const companyNameById = new Map(companies.map((company) => [company.id, company.tradeName]));
     const sourceById = new Map(sources.map((source) => [source.id, source]));
 
     const recentTriggers = [...signals]
+      .filter((signal) => companyNameById.has(signal.companyId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, 8)
       .map((signal) => ({
@@ -642,19 +667,50 @@ export class PlatformService {
   }
 
   async listPipelineStages() {
-    const rows = await this.repository.listPipelineRows();
+    const rows = await this.listPipelineRows();
     const grouped = rows.reduce((acc, row) => {
       acc.set(row.stage, (acc.get(row.stage) ?? 0) + 1);
       return acc;
     }, new Map<string, number>());
     return PIPELINE_STAGES.map((stage) => ({ stage, count: grouped.get(stage) ?? 0 }));
   }
-  async getPipelineByCompany(companyId: string) { return this.repository.getPipelineByCompany(companyId); }
-  async movePipelineStage(companyId: string, stage: PipelineStage) { return this.repository.movePipelineStage(companyId, stage); }
-  async updateNextAction(companyId: string, nextAction: string) { return this.repository.updateNextAction(companyId, nextAction); }
-  async listActivities(companyId?: string) { return this.repository.listActivities(companyId); }
-  async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveActivity(activity); }
-  async listTasks(companyId?: string) { return this.repository.listTasks(companyId); }
-  async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveTask(task); }
+  private async isDecisionCompany(companyId: string) {
+    if (!env.useSupabase) return true;
+    return (await this.hydrateCompanies()).some((company) => company.id === companyId && isCompanyDecisionEligible(company));
+  }
+  async getPipelineByCompany(companyId: string) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.getPipelineByCompany(companyId);
+  }
+  async movePipelineStage(companyId: string, stage: PipelineStage) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.movePipelineStage(companyId, stage);
+  }
+  async updateNextAction(companyId: string, nextAction: string) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.updateNextAction(companyId, nextAction);
+  }
+  async listActivities(companyId?: string) {
+    const rows = await this.repository.listActivities(companyId);
+    if (!env.useSupabase) return rows;
+    const companies = await this.hydrateCompanies();
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
+  async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (!(await this.isDecisionCompany(activity.companyId))) throw new Error('Company is not eligible for decision activity.');
+    return this.repository.saveActivity(activity);
+  }
+  async listTasks(companyId?: string) {
+    const rows = await this.repository.listTasks(companyId);
+    if (!env.useSupabase) return rows;
+    const companies = await this.hydrateCompanies();
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
+  async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (!(await this.isDecisionCompany(task.companyId))) throw new Error('Company is not eligible for decision task.');
+    return this.repository.saveTask(task);
+  }
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) { return this.repository.updateTask(taskId, updates); }
 }
