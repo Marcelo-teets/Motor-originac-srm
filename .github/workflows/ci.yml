@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Validate Vercel deployment budget guard
+        run: bash scripts/test-vercel-ignore-build.sh
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
