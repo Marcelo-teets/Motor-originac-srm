@@ -13,6 +13,7 @@ import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
 import { LoginPage } from './pages/LoginPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { OriginationOsPage } from './pages/OriginationOsPage';
+import { OutcomeOperationsPage } from './pages/OutcomeOperationsPage';
 import { PipelinePage } from './pages/PipelinePage';
 import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
+        <Route path="outcome-operations" element={<OutcomeOperationsPage />} />
         <Route path="pipeline" element={portfolioGate(<PipelinePage />)} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

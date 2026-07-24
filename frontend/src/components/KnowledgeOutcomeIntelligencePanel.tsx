@@ -13,6 +13,7 @@ import '../styles/knowledge-outcome-intelligence.css';
 type Props = {
   companyId?: string;
   companyName?: string;
+  refreshToken?: number;
 };
 
 type DimensionKey = keyof KnowledgeOutcomeDimensions;
@@ -64,7 +65,7 @@ const dimensionTone = (row: KnowledgeOutcomeDimension) => {
   return 'info' as const;
 };
 
-export function KnowledgeOutcomeIntelligencePanel({ companyId, companyName }: Props) {
+export function KnowledgeOutcomeIntelligencePanel({ companyId, companyName, refreshToken = 0 }: Props) {
   const { session } = useAuth();
   const [data, setData] = useState<KnowledgeOutcomeIntelligence | null>(null);
   const [activeDimension, setActiveDimension] = useState<DimensionKey>('actionTypes');
@@ -80,7 +81,7 @@ export function KnowledgeOutcomeIntelligencePanel({ companyId, companyName }: Pr
       .catch((loadError) => active && setError(loadError instanceof Error ? loadError.message : 'Falha ao carregar Outcome Intelligence.'))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [companyId, session?.access_token]);
+  }, [companyId, refreshToken, session?.access_token]);
 
   const activeRows = useMemo(
     () => data?.dimensions[activeDimension] ?? [],
@@ -220,7 +221,7 @@ export function KnowledgeOutcomeIntelligencePanel({ companyId, companyName }: Pr
               <Pill tone="info">instrumentação ativa</Pill>
               <div>
                 <strong>A coleta de resultados começou agora.</strong>
-                <span>O mapa de fatores já usa os 8 leads atuais; as taxas de ação permanecerão vazias até o time registrar outcomes reais.</span>
+                <span>O mapa de fatores já usa os leads atuais; as taxas de ação permanecerão vazias até o time registrar outcomes reais.</span>
               </div>
             </div>
           ) : null}

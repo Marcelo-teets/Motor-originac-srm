@@ -59,6 +59,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/outcome-operations',
+    label: 'Outcome Operations',
+    shortLabel: 'Resultados e pendências',
+    description: 'Fila de resultados, tarefas vencidas, atividades históricas e aprendizado observado.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/origination-os',
     label: 'Origination OS',
     shortLabel: 'Sistema operacional',
