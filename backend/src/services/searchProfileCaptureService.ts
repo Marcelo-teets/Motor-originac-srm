@@ -1,6 +1,11 @@
-import type { CompanySeed, SearchProfile } from '../types/platform.js';
+import type { SearchProfile } from '../types/platform.js';
 import { discoveryHitToCandidateDraft, type DiscoveredCandidateDraft } from '../lib/candidatePromotion.js';
 import { assertCandidatePromotionReady } from '../lib/candidatePromotionReadiness.js';
+import type {
+  CandidateIdentityApprovalInput,
+  CandidateIdentityRejectionInput,
+  CandidateIdentityReviewResult,
+} from '../lib/candidateIdentityReview.js';
 import { runSearchProfileDiscovery } from '../lib/discoveryCapture.js';
 import { findBestCompanyMatch, type ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
 
@@ -40,8 +45,9 @@ export type SearchProfileCaptureAdapter = {
   insertDiscoveredCandidates(candidates: Array<Omit<DiscoveredCandidateRecord, 'id' | 'capturedAt' | 'createdAt' | 'updatedAt'>>): Promise<DiscoveredCandidateRecord[]>;
   getDiscoveredCandidate(candidateId: string): Promise<DiscoveredCandidateRecord | null>;
   updateDiscoveredCandidate(candidateId: string, patch: Partial<DiscoveredCandidateRecord>): Promise<DiscoveredCandidateRecord>;
-  upsertCompanySeed(company: CompanySeed): Promise<{ companyId: string; created: boolean }>;
   linkCandidateToCompany(companyId: string, candidateId: string, confidence: number, matchMethod: string): Promise<void>;
+  approveCandidateIdentityReview(input: CandidateIdentityApprovalInput): Promise<CandidateIdentityReviewResult>;
+  rejectCandidateIdentityReview(input: CandidateIdentityRejectionInput): Promise<CandidateIdentityReviewResult>;
 };
 
 export type SearchProfileCaptureHooks = {
@@ -143,6 +149,20 @@ export class SearchProfileCaptureService {
     }
   }
 
+  async approveCandidateIdentityReview(input: CandidateIdentityApprovalInput) {
+    const result = await this.adapter.approveCandidateIdentityReview(input);
+    if (result.companyId && this.hooks.refreshMonitoring) {
+      await this.hooks.refreshMonitoring(result.companyId).catch(() => undefined);
+    }
+    // Qualification, patterns, score and ranking remain pending until the
+    // separate credit-classification review supplies evidence for those fields.
+    return { ...result, derivedDataRecomputeSkipped: true };
+  }
+
+  async rejectCandidateIdentityReview(input: CandidateIdentityRejectionInput) {
+    return this.adapter.rejectCandidateIdentityReview(input);
+  }
+
   async promoteCandidate(candidateId: string) {
     const candidate = await this.adapter.getDiscoveredCandidate(candidateId);
     if (!candidate) throw new Error(`Candidate not found: ${candidateId}`);
@@ -167,10 +187,6 @@ export class SearchProfileCaptureService {
 
     if (this.hooks.refreshMonitoring) {
       await this.hooks.refreshMonitoring(companyId).catch(() => undefined);
-    }
-
-    if (this.hooks.recomputeDerivedData) {
-      await this.hooks.recomputeDerivedData(companyId).catch(() => undefined);
     }
 
     return {
