@@ -24,6 +24,9 @@ const buildMetadata = (siteKeyConfigured = true) => ({
   branch: 'main',
   environment: 'production',
   auth: {
+    mode: siteKeyConfigured ? 'full' : 'oauth_fallback',
+    emailPasswordConfigured: siteKeyConfigured,
+    oauthFallbackSupported: true,
     routes: [
       '/login',
       '/forgot-password',
@@ -99,8 +102,26 @@ const startServer = async ({ siteKeyConfigured = true } = {}) => {
   try {
     const report = await runAuthProductionSmoke({ baseUrl, expectedSha: sha });
     assert.equal(report.status, 'passed');
+    assert.equal(report.authMode, 'full');
     assert.equal(report.deployedSha, sha);
     assert.equal(report.checks.length, 9);
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+}
+
+{
+  const { server, baseUrl } = await startServer({ siteKeyConfigured: false });
+  try {
+    const report = await runAuthProductionSmoke({
+      baseUrl,
+      expectedSha: sha,
+      requireCaptchaSiteKey: false,
+    });
+    assert.equal(report.status, 'passed_with_oauth_fallback');
+    assert.equal(report.authMode, 'oauth_fallback');
+    assert.equal(report.checks.find(({ check }) => check === 'captcha-config')?.status, 'fallback');
   } finally {
     server.close();
     await once(server, 'close');
