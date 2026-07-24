@@ -6,6 +6,10 @@ import {
   getOriginationOperatingSystem,
   getOriginationTemplates,
 } from '../modules/originationOperatingSystem.js';
+import {
+  getBusinessAnalystAgent,
+  getDcmDailyOperatingLoop,
+} from '../modules/dcmDailyOperatingLoop.js';
 
 export const createOriginationRouter = () => {
   const router = Router();
@@ -37,6 +41,14 @@ export const createOriginationRouter = () => {
 
   router.get('/execution-plan', (_req, res) => {
     res.json(ok(getOriginationExecutionPlan()));
+  });
+
+  router.get('/daily-operating-loop', (_req, res) => {
+    res.json(ok(getDcmDailyOperatingLoop()));
+  });
+
+  router.get('/business-analyst', (_req, res) => {
+    res.json(ok(getBusinessAnalystAgent()));
   });
 
   return router;
