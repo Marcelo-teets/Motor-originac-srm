@@ -88,14 +88,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const parsedMaxRows = Number(url.searchParams.get('maxRows') ?? '1000');
     const maxRows = Number.isFinite(parsedMaxRows) ? Math.max(1, Math.min(Math.trunc(parsedMaxRows), 5_000)) : 1_000;
     const { CapitalMarketIngestionService } = await import('../backend/src/services/capitalMarketIngestionService.js');
-    const result = await new CapitalMarketIngestionService().run({
+    const ingestion = await new CapitalMarketIngestionService().run({
       datasets: [dataset],
       reference,
       maxRows,
       triggerType: 'manual',
     });
-    writeJson(res, result.status === 'real' ? 200 : result.status === 'partial' ? 207 : 500, {
-      ...result,
+
+    const deliveryDatasets = ingestion.datasets
+      .filter((item) => item.status !== 'failed')
+      .map((item) => item.datasetCode);
+    const { CapitalMarketDeliveryService } = await import('../backend/src/services/capitalMarketDeliveryService.js');
+    const delivery = await new CapitalMarketDeliveryService().sync(deliveryDatasets);
+    const status = ingestion.status === 'failed' || delivery.status === 'failed'
+      ? 'failed'
+      : ingestion.status === 'partial' || delivery.status === 'partial'
+        ? 'partial'
+        : 'real';
+
+    writeJson(res, status === 'real' ? 200 : status === 'partial' ? 207 : 500, {
+      ...ingestion,
+      status,
+      delivery,
       ...deploymentMetadata(),
     });
   } catch (error) {
