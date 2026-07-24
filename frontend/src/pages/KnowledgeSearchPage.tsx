@@ -13,6 +13,9 @@ import type {
 import type { CompanyListItem } from '../lib/types';
 import '../styles/knowledge-search.css';
 
+const KNOWLEDGE_EMBEDDING_BUILD = 'knowledge-embedding-coverage-v10-production';
+const KNOWLEDGE_EMBEDDING_RUNTIME = 'vercel-only';
+
 const suggestedQueries = [
   'funding gap e descasamento de capital',
   'recebíveis estruturáveis para FIDC',
@@ -125,7 +128,11 @@ export function KnowledgeSearchPage() {
   };
 
   return (
-    <div className="page knowledge-search-page" data-feature-build="knowledge-embedding-coverage-v10">
+    <div
+      className="page knowledge-search-page"
+      data-feature-build={KNOWLEDGE_EMBEDDING_BUILD}
+      data-worker-runtime={KNOWLEDGE_EMBEDDING_RUNTIME}
+    >
       <PageIntro
         eyebrow="Knowledge Vault / Retrieval V10"
         title="Busca institucional híbrida"
