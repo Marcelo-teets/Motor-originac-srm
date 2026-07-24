@@ -14,6 +14,7 @@ const BATCH_SIZE = 100;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const cleanCnpj = (value: unknown) => String(value ?? '').replace(/\D/g, '');
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const numeric = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
 type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
@@ -83,9 +84,7 @@ export class CandidateCvmRegistryService {
 
     const targetMap = new Map<string, string[]>();
     for (const target of targets) {
-      const candidateIds = targetMap.get(target.cnpj) ?? [];
-      candidateIds.push(target.id);
-      targetMap.set(target.cnpj, candidateIds);
+      targetMap.set(target.cnpj, [...(targetMap.get(target.cnpj) ?? []), target.id]);
     }
     const targetCnpjs = new Set(targetMap.keys());
     const resourceVersion = resource.etag ?? resource.modifiedAt ?? 'unversioned';
@@ -107,7 +106,6 @@ export class CandidateCvmRegistryService {
       ],
     }) as CheckpointRow[];
     const checkpoint = checkpointRows[0];
-
     const runId = crypto.randomUUID();
     const startedAt = this.now().toISOString();
     await this.closeStaleRuns(startedAt);
@@ -119,17 +117,15 @@ export class CandidateCvmRegistryService {
       status: 'running',
       started_at: startedAt,
       metadata: {
-        mode: 'official_csv_targeted',
-        resourceVersion,
-        targetFingerprint,
-        targetCount: targets.length,
-        uniqueTargetCnpjs: targetCnpjs.size,
+        mode: 'official_csv_targeted', resourceVersion, targetFingerprint,
+        targetCount: targets.length, uniqueTargetCnpjs: targetCnpjs.size,
         coverageScope: 'canonical_reviewable_candidates',
       },
     }]);
 
     if (!options.force && checkpoint?.status === 'completed') {
       const finishedAt = this.now().toISOString();
+      const targetsMatched = numeric(checkpoint.metadata?.targetsMatched);
       await this.finishRun(runId, {
         status: 'completed', finishedAt, rowsScanned: 0, recordsMatched: 0,
         enrichmentsWritten: 0, resourcesProcessed: 0, resourcesSkipped: 1,
@@ -141,30 +137,33 @@ export class CandidateCvmRegistryService {
       });
       await this.updateSource(source, resource, {
         status: 'up_to_date', finishedAt, targetFingerprint,
-        targetCount: targets.length, targetsMatched: Number(checkpoint.metadata?.targetsMatched ?? 0),
-        rowsScanned: Number(checkpoint.rows_scanned ?? 0), error: null,
+        targetCount: targets.length, targetsMatched,
+        rowsScanned: numeric(checkpoint.rows_scanned), error: null,
       });
       return {
-        status: 'up_to_date', targetCount: targets.length,
-        targetsMatched: Number(checkpoint.metadata?.targetsMatched ?? 0),
+        status: 'up_to_date', targetCount: targets.length, targetsMatched,
         rowsScanned: 0, registryRecordsMatched: 0, enrichmentsWritten: 0,
         resourceVersion, targetFingerprint, error: null,
       };
     }
 
-    let pending: Array<Record<string, unknown>> = [];
-    let enrichmentsWritten = 0;
+    const pending = new Map<string, Record<string, unknown>>();
     const matchedCandidateIds = new Set<string>();
     const observedAt = this.now().toISOString();
+    let enrichmentsWritten = 0;
     const flush = async () => {
-      if (!pending.length || !this.client) return;
-      await this.client.upsert(
-        'candidate_official_enrichments',
-        pending,
-        'candidate_id,dataset_code,source_record_key',
-      );
-      enrichmentsWritten += pending.length;
-      pending = [];
+      if (!pending.size || !this.client) return;
+      const rows = [...pending.values()];
+      for (let index = 0; index < rows.length; index += BATCH_SIZE) {
+        const batch = rows.slice(index, index + BATCH_SIZE);
+        const persisted = await this.client.upsert(
+          'candidate_official_enrichments',
+          batch,
+          'candidate_id,dataset_code,source_record_key',
+        );
+        enrichmentsWritten += Array.isArray(persisted) ? persisted.length : batch.length;
+      }
+      pending.clear();
     };
 
     try {
@@ -174,8 +173,10 @@ export class CandidateCvmRegistryService {
         onRecord: async (record) => {
           for (const candidateId of targetMap.get(record.cnpj) ?? []) {
             matchedCandidateIds.add(candidateId);
-            pending.push(this.enrichmentRow(candidateId, source.id, record, observedAt));
-            if (pending.length >= BATCH_SIZE) await flush();
+            pending.set(
+              `${candidateId}:${record.recordKey}`,
+              this.enrichmentRow(candidateId, source.id, record, observedAt),
+            );
           }
         },
       });
@@ -194,6 +195,7 @@ export class CandidateCvmRegistryService {
         metadata: {
           mode: 'official_csv_targeted', resourceVersion, targetFingerprint,
           targetCount: targets.length, targetsMatched: matchedCandidateIds.size,
+          uniqueEnrichmentsWritten: enrichmentsWritten,
           coverageScope: 'canonical_reviewable_candidates',
         },
       });
@@ -306,7 +308,8 @@ export class CandidateCvmRegistryService {
       metadata: {
         mode: 'official_csv_targeted', resourceVersion: state.resourceVersion,
         targetFingerprint: state.targetFingerprint, targetCount: state.targetCount,
-        targetsMatched: state.targetsMatched, enrichmentsWritten: state.enrichmentsWritten,
+        targetsMatched: state.targetsMatched,
+        uniqueEnrichmentsWritten: state.enrichmentsWritten,
         coverageScope: 'canonical_reviewable_candidates',
       },
       updated_at: checkedAt,
