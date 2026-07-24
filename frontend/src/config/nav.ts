@@ -6,6 +6,7 @@ export type NavItem = {
   readonly shortLabel: string;
   readonly description: string;
   readonly group: NavGroup;
+  readonly godOnly?: boolean;
 };
 
 export const navItems = [
@@ -113,6 +114,21 @@ export const navItems = [
     shortLabel: 'Agentes',
     description: 'Execução, diagnóstico e confiança dos agentes operacionais.',
     group: 'Operação & governança',
+  },
+  {
+    to: '/profile',
+    label: 'Meu perfil',
+    shortLabel: 'Conta e preferências',
+    description: 'Dados do usuário, nível de acesso e configurações da conta.',
+    group: 'Operação & governança',
+  },
+  {
+    to: '/users',
+    label: 'Usuários',
+    shortLabel: 'Acessos da plataforma',
+    description: 'Gestão GOD-MODE dos usuários comuns e seus status de acesso.',
+    group: 'Operação & governança',
+    godOnly: true,
   },
 ] satisfies readonly NavItem[];
 
