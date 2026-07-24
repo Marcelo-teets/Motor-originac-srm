@@ -46,7 +46,7 @@ grant select, insert, update, delete on table public.origination_os_artifacts to
 
 create table if not exists public.dcm_daily_leads (
   id uuid primary key default gen_random_uuid(),
-  company_id text references public.companies(id) on delete cascade,
+  company_id uuid references public.companies(id) on delete cascade,
   contact_name text not null,
   contact_role text,
   linkedin_url text,
