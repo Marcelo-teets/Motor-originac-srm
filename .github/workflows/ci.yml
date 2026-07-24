@@ -31,6 +31,9 @@ jobs:
       - name: Validate Vercel deployment budget guard
         run: npm run test:vercel-deploy-guard
 
+      - name: Validate production Auth smoke contract
+        run: npm run test:auth-production-smoke
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
