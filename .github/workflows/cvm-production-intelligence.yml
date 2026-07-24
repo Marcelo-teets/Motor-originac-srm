@@ -8,7 +8,9 @@ on:
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/services/cvmProductionIntelligence.test.ts
-      - db/migrations/125_cvm_production_intelligence.sql
+      - db/migrations/125_cvm_production_intelligence_foundation.sql
+      - db/migrations/126_cvm_production_intelligence_signals.sql
+      - db/migrations/127_cvm_production_intelligence_delivery_views.sql
   push:
     branches: [main]
     paths:
@@ -16,7 +18,9 @@ on:
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/services/cvmProductionIntelligence.test.ts
-      - db/migrations/125_cvm_production_intelligence.sql
+      - db/migrations/125_cvm_production_intelligence_foundation.sql
+      - db/migrations/126_cvm_production_intelligence_signals.sql
+      - db/migrations/127_cvm_production_intelligence_delivery_views.sql
   schedule:
     - cron: "15 11 * * 2"
   workflow_dispatch:
