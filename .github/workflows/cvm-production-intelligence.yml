@@ -1,0 +1,131 @@
+name: CVM Production Intelligence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/cvm-production-intelligence.yml
+      - backend/src/modules/capital-markets/**
+      - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/cvmProductionIntelligence.test.ts
+      - db/migrations/125_cvm_production_intelligence.sql
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/cvm-production-intelligence.yml
+      - backend/src/modules/capital-markets/**
+      - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/cvmProductionIntelligence.test.ts
+      - db/migrations/125_cvm_production_intelligence.sql
+  schedule:
+    - cron: "15 11 * * 2"
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset CVM estendido ou all_extended
+        required: true
+        default: all_extended
+        type: choice
+        options:
+          - all_extended
+          - cvm_securitization_ots
+          - cvm_fund_documents
+          - cvm_company_fre
+          - cvm_company_itr
+          - cvm_company_dfp
+      reference:
+        description: Competência opcional (YYYY-MM ou YYYY)
+        required: false
+        type: string
+      max_rows:
+        description: Limite de linhas por dataset
+        required: true
+        default: "100000"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capital-market-ingestion
+  cancel-in-progress: false
+
+env:
+  EXTENDED_DATASETS: cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Test CVM production intelligence
+        working-directory: backend
+        run: >-
+          npm exec -- tsx --test
+          src/modules/capital-markets/cvmCapitalMarketConnector.test.ts
+          src/services/capitalMarketIngestionService.test.ts
+          src/services/cvmProductionIntelligence.test.ts
+
+  ingest:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
+      REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate production secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Resolve ingestion scope
+        id: scope
+        shell: bash
+        run: |
+          DATASET="${REQUESTED_DATASET:-all_extended}"
+          if [ "$DATASET" = "all_extended" ]; then DATASET="$EXTENDED_DATASETS"; fi
+          MAX_ROWS="${REQUESTED_MAX_ROWS:-100000}"
+          TRIGGER="schedule"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then TRIGGER="backfill"; fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then TRIGGER="manual"; fi
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "max_rows=$MAX_ROWS" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+      - name: Ingest and deliver official CVM datasets
+        working-directory: backend
+        shell: bash
+        run: |
+          ARGS=(
+            --dataset "${{ steps.scope.outputs.dataset }}"
+            --max-rows "${{ steps.scope.outputs.max_rows }}"
+            --trigger "${{ steps.scope.outputs.trigger }}"
+            --require-delivery
+          )
+          if [ -n "$REQUESTED_REFERENCE" ]; then ARGS+=(--reference "$REQUESTED_REFERENCE"); fi
+          npm exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
+      - name: Verify persisted delivery
+        working-directory: backend
+        run: >-
+          npm exec -- tsx src/cli/capitalMarketDelivery.ts
+          --dataset "${{ steps.scope.outputs.dataset }}"
+          --require-delivery
