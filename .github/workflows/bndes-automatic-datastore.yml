@@ -1,0 +1,180 @@
+name: BNDES Automatic Datastore Ingestion
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/bndes-automatic-datastore.yml
+      - backend/src/cli/bndesAutomaticDatastore.ts
+      - backend/src/modules/public-data/bndesAutomaticDatastoreConnector.ts
+      - backend/src/modules/public-data/bndesAutomaticDatastoreConnector.test.ts
+      - backend/src/services/bndesAutomaticDatastoreService.ts
+      - backend/src/services/bndesAutomaticDatastoreService.test.ts
+  workflow_dispatch:
+    inputs:
+      target_batch_size:
+        description: CNPJs do Company Master por lote
+        required: true
+        default: "25"
+        type: string
+      max_target_batches:
+        description: Máximo de lotes processados na execução
+        required: true
+        default: "100"
+        type: string
+      force:
+        description: Reiniciar o checkpoint da versão atual
+        required: true
+        default: false
+        type: boolean
+  issues:
+    types:
+      - opened
+  schedule:
+    - cron: "40 12 * * 0"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bndes-automatic-datastore
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Test BNDES datastore connector and service
+        working-directory: backend
+        run: npx tsx --test src/modules/public-data/bndesAutomaticDatastoreConnector.test.ts src/services/bndesAutomaticDatastoreService.test.ts
+
+  ingest:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'issues' &&
+       github.event.issue.user.login == 'Marcelo-teets' &&
+       github.event.issue.title == '[public-bulk-run] bndes-automatic-datastore')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_TARGET_BATCH_SIZE: ${{ inputs.target_batch_size || '' }}
+      REQUESTED_MAX_TARGET_BATCHES: ${{ inputs.max_target_batches || '' }}
+      REQUESTED_FORCE: ${{ inputs.force || false }}
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate production secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Resolve execution scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TARGET_BATCH_SIZE="${REQUESTED_TARGET_BATCH_SIZE:-25}"
+            MAX_TARGET_BATCHES="${REQUESTED_MAX_TARGET_BATCHES:-100}"
+            FORCE="$REQUESTED_FORCE"
+            TRIGGER="manual"
+          elif [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            TARGET_BATCH_SIZE="50"
+            MAX_TARGET_BATCHES="200"
+            FORCE="false"
+            TRIGGER="schedule"
+          else
+            TARGET_BATCH_SIZE="25"
+            MAX_TARGET_BATCHES="1000"
+            FORCE="false"
+            TRIGGER="manual"
+          fi
+          echo "target_batch_size=$TARGET_BATCH_SIZE" >> "$GITHUB_OUTPUT"
+          echo "max_target_batches=$MAX_TARGET_BATCHES" >> "$GITHUB_OUTPUT"
+          echo "force=$FORCE" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+      - name: Execute targeted BNDES automatic ingestion
+        id: ingestion
+        continue-on-error: true
+        working-directory: backend
+        shell: bash
+        run: |
+          ARGS=(
+            --target-batch-size "${{ steps.scope.outputs.target_batch_size }}"
+            --max-target-batches "${{ steps.scope.outputs.max_target_batches }}"
+            --page-size 1000
+            --max-pages-per-target-batch 100
+            --trigger "${{ steps.scope.outputs.trigger }}"
+            --require-progress
+          )
+          if [ "${{ steps.scope.outputs.force }}" = "true" ]; then ARGS+=(--force); fi
+          set +e
+          npx tsx src/cli/bndesAutomaticDatastore.ts "${ARGS[@]}" > bndes-automatic.raw.log 2>&1
+          STATUS=$?
+          set -e
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          source = Path('bndes-automatic.raw.log')
+          target = Path('bndes-automatic.log')
+          text = source.read_text(encoding='utf-8', errors='replace') if source.exists() else ''
+          for name in ('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL'):
+              value = os.environ.get(name, '')
+              if value:
+                  text = text.replace(value, f'[{name}_REDACTED]')
+          target.write_text(text, encoding='utf-8')
+          source.unlink(missing_ok=True)
+          PY
+          cat bndes-automatic.log
+          exit "$STATUS"
+      - name: Upload sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bndes-automatic-datastore-${{ github.run_id }}
+          path: backend/bndes-automatic.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Report owner issue result
+        if: always() && github.event_name == 'issues'
+        shell: bash
+        run: |
+          OUTCOME="${{ steps.ingestion.outcome }}"
+          LOG_TAIL="No log was generated."
+          if [ -f backend/bndes-automatic.log ]; then LOG_TAIL=$(tail -n 100 backend/bndes-automatic.log | sed 's/`/\`/g'); fi
+          BODY=$(cat <<EOF
+          BNDES automatic datastore diagnostics:
+
+          - ingestion: **${OUTCOME}**
+          - coverage scope: **all valid Company Master CNPJs**
+          - transport: **official CKAN Datastore API**
+          - source-wide CSV download: **not required**
+
+          \`\`\`text
+          ${LOG_TAIL}
+          \`\`\`
+          EOF
+          )
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$BODY"
+      - name: Enforce successful ingestion
+        if: always()
+        run: test "${{ steps.ingestion.outcome }}" = "success"
