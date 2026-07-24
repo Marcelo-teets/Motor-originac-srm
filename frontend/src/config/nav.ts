@@ -53,6 +53,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/dcm-daily',
+    label: 'Fila diária DCM',
+    shortLabel: 'Abordagens do dia',
+    description: 'Leads priorizados, mensagens, envios, próximas ações e aprendizado de escrita.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/knowledge-vault',
     label: 'Knowledge Vault',
     shortLabel: 'Memória conectada',
