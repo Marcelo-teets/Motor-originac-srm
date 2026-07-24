@@ -48,6 +48,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const liveUser = await api.getMe(current).catch(() => current.user);
     const baseSession = { ...current, user: liveUser };
     const nextProfile = await supabaseAuth.getProfile(baseSession).catch(() => null);
+    if (nextProfile && nextProfile.status !== 'active') {
+      throw new Error('Este usuário está desativado. Procure o administrador GOD-MODE.');
+    }
     const nextSession = nextProfile
       ? { ...baseSession, user: { ...baseSession.user, email: nextProfile.email ?? baseSession.user.email, role: nextProfile.role } }
       : baseSession;
@@ -99,8 +102,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     session,
     profile,
     loading,
-    isAuthenticated: Boolean(session?.access_token),
-    isGodMode: profile?.role === 'god_mode',
+    isAuthenticated: Boolean(session?.access_token && profile?.status === 'active'),
+    isGodMode: profile?.role === 'god_mode' && profile.status === 'active',
     async login(email, password, captchaToken) {
       setLoading(true);
       try {
@@ -121,6 +124,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async refreshProfile() {
       if (!session) return null;
       const nextProfile = await supabaseAuth.getProfile(session);
+      if (nextProfile.status !== 'active') {
+        setSession(null);
+        setProfile(null);
+        return nextProfile;
+      }
       setProfile(nextProfile);
       setSession((current) => current ? { ...current, user: { ...current.user, role: nextProfile.role, email: nextProfile.email ?? current.user.email } } : current);
       return nextProfile;
