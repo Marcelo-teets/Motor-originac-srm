@@ -94,3 +94,96 @@ export type KnowledgeOutcomeIntelligence = {
   recentExecutions: KnowledgeRecentExecutionOutcome[];
   caveat: string;
 };
+
+export type KnowledgeOutcomeOperationsSummary = {
+  pendingOutcomes: number;
+  overdueTasks: number;
+  dueSoonTasks: number;
+  stalePipelines: number;
+  adoptionCandidates: number;
+};
+
+export type KnowledgePendingOutcome = {
+  activityId: string;
+  companyId: string;
+  companyName: string;
+  nodeId: string;
+  nodeTitle: string;
+  activityType: string;
+  title: string;
+  description: string | null;
+  ownerName: string | null;
+  occurredAt: string;
+  contextMode: string;
+  taskId: string | null;
+  taskStatus: string | null;
+  dueAt: string | null;
+  ageDays: number;
+};
+
+export type KnowledgeOutcomeTask = {
+  taskId: string;
+  companyId: string;
+  companyName: string;
+  pipelineId: string | null;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  dueAt: string | null;
+  ownerName: string | null;
+  knowledgeActivityId: string | null;
+  isOutcomeTask: boolean;
+};
+
+export type KnowledgeStalePipeline = {
+  pipelineId: string;
+  companyId: string;
+  companyName: string;
+  stage: string;
+  status: string;
+  priority: string;
+  nextAction: string | null;
+  nextActionDueAt: string | null;
+  expectedStructure: string | null;
+  reason: 'missing_next_action' | 'overdue_next_action' | string;
+};
+
+export type KnowledgeActivityAdoptionCandidate = {
+  activityId: string;
+  companyId: string;
+  companyName: string;
+  pipelineId: string;
+  activityType: string;
+  title: string;
+  description: string | null;
+  ownerName: string | null;
+  occurredAt: string;
+  ageDays: number;
+  canAdopt: boolean;
+};
+
+export type KnowledgeOutcomeOperations = {
+  generatedAt: string;
+  scope: 'global' | 'company';
+  companyId: string | null;
+  windowDays: number;
+  summary: KnowledgeOutcomeOperationsSummary;
+  pendingOutcomes: KnowledgePendingOutcome[];
+  overdueTasks: KnowledgeOutcomeTask[];
+  dueSoonTasks: KnowledgeOutcomeTask[];
+  stalePipelines: KnowledgeStalePipeline[];
+  adoptionCandidates: KnowledgeActivityAdoptionCandidate[];
+  caveat: string;
+};
+
+export type AdoptExistingActivityResult = {
+  status: 'instrumented' | 'already_instrumented';
+  activityId: string;
+  companyId: string;
+  pipelineId?: string;
+  nodeId: string;
+  nodeTitle?: string;
+  taskId?: string;
+  contextMode: string;
+};
