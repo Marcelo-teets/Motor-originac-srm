@@ -14,6 +14,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { DcmDailyOutreachPage } from './pages/DcmDailyOutreachPage';
 import { FidcMarketMapPage } from './pages/FidcMarketMapPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { HistoricalArchivePage } from './pages/HistoricalArchivePage';
 import { KnowledgeLearningAgentPage } from './pages/KnowledgeLearningAgentPage';
 import { KnowledgeSearchPage } from './pages/KnowledgeSearchPage';
 import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="change-password" element={<ChangePasswordPage />} />
         <Route path="users" element={<RequireGodMode><UsersPage /></RequireGodMode>} />
+        <Route path="historical-archive" element={<RequireGodMode><HistoricalArchivePage /></RequireGodMode>} />
         <Route path="search-profiles" element={<SearchProfilesPage />} />
         <Route path="companies" element={portfolioGate(<CompaniesPage />)} />
         <Route path="companies/:id" element={<CompanyDecisionReadinessBoundary scope="company"><CompanyDetailKnowledgePage /></CompanyDecisionReadinessBoundary>} />
