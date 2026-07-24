@@ -51,9 +51,13 @@ Company Master real
 → blockers de evidência
 → aprovação GOD-MODE
 → decision_eligible=true
+→ sincronização canônica da revisão
 → recomputeDerivedData(companyId)
 → qualification + patterns + scores + ranking
+→ pipeline recebe estrutura e próxima ação aprovadas
 ```
+
+Empresas sem revisão aprovada continuam usando o motor heurístico. Empresas revisadas usam o Credit Review como base canônica; sinais podem ajustar confiança, timing e risco, mas não substituir produto, recebíveis, funding, estrutura sugerida ou próxima ação.
 
 ## Creditas — primeira revisão real
 
@@ -97,15 +101,28 @@ Próxima ação:
 ## Artefatos
 
 - `db/migrations/108_company_credit_review_gate.sql`
+- `db/migrations/109_filter_ranking_v2_by_decision_eligibility.sql`
+- `db/migrations/110_align_credit_review_with_decision_engines.sql`
 - `backend/src/lib/companyCreditReview.ts`
+- `backend/src/lib/approvedCreditReviewQualification.ts`
 - `backend/src/services/companyCreditReviewRuntime.ts`
 - `api/company-credit-review.ts`
 - `frontend/src/pages/CompanyCreditReviewPage.tsx`
+- `scripts/materialize-company-decision.ts`
 
-## Estado de produção em 24/07/2026
+## Validação em 24/07/2026
 
-A migration 108 está aplicada no Supabase e a revisão v1 da Creditas está aprovada. O Company Master registra `decision_eligible=true` e `decision_eligibility_reason=credit_review_approved`.
+- migration 108 aplicada no Supabase;
+- revisão v1 da Creditas aprovada;
+- `decision_eligible=true` e `decision_eligibility_reason=credit_review_approved`;
+- blocker engine com zero blockers para o packet oficial;
+- smoke transacional com rollback sem resíduos;
+- primeira materialização real concluída pelo `PlatformService`;
+- qualification, três score types, lead score e Ranking V2 criados para a Creditas;
+- Ranking V2 atual filtrado por elegibilidade, sem reintroduzir as oito seeds;
+- testes garantem que emissor recorrente com FIDC existente pode manter `fit_fidc=true`;
+- CI final é side-effect free.
 
-A branch foi sincronizada com a `main` corrente e o contrato de comandos passou no CI anterior à sincronização. O CI definitivo precisa rodar sobre o head sincronizado antes do merge.
+A migration 110 está versionada como defesa de banco. Durante a validação, a tabela de histórico de migrations ficou bloqueada por uma operação concorrente; por isso o runtime também sincroniza review, Company Master e pipeline via service-role antes da materialização. A indisponibilidade do lock não reabre o gate nem permite score sem revisão.
 
 A interface e o endpoint dependem do rollout da branch na Vercel. Enquanto o deployment não estiver confirmado, não declarar a tela como publicada.
