@@ -39,9 +39,30 @@ Branches comuns de desenvolvimento não geram preview automaticamente, incluindo
 
 Essas branches continuam passando pelo GitHub Actions para typecheck e build. A ausência de preview automático não elimina a validação de código.
 
-## Contrato do Ignore Build Step
+## Proteção primária: `git.deploymentEnabled`
 
-O comando configurado em `vercel.json` é:
+A proteção do limite diário acontece antes da criação do deployment:
+
+```json
+{
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "main": true,
+      "preview/*": true,
+      "release/*": true
+    }
+  }
+}
+```
+
+A regra global `* = false` bloqueia branches não autorizadas. As regras específicas com valor `true` preservam produção e previews intencionais.
+
+Essa é a barreira principal porque um build apenas cancelado pelo Ignore Build Step ainda pode consumir quota de deployment.
+
+## Proteção secundária: Ignore Build Step
+
+O comando versionado em `vercel.json` é:
 
 ```json
 {
@@ -51,15 +72,10 @@ O comando configurado em `vercel.json` é:
 
 Na Vercel:
 
-- `exit 0` ignora o deployment;
-- `exit 1` continua o deployment.
+- `exit 0` ignora o build;
+- `exit 1` continua o build/deployment.
 
-O script permite:
-
-- `main`;
-- `preview/*`;
-- `release/*`;
-- deploys manuais/API sem referência Git.
+O script replica a política de branches como defesa em profundidade e permite deploys manuais/API sem referência Git.
 
 ## Fluxo recomendado
 
@@ -73,7 +89,9 @@ O script permite:
 
 A conta alcançou o limite diário de 100 deployments. Como consequência, a correção de Auth já incorporada à `main` não pôde ser publicada imediatamente pela Vercel.
 
-Esta política reduz a geração automática de previews e reserva capacidade para:
+O reset informado pela API da Vercel ocorre em 25/07/2026 às 13:37 no fuso `America/Sao_Paulo`.
+
+Esta política reserva capacidade para:
 
 - produção;
 - incidentes;
