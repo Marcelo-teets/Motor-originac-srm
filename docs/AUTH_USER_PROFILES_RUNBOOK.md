@@ -27,7 +27,7 @@ Não existe sistema paralelo de usuários. O mesmo JWT emitido pelo Supabase pro
 
 ### Públicas
 
-- `/login`: e-mail/senha, Google OAuth e CAPTCHA.
+- `/login`: e-mail/senha, OAuth dinâmico e CAPTCHA.
 - `/forgot-password`: solicita link de recuperação.
 - `/reset-password`: valida o link e define nova senha.
 - `/auth/callback`: conclui a sessão OAuth.
@@ -64,12 +64,32 @@ O frontend trabalha em modo fail-closed: com CAPTCHA ativo e sem site key/token,
 4. Use a site key correspondente em `VITE_CAPTCHA_SITE_KEY` na Vercel.
 5. Confirme que `VITE_CAPTCHA_ENABLED` reflete o estado real do Supabase.
 
-### Google OAuth
+### OAuth dinâmico
+
+A tela de login consulta `/auth/v1/settings` e mostra somente providers realmente habilitados no Supabase.
+
+Estado auditado em 24/07/2026:
+
+- GitHub OAuth: habilitado e authorize validado;
+- Google OAuth: desabilitado;
+- e-mail/senha: habilitado.
+
+O authorize do GitHub foi validado com retorno para:
+
+```text
+https://motor-originac-srm.vercel.app/auth/callback
+```
+
+Por isso, o botão operacional atual deve ser **Continuar com GitHub**.
+
+Para habilitar Google futuramente:
 
 1. Crie o Client ID e Client Secret no Google Cloud.
 2. Habilite o provider Google em Authentication > Sign In / Providers.
 3. Cadastre o callback do Supabase no Google.
 4. Inclua as URLs da aplicação na allow list de Redirect URLs do Supabase.
+
+O frontend detectará Google automaticamente e exibirá o botão sem nova mudança de código.
 
 URLs usadas pela aplicação:
 
@@ -91,15 +111,16 @@ URLs usadas pela aplicação:
 1. Abrir `/login` em aba anônima.
 2. Confirmar que o desafio CAPTCHA aparece.
 3. Entrar com e-mail/senha e validar carregamento do dashboard.
-4. Sair e testar “Continuar com Google”.
-5. Testar “Esqueci minha senha” e abrir o link recebido.
-6. Definir nova senha em `/reset-password`.
-7. Editar nome/cargo/telefone em `/profile`.
-8. Alterar senha em `/change-password`.
-9. Como GOD-MODE, abrir `/users`.
-10. Confirmar que a conta GOD-MODE não oferece opção de desativação.
-11. Criar/usar um usuário comum e confirmar que `/users` redireciona para `/profile`.
-12. Desativar o usuário comum e confirmar bloqueio no próximo carregamento de sessão.
+4. Sair e testar “Continuar com GitHub”.
+5. Confirmar retorno por `/auth/callback` e carregamento do perfil.
+6. Testar “Esqueci minha senha” e abrir o link recebido.
+7. Definir nova senha em `/reset-password`.
+8. Editar nome/cargo/telefone em `/profile`.
+9. Alterar senha em `/change-password`.
+10. Como GOD-MODE, abrir `/users`.
+11. Confirmar que a conta GOD-MODE não oferece opção de desativação.
+12. Criar/usar um usuário comum e confirmar que `/users` redireciona para `/profile`.
+13. Desativar o usuário comum e confirmar bloqueio no próximo carregamento de sessão.
 
 ## 8. Diagnóstico do incidente de CAPTCHA
 
