@@ -14,7 +14,7 @@ test('normalizes defaults and bounds', () => {
 });
 
 test('accepts governed queue types', () => {
-  for (const queue of ['commercial', 'market_map', 'identity', 'promoted', 'all'] as const) {
+  for (const queue of ['commercial', 'market_map', 'identity', 'promoted', 'reviewable', 'all'] as const) {
     assert.equal(normalizeCandidateDecisionQueueQuery({ queue }).queue, queue);
   }
 });
