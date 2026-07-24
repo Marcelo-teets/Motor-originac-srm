@@ -1,5 +1,6 @@
 import { thesisRationales } from '../../../config/heuristics.js';
 import { qualificationWeights } from '../../../config/scoring.js';
+import { buildApprovedCreditReviewQualification } from './approvedCreditReviewQualification.js';
 import { average, clamp, levelFromScore, maturityToScore } from './helpers.js';
 import { qualificationWeightTotal } from './scoring.js';
 import { computeSourceTreatmentImpact } from './sourceTreatment.js';
@@ -59,6 +60,9 @@ export const buildQualificationSnapshot = ({
   monitoringOutputs: MonitoringOutput[];
   generatedAt: string;
 }): QualificationSnapshot => {
+  const reviewedQualification = buildApprovedCreditReviewQualification({ company, monitoringOutputs, generatedAt });
+  if (reviewedQualification) return reviewedQualification;
+
   const monitoringScore = scoreFromMonitoring(monitoringOutputs);
   const sourceTreatmentImpact = computeSourceTreatmentImpact(company.signals);
   const timingScoreBase = scoreFromSignals(company, monitoringOutputs);

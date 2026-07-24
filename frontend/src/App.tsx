@@ -9,6 +9,7 @@ import { CandidateDecisionQueuePage } from './pages/CandidateDecisionQueuePage';
 import { CandidateIdentityReviewPage } from './pages/CandidateIdentityReviewPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { CompaniesPage } from './pages/CompaniesPage';
+import { CompanyCreditReviewPage } from './pages/CompanyCreditReviewPage';
 import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DcmDailyOutreachPage } from './pages/DcmDailyOutreachPage';
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="capture-inbox" element={<CandidateDecisionQueuePage />} />
         <Route path="identity-review" element={<CandidateIdentityReviewPage />} />
+        <Route path="credit-review" element={<RequireGodMode><CompanyCreditReviewPage /></RequireGodMode>} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
