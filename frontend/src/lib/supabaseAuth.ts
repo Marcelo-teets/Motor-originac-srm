@@ -23,7 +23,10 @@ const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$
 const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '');
 
 export const captchaConfig = {
-  enabled: String(import.meta.env.VITE_CAPTCHA_ENABLED ?? '').toLowerCase() === 'true',
+  // O projeto Supabase está com proteção CAPTCHA ativa. O padrão seguro é
+  // bloquear o envio sem token; use VITE_CAPTCHA_ENABLED=false apenas quando
+  // a proteção também estiver desativada no Supabase Auth.
+  enabled: String(import.meta.env.VITE_CAPTCHA_ENABLED ?? 'true').toLowerCase() !== 'false',
   provider: String(import.meta.env.VITE_CAPTCHA_PROVIDER ?? 'turnstile').toLowerCase() === 'hcaptcha' ? 'hcaptcha' as const : 'turnstile' as const,
   siteKey: String(import.meta.env.VITE_CAPTCHA_SITE_KEY ?? ''),
 };
@@ -186,6 +189,6 @@ export const supabaseAuth = {
     });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível atualizar o acesso do usuário.');
-    return payload as UserProfile;
+    return (Array.isArray(payload) ? payload[0] : payload) as UserProfile;
   },
 };
