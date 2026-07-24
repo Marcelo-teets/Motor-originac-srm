@@ -10,6 +10,9 @@ const bundle = [
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
+  '/auth/v1/settings',
+  'github',
+  'google',
   'god_mode',
 ].join(';');
 
@@ -35,7 +38,8 @@ const buildMetadata = (siteKeyConfigured = true) => ({
       siteKeyConfigured,
       tokenTransport: 'captcha_token',
     },
-    googleOAuthButtonIncluded: true,
+    oauthProviderDiscovery: true,
+    supportedOAuthProviders: ['github', 'google'],
     godModeIncluded: true,
   },
 });
