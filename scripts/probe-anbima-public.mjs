@@ -64,7 +64,31 @@ const jsonShape = (value, depth = 0) => {
   return primitiveType(value);
 };
 
+const safeScalar = (value, url) => {
+  const eligibleEndpoint = /verificar-dataset-restrito|\/info(?:\?|$)/i.test(url);
+  if (!eligibleEndpoint) return null;
+  if (typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string' && value.length <= 160) return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value)
+      .filter(([key, child]) => !SENSITIVE_KEY.test(key) && ['string', 'number', 'boolean'].includes(typeof child))
+      .slice(0, 20);
+    return Object.fromEntries(entries);
+  }
+  return null;
+};
+
 const cleanText = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
+const interactiveLabels = async (page) => page.locator('button, a, input, select, [role="dialog"]').evaluateAll((elements) => elements
+  .slice(0, 220)
+  .map((element) => ({
+    tag: element.tagName.toLowerCase(),
+    role: element.getAttribute('role'),
+    text: String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+    href: element instanceof HTMLAnchorElement ? element.href : null,
+    type: element instanceof HTMLInputElement ? element.type : null,
+  }))
+  .filter((item) => item.text || item.href));
 
 await mkdir(OUTPUT_DIR, { recursive: true });
 const browser = await chromium.launch({ headless: true });
@@ -97,6 +121,7 @@ for (const target of TARGETS) {
     interactiveLabels: [],
     responses: [],
     downloads: [],
+    postDownloadClick: null,
     consoleErrors: [],
     pageErrors: [],
     screenshot: null,
@@ -122,6 +147,7 @@ for (const target of TARGETS) {
       contentLength: Number.isFinite(contentLength) ? contentLength : null,
       contentDisposition: headers['content-disposition'] || null,
       jsonShape: null,
+      safeScalar: null,
       bodyInspection: null,
     };
 
@@ -129,7 +155,9 @@ for (const target of TARGETS) {
       try {
         const body = await response.body();
         if (body.length <= MAX_JSON_BYTES) {
-          entry.jsonShape = jsonShape(JSON.parse(body.toString('utf8')));
+          const parsed = JSON.parse(body.toString('utf8'));
+          entry.jsonShape = jsonShape(parsed);
+          entry.safeScalar = safeScalar(parsed, response.url());
           entry.bodyInspection = { bytes: body.length, parsed: true };
         }
       } catch (error) {
@@ -147,32 +175,39 @@ for (const target of TARGETS) {
     targetResult.status = response?.status() ?? null;
     await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => null);
     await page.waitForTimeout(4_000);
+
+    const cookieButton = page.getByRole('button', { name: /^Prosseguir$/i });
+    if (await cookieButton.count().catch(() => 0)) {
+      await cookieButton.first().click({ timeout: 5_000 }).catch(() => null);
+      await page.waitForTimeout(700);
+    }
+
     targetResult.finalUrl = page.url();
     targetResult.title = cleanText(await page.title());
     targetResult.bodyText = cleanText(await page.locator('body').innerText().catch(() => ''));
-    targetResult.interactiveLabels = await page.locator('button, a, input, select').evaluateAll((elements) => elements
-      .slice(0, 160)
-      .map((element) => ({
-        tag: element.tagName.toLowerCase(),
-        text: String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || '').replace(/\s+/g, ' ').trim().slice(0, 160),
-        href: element instanceof HTMLAnchorElement ? element.href : null,
-        type: element instanceof HTMLInputElement ? element.type : null,
-      }))
-      .filter((item) => item.text || item.href));
+    targetResult.interactiveLabels = await interactiveLabels(page);
 
     const screenshotPath = join(OUTPUT_DIR, `${target.code}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     targetResult.screenshot = screenshotPath;
 
     if (target.clickDownload) {
-      const candidates = page.getByText(/^Download$/i, { exact: true });
+      const candidates = page.getByRole('button', { name: /^Download$/i });
       const count = await candidates.count().catch(() => 0);
       if (count > 0) {
         const button = candidates.first();
-        const downloadPromise = page.waitForEvent('download', { timeout: 15_000 }).catch(() => null);
+        const downloadPromise = page.waitForEvent('download', { timeout: 10_000 }).catch(() => null);
         await button.click({ timeout: 10_000 }).catch((error) => {
           targetResult.downloads.push({ triggered: false, error: cleanText(error.message) });
         });
+        await page.waitForTimeout(1_500);
+        const dialogScreenshot = join(OUTPUT_DIR, `${target.code}-download-dialog.png`);
+        await page.screenshot({ path: dialogScreenshot, fullPage: true });
+        targetResult.postDownloadClick = {
+          bodyText: cleanText(await page.locator('body').innerText().catch(() => '')),
+          interactiveLabels: await interactiveLabels(page),
+          screenshot: dialogScreenshot,
+        };
         const download = await downloadPromise;
         if (download) {
           const fileName = download.suggestedFilename();
@@ -188,9 +223,8 @@ for (const target of TARGETS) {
           });
           await rm(filePath, { force: true });
         } else if (!targetResult.downloads.length) {
-          targetResult.downloads.push({ triggered: false, reason: 'download_event_not_observed' });
+          targetResult.downloads.push({ triggered: false, reason: 'download_event_not_observed_after_public_button_click' });
         }
-        await page.waitForTimeout(3_000);
       } else {
         targetResult.downloads.push({ triggered: false, reason: 'download_control_not_found' });
       }
@@ -213,7 +247,9 @@ result.summary = {
   targetsLoaded: result.targets.filter((target) => !target.error && target.status && target.status < 400).length,
   relevantEndpointCount: result.uniqueRelevantEndpoints.length,
   jsonEndpointCount: result.uniqueRelevantEndpoints.filter((endpoint) => endpoint.jsonShape).length,
+  restrictionSignals: result.uniqueRelevantEndpoints.filter((endpoint) => endpoint.safeScalar !== null).length,
   downloadsObserved: result.targets.reduce((total, target) => total + target.downloads.filter((download) => download.triggered).length, 0),
+  downloadDialogsObserved: result.targets.filter((target) => target.postDownloadClick).length,
   targetErrors: result.targets.filter((target) => target.error).length,
 };
 
