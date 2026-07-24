@@ -59,6 +59,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/knowledge-search',
+    label: 'Busca do Vault',
+    shortLabel: 'Busca híbrida',
+    description: 'Recuperação lexical e semântica de evidências com lineage e filtro por empresa.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/outcome-operations',
     label: 'Outcome Workbench',
     shortLabel: 'Fila diária de resultados',
