@@ -1,0 +1,100 @@
+      contractingBody: pick(row, [
+        'nome_orgao_superior',
+        'nome_orgao',
+        'nome_ug',
+        'orgao_superior',
+        'orgao_contratante',
+        'unidade_gestora',
+      ]),
+      endDate: parseDate(pick(row, ['data_fim_da_vigencia', 'data_fim_vigencia', 'data final vigencia'])),
+      initialAmount: parseNumber(pick(row, ['valor_inicial_da_compra'])),
+      finalAmount: parseNumber(pick(row, ['valor_final_da_compra'])),
+    };
+    identity = { entityCnpj, contractNumber, referenceDate, amount };
+  } else {
+    const root = digits(row.cnpj_basico).padStart(8, '0');
+    const establishment = Boolean(row.cnpj_ordem || row.cnpj_dv);
+    entityCnpj = establishment ? `${root}${digits(row.cnpj_ordem).padStart(4, '0')}${digits(row.cnpj_dv).padStart(2, '0')}` : root;
+    if (!targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = clean(establishment ? row.nome_fantasia : row.razao_social);
+    recordType = establishment ? 'rfb_establishment_snapshot' : 'rfb_company_snapshot';
+    status = establishment ? clean(row.situacao_cadastral) : '';
+    amount = establishment ? null : parseNumber(row.capital_social);
+    normalizedPayload = establishment ? {
+      summary: `${entityName || entityCnpj} · estabelecimento RFB · situação ${status}`,
+      branchType: row.identificador_matriz_filial,
+      registrationStatus: status,
+      statusDate: parseDate(row.data_situacao_cadastral),
+      activityStartDate: parseDate(row.data_inicio_atividade),
+      primaryCnae: row.cnae_fiscal_principal,
+      state: row.uf,
+      municipalityCode: row.municipio,
+    } : {
+      summary: `${entityName || entityCnpj} · empresa RFB${amount !== null ? ` · capital R$ ${amount.toFixed(2)}` : ''}`,
+      legalNature: row.natureza_juridica,
+      capitalSocial: amount,
+      companySize: row.porte_empresa,
+    };
+    identity = { entityCnpj, recordType, referenceDate };
+  }
+
+  const recordKey = hash({ datasetCode, resource: resource.key, ...identity });
+  const contentHash = hash({ row, normalizedPayload });
+  return {
+    datasetCode,
+    sourceCode: SOURCE_CODES[datasetCode],
+    recordKey,
+    entityCnpj,
+    entityName: entityName || null,
+    recordType,
+    referenceDate,
+    amount,
+    status: status || null,
+    sourceUrl: resource.url,
+    resourceKey: resource.key,
+    contentHash,
+    rawPayload: row,
+    normalizedPayload,
+  };
+}
+
+async function consumeRows(input: {
+  datasetCode: PublicBulkDatasetCode;
+  resource: PublicBulkResource;
+  rows: AsyncIterable<string[]>;
+  entryName: string;
+  targetCnpjs: Set<string>;
+  targetRoots: Set<string>;
+  maxMatchedRows: number;
+  onRecord: (record: PublicBulkRecord) => Promise<void>;
+  stats: PublicBulkStreamStats;
+}) {
+  let headers: string[] | null = input.datasetCode === 'rfb_cnpj' ? rfbHeaders(input.entryName) : null;
+  for await (const values of input.rows) {
+    if (!headers) { headers = values.map(normalizeHeader); continue; }
+    input.stats.rowsScanned += 1;
+    const record = normalizePublicBulkRow({
+      datasetCode: input.datasetCode,
+      row: rowObject(headers, values),
+      resource: input.resource,
+      targetCnpjs: input.targetCnpjs,
+      targetRoots: input.targetRoots,
+    });
+    if (!record) continue;
+    await input.onRecord(record);
+    input.stats.recordsMatched += 1;
+    if (input.stats.recordsMatched >= input.maxMatchedRows) break;
+  }
+}
+
+export async function streamPublicBulkResource(input: {
+  datasetCode: PublicBulkDatasetCode;
+  resource: PublicBulkResource;
+  targetCnpjs: Set<string>;
+  targetRoots: Set<string>;
+  maxMatchedRows: number;
+  onRecord: (record: PublicBulkRecord) => Promise<void>;
+}): Promise<PublicBulkStreamStats> {
+  const stats = { rowsScanned: 0, recordsMatched: 0, archiveEntries: 0 };
+  const response = await fetch(input.resource.url, {
+    redirect: 'follow',
