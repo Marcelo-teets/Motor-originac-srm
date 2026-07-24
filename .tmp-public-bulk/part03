@@ -1,0 +1,100 @@
+  if (!candidates.length) {
+    const pageUrl = 'https://dadosabertos.bndes.gov.br/dataset/operacoes-financiamento';
+    try {
+      candidates = linksFromHtml(await fetchText(pageUrl), pageUrl)
+        .filter((url) => /\/download\/.*\.csv(?:\?|$)/i.test(url))
+        .map((url) => ({
+          id: `bndes:${hash(url).slice(0, 24)}`,
+          name: decodeURIComponent(basename(url)).replace(/[-_]+/g, ' '),
+          url,
+          format: 'CSV',
+        }));
+    } catch {
+      candidates = [];
+    }
+  }
+
+  if (!candidates.length) {
+    candidates = [{
+      id: 'bndes-nonautomatic-official',
+      name: 'Operações não automáticas',
+      url: 'https://dadosabertos.bndes.gov.br/dataset/10e21ad1-568e-45e5-a8af-43f2c05ef1a2/resource/6f56b78c-510f-44b6-8274-78a5b7e931f4/download/operacoes-financiamento-operacoes-nao-automaticas.csv',
+      format: 'CSV',
+    }];
+  }
+
+  const ordered = [...candidates].sort((left, right) => Number(isBndesNonAutomatic(right)) - Number(isBndesNonAutomatic(left)));
+  const resources = ordered.slice(0, maxResources).map(mapBndesResource);
+  if (!resources.length) throw new Error('BNDES returned no financing CSV resources through CKAN or dataset-page fallback.');
+  return resources;
+}
+
+export async function discoverPublicBulkResources(
+  datasetCode: PublicBulkDatasetCode,
+  options: { reference?: string; maxResources?: number } = {},
+): Promise<PublicBulkResource[]> {
+  const maxResources = Math.max(1, Math.min(options.maxResources ?? 20, 100));
+
+  if (datasetCode === 'bndes_financing_operations') return discoverBndesResources(maxResources);
+
+  if (datasetCode === 'pgfn_debt') {
+    const pageUrl = 'https://www.gov.br/pgfn/pt-br/assuntos/divida-ativa-da-uniao/transparencia-fiscal-1/dados-abertos';
+    const links = linksFromHtml(await fetchText(pageUrl), pageUrl)
+      .filter((url) => /\.(zip|csv)(\?|$)/i.test(url));
+    const reference = options.reference?.replace(/\D/g, '');
+    const filtered = reference ? links.filter((url) => url.replace(/\D/g, '').includes(reference)) : links;
+    const selected = [...new Set(filtered.length ? filtered : links)].slice(0, maxResources);
+    if (!selected.length) throw new Error('PGFN page returned no downloadable CSV/ZIP resources.');
+    return selected.map((url, index) => ({
+      key: `pgfn:${hash(url).slice(0, 24)}`,
+      name: `PGFN dívida ativa ${index + 1}`,
+      url,
+      format: /\.csv(\?|$)/i.test(url) ? 'csv' : 'zip',
+      encoding: 'windows-1252',
+      delimiter: ';',
+      referenceDate: options.reference ? `${options.reference.slice(0, 7)}-01` : new Date().toISOString().slice(0, 10),
+    }));
+  }
+
+  if (datasetCode === 'rfb_cnpj') {
+    const rootUrl = 'https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/';
+    const folders = linksFromHtml(await fetchText(rootUrl), rootUrl)
+      .filter((url) => /\/20\d{2}-\d{2}\/$/.test(url))
+      .sort().reverse();
+    const wanted = options.reference?.replace('/', '-');
+    const folder = wanted ? folders.find((url) => url.includes(`${wanted}/`)) : folders[0];
+    if (!folder) throw new Error('RFB monthly CNPJ folder was not found.');
+    const resources = linksFromHtml(await fetchText(folder), folder)
+      .filter((url) => /\.(zip|csv)$/.test(url))
+      .filter((url) => /(Empresas|Estabelecimentos)/i.test(url))
+      .slice(0, maxResources);
+    if (!resources.length) throw new Error('RFB folder returned no Empresas/Estabelecimentos resources.');
+    const month = folder.match(/(20\d{2}-\d{2})\/$/)?.[1] ?? wanted ?? '';
+    return resources.map((url) => ({
+      key: `rfb:${basename(url)}`,
+      name: basename(url),
+      url,
+      format: /\.csv$/i.test(url) ? 'csv' : 'zip',
+      encoding: 'latin1',
+      delimiter: ';',
+      referenceDate: month ? `${month}-01` : null,
+      archiveEntryPattern: '(Empresas|Estabelecimentos|EMPRECSV|ESTABELE)',
+    }));
+  }
+
+  if (datasetCode === 'cgu_ceis' || datasetCode === 'cgu_cnep') {
+    const slug = datasetCode === 'cgu_ceis' ? 'ceis' : 'cnep';
+    const item = await discoverPortalArchive(slug, options.reference, false);
+    return [{
+      key: `${slug}:${item.referenceDate}`,
+      name: `CGU ${slug.toUpperCase()} ${item.referenceDate}`,
+      url: item.url,
+      format: 'zip',
+      encoding: 'windows-1252',
+      delimiter: ';',
+      referenceDate: item.referenceDate,
+      modifiedAt: item.modifiedAt,
+      etag: item.etag,
+      archiveEntryPattern: slug,
+    }];
+  }
