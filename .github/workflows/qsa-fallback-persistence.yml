@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/qsa-fallback-persistence.yml
-      - api/qsa-fallback-run.ts
+      - api/strategic-public-data-run.ts
       - api/vercelTypes.ts
       - backend/src/modules/public-data/brasilApiQsaFallback.ts
       - backend/src/modules/public-data/brasilApiQsaFallback.test.ts
@@ -32,16 +32,19 @@ jobs:
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Compile QSA fallback Vercel function
-        run: npx tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node api/qsa-fallback-run.ts
+      - name: Compile shared strategic Vercel function
+        run: npx tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node api/strategic-public-data-run.ts
       - name: Test QSA fallback normalization and activation
         working-directory: backend
         run: npx tsx --test src/modules/public-data/brasilApiQsaFallback.test.ts src/services/qsaFallbackIngestionService.test.ts
-      - name: Guard signal and source governance contract
+      - name: Guard signal, routing and source governance contract
         shell: bash
         run: |
           grep -F "if new.signal_type = 'ownership_structure_signal'" db/migrations/098_qsa_fallback_governance.sql
           grep -F "return null;" db/migrations/098_qsa_fallback_governance.sql
           grep -F "sourceAuthority', 'secondary_public_api'" db/migrations/098_qsa_fallback_governance.sql
           grep -F "signalsWritten', 0" db/migrations/098_qsa_fallback_governance.sql
+          grep -F "mode === 'qsa-fallback'" api/strategic-public-data-run.ts
           grep -F '"schedule": "30 10 8 * *"' vercel.json
+          grep -F '"destination": "/api/strategic-public-data-run?mode=qsa-fallback"' vercel.json
+          test ! -f api/qsa-fallback-run.ts
