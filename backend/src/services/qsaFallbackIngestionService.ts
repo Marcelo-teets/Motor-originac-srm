@@ -26,6 +26,7 @@ type PersistResult = {
   bronzeRowsWritten?: number;
   recordsWritten?: number;
   outputsWritten?: number;
+  outputsAvailable?: number;
   signalsWritten?: number;
 };
 
@@ -132,6 +133,7 @@ export class QsaFallbackIngestionService {
     let bronzeRowsWritten = 0;
     let recordsWritten = 0;
     let outputsWritten = 0;
+    let outputsAvailable = 0;
     const errors: string[] = [];
 
     for (const company of targets) {
@@ -156,6 +158,7 @@ export class QsaFallbackIngestionService {
         bronzeRowsWritten += asNumber(persisted?.bronzeRowsWritten);
         recordsWritten += asNumber(persisted?.recordsWritten);
         outputsWritten += asNumber(persisted?.outputsWritten);
+        outputsAvailable += asNumber(persisted?.outputsAvailable);
         companyResults.push({
           companyId: company.id,
           status: 'completed',
@@ -163,6 +166,7 @@ export class QsaFallbackIngestionService {
           sourceConfidence: fallback.sourceConfidence,
           recordsMatched: fallback.records.length,
           outputsWritten: asNumber(persisted?.outputsWritten),
+          outputsAvailable: asNumber(persisted?.outputsAvailable),
           signalsWritten: 0,
         });
       } catch (error) {
@@ -199,6 +203,7 @@ export class QsaFallbackIngestionService {
         officialBulkHealth: officialSource?.health ?? 'missing',
         targetCompanyCount: targets.length,
         successfulCompanies,
+        outputsAvailable,
         errors,
       },
       updated_at: finishedAt,
@@ -218,6 +223,7 @@ export class QsaFallbackIngestionService {
         bronzeRowsWritten,
         recordsWritten,
         outputsWritten,
+        outputsAvailable,
         signalsWritten: 0,
       },
       companies: companyResults,
