@@ -43,9 +43,19 @@ export function LoginPage() {
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
+  const emailPasswordConfigured = !captchaConfig.enabled || Boolean(captchaConfig.siteKey);
+  const hasOAuthProviders = oauthProviders.length > 0;
+  const captchaBlocked = captchaConfig.enabled && !captchaToken;
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+
+    if (!emailPasswordConfigured) {
+      setError('O acesso por e-mail e senha aguarda a configuração da chave pública do CAPTCHA. Use o acesso OAuth disponível acima.');
+      return;
+    }
+
     try {
       await login(email.trim(), password, captchaToken ?? undefined);
     } catch (err) {
@@ -53,9 +63,6 @@ export function LoginPage() {
       setError(err instanceof Error ? err.message : 'Falha inesperada no login.');
     }
   };
-
-  const captchaBlocked = captchaConfig.enabled && (!captchaConfig.siteKey || !captchaToken);
-  const hasOAuthProviders = oauthProviders.length > 0;
 
   return (
     <div className="auth-shell">
@@ -74,7 +81,7 @@ export function LoginPage() {
         <div>
           <p className="eyebrow">Acesso seguro</p>
           <h2>Entrar na plataforma</h2>
-          <p className="auth-copy">Use seu e-mail e senha ou um provedor OAuth habilitado no Supabase.</p>
+          <p className="auth-copy">Use um provedor OAuth habilitado ou, quando o CAPTCHA estiver configurado, seu e-mail e senha.</p>
         </div>
 
         {oauthLoading ? <div className="auth-progress" aria-label="Carregando provedores OAuth" /> : null}
@@ -95,34 +102,58 @@ export function LoginPage() {
           </div>
         ) : null}
 
+        {!emailPasswordConfigured && hasOAuthProviders ? (
+          <div className="auth-alert auth-alert-warning">
+            O acesso por e-mail, senha e recuperação está temporariamente indisponível até a conclusão da configuração do CAPTCHA. Use o provedor OAuth acima.
+          </div>
+        ) : null}
+
         {oauthUnavailable ? (
           <div className="auth-alert auth-alert-warning">
-            Não foi possível consultar os provedores OAuth. O acesso por e-mail e senha continua disponível.
+            {emailPasswordConfigured
+              ? 'Não foi possível consultar os provedores OAuth. O acesso por e-mail e senha continua disponível.'
+              : 'Não foi possível consultar os provedores OAuth e o CAPTCHA ainda não está configurado. O acesso está temporariamente indisponível.'}
           </div>
         ) : null}
 
         {hasOAuthProviders ? <div className="auth-divider"><span>ou</span></div> : null}
 
-        <form className="form-grid" onSubmit={handleSubmit}>
+        <form className="form-grid" onSubmit={handleSubmit} aria-disabled={!emailPasswordConfigured}>
           <label>
             <span>E-mail</span>
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              disabled={!emailPasswordConfigured}
+              required
+            />
           </label>
           <label>
             <span>Senha</span>
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              disabled={!emailPasswordConfigured}
+              required
+            />
           </label>
 
           <div className="auth-row-between">
             <span className="table-helper">Acesso protegido pelo Supabase</span>
-            <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
+            {emailPasswordConfigured
+              ? <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
+              : <span className="table-helper">Recuperação aguardando CAPTCHA</span>}
           </div>
 
           <CaptchaChallenge onToken={setCaptchaToken} />
           {error ? <div className="auth-alert auth-alert-error">{error}</div> : null}
 
-          <button type="submit" disabled={loading || captchaBlocked}>
-            {loading ? 'Entrando...' : 'Entrar'}
+          <button type="submit" disabled={loading || !emailPasswordConfigured || captchaBlocked}>
+            {loading ? 'Entrando...' : emailPasswordConfigured ? 'Entrar' : 'Aguardando configuração do CAPTCHA'}
           </button>
         </form>
       </section>

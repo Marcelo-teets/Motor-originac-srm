@@ -144,17 +144,31 @@ export const runAuthProductionSmoke = async ({
     ['turnstile', 'hcaptcha'].includes(metadata?.auth?.captcha?.provider),
     `Unsupported CAPTCHA provider: ${metadata?.auth?.captcha?.provider ?? 'missing'}`,
   );
+
+  const siteKeyConfigured = metadata?.auth?.captcha?.siteKeyConfigured === true;
+  const expectedAuthMode = siteKeyConfigured ? 'full' : 'oauth_fallback';
+  assert.equal(metadata?.auth?.mode, expectedAuthMode, 'Auth operating mode does not match CAPTCHA configuration');
+  assert.equal(
+    metadata?.auth?.emailPasswordConfigured,
+    siteKeyConfigured,
+    'Email/password availability does not match CAPTCHA site key state',
+  );
+
   if (requireCaptchaSiteKey) {
     assert.equal(
-      metadata?.auth?.captcha?.siteKeyConfigured,
+      siteKeyConfigured,
       true,
       'VITE_CAPTCHA_SITE_KEY is not configured in the production frontend build',
     );
+    assert.equal(metadata?.auth?.mode, 'full', 'Full Auth rollout requires auth.mode=full');
+  } else if (!siteKeyConfigured) {
+    assert.equal(metadata?.auth?.oauthFallbackSupported, true, 'OAuth fallback is not declared in this build');
   }
+
   checks.push({
     check: 'captcha-config',
-    status: 'passed',
-    detail: `${metadata.auth.captcha.provider}; siteKey=${metadata.auth.captcha.siteKeyConfigured}; transport=${metadata.auth.captcha.tokenTransport}`,
+    status: siteKeyConfigured ? 'passed' : 'fallback',
+    detail: `${metadata.auth.captcha.provider}; siteKey=${siteKeyConfigured}; transport=${metadata.auth.captcha.tokenTransport}; mode=${metadata.auth.mode}`,
   });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
@@ -191,7 +205,8 @@ export const runAuthProductionSmoke = async ({
   });
 
   return {
-    status: 'passed',
+    status: siteKeyConfigured ? 'passed' : 'passed_with_oauth_fallback',
+    authMode: metadata.auth.mode,
     baseUrl: normalizedBaseUrl,
     expectedSha: expectedSha ?? null,
     deployedSha: metadata.commitSha,
@@ -212,6 +227,8 @@ const appendSummary = (report) => {
   appendFileSync(summaryPath, [
     '# Production Auth Smoke',
     '',
+    `- Result: **${report.status}**`,
+    `- Auth mode: **${report.authMode}**`,
     `- URL: ${report.baseUrl}`,
     `- Deployed SHA: \`${report.deployedSha}\``,
     `- Expected SHA: \`${report.expectedSha ?? 'not provided'}\``,
