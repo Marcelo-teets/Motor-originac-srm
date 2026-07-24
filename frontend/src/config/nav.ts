@@ -87,6 +87,13 @@ export const navItems = [
     group: 'Operação & governança',
   },
   {
+    to: '/identity-review',
+    label: 'Identity Review',
+    shortLabel: 'CNPJ e entidade',
+    description: 'Revisão humana de razão social, CNPJ, domínio, evidência e promoção transacional.',
+    group: 'Operação & governança',
+  },
+  {
     to: '/sources',
     label: 'Sources',
     shortLabel: 'Fontes',
