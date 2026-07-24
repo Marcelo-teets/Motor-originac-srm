@@ -26,6 +26,10 @@
       "maxDuration": 300,
       "memory": 2048
     },
+    "api/qsa-fallback-run.ts": {
+      "maxDuration": 60,
+      "memory": 512
+    },
     "api/agentetome.ts": {
       "maxDuration": 30,
       "memory": 512
@@ -39,6 +43,10 @@
     {
       "path": "/api/strategic-public-data-run",
       "schedule": "15 9 * * 1"
+    },
+    {
+      "path": "/api/qsa-fallback-run",
+      "schedule": "30 10 8 * *"
     }
   ],
   "rewrites": [
@@ -57,6 +65,10 @@
     {
       "source": "/api/sources/strategic-run",
       "destination": "/api/strategic-public-data-run"
+    },
+    {
+      "source": "/api/sources/qsa-fallback-run",
+      "destination": "/api/qsa-fallback-run"
     },
     {
       "source": "/api/sources/agentetome",
