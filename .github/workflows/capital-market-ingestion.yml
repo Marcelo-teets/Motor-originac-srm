@@ -21,6 +21,10 @@ on:
       - db/migrations/038_cleanup_legacy_cvm_canary.sql
       - db/migrations/043_capital_market_single_running_guard.sql
       - db/migrations/092_cvm_delivery_hardening.sql
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issues:
+    types: [opened]
   schedule:
     # Ofertas públicas: sinal de timing rápido, captura diária.
     - cron: "20 9 * * *"
@@ -60,6 +64,11 @@ concurrency:
 
 jobs:
   ingest:
+    if: >-
+      (github.event_name != 'issues' && github.event_name != 'pull_request') ||
+      (github.actor == 'Marcelo-teets' &&
+        ((github.event_name == 'issues' && startsWith(github.event.issue.title, '[OPS][CVM_BOOTSTRAP]')) ||
+         (github.event_name == 'pull_request' && startsWith(github.event.pull_request.title, '[OPS][CVM_BOOTSTRAP]'))))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -92,6 +101,31 @@ jobs:
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: Probe Supabase REST access
+        if: github.event_name != 'push'
+        shell: bash
+        run: |
+          HTTP_STATUS=$(curl -sS --max-time 20 \
+            -o /tmp/supabase-probe.json \
+            -w "%{http_code}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/source_catalog?select=id&limit=1" || true)
+          echo "Supabase REST probe status: ${HTTP_STATUS}"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            {
+              echo "## Supabase REST probe failed"
+              echo
+              echo "HTTP status: ${HTTP_STATUS}"
+              echo
+              echo '```json'
+              head -c 2000 /tmp/supabase-probe.json 2>/dev/null || true
+              echo
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       # Push validation remains strict. Scheduled delivery is not blocked by
       # unrelated tests elsewhere in the monorepo; the ingestion CLI itself is
@@ -186,7 +220,12 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            DATASET="all"
+            REFERENCE=""
+            MAX_ROWS="100000"
+            TRIGGER="backfill"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cvm_offers}"
             REFERENCE="$REQUESTED_REFERENCE"
             MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
@@ -211,11 +250,56 @@ jobs:
 
       - name: Ingest and deliver CVM capital-market datasets directly
         if: github.event_name != 'push'
+        shell: bash
         run: |
           ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}" --require-delivery)
           if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
-          npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}"
+
+          set +e
+          npm -C backend exec -- tsx src/cli/capitalMarkets.ts "${ARGS[@]}" > /tmp/cvm-ingestion.raw.log 2>&1
+          EXIT_STATUS=$?
+          set -e
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          source = Path('/tmp/cvm-ingestion.raw.log')
+          target = Path('/tmp/cvm-ingestion.log')
+          text = source.read_text(encoding='utf-8', errors='replace') if source.exists() else ''
+          for name in ('SUPABASE_SERVICE_ROLE_KEY', 'CRON_SECRET', 'SUPABASE_URL'):
+              value = os.environ.get(name, '')
+              if value:
+                  text = text.replace(value, f'[{name}_REDACTED]')
+          target.write_text(text, encoding='utf-8')
+          source.unlink(missing_ok=True)
+          PY
+
+          cat /tmp/cvm-ingestion.log
+          if [ "$EXIT_STATUS" -ne 0 ]; then
+            {
+              echo "## CVM ingestion failed"
+              echo
+              echo "Exit status: ${EXIT_STATUS}"
+              echo
+              echo '```text'
+              tail -n 200 /tmp/cvm-ingestion.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$EXIT_STATUS"
 
       - name: Verify persisted delivery without redownloading
         if: github.event_name != 'push'
         run: npm -C backend exec -- tsx src/cli/capitalMarketDelivery.ts --dataset "${{ steps.scope.outputs.dataset }}" --require-delivery
+
+      - name: Upload sanitized CVM diagnostics
+        if: always() && github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cvm-ingestion-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/cvm-ingestion.log
+            /tmp/supabase-probe.json
+          if-no-files-found: ignore
+          retention-days: 7

@@ -191,7 +191,7 @@ export async function discoverStrategicPublicResources(
   const maxResources = Math.max(1, Math.min(options.maxResources ?? 20, 100));
 
   if (datasetCode === 'rfb_qsa') {
-    const rootUrl = 'https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/';
+    const rootUrl = 'https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/';
     const folders = linksFromHtml(await fetchText(rootUrl), rootUrl)
       .filter((url) => /\/20\d{2}-\d{2}\/$/.test(url))
       .sort()
