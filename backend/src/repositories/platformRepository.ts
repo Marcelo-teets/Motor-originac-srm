@@ -1,6 +1,7 @@
 import { additionalCompanySeeds } from '../data/additionalCompanySeeds.js';
 import { companySeeds, patternCatalogSeeds, searchProfileFilterSeeds, searchProfileSeeds, sourceCatalogSeeds } from '../data/platformSeeds.js';
 import { env } from '../lib/env.js';
+import { attachCompanyDecisionMetadata } from '../lib/companyDecisionEligibility.js';
 import { getSupabaseClient } from '../lib/supabase.js';
 import type {
   ActivityRecord,
@@ -388,7 +389,7 @@ class SupabasePlatformRepository implements PlatformRepository {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
       const data = await client.select('companies', { select: '*' });
-      return (data ?? []).map((row: any) => ({
+      return (data ?? []).map((row: any) => attachCompanyDecisionMetadata({
         id: row.id,
         legalName: row.legal_name,
         tradeName: row.trade_name ?? row.legal_name,
@@ -402,14 +403,14 @@ class SupabasePlatformRepository implements PlatformRepository {
         creditProduct: row.observed_payload?.credit_product ?? 'Unknown',
         receivables: row.observed_payload?.receivables ?? [],
         currentFundingStructure: row.current_funding_structure ?? 'Unknown',
-        description: row.observed_payload?.description ?? '',
+        description: row.observed_payload?.description ?? row.description ?? '',
         signals: row.observed_payload?.signals ?? [],
         monitoring: row.observed_payload?.monitoring ?? defaultMonitoring,
         enrichment: row.inferred_payload?.enrichment ?? seededCompanies.find((item) => item.id === row.id)?.enrichment ?? defaultEnrichment,
         sourceRecords: row.source_trace ?? [],
         marketMapPeers: row.estimated_payload?.marketMapPeers ?? [],
         activities: row.estimated_payload?.activities ?? [],
-      } satisfies CompanySeed));
+      } satisfies CompanySeed, row.metadata));
     }, () => this.fallback.listCompanies(), (result) => Array.isArray(result) && result.length === 0);
   }
 
