@@ -49,20 +49,13 @@ jobs:
         shell: bash
         run: |
           if [ "$ISSUE_TITLE" = "[public-bulk-run] all-light" ]; then
-            DATASET="bndes_financing_operations,cgu_ceis,cgu_cnep,compras_contracts"
-            MAX_RESOURCES="20"
-            LOG_FILE="public-bulk-all-light.log"
-            RUN_LABEL="all-light"
+            echo "mode=all-light" >> "$GITHUB_OUTPUT"
+            echo "run_label=all-light" >> "$GITHUB_OUTPUT"
           else
-            DATASET="cgu_ceis,cgu_cnep"
-            MAX_RESOURCES="2"
-            LOG_FILE="public-bulk-canary.log"
-            RUN_LABEL="CEIS/CNEP canary"
+            echo "mode=canary" >> "$GITHUB_OUTPUT"
+            echo "run_label=CEIS/CNEP canary" >> "$GITHUB_OUTPUT"
           fi
-          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
-          echo "max_resources=$MAX_RESOURCES" >> "$GITHUB_OUTPUT"
-          echo "log_file=$LOG_FILE" >> "$GITHUB_OUTPUT"
-          echo "run_label=$RUN_LABEL" >> "$GITHUB_OUTPUT"
+          echo "log_file=public-bulk-owner.log" >> "$GITHUB_OUTPUT"
       - name: Execute official-data production ingestion
         id: ingestion
         if: steps.secrets.outcome == 'success'
@@ -72,16 +65,35 @@ jobs:
         run: |
           set +e
           LOG_FILE="${{ steps.scope.outputs.log_file }}"
-          npx tsx src/cli/publicBulkData.ts \
-            --dataset "${{ steps.scope.outputs.dataset }}" \
-            --max-matched-rows 100000 \
-            --max-resources "${{ steps.scope.outputs.max_resources }}" \
-            --trigger manual \
-            --full-coverage \
-            --require-scan > "$LOG_FILE" 2>&1
-          STATUS=$?
-          cat "$LOG_FILE"
-          exit $STATUS
+          : > "$LOG_FILE"
+          STATUS=0
+
+          run_dataset() {
+            local dataset="$1"
+            local max_resources="$2"
+            local full_coverage="$3"
+            local label="$4"
+            local args=(
+              --dataset "$dataset"
+              --max-matched-rows 100000
+              --max-resources "$max_resources"
+              --trigger manual
+              --require-scan
+            )
+            if [ "$full_coverage" = "true" ]; then args+=(--full-coverage); fi
+            echo "===== $label =====" | tee -a "$LOG_FILE"
+            npx tsx src/cli/publicBulkData.ts "${args[@]}" 2>&1 | tee -a "$LOG_FILE"
+            local command_status=${PIPESTATUS[0]}
+            if [ "$command_status" -ne 0 ]; then STATUS=1; fi
+          }
+
+          if [ "${{ steps.scope.outputs.mode }}" = "all-light" ]; then
+            run_dataset "bndes_financing_operations" "1" "false" "BNDES nonautomatic light resource"
+            run_dataset "compras_contracts" "1" "true" "Portal da Transparência Compras contracts"
+          fi
+          run_dataset "cgu_ceis,cgu_cnep" "2" "true" "CGU CEIS/CNEP"
+
+          exit "$STATUS"
       - name: Report execution result
         if: always()
         shell: bash
@@ -91,14 +103,16 @@ jobs:
           LOG_FILE="${{ steps.scope.outputs.log_file }}"
           LOG_TAIL="No ingestion log was created."
           if [ -n "$LOG_FILE" ] && [ -f "backend/$LOG_FILE" ]; then
-            LOG_TAIL=$(tail -n 55 "backend/$LOG_FILE" | sed 's/`/\`/g')
+            LOG_TAIL=$(tail -n 100 "backend/$LOG_FILE" | sed 's/`/\`/g')
           fi
           BODY=$(cat <<EOF
           Public bulk ${{ steps.scope.outputs.run_label }} diagnostics:
 
           - secret check: **${SECRET_OUTCOME}**
           - ingestion: **${INGESTION_OUTCOME}**
-          - datasets: \`${{ steps.scope.outputs.dataset }}\`
+          - BNDES scope: lightweight nonautomatic CSV only; source remains partial until the heavy automatic file is processed separately
+          - Compras scope: official monthly contract archive
+          - CGU scope: CEIS and CNEP
 
           Sanitized log tail:
 

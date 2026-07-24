@@ -29,10 +29,13 @@ CVM CKAN
 
 ## Execução local
 
+Os CLIs usam caminhos relativos ao workspace `backend`. Entre no diretório antes de executar:
+
 ```bash
+cd backend
 SUPABASE_URL="..." \
 SUPABASE_SERVICE_ROLE_KEY="..." \
-npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+npm exec -- tsx src/cli/capitalMarkets.ts \
   --dataset all \
   --max-rows 100000 \
   --trigger manual \
@@ -42,7 +45,8 @@ npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
 Competência específica:
 
 ```bash
-npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
+cd backend
+npm exec -- tsx src/cli/capitalMarkets.ts \
   --dataset cvm_fidc_monthly \
   --reference 2026-06 \
   --trigger backfill \
@@ -53,7 +57,8 @@ npm -C backend exec -- tsx src/cli/capitalMarkets.ts \
 Reprocessamento somente da camada de entrega, sem baixar novamente os arquivos:
 
 ```bash
-npm -C backend exec -- tsx src/cli/capitalMarketDelivery.ts \
+cd backend
+npm exec -- tsx src/cli/capitalMarketDelivery.ts \
   --dataset all \
   --require-delivery
 ```
@@ -67,6 +72,8 @@ O workflow separa duas responsabilidades:
 1. em pushes relacionados ao runtime CVM, executa typecheck, testes, canário, idempotência e probe do deploy exato;
 2. em agendas e execuções manuais, prioriza a entrega dos dados e não permite que testes não relacionados do monorepo bloqueiem a captura.
 
+O canal operacional alternativo é uma PR owner-only cujo título começa com `[OPS][CVM_BOOTSTRAP]`. O workflow ignora PRs comuns e, para o comando administrativo, executa todos os datasets com entrega obrigatória.
+
 Quando a migration `092_cvm_delivery_hardening.sql` entra na `main`, o push executa um bootstrap único dos datasets atuais.
 
 Secrets necessários:
@@ -74,6 +81,16 @@ Secrets necessários:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `CRON_SECRET` para o probe serverless em pushes
+
+## Diagnóstico
+
+Execuções não-push:
+
+1. validam o acesso REST ao Supabase;
+2. capturam stdout/stderr da CLI;
+3. removem URL e secrets do log;
+4. publicam um artifact sanitizado por sete dias;
+5. preservam o exit code original.
 
 ## Persistência
 
