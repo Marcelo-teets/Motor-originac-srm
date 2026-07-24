@@ -409,14 +409,17 @@ export function normalizePublicBulkRow(input: {
     referenceDate = parseDate(pick(row, ['data_da_contratacao', 'data da contratacao'])) ?? referenceDate;
     amount = parseNumber(pick(row, ['valor_da_operacao_em_reais', 'valor da operacao em reais', 'valor_contratado_reais']));
     status = pick(row, ['situacao_da_operacao', 'situacao da operacao', 'situacao_do_contrato']);
-0 ? resolve(out) : reject(new Error(`${command} exited ${code}: ${err}`)));
-});
-const nodeRows = (stream: NodeJS.ReadableStream, encoding: string, delimiter: string) => parseDelimitedText(decodeNode(stream, encoding), delimiter);
-const rowObject = (headers: string[], values: string[]) => Object.fromEntries(headers.map((header, index) => [normalizeHeader(header), clean(values[index] ?? '')]));
-const rfbHeaders = (name: string) => /(Estabelecimentos|ESTABELE)/i.test(name) ? RFB_ESTABLISHMENT_HEADERS : RFB_COMPANY_HEADERS;
-const targetMatch = (cnpj: string, targets: Set<string>, roots: Set<string>) => cnpj.length === 14
-  ? targets.has(cnpj) || roots.has(cnpj.slice(0, 8))
-  :      instrument: pick(row, ['instrumento_financeiro']),
+    normalizedPayload = {
+      summary: `${entityName} · operação BNDES${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
+      contractNumber: pick(row, ['numero_do_contrato', 'numero do contrato']),
+      projectDescription: pick(row, ['descricao_do_projeto', 'descricao do projeto']),
+      disbursedAmount: parseNumber(pick(row, ['valor_desembolsado_reais'])),
+      financialCost: pick(row, ['custo_financeiro']),
+      interestRate: parseNumber(pick(row, ['juros'])),
+      graceMonths: parseNumber(pick(row, ['prazo_carencia_meses'])),
+      amortizationMonths: parseNumber(pick(row, ['prazo_amortizacao_meses'])),
+      product: pick(row, ['produto']),
+      instrument: pick(row, ['instrumento_financeiro']),
       customerSize: pick(row, ['porte_do_cliente']),
       financialAgent: pick(row, ['instituicao_financeira_credenciada']),
     };
@@ -435,38 +438,6 @@ const targetMatch = (cnpj: string, targets: Set<string>, roots: Set<string>) => 
     recordType = 'pgfn_debt';
     referenceDate = parseDate(pick(row, ['data_inscricao', 'data da inscricao'])) ?? referenceDate;
     amount = parseNumber(pick(row, ['valor_consolidado', 'valor consolidado', 'valor']));
-    status = pick(row, ['situacao_inscricao', 'situacao da inscricao', 'situacao']);
-    const registration = pick(row, ['numero_inscricao', 'numero da inscricao', 'inscricao']);
-    normalizedPayload = {
-      summary: `${entityName || entityCnpj} · dívida ativa${amount !== null ? ` · R$ ${
-    status = pick(row, ['situacao_da_operacao', 'situacao da operacao', 'situacao_do_contrato']);
-    'tipo de credito', 'tipo_de_divida']),
-      debtorRole: pick(row, ['tipo_devedor', 'tipo do devedor']),
-      responsibleUnit: pick(row, ['unidade_responsavel', 'uf_unidade_responsavel']),
-    };
-    identity = { entityCnpj, registration, referenceDate, amount, status };
-  } else if (datasetCode === 'cgu_ceis' || datasetCode === 'cgu_cnep') {
-    entityCnpj = digits(pick(row, ['cpf_cnpj_sancionado', 'cpf ou cnpj do sancionado', 'cpf_cnpj', 'documento']));
-    if (Months: parseNumber(pick(row, ['prazo_amortizacao_meses'])),
-      product: pick(row, ['produto']),
-      instrument: pick(row, ['instrumento_financeiro']),
-      customerSize: pick(row, ['porte_do_cliente']),
-      financialAgent: pick(row, ['instituicao_financeira_credenciada']),
-    };
-    identity = {
-      entityCnpj,
-      referenceDate,
-      amount,
-      contractNumber: normalized(pick(row, ['valor_multa', 'valor da multa']));
-    status = pick(row, ['situacao', 'status']);
-    const category = pick(row, ['categoria_sancao', 'categoria da sancao', 'tipo_sancao']);
-    const sanctioningBody = pick(row, ['orgao_sancionador', 'orgao sancionador']);
-    normalizedPayload = {
-      summary: `${entityName || entityCnpj} · ${datasetCode === 'cgu_ceis' ? 'CEIS' : 'CNEP'} · ${category}`,
-      category,
-      sanctioningBody,
-      startDate: referenceDate,
-      endDate: parseDate(pick(row, ['data_final_sancao', 'data fim ['valor_consolidado', 'valor consolidado', 'valor']));
     status = pick(row, ['situacao_inscricao', 'situacao da inscricao', 'situacao']);
     const registration = pick(row, ['numero_inscricao', 'numero da inscricao', 'inscricao']);
     normalizedPayload = {
@@ -504,51 +475,41 @@ const targetMatch = (cnpj: string, targets: Set<string>, roots: Set<string>) => 
       'cpf/cnpj fornecedor',
       'documento fornecedor',
     ]));
-    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj,)) return null;
-    entityName = clean(establishment ? row.nome_fantasia : row.razao_social);
-    recordType = establishment ? 'rfb_establishment_snapshot' : 'rfb_company_snapshot';
-    status = establishment ? clean(row.situacao_cadastral) : '';
-    amount = establishment ? null : parseNumber(row.capital_social);
-    normalizedPayload = establishment ? {
-      summary: `${entityName || entityCnpj} · estabelecimento RFB · situação ${status}`,
-      branchType: row.identificador_matriz_filial,
-      registrationStatus: status,
-      statusDate: parseDate(row.data_situacao_cadastral),
-      activityStartDate: parseDate(row.data_inicio_atividade),
-      primaryCnae: row.cnae_fiscal_principal,
-      state: row.uf,
-      municipalityCode: row.municipio,
-    } : {
-      summary: `${entityName || entityCnpj} · empresa RFB${amount !== null ? ` · capital R$ ${amount.toFixed(2)}` : ''}`,
-      legalNature: row.natureza_juridica,
-      capitalSocial: amount,
-      companySize: row.porte_empresa,
+    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = pick(row, ['nome_contratado', 'nome_fornecedor', 'razao_social_fornecedor']);
+    recordType = 'public_contract';
+    referenceDate = parseDate(pick(row, [
+      'data_assinatura_contrato',
+      'data_assinatura',
+      'data assinatura',
+      'data_inicio_da_vigencia',
+      'data_inicio_vigencia',
+    ])) ?? referenceDate;
+    amount = parseNumber(pick(row, [
+      'valor_final_da_compra',
+      'valor_inicial_da_compra',
+      'valor_global',
+      'valor contrato',
+      'valor_contrato',
+    ]));
+    status = pick(row, ['situacao_contrato', 'situacao', 'status_contrato']);
+    const contractNumber = pick(row, ['numero_do_contrato', 'numero_contrato', 'contrato']);
+    normalizedPayload = {
+      summary: `${entityName || entityCnpj} · contrato público ${contractNumber}${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
+      contractNumber,
+      object: pick(row, ['objeto', 'objeto_contrato']),
+      contractingBody: pick(row, [
+        'nome_orgao_superior',
+        'nome_orgao',
+        'nome_ug',
+        'orgao_superior',
+        'orgao_contratante',
+        'unidade_gestora',
+      ]),
+      endDate: parseDate(pick(row, ['data_fim_da_vigencia', 'data_fim_vigencia', 'data final vigencia'])),
+      initialAmount: parseNumber(pick(row, ['valor_inicial_da_compra'])),
+      finalAmount: parseNumber(pick(row, ['valor_final_da_compra'])),
     };
-    identity = { entityCnpj, recordType, referenceDate };
-  }
-
-  const recordKey = hash({ datasetCode, resource: resource.key, ...identity });
-  const contentHash = hash({ row, normalizedPayload });
-  return {
-    datasetCode,
-    sourceCode: SOURCE_CODES[datasetCode],
-    recordKey,
-    entityCnpj,
-    entityName: entityName || null,
-    recordType,
-    referenceDate,
-    amount,
-    status: status || null,
-    sourceUrl: resource.url,
-    resourceKey: resource.key,
-    contentHash,
-    rawPayload: row,
-    normalizedPayload,
-  };
-}
-
-async function consumeRows(input: {
-n    };
     identity = { entityCnpj, contractNumber, referenceDate, amount };
   } else {
     const root = digits(row.cnpj_basico).padStart(8, '0');
