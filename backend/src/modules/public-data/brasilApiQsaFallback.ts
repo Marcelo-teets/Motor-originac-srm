@@ -68,7 +68,7 @@ export const normalizeBrasilApiQsaPayload = (input: {
   const entityCnpj = digits(input.cnpj);
   const entityRoot = entityCnpj.slice(0, 8);
   const qsa = Array.isArray(input.payload.qsa) ? input.payload.qsa : [];
-  const referenceDate = input.observedAt.slice(0, 10);
+  const referenceDate = `${input.observedAt.slice(0, 7)}-01`;
 
   return qsa.flatMap((rawPartner, index) => {
     if (!rawPartner || typeof rawPartner !== 'object') return [];
@@ -99,6 +99,7 @@ export const normalizeBrasilApiQsaPayload = (input: {
       sourceProvider: 'BrasilAPI',
       sourceConfidence: SOURCE_CONFIDENCE,
       officialBulkUnavailable: true,
+      snapshotCadence: 'monthly',
       privacyTreatment: 'personal identifiers masked and fingerprinted before any persistence',
     };
     const rawPayload = {
