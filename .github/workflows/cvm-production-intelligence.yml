@@ -53,8 +53,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: capital-market-ingestion
-  cancel-in-progress: false
+  group: cvm-production-intelligence-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   EXTENDED_DATASETS: cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp
@@ -104,6 +104,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    concurrency:
+      group: capital-market-ingestion
+      cancel-in-progress: false
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
