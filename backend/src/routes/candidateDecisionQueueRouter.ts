@@ -7,7 +7,7 @@ export const createCandidateDecisionQueueRouter = (service: CandidateDecisionQue
   router.get('/', async (req, res, next) => {
     try {
       const data = await service.list({
-        queue: req.query.queue as 'commercial' | 'market_map' | 'identity' | 'promoted' | 'all' | undefined,
+        queue: req.query.queue as 'commercial' | 'market_map' | 'identity' | 'promoted' | 'reviewable' | 'all' | undefined,
         priority: req.query.priority ? String(req.query.priority) : undefined,
         search: req.query.search ? String(req.query.search) : undefined,
         limit: req.query.limit ? Number(req.query.limit) : undefined,
