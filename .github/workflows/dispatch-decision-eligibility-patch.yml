@@ -1,0 +1,41 @@
+name: Dispatch decision eligibility patch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/decision-surface-eligibility-hardening'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/decision-surface-eligibility-hardening
+          fetch-depth: 0
+      - name: Execute embedded patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/apply-decision-eligibility-patch.yml').read_text()
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end].splitlines())
+          exec(compile(script, 'embedded-decision-patch', 'exec'))
+          PY
+      - name: Commit patch and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name "openai-project-agent"
+          git config user.email "openai-project-agent@users.noreply.github.com"
+          git rm .github/workflows/apply-decision-eligibility-patch.yml .github/workflows/dispatch-decision-eligibility-patch.yml
+          git add backend/src/repositories/platformRepository.ts backend/src/services/platformService.ts
+          git commit -m "fix: filter production decision surfaces by eligibility"
+          git push origin HEAD:agent/decision-surface-eligibility-hardening
