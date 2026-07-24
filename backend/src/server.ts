@@ -11,10 +11,12 @@ import { getMaisRetornoQuotaStatus, quotaEnvelopeStatus } from './lib/maisRetorn
 import { createAiRouter } from './routes/aiRouter.js';
 import { createAbmWarRoomRouter } from './routes/abmWarRoomRouter.js';
 import { createWatchlistRouter } from './routes/watchlistRouter.js';
+import { createCandidateDecisionQueueRouter } from './routes/candidateDecisionQueueRouter.js';
 import { AbaService } from './services/abaService.js';
 import { PlatformService } from './services/platformService.js';
 import { SearchProfileCaptureService } from './services/searchProfileCaptureService.js';
 import { SearchProfileCaptureRuntime } from './services/searchProfileCaptureRuntime.js';
+import { CandidateDecisionQueueService } from './services/candidateDecisionQueueService.js';
 
 const app = express();
 app.use(cors());
@@ -28,6 +30,7 @@ const searchCaptureService = new SearchProfileCaptureService(searchCaptureRuntim
   refreshMonitoring: async (companyId) => service.refreshMonitoring(companyId),
   recomputeDerivedData: async (companyId) => service.recomputeDerivedData(companyId),
 });
+const candidateDecisionQueueService = new CandidateDecisionQueueService();
 const platformMode = env.useSupabase ? 'real' : 'partial';
 const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
@@ -70,6 +73,7 @@ app.use(authMiddleware);
 app.use('/ai', createAiRouter(service));
 app.use('/abm', createAbmWarRoomRouter());
 app.use('/watchlists', createWatchlistRouter(repository));
+app.use('/candidate-decision-queue', createCandidateDecisionQueueRouter(candidateDecisionQueueService));
 
 app.get('/auth/me', wrap(async (req, res) => {
   const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
