@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom';
 import { CompanyKnowledgePanel } from '../components/CompanyKnowledgePanel';
 import { CompanySemanticEvidencePanel } from '../components/CompanySemanticEvidencePanel';
 import { CompanyDetailPage } from './CompanyDetailPage';
+import '../styles/company-semantic-evidence.css';
 
 export function CompanyDetailKnowledgePage() {
   const { id = '' } = useParams();
