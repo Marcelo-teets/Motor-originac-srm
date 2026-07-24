@@ -14,6 +14,11 @@ on:
         required: false
         default: ''
         type: string
+      require_captcha_site_key:
+        description: Require full email/password Auth instead of accepting OAuth fallback
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -36,7 +41,7 @@ jobs:
     env:
       BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://motor-originac-srm.vercel.app' }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || github.event.deployment.sha }}
-      REQUIRE_CAPTCHA_SITE_KEY: 'true'
+      REQUIRE_CAPTCHA_SITE_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.require_captcha_site_key || false }}
 
     steps:
       - name: Checkout deployment contract
@@ -45,7 +50,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Run production Auth smoke
         run: node scripts/smoke-auth-production.mjs
