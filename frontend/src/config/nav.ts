@@ -130,6 +130,14 @@ export const navItems = [
     group: 'Operação & governança',
   },
   {
+    to: '/historical-archive',
+    label: 'Arquivo histórico',
+    shortLabel: 'Excel & retenção',
+    description: 'Catálogo GOD-MODE dos arquivos Excel, checksums, retenção e espaço liberado no Supabase.',
+    group: 'Operação & governança',
+    godOnly: true,
+  },
+  {
     to: '/profile',
     label: 'Meu perfil',
     shortLabel: 'Conta e preferências',
