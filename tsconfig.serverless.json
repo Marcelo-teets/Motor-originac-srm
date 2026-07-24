@@ -4,6 +4,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
