@@ -14,7 +14,7 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
-    "test:vercel-deploy-guard": "bash scripts/vercel-ignore-build.test.sh",
+    "test:vercel-deploy-guard": "node scripts/vercel-deployment-config.test.mjs && bash scripts/vercel-ignore-build.test.sh",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
     "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless"
   }
