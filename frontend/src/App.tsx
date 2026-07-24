@@ -11,6 +11,7 @@ import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { CompaniesPage } from './pages/CompaniesPage';
 import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
+import { DcmDailyOutreachPage } from './pages/DcmDailyOutreachPage';
 import { FidcMarketMapPage } from './pages/FidcMarketMapPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { KnowledgeLearningAgentPage } from './pages/KnowledgeLearningAgentPage';
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
+        <Route path="dcm-daily" element={<DcmDailyOutreachPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
         <Route path="knowledge-learning" element={<KnowledgeLearningAgentPage />} />
         <Route path="knowledge-search" element={<KnowledgeSearchPage />} />
