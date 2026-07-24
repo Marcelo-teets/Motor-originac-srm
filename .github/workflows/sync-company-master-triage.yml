@@ -1,0 +1,32 @@
+name: Sync company master triage with main
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sync-company-master-triage.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.head_ref == 'agent/company-master-triage'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/company-master-triage
+          fetch-depth: 0
+      - name: Merge current main and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "openai-project-agent"
+          git config user.email "openai-project-agent@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+          git rm .github/workflows/sync-company-master-triage.yml
+          git commit -m "chore: sync company master triage with current main"
+          git push origin HEAD:agent/company-master-triage
