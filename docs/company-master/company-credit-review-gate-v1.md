@@ -106,4 +106,6 @@ Próxima ação:
 
 A migration 108 está aplicada no Supabase e a revisão v1 da Creditas está aprovada. O Company Master registra `decision_eligible=true` e `decision_eligibility_reason=credit_review_approved`.
 
+A branch foi sincronizada com a `main` corrente e o contrato de comandos passou no CI anterior à sincronização. O CI definitivo precisa rodar sobre o head sincronizado antes do merge.
+
 A interface e o endpoint dependem do rollout da branch na Vercel. Enquanto o deployment não estiver confirmado, não declarar a tela como publicada.
