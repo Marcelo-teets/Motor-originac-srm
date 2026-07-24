@@ -1,0 +1,68 @@
+name: Materialize approved Creditas decision
+
+on:
+  push:
+    branches:
+      - agent/company-credit-review-gate
+    paths:
+      - .github/workflows/materialize-creditas-decision.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-creditas-decision
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.ref == 'refs/heads/agent/company-credit-review-gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      USE_SUPABASE: 'true'
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      COMPANY_ID: fdac3e35-1d23-41d1-a9fd-0376445d3992
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/company-credit-review-gate
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate governed Supabase configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_URL:-}" || (echo 'SUPABASE_URL is missing' >&2; exit 1)
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || (echo 'SUPABASE_SERVICE_ROLE_KEY is missing' >&2; exit 1)
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Materialize scoped official decision engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run ops:materialize-company-decision | tee /tmp/materialization.json
+          echo '### Creditas decision materialization' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 1 /tmp/materialization.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove one-time workflow after success
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'openai-project-agent'
+          git config user.email 'openai-project-agent@users.noreply.github.com'
+          git rm .github/workflows/materialize-creditas-decision.yml
+          git commit -m 'chore: remove one-time Creditas materialization workflow'
+          git push origin HEAD:agent/company-credit-review-gate
