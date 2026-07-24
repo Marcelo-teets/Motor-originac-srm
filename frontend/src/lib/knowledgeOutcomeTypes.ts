@@ -95,15 +95,42 @@ export type KnowledgeOutcomeIntelligence = {
   caveat: string;
 };
 
+export type OutcomePriorityBand = 'immediate' | 'high' | 'review' | 'low';
+export type OutcomeSuggestedHandling = 'capture_outcome_now' | 'review_context';
+export type OutcomeCaptureStatus = 'progress' | 'won' | 'lost' | 'blocked' | 'no_change';
+export type OutcomePipelineStage = 'Identified' | 'Qualified' | 'Approach' | 'Structuring' | 'Mandated' | 'ClosedWon' | 'ClosedLost' | 'Recycled';
+
+export type KnowledgeOutcomePriorityContext = {
+  pipelineId: string | null;
+  pipelineStage: string | null;
+  pipelinePriority: string | null;
+  expectedStructure: string | null;
+  expectedTicket: number | null;
+  leadScore: number | null;
+  leadBucket: string | null;
+  qualificationScore: number | null;
+  urgencyScore: number | null;
+  fundingNeedScore: number | null;
+  openTaskCount: number;
+  overdueTaskCount: number;
+  priorityScore: number;
+  priorityBand: OutcomePriorityBand;
+  priorityReasons: string[];
+  suggestedHandling: OutcomeSuggestedHandling;
+};
+
 export type KnowledgeOutcomeOperationsSummary = {
   pendingOutcomes: number;
   overdueTasks: number;
   dueSoonTasks: number;
   stalePipelines: number;
   adoptionCandidates: number;
+  immediateCandidates: number;
+  highPriorityCandidates: number;
+  dailyQueueItems: number;
 };
 
-export type KnowledgePendingOutcome = {
+export type KnowledgePendingOutcome = KnowledgeOutcomePriorityContext & {
   activityId: string;
   companyId: string;
   companyName: string;
@@ -149,7 +176,7 @@ export type KnowledgeStalePipeline = {
   reason: 'missing_next_action' | 'overdue_next_action' | string;
 };
 
-export type KnowledgeActivityAdoptionCandidate = {
+export type KnowledgeActivityAdoptionCandidate = KnowledgeOutcomePriorityContext & {
   activityId: string;
   companyId: string;
   companyName: string;
@@ -186,4 +213,27 @@ export type AdoptExistingActivityResult = {
   nodeTitle?: string;
   taskId?: string;
   contextMode: string;
+};
+
+export type CaptureExistingActivityOutcomeInput = {
+  activityId: string;
+  adoptionIdempotencyKey: string;
+  completionIdempotencyKey: string;
+  outcomeStatus: OutcomeCaptureStatus;
+  outcome: string;
+  nextAction: string | null;
+  dueAt: string | null;
+  targetStage: OutcomePipelineStage | null;
+  nodeId?: string | null;
+};
+
+export type CaptureExistingActivityOutcomeResult = {
+  status: 'completed' | 'already_completed';
+  activityId: string;
+  companyId: string;
+  adoptionStatus?: 'instrumented' | 'already_instrumented';
+  nodeId?: string;
+  contextMode?: string;
+  outcomeStatus: string | null;
+  completedAt: string | null;
 };
