@@ -1,10 +1,17 @@
 import type { SessionData } from './types';
 import type {
+  AdoptExistingActivityResult,
   FactorPipelineOutcome,
+  KnowledgeActivityAdoptionCandidate,
   KnowledgeOutcomeDimension,
   KnowledgeOutcomeIntelligence,
+  KnowledgeOutcomeOperations,
+  KnowledgeOutcomeOperationsSummary,
   KnowledgeOutcomeSummary,
+  KnowledgeOutcomeTask,
+  KnowledgePendingOutcome,
   KnowledgeRecentExecutionOutcome,
+  KnowledgeStalePipeline,
   OutcomeSampleQuality,
 } from './knowledgeOutcomeTypes';
 
@@ -19,6 +26,7 @@ const numberOrNull = (value: unknown): number | null => {
 };
 
 const numberOrZero = (value: unknown): number => numberOrNull(value) ?? 0;
+const stringOrNull = (value: unknown): string | null => value === null || value === undefined || value === '' ? null : String(value);
 
 const mapDimension = (row: Record<string, unknown>): KnowledgeOutcomeDimension => ({
   dimensionType: String(row.dimension_type ?? ''),
@@ -98,36 +106,113 @@ const mapRows = (value: unknown): Record<string, unknown>[] => Array.isArray(val
   ? value.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
   : [];
 
+const mapOperationsSummary = (row: Record<string, unknown>): KnowledgeOutcomeOperationsSummary => ({
+  pendingOutcomes: numberOrZero(row.pendingOutcomes),
+  overdueTasks: numberOrZero(row.overdueTasks),
+  dueSoonTasks: numberOrZero(row.dueSoonTasks),
+  stalePipelines: numberOrZero(row.stalePipelines),
+  adoptionCandidates: numberOrZero(row.adoptionCandidates),
+});
+
+const mapPendingOutcome = (row: Record<string, unknown>): KnowledgePendingOutcome => ({
+  activityId: String(row.activityId ?? ''),
+  companyId: String(row.companyId ?? ''),
+  companyName: String(row.companyName ?? ''),
+  nodeId: String(row.nodeId ?? ''),
+  nodeTitle: String(row.nodeTitle ?? ''),
+  activityType: String(row.activityType ?? ''),
+  title: String(row.title ?? ''),
+  description: stringOrNull(row.description),
+  ownerName: stringOrNull(row.ownerName),
+  occurredAt: String(row.occurredAt ?? ''),
+  contextMode: String(row.contextMode ?? 'reconstructed_current'),
+  taskId: stringOrNull(row.taskId),
+  taskStatus: stringOrNull(row.taskStatus),
+  dueAt: stringOrNull(row.dueAt),
+  ageDays: numberOrZero(row.ageDays),
+});
+
+const mapTask = (row: Record<string, unknown>): KnowledgeOutcomeTask => ({
+  taskId: String(row.taskId ?? ''),
+  companyId: String(row.companyId ?? ''),
+  companyName: String(row.companyName ?? ''),
+  pipelineId: stringOrNull(row.pipelineId),
+  title: String(row.title ?? ''),
+  description: stringOrNull(row.description),
+  status: String(row.status ?? ''),
+  priority: String(row.priority ?? ''),
+  dueAt: stringOrNull(row.dueAt),
+  ownerName: stringOrNull(row.ownerName),
+  knowledgeActivityId: stringOrNull(row.knowledgeActivityId),
+  isOutcomeTask: Boolean(row.isOutcomeTask),
+});
+
+const mapStalePipeline = (row: Record<string, unknown>): KnowledgeStalePipeline => ({
+  pipelineId: String(row.pipelineId ?? ''),
+  companyId: String(row.companyId ?? ''),
+  companyName: String(row.companyName ?? ''),
+  stage: String(row.stage ?? ''),
+  status: String(row.status ?? ''),
+  priority: String(row.priority ?? ''),
+  nextAction: stringOrNull(row.nextAction),
+  nextActionDueAt: stringOrNull(row.nextActionDueAt),
+  expectedStructure: stringOrNull(row.expectedStructure),
+  reason: String(row.reason ?? ''),
+});
+
+const mapAdoptionCandidate = (row: Record<string, unknown>): KnowledgeActivityAdoptionCandidate => ({
+  activityId: String(row.activityId ?? ''),
+  companyId: String(row.companyId ?? ''),
+  companyName: String(row.companyName ?? ''),
+  pipelineId: String(row.pipelineId ?? ''),
+  activityType: String(row.activityType ?? ''),
+  title: String(row.title ?? ''),
+  description: stringOrNull(row.description),
+  ownerName: stringOrNull(row.ownerName),
+  occurredAt: String(row.occurredAt ?? ''),
+  ageDays: numberOrZero(row.ageDays),
+  canAdopt: Boolean(row.canAdopt),
+});
+
+const rpc = async <T>(
+  session: SessionData | null,
+  functionName: string,
+  args: Record<string, unknown>,
+): Promise<T> => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Outcome Intelligence requer VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
+  }
+  if (!session?.access_token) throw new Error('Sessão autenticada necessária para Outcome Intelligence.');
+
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${functionName}`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(args),
+  });
+
+  const raw = await response.text();
+  const payload = raw ? JSON.parse(raw) as T | Record<string, unknown> : {};
+  if (!response.ok) {
+    const error = payload as Record<string, unknown>;
+    throw new Error(String(error.message ?? error.details ?? `${functionName} falhou com status ${response.status}.`));
+  }
+  return payload as T;
+};
+
 export const knowledgeOutcomeApi = {
   get: async (
     session: SessionData | null,
     companyId?: string,
     days = 365,
   ): Promise<KnowledgeOutcomeIntelligence> => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('Outcome Intelligence requer VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
-    }
-    if (!session?.access_token) throw new Error('Sessão autenticada necessária para Outcome Intelligence.');
-
-    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/knowledge_outcome_intelligence`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        p_company_id: companyId || null,
-        p_days: days,
-      }),
+    const payload = await rpc<Record<string, unknown>>(session, 'knowledge_outcome_intelligence', {
+      p_company_id: companyId || null,
+      p_days: days,
     });
-
-    const raw = await response.text();
-    const payload = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-    if (!response.ok) {
-      throw new Error(String(payload.message ?? payload.details ?? `Outcome Intelligence falhou com status ${response.status}.`));
-    }
-
     const dimensions = (payload.dimensions ?? {}) as Record<string, unknown>;
     return {
       generatedAt: String(payload.generatedAt ?? ''),
@@ -148,4 +233,39 @@ export const knowledgeOutcomeApi = {
       caveat: String(payload.caveat ?? 'Associações observacionais; não interpretar como causalidade.'),
     };
   },
+
+  getOperations: async (
+    session: SessionData | null,
+    companyId?: string,
+    days = 365,
+  ): Promise<KnowledgeOutcomeOperations> => {
+    const payload = await rpc<Record<string, unknown>>(session, 'knowledge_outcome_operations', {
+      p_company_id: companyId || null,
+      p_days: days,
+    });
+    return {
+      generatedAt: String(payload.generatedAt ?? ''),
+      scope: payload.scope === 'company' ? 'company' : 'global',
+      companyId: stringOrNull(payload.companyId),
+      windowDays: numberOrZero(payload.windowDays),
+      summary: mapOperationsSummary((payload.summary ?? {}) as Record<string, unknown>),
+      pendingOutcomes: mapRows(payload.pendingOutcomes).map(mapPendingOutcome),
+      overdueTasks: mapRows(payload.overdueTasks).map(mapTask),
+      dueSoonTasks: mapRows(payload.dueSoonTasks).map(mapTask),
+      stalePipelines: mapRows(payload.stalePipelines).map(mapStalePipeline),
+      adoptionCandidates: mapRows(payload.adoptionCandidates).map(mapAdoptionCandidate),
+      caveat: String(payload.caveat ?? 'A fila não cria resultados automaticamente.'),
+    };
+  },
+
+  adoptExistingActivity: (
+    session: SessionData | null,
+    activityId: string,
+    idempotencyKey: string,
+    nodeId?: string,
+  ) => rpc<AdoptExistingActivityResult>(session, 'knowledge_adopt_existing_activity', {
+    p_activity_id: activityId,
+    p_idempotency_key: idempotencyKey,
+    p_node_id: nodeId || null,
+  }),
 };
