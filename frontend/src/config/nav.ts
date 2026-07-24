@@ -60,9 +60,9 @@ export const navItems = [
   },
   {
     to: '/outcome-operations',
-    label: 'Outcome Operations',
-    shortLabel: 'Resultados e pendências',
-    description: 'Fila de resultados, tarefas vencidas, atividades históricas e aprendizado observado.',
+    label: 'Outcome Workbench',
+    shortLabel: 'Fila diária de resultados',
+    description: 'Prioridade explicável, captura guiada de outcomes e atualização auditável do pipeline.',
     group: 'Execução comercial',
   },
   {
