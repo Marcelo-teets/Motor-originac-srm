@@ -1,4 +1,6 @@
 import type { PlatformRepository } from '../repositories/platformRepository.js';
+import { env } from '../lib/env.js';
+import { selectMonitoringCompanies } from '../lib/boundedCapture.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
 import { CapturePersistenceService } from './capturePersistenceService.js';
 import { CaptureDerivedSyncService } from './captureDerivedSyncService.js';
@@ -18,11 +20,12 @@ export class CaptureRuntimeService {
   constructor(private readonly repository: PlatformRepository) {}
 
   async run(options: CaptureRuntimeOptions = {}) {
-    const [companies, sources, patternCatalog] = await Promise.all([
+    const [allCompanies, sources, patternCatalog] = await Promise.all([
       this.repository.listCompanies(),
       this.repository.listSources(),
       this.repository.listPatternCatalog(),
     ]);
+    const companies = selectMonitoringCompanies(allCompanies, env.useSupabase);
 
     const targetCompanies = options.companyId
       ? companies.filter((company) => company.id === options.companyId)
@@ -31,6 +34,13 @@ export class CaptureRuntimeService {
     const targetSources = options.sourceId
       ? sources.filter((source) => source.id === options.sourceId)
       : sources;
+
+    if (options.companyId && !targetCompanies.length) {
+      throw new Error(`Company is not monitoring-eligible or was not found: ${options.companyId}`);
+    }
+    if (options.sourceId && !targetSources.length) {
+      throw new Error(`Source was not found: ${options.sourceId}`);
+    }
 
     const captureResults = await this.engine.run({
       companyId: options.companyId,
@@ -41,6 +51,8 @@ export class CaptureRuntimeService {
 
     const reason = options.reason ?? options.triggerType ?? 'manual';
     const persisted = await this.persistence.persist(captureResults, reason);
+    // Identity-approved companies may be monitored and enriched, but the
+    // downstream service keeps qualification/score/ranking gated separately.
     const derived = await this.derivedSync.sync({
       companies: targetCompanies,
       patternCatalog,
