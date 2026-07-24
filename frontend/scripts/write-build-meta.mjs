@@ -27,6 +27,7 @@ const deploymentEnvironment = (
 const captchaEnabled = env.VITE_CAPTCHA_ENABLED !== 'false';
 const captchaProvider = (env.VITE_CAPTCHA_PROVIDER || 'turnstile').trim().toLowerCase();
 const captchaSiteKeyConfigured = Boolean((env.VITE_CAPTCHA_SITE_KEY || '').trim());
+const emailPasswordConfigured = !captchaEnabled || captchaSiteKeyConfigured;
 
 const metadata = {
   schemaVersion: 1,
@@ -35,6 +36,9 @@ const metadata = {
   branch,
   environment: deploymentEnvironment,
   auth: {
+    mode: emailPasswordConfigured ? 'full' : 'oauth_fallback',
+    emailPasswordConfigured,
+    oauthFallbackSupported: true,
     routes: [
       '/login',
       '/forgot-password',
