@@ -11,6 +11,7 @@ import {
   type NormalizedCapitalMarketRecord,
 } from './cvmDatasetRegistry.js';
 import { decodeBuffer, extractZipEntries, parseCsv } from './cvmFileParser.js';
+import { fetchCvmWithRetry } from './cvmHttp.js';
 
 export {
   CVM_DATASETS,
@@ -264,11 +265,13 @@ export const fetchCvmResourceRecords = async (input: {
   observedAt?: string;
 }): Promise<NormalizedCapitalMarketRecord[]> => {
   const observedAt = input.observedAt ?? new Date().toISOString();
-  const response = await fetch(input.resource.url, {
+  const response = await fetchCvmWithRetry(input.resource.url, {
     headers: {
       accept: 'application/zip,text/csv,text/plain,*/*',
-      'user-agent': 'Motor-Origination/1.0',
     },
+  }, {
+    label: `${input.datasetCode} resource ${input.resource.name}`,
+    timeoutMs: 120_000,
   });
   if (!response.ok) throw new Error(`CVM resource failed: ${response.status} ${input.resource.url}`);
   const buffer = Buffer.from(await response.arrayBuffer());
