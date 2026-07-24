@@ -1,0 +1,100 @@
+  let identity: Record<string, unknown> = {};
+  let normalizedPayload: Record<string, unknown> = {};
+
+  if (datasetCode === 'bndes_financing_operations') {
+    entityCnpj = digits(pick(row, ['cpf_cnpj', 'cpf/cnpj', 'cnpj', 'cnpj_do_cliente']));
+    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = pick(row, ['cliente']);
+    recordType = 'bndes_financing';
+    referenceDate = parseDate(pick(row, ['data_da_contratacao', 'data da contratacao'])) ?? referenceDate;
+    amount = parseNumber(pick(row, ['valor_da_operacao_em_reais', 'valor da operacao em reais', 'valor_contratado_reais']));
+    status = pick(row, ['situacao_da_operacao', 'situacao da operacao', 'situacao_do_contrato']);
+    normalizedPayload = {
+      summary: `${entityName} · operação BNDES${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
+      contractNumber: pick(row, ['numero_do_contrato', 'numero do contrato']),
+      projectDescription: pick(row, ['descricao_do_projeto', 'descricao do projeto']),
+      disbursedAmount: parseNumber(pick(row, ['valor_desembolsado_reais'])),
+      financialCost: pick(row, ['custo_financeiro']),
+      interestRate: parseNumber(pick(row, ['juros'])),
+      graceMonths: parseNumber(pick(row, ['prazo_carencia_meses'])),
+      amortizationMonths: parseNumber(pick(row, ['prazo_amortizacao_meses'])),
+      product: pick(row, ['produto']),
+      instrument: pick(row, ['instrumento_financeiro']),
+      customerSize: pick(row, ['porte_do_cliente']),
+      financialAgent: pick(row, ['instituicao_financeira_credenciada']),
+    };
+    identity = {
+      entityCnpj,
+      referenceDate,
+      amount,
+      contractNumber: normalizedPayload.contractNumber,
+      product: normalizedPayload.product,
+      instrument: normalizedPayload.instrument,
+    };
+  } else if (datasetCode === 'pgfn_debt') {
+    entityCnpj = digits(pick(row, ['cpf_cnpj', 'cpf/cnpj', 'cpf ou cnpj', 'numero_documento']));
+    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = pick(row, ['nome_devedor', 'nome do devedor', 'devedor']);
+    recordType = 'pgfn_debt';
+    referenceDate = parseDate(pick(row, ['data_inscricao', 'data da inscricao'])) ?? referenceDate;
+    amount = parseNumber(pick(row, ['valor_consolidado', 'valor consolidado', 'valor']));
+    status = pick(row, ['situacao_inscricao', 'situacao da inscricao', 'situacao']);
+    const registration = pick(row, ['numero_inscricao', 'numero da inscricao', 'inscricao']);
+    normalizedPayload = {
+      summary: `${entityName || entityCnpj} · dívida ativa${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''} · ${status}`,
+      registration,
+      debtType: pick(row, ['tipo_credito', 'tipo de credito', 'tipo_de_divida']),
+      debtorRole: pick(row, ['tipo_devedor', 'tipo do devedor']),
+      responsibleUnit: pick(row, ['unidade_responsavel', 'uf_unidade_responsavel']),
+    };
+    identity = { entityCnpj, registration, referenceDate, amount, status };
+  } else if (datasetCode === 'cgu_ceis' || datasetCode === 'cgu_cnep') {
+    entityCnpj = digits(pick(row, ['cpf_cnpj_sancionado', 'cpf ou cnpj do sancionado', 'cpf_cnpj', 'documento']));
+    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = pick(row, ['nome_sancionado', 'nome do sancionado', 'razao_social']);
+    recordType = datasetCode;
+    referenceDate = parseDate(pick(row, ['data_inicio_sancao', 'data inicio sancao', 'data_inicio'])) ?? referenceDate;
+    amount = parseNumber(pick(row, ['valor_multa', 'valor da multa']));
+    status = pick(row, ['situacao', 'status']);
+    const category = pick(row, ['categoria_sancao', 'categoria da sancao', 'tipo_sancao']);
+    const sanctioningBody = pick(row, ['orgao_sancionador', 'orgao sancionador']);
+    normalizedPayload = {
+      summary: `${entityName || entityCnpj} · ${datasetCode === 'cgu_ceis' ? 'CEIS' : 'CNEP'} · ${category}`,
+      category,
+      sanctioningBody,
+      startDate: referenceDate,
+      endDate: parseDate(pick(row, ['data_final_sancao', 'data fim sancao', 'data_final'])),
+      legalBasis: pick(row, ['fundamentacao_legal', 'fundamentacao legal']),
+    };
+    identity = { entityCnpj, category, sanctioningBody, referenceDate };
+  } else if (datasetCode === 'compras_contracts') {
+    entityCnpj = digits(pick(row, [
+      'codigo_contratado',
+      'cnpj_contratado',
+      'cpf_cnpj_fornecedor',
+      'cpf/cnpj fornecedor',
+      'documento fornecedor',
+    ]));
+    if (entityCnpj.length !== 14 || !targetMatch(entityCnpj, targetCnpjs, targetRoots)) return null;
+    entityName = pick(row, ['nome_contratado', 'nome_fornecedor', 'razao_social_fornecedor']);
+    recordType = 'public_contract';
+    referenceDate = parseDate(pick(row, [
+      'data_assinatura_contrato',
+      'data_assinatura',
+      'data assinatura',
+      'data_inicio_da_vigencia',
+      'data_inicio_vigencia',
+    ])) ?? referenceDate;
+    amount = parseNumber(pick(row, [
+      'valor_final_da_compra',
+      'valor_inicial_da_compra',
+      'valor_global',
+      'valor contrato',
+      'valor_contrato',
+    ]));
+    status = pick(row, ['situacao_contrato', 'situacao', 'status_contrato']);
+    const contractNumber = pick(row, ['numero_do_contrato', 'numero_contrato', 'contrato']);
+    normalizedPayload = {
+      summary: `${entityName || entityCnpj} · contrato público ${contractNumber}${amount !== null ? ` · R$ ${amount.toFixed(2)}` : ''}`,
+      contractNumber,
+      object: pick(row, ['objeto', 'objeto_contrato']),
