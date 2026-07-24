@@ -1,34 +1,28 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD",
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "installCommand": "npm install",
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "framework": null,
   "functions": {
     "api/index.ts": {
-      "maxDuration": 30,
-      "memory": 512
+      "maxDuration": 30
     },
     "api/capital-market-run.ts": {
-      "maxDuration": 30,
-      "memory": 1024
+      "maxDuration": 30
     },
     "api/capital-market-health.ts": {
-      "maxDuration": 15,
-      "memory": 512
+      "maxDuration": 15
     },
     "api/public-data-operations.ts": {
-      "maxDuration": 15,
-      "memory": 512
+      "maxDuration": 15
     },
     "api/strategic-public-data-run.ts": {
-      "maxDuration": 300,
-      "memory": 2048
+      "maxDuration": 300
     },
     "api/agentetome.ts": {
-      "maxDuration": 30,
-      "memory": 512
+      "maxDuration": 30
     }
   },
   "crons": [
