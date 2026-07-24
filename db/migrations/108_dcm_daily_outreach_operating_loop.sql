@@ -1,11 +1,52 @@
 -- 108_dcm_daily_outreach_operating_loop.sql
 -- Aplica a rotina diária de leads DCM, o Business Analyst Agent e o loop de aprendizado de escrita.
+-- Esta migration é autossuficiente para ambientes que não receberam a migration histórica 020.
 
 create extension if not exists pgcrypto;
 
+create table if not exists public.origination_os_artifacts (
+  id text primary key,
+  artifact_type text not null,
+  title text not null,
+  description text,
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'active',
+  version text not null default '2026.05.28',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_origination_os_artifacts_type
+  on public.origination_os_artifacts (artifact_type);
+
+create index if not exists idx_origination_os_artifacts_payload
+  on public.origination_os_artifacts using gin (payload);
+
+alter table public.origination_os_artifacts enable row level security;
+
+drop policy if exists origination_os_artifacts_read_authenticated on public.origination_os_artifacts;
+drop policy if exists origination_os_artifacts_write_service_role on public.origination_os_artifacts;
+
+create policy origination_os_artifacts_read_authenticated
+on public.origination_os_artifacts
+for select
+to authenticated
+using (true);
+
+create policy origination_os_artifacts_write_service_role
+on public.origination_os_artifacts
+for all
+to service_role
+using (true)
+with check (true);
+
+revoke all on table public.origination_os_artifacts from public, anon;
+grant select on table public.origination_os_artifacts to authenticated;
+grant select, insert, update, delete on table public.origination_os_artifacts to service_role;
+
 create table if not exists public.dcm_daily_leads (
   id uuid primary key default gen_random_uuid(),
-  company_id text references public.companies(id) on delete cascade,
+  company_id uuid references public.companies(id) on delete cascade,
   contact_name text not null,
   contact_role text,
   linkedin_url text,
@@ -59,7 +100,9 @@ create table if not exists public.dcm_outreach_feedback (
 create index if not exists idx_dcm_outreach_feedback_status
   on public.dcm_outreach_feedback (feedback_status, created_at desc);
 
-create or replace view public.dcm_daily_outreach_queue_v as
+create or replace view public.dcm_daily_outreach_queue_v
+with (security_invoker = true)
+as
 select
   lead.id,
   lead.generated_on,
@@ -92,59 +135,6 @@ left join public.companies company on company.id = lead.company_id;
 
 alter table public.dcm_daily_leads enable row level security;
 alter table public.dcm_outreach_feedback enable row level security;
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'dcm_daily_leads'
-      and policyname = 'dcm_daily_leads_authenticated_read'
-  ) then
-    create policy dcm_daily_leads_authenticated_read
-      on public.dcm_daily_leads
-      for select
-      using (auth.role() in ('authenticated', 'service_role'));
-  end if;
-
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'dcm_daily_leads'
-      and policyname = 'dcm_daily_leads_authenticated_write'
-  ) then
-    create policy dcm_daily_leads_authenticated_write
-      on public.dcm_daily_leads
-      for all
-      using (auth.role() in ('authenticated', 'service_role'))
-      with check (auth.role() in ('authenticated', 'service_role'));
-  end if;
-
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'dcm_outreach_feedback'
-      and policyname = 'dcm_outreach_feedback_authenticated_read'
-  ) then
-    create policy dcm_outreach_feedback_authenticated_read
-      on public.dcm_outreach_feedback
-      for select
-      using (auth.role() in ('authenticated', 'service_role'));
-  end if;
-
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'dcm_outreach_feedback'
-      and policyname = 'dcm_outreach_feedback_authenticated_write'
-  ) then
-    create policy dcm_outreach_feedback_authenticated_write
-      on public.dcm_outreach_feedback
-      for all
-      using (auth.role() in ('authenticated', 'service_role'))
-      with check (auth.role() in ('authenticated', 'service_role'));
-  end if;
-end $$;
 
 insert into public.origination_os_artifacts (id, artifact_type, title, description, payload, status, version)
 values
@@ -201,6 +191,7 @@ on conflict (id) do update set
   version = excluded.version,
   updated_at = now();
 
+comment on table public.origination_os_artifacts is 'Contratos versionados do Origination Operating System.';
 comment on table public.dcm_daily_leads is 'Fila diária auditável de leads e abordagens DCM.';
 comment on table public.dcm_outreach_feedback is 'Comparação entre mensagem gerada e mensagem enviada para aprendizado de escrita.';
-comment on view public.dcm_daily_outreach_queue_v is 'Visão operacional da fila diária DCM com sinalização de feedback pendente.';
+comment on view public.dcm_daily_outreach_queue_v is 'Visão operacional da fila diária DCM; executa com privilégios do usuário e respeita RLS.';
