@@ -1,0 +1,85 @@
+name: ANBIMA Public Data Probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/anbima-public-data-probe.yml
+      - scripts/probe-anbima-public.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anbima-public-data-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install ephemeral Playwright probe runtime
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.54.1
+          npx playwright install --with-deps chromium
+
+      - name: Guard public-only probe contract
+        shell: bash
+        run: |
+          grep -F "https://data.anbima.com.br" scripts/probe-anbima-public.mjs
+          ! grep -E "SUPABASE_|ANBIMA_CLIENT|ANBIMA_SECRET|authorization" scripts/probe-anbima-public.mjs
+          ! grep -E "insert\(|upsert\(|delete\(" scripts/probe-anbima-public.mjs
+
+      - name: Probe ANBIMA public pages and network contracts
+        id: probe
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set +e
+          node scripts/probe-anbima-public.mjs > artifacts/anbima-probe.stdout 2> artifacts/anbima-probe.stderr
+          STATUS=$?
+          cat artifacts/anbima-probe.stdout || true
+          cat artifacts/anbima-probe.stderr >&2 || true
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+
+      - name: Upload sanitized ANBIMA diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anbima-public-data-probe-${{ github.run_attempt }}
+          path: |
+            artifacts/anbima-probe/anbima-public-probe.json
+            artifacts/anbima-probe/*.png
+            artifacts/anbima-probe.stdout
+            artifacts/anbima-probe.stderr
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize probe
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## ANBIMA public data probe"
+            echo
+            echo "- exit status: \`${{ steps.probe.outputs.status || 'not_started' }}\`"
+            echo "- scope: public ANBIMA Data website only"
+            echo "- paid ANBIMA Feed API: excluded"
+            echo "- credentials: none"
+            echo "- persistence: disabled"
+            echo "- captured content: endpoint metadata, response shapes and screenshots"
+          } >> "$GITHUB_STEP_SUMMARY"
