@@ -19,7 +19,6 @@ declare
   v_bronze_written integer := 0;
   v_records_written integer := 0;
   v_outputs_written integer := 0;
-  v_outputs_available integer := 0;
 begin
   select * into v_company
   from public.companies
@@ -67,7 +66,11 @@ begin
        or item.record #>> '{normalizedPayload,sourceProvider}' <> 'BrasilAPI'
        or coalesce((item.record #>> '{normalizedPayload,sourceConfidence}')::numeric, 0) <= 0
        or coalesce((item.record #>> '{normalizedPayload,sourceConfidence}')::numeric, 0) > 0.85
-       or item.record::text ~ '"[0-9]{11}"|"[0-9]{14}"'
+       or exists (
+         select 1
+         from jsonb_each_text(coalesce(item.record -> 'rawPayload', '{}'::jsonb)) field
+         where field.value ~ '^[0-9]{11}$|^[0-9]{14}$'
+       )
   ) then
     raise exception 'QSA fallback record failed provenance, confidence, entity or privacy validation.';
   end if;
@@ -173,23 +176,8 @@ begin
     'real',
     'observed'
   from jsonb_array_elements(p_records) item(record)
-  where not exists (
-    select 1
-    from public.monitoring_outputs existing
-    where existing.company_id = p_company_id
-      and existing.source_id = v_source.id
-      and existing.payload ->> 'publicRecordKey' = item.record ->> 'recordKey'
-  );
+  on conflict do nothing;
   get diagnostics v_outputs_written = row_count;
-
-  select count(*) into v_outputs_available
-  from public.monitoring_outputs existing
-  where existing.company_id = p_company_id
-    and existing.source_id = v_source.id
-    and existing.payload ->> 'publicRecordKey' in (
-      select item.record ->> 'recordKey'
-      from jsonb_array_elements(p_records) item(record)
-    );
 
   update public.source_catalog
   set name = 'BrasilAPI CNPJ',
@@ -219,7 +207,6 @@ begin
     'bronzeRowsWritten', v_bronze_written,
     'recordsWritten', v_records_written,
     'outputsWritten', v_outputs_written,
-    'outputsAvailable', v_outputs_available,
     'signalsWritten', 0,
     'observedAt', p_observed_at
   );
