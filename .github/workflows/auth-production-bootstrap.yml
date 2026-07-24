@@ -1,11 +1,10 @@
 name: Auth Production Bootstrap
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/auth-production-bootstrap.yml
+  workflow_dispatch:
+  schedule:
+    # 25/07/2026 14:05 America/Sao_Paulo, after the Vercel quota reset.
+    - cron: '5 17 25 7 *'
 
 permissions:
   contents: read
@@ -26,21 +25,36 @@ jobs:
       VERCEL_PROJECT_NAME: motor-originac-srm
       VERCEL_REPOSITORY_ID: '1185535233'
       VERCEL_REPOSITORY_REF: main
-      REQUESTED_SHA: ${{ github.sha }}
+      REQUESTED_SHA: 7a3fc3d9609e184ff6db535329fe0da02d563155
 
     steps:
-      - name: Checkout exact main SHA
+      - name: Gate the one-time scheduled execution
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%F)" = "2026-07-25" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "One-time production bootstrap window has already passed."
+          fi
+
+      - name: Checkout exact approved SHA
+        if: steps.gate.outputs.deploy == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.REQUESTED_SHA }}
           fetch-depth: 1
 
       - name: Setup Node.js
+        if: steps.gate.outputs.deploy == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
       - name: Validate protected production input
+        if: steps.gate.outputs.deploy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -58,9 +72,11 @@ jobs:
           }
 
       - name: Confirm automatic Git deployments are paused
+        if: steps.gate.outputs.deploy == 'true'
         run: node scripts/vercel-production-control.mjs status
 
       - name: Create exactly one production deployment
+        if: steps.gate.outputs.deploy == 'true'
         run: >-
           node scripts/vercel-production-control.mjs
           deploy-production
@@ -70,5 +86,5 @@ jobs:
           --poll-seconds=10
 
       - name: Keep automatic deployments disabled
-        if: always()
+        if: always() && steps.gate.outputs.deploy == 'true'
         run: node scripts/vercel-production-control.mjs disable-auto
