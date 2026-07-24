@@ -7,22 +7,26 @@ on:
       - .github/workflows/cvm-production-intelligence.yml
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/capitalMarketBatchPersistence.test.ts
       - backend/src/services/cvmProductionIntelligence.test.ts
       - db/migrations/125_cvm_production_intelligence_foundation.sql
       - db/migrations/126_cvm_production_intelligence_signals.sql
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
       - db/migrations/128_cvm_explicit_candidate_delivery.sql
+      - db/migrations/129_cvm_atomic_batch_persistence.sql
   push:
     branches: [main]
     paths:
       - .github/workflows/cvm-production-intelligence.yml
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/services/capitalMarketBatchPersistence.test.ts
       - backend/src/services/cvmProductionIntelligence.test.ts
       - db/migrations/125_cvm_production_intelligence_foundation.sql
       - db/migrations/126_cvm_production_intelligence_signals.sql
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
       - db/migrations/128_cvm_explicit_candidate_delivery.sql
+      - db/migrations/129_cvm_atomic_batch_persistence.sql
   schedule:
     - cron: "15 11 * * 2"
   workflow_dispatch:
@@ -97,6 +101,7 @@ jobs:
           npm exec -- tsx --test
           src/modules/capital-markets/cvmCapitalMarketConnector.test.ts
           src/services/capitalMarketIngestionService.test.ts
+          src/services/capitalMarketBatchPersistence.test.ts
           src/services/cvmProductionIntelligence.test.ts
 
   ingest:
