@@ -13,6 +13,7 @@ on:
       - backend/src/modules/public-data/strategicPublicDatasetConnector.ts
       - backend/src/modules/public-data/strategicPublicDatasetConnector.test.ts
       - backend/src/services/strategicPublicIngestionService.ts
+      - backend/src/services/strategicPublicIngestionService.test.ts
       - backend/src/services/publicDataDownstreamService.ts
   schedule:
     # Receita QSA: mensal e particionada. CVM FRE roda na Vercel.
@@ -80,9 +81,9 @@ jobs:
             echo "Static backend imports are not allowed in the Vercel CommonJS wrapper. Use dynamic import()."
             exit 1
           fi
-      - name: Test bounded ZIP reader and strategic connector
+      - name: Test strategic public-data runtime
         working-directory: backend
-        run: npx tsx --test src/lib/zipArchive.test.ts src/modules/public-data/strategicPublicDatasetConnector.test.ts
+        run: npx tsx --test src/lib/zipArchive.test.ts src/modules/public-data/strategicPublicDatasetConnector.test.ts src/services/strategicPublicIngestionService.test.ts
       - name: Probe official CVM FRE archive without persistence
         working-directory: backend
         run: npx tsx src/cli/probeStrategicPublicData.ts --reference 2026

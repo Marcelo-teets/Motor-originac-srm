@@ -266,6 +266,18 @@ Após `ROLLBACK`:
 - nenhuma tabela paralela;
 - RLS das tabelas oficiais permanece soberana.
 
+## Rollout validado
+
+- PR funcional: `#234`;
+- commit da main: `e1172055adbf01d5fad9d9e1ff3c204ea676acf5`;
+- CI: workflow `#584`, typecheck e build concluídos com sucesso;
+- preview: `dpl_H29GP4ZUwxuj4YzxwjKtXL9SwWUQ`;
+- produção: `dpl_BWHpdvCMFX69neGzCJ91Jbuz42E2`;
+- domínio canônico: `motor-originac-srm.vercel.app`;
+- rota `/outcome-operations`: HTTP 200;
+- runtime de produção: sem warnings, errors ou fatals;
+- banco após rollout: 15 itens na fila, 13 atividades elegíveis, 1 imediata, 9 altas ou imediatas, 0 outcomes sintéticos e 0 adoções automáticas.
+
 ## Critérios de aceite
 
 - [x] migration aplicada no Supabase real;
@@ -278,7 +290,7 @@ Após `ROLLBACK`:
 - [x] smoke autenticado com rollback;
 - [x] zero resíduos de teste;
 - [x] frontend com captura inline;
-- [ ] CI da PR funcional;
-- [ ] preview Vercel;
-- [ ] merge na main;
-- [ ] produção canônica validada.
+- [x] CI da PR funcional;
+- [x] preview Vercel;
+- [x] merge na main;
+- [x] produção canônica validada.
