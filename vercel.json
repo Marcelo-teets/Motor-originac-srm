@@ -35,8 +35,8 @@
       "memory": 2048
     },
     "api/agentetome.ts": {
-      "maxDuration": 30,
-      "memory": 512
+      "maxDuration": 300,
+      "memory": 1024
     }
   },
   "crons": [
@@ -73,6 +73,10 @@
     {
       "source": "/api/sources/qsa-fallback-run",
       "destination": "/api/strategic-public-data-run?mode=qsa-fallback"
+    },
+    {
+      "source": "/api/knowledge-learning-agent",
+      "destination": "/api/agentetome?operation=knowledge-learning"
     },
     {
       "source": "/api/sources/agentetome",

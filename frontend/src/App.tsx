@@ -13,6 +13,7 @@ import { CompanyDetailKnowledgePage } from './pages/CompanyDetailKnowledgePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FidcMarketMapPage } from './pages/FidcMarketMapPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { KnowledgeLearningAgentPage } from './pages/KnowledgeLearningAgentPage';
 import { KnowledgeSearchPage } from './pages/KnowledgeSearchPage';
 import { KnowledgeVaultPage } from './pages/KnowledgeVaultPage';
 import { LoginPage } from './pages/LoginPage';
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
+        <Route path="knowledge-learning" element={<KnowledgeLearningAgentPage />} />
         <Route path="knowledge-search" element={<KnowledgeSearchPage />} />
         <Route path="outcome-operations" element={<OutcomeOperationsPage />} />
         <Route path="pipeline" element={portfolioGate(<PipelinePage />)} />

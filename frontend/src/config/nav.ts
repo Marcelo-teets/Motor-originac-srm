@@ -60,6 +60,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/knowledge-learning',
+    label: 'Knowledge Learning AI',
+    shortLabel: 'IA dos mind maps',
+    description: 'Fila, runs e auditoria do agente que atualiza mapas vivos a partir de buscas e capturas.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/knowledge-search',
     label: 'Busca do Vault',
     shortLabel: 'Busca híbrida',
