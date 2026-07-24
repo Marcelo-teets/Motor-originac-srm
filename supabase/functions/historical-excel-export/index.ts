@@ -1,12 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import ExcelJS from "npm:exceljs@4.4.0";
 
-const RUNTIME = "historical-excel-export-v3";
+const RUNTIME = "historical-excel-export-v4";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ARCHIVE_BUCKET = "historical-excel-archive";
-const MAX_CELL_CHARS = 32000;
-const MAX_ROWS_PER_INVOCATION = 1000;
+const MAX_CELL_CHARS = 32_000;
+const MAX_ROWS_PER_INVOCATION = 1_000;
 const encoder = new TextEncoder();
 
 const TABLE_CONFIG: Record<string, { dateColumn: string; datasetColumn?: string }> = {
@@ -45,7 +45,10 @@ async function sha256Hex(value: string | Uint8Array): Promise<string> {
 }
 
 async function supabaseFetch(path: string, init: RequestInit = {}): Promise<any> {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error("supabase_runtime_credentials_missing");
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    throw new Error("supabase_runtime_credentials_missing");
+  }
+
   const response = await fetch(`${SUPABASE_URL}${path}`, {
     ...init,
     headers: {
@@ -74,20 +77,19 @@ async function claimToken(rawToken: string): Promise<Record<string, any>> {
     body: JSON.stringify({ p_token_hash: await sha256Hex(rawToken) }),
   });
   if (!claim?.metadata) throw new Error("expired_or_consumed_archive_token");
-  return claim.metadata as Record<string, any>;
-}
-
-function storageObjectPath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  return claim.metadata;
 }
 
 function slug(value: string): string {
-  return value
-    .normalize("NFD")
+  return value.normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "all";
+}
+
+function storageObjectPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 function splitCell(value: unknown): unknown[] {
@@ -95,6 +97,7 @@ function splitCell(value: unknown): unknown[] {
   if (typeof value === "number" || typeof value === "boolean") return [value];
   const text = typeof value === "object" ? JSON.stringify(value) : String(value);
   if (text.length <= MAX_CELL_CHARS) return [text];
+
   const parts: string[] = [];
   for (let offset = 0; offset < text.length; offset += MAX_CELL_CHARS) {
     parts.push(text.slice(offset, offset + MAX_CELL_CHARS));
@@ -120,19 +123,19 @@ function expandRows(rows: Record<string, unknown>[]): {
 
   const maxParts = new Map<string, number>();
   const splitRows = rows.map((row) => {
-    const split: Record<string, unknown[]> = {};
+    const result: Record<string, unknown[]> = {};
     for (const column of baseColumns) {
       const parts = splitCell(row[column]);
-      split[column] = parts;
+      result[column] = parts;
       maxParts.set(column, Math.max(maxParts.get(column) ?? 1, parts.length));
     }
-    return split;
+    return result;
   });
 
   const headers: string[] = [];
   for (const column of baseColumns) {
-    const count = maxParts.get(column) ?? 1;
-    for (let part = 1; part <= count; part += 1) {
+    const partCount = maxParts.get(column) ?? 1;
+    for (let part = 1; part <= partCount; part += 1) {
       headers.push(part === 1 ? column : `${column}__part_${part}`);
     }
   }
@@ -141,13 +144,22 @@ function expandRows(rows: Record<string, unknown>[]): {
     const output: unknown[] = [];
     for (const column of baseColumns) {
       const parts = row[column] ?? [""];
-      const count = maxParts.get(column) ?? 1;
-      for (let part = 0; part < count; part += 1) output.push(parts[part] ?? "");
+      const partCount = maxParts.get(column) ?? 1;
+      for (let part = 0; part < partCount; part += 1) {
+        output.push(parts[part] ?? "");
+      }
     }
     return output;
   });
 
   return { headers, values, baseColumns };
+}
+
+function resolveOrderColumn(tableName: string, datasetCode: string | null): string {
+  if (datasetCode && ["capital_market_events", "bronze_historical_records"].includes(tableName)) {
+    return "record_key";
+  }
+  return "id";
 }
 
 async function buildWorkbook(input: {
@@ -156,7 +168,7 @@ async function buildWorkbook(input: {
   datasetCode: string | null;
   cutoffAt: string;
   partNumber: number;
-  offset: number;
+  cursor: string | null;
   rows: Record<string, unknown>[];
 }): Promise<{
   bytes: Uint8Array;
@@ -177,7 +189,7 @@ async function buildWorkbook(input: {
     ["Dataset", input.datasetCode ?? "*"],
     ["Corte", input.cutoffAt],
     ["Parte", input.partNumber],
-    ["Offset inicial", input.offset],
+    ["Cursor inicial", input.cursor ?? "<início>"],
     ["Linhas", input.rows.length],
     ["Regra", "Nenhuma limpeza no Supabase deve ocorrer antes de status verified e checksum SHA-256 válido."],
   ]);
@@ -186,18 +198,18 @@ async function buildWorkbook(input: {
   readme.getRow(1).font = { bold: true, size: 16 };
   readme.mergeCells("A1:B1");
 
-  const data = workbook.addWorksheet("DADOS", { views: [{ state: "frozen", ySplit: 1 }] });
   const expanded = expandRows(input.rows);
+  const data = workbook.addWorksheet("DADOS", { views: [{ state: "frozen", ySplit: 1 }] });
   data.addRow(expanded.headers);
   for (const row of expanded.values) data.addRow(row as any[]);
   data.autoFilter = {
     from: { row: 1, column: 1 },
     to: { row: Math.max(1, data.rowCount), column: Math.max(1, expanded.headers.length) },
   };
-  const headerRow = data.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17365D" } };
-  headerRow.alignment = { vertical: "middle", horizontal: "center" };
+  const header = data.getRow(1);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17365D" } };
+  header.alignment = { vertical: "middle", horizontal: "center" };
   for (let index = 1; index <= expanded.headers.length; index += 1) {
     data.getColumn(index).width = Math.min(55, Math.max(12, expanded.headers[index - 1].length + 2));
   }
@@ -210,7 +222,7 @@ async function buildWorkbook(input: {
     ["dataset_code", input.datasetCode ?? "*"],
     ["cutoff_at", input.cutoffAt],
     ["part_number", input.partNumber],
-    ["offset", input.offset],
+    ["cursor", input.cursor ?? ""],
     ["row_count", input.rows.length],
     ["base_columns", JSON.stringify(expanded.baseColumns)],
     ["exported_at", new Date().toISOString()],
@@ -223,9 +235,9 @@ async function buildWorkbook(input: {
 
   const buffer = await workbook.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer as ArrayBuffer);
-  const config = TABLE_CONFIG[input.tableName];
+  const dateColumn = TABLE_CONFIG[input.tableName].dateColumn;
   const dates = input.rows
-    .map((row) => row[config.dateColumn])
+    .map((row) => row[dateColumn])
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .sort();
 
@@ -246,22 +258,23 @@ async function patchRun(runId: string, patch: Record<string, unknown>): Promise<
 }
 
 async function finalizeRun(runId: string): Promise<{ rows: number; parts: number }> {
-  const registered = await supabaseFetch(
+  const parts = await supabaseFetch(
     `/rest/v1/data_archive_parts?run_id=eq.${encodeURIComponent(runId)}&select=part_number,row_count,storage_path,sha256,size_bytes&order=part_number.asc`,
   ) as Array<Record<string, any>>;
-  const totalRows = registered.reduce((sum, part) => sum + Number(part.row_count ?? 0), 0);
+  const rows = parts.reduce((sum, part) => sum + Number(part.row_count ?? 0), 0);
   await patchRun(runId, {
     status: "completed",
     completed_at: new Date().toISOString(),
-    row_count: totalRows,
-    part_count: registered.length,
+    row_count: rows,
+    part_count: parts.length,
     export_metadata: {
       runtime: RUNTIME,
+      pagination: "cursor",
       rows_per_invocation: MAX_ROWS_PER_INVOCATION,
-      parts: registered,
+      parts,
     },
   });
-  return { rows: totalRows, parts: registered.length };
+  return { rows, parts: parts.length };
 }
 
 Deno.serve(async (req: Request) => {
@@ -272,17 +285,17 @@ Deno.serve(async (req: Request) => {
   let runId = "";
   let stage = "authenticate";
   try {
-    const tokenMetadata = await claimToken(req.headers.get("x-archive-token")?.trim() ?? "");
+    const token = await claimToken(req.headers.get("x-archive-token")?.trim() ?? "");
     const body = await req.json().catch(() => ({})) as { runId?: string };
-    runId = String(body.runId ?? tokenMetadata.run_id ?? "");
-    if (!runId || runId !== String(tokenMetadata.run_id ?? "")) {
+    runId = String(body.runId ?? token.run_id ?? "");
+    if (!runId || runId !== String(token.run_id ?? "")) {
       throw new Error("archive_run_token_mismatch");
     }
 
-    const runs = await supabaseFetch(
+    const runRows = await supabaseFetch(
       `/rest/v1/data_archive_runs?id=eq.${encodeURIComponent(runId)}&select=*`,
     ) as Array<Record<string, any>>;
-    const run = runs?.[0];
+    const run = runRows?.[0];
     if (!run) throw new Error("archive_run_not_found");
     if (!["queued", "running"].includes(String(run.status))) {
       throw new Error(`archive_run_invalid_status_${run.status}`);
@@ -291,15 +304,17 @@ Deno.serve(async (req: Request) => {
     const tableName = String(run.table_name);
     const config = TABLE_CONFIG[tableName];
     if (!config) throw new Error("archive_table_not_allowed");
+
     const datasetCode = run.dataset_code ? String(run.dataset_code) : null;
     const cutoffAt = String(run.cutoff_at);
     const includeRawPayload = Boolean(run.include_raw_payload);
-    const offset = Number(tokenMetadata.offset ?? 0);
-    const partNumber = Number(tokenMetadata.part_number ?? 1);
+    const cursor = token.cursor ? String(token.cursor) : null;
+    const partNumber = Number(token.part_number ?? 1);
     const limit = Math.min(
       MAX_ROWS_PER_INVOCATION,
-      Number(tokenMetadata.chunk_rows ?? run.chunk_rows ?? MAX_ROWS_PER_INVOCATION),
+      Number(token.chunk_rows ?? run.chunk_rows ?? MAX_ROWS_PER_INVOCATION),
     );
+    const orderColumn = resolveOrderColumn(tableName, datasetCode);
 
     if (run.status === "queued") {
       stage = "mark_running";
@@ -317,15 +332,12 @@ Deno.serve(async (req: Request) => {
     if (datasetCode && config.datasetColumn) {
       params.set(config.datasetColumn, `eq.${datasetCode}`);
     }
-    params.set("order", "id.asc");
+    if (cursor) params.set(orderColumn, `gt.${cursor}`);
+    params.set("order", `${orderColumn}.asc`);
     params.set("limit", String(limit));
-    params.set("offset", String(offset));
-    const rows = await supabaseFetch(
-      `/rest/v1/${tableName}?${params.toString()}`,
-    ) as Record<string, unknown>[];
+    const rows = await supabaseFetch(`/rest/v1/${tableName}?${params.toString()}`) as Record<string, unknown>[];
 
     if (!rows.length) {
-      stage = "finalize_empty_page";
       const finalized = await finalizeRun(runId);
       return jsonResponse(200, { status: "completed", runId, ...finalized });
     }
@@ -352,7 +364,7 @@ Deno.serve(async (req: Request) => {
       datasetCode,
       cutoffAt,
       partNumber,
-      offset,
+      cursor,
       rows,
     });
     const sha256 = await sha256Hex(workbook.bytes);
@@ -397,26 +409,31 @@ Deno.serve(async (req: Request) => {
         sha256,
         size_bytes: workbook.bytes.length,
         columns: workbook.columns,
-        metadata: { runtime: RUNTIME, include_raw_payload: includeRawPayload, offset },
+        metadata: {
+          runtime: RUNTIME,
+          include_raw_payload: includeRawPayload,
+          cursor,
+          order_column: orderColumn,
+        },
       }),
     });
 
-    const nextOffset = offset + rows.length;
+    const nextCursor = String(rows[rows.length - 1]?.[orderColumn] ?? "");
+    if (!nextCursor) throw new Error("archive_next_cursor_missing");
     if (rows.length < limit) {
-      stage = "finalize_last_part";
       const finalized = await finalizeRun(runId);
       return jsonResponse(200, { status: "completed", runId, ...finalized });
     }
 
-    stage = "queue_continuation";
+    stage = "queue_cursor_continuation";
     const continuation = await supabaseFetch(
-      "/rest/v1/rpc/continue_historical_excel_export",
+      "/rest/v1/rpc/continue_historical_excel_export_cursor",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           p_run_id: runId,
-          p_offset: nextOffset,
+          p_cursor: nextCursor,
           p_part_number: partNumber + 1,
         }),
       },
@@ -427,6 +444,7 @@ Deno.serve(async (req: Request) => {
       runId,
       partNumber,
       rows: rows.length,
+      nextCursor,
       continuation,
     });
   } catch (error) {
@@ -439,7 +457,7 @@ Deno.serve(async (req: Request) => {
           error_message: detail,
         });
       } catch {
-        // best-effort audit
+        // best effort audit
       }
     }
     console.error(`[${RUNTIME}] ${detail}`);
