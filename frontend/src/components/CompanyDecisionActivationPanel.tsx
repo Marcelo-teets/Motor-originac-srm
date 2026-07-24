@@ -8,6 +8,7 @@ import type {
   KnowledgeCompanyWorkspace,
   KnowledgeExecutionWorkspace,
   KnowledgeNodeSummary,
+  KnowledgeOutcomeStatus,
   KnowledgePipelineStage,
 } from '../lib/knowledgeVaultTypes';
 import '../styles/company-decision-activation.css';
@@ -28,6 +29,17 @@ type DecisionDefinition = {
   requestedStage: KnowledgePipelineStage | null;
   nextAction: string;
   objective: string;
+};
+
+type OutcomeDraft = {
+  idempotencyKey: string;
+  outcomeStatus: KnowledgeOutcomeStatus;
+  observedOutcome: string;
+  confirmedFacts: string;
+  remainingGaps: string;
+  nextAction: string;
+  dueAt: string;
+  requestedStage: '' | KnowledgePipelineStage;
 };
 
 const stageOrder: KnowledgePipelineStage[] = [
@@ -86,6 +98,14 @@ const decisions: Record<DecisionCode, DecisionDefinition> = {
   },
 };
 
+const outcomeOptions: Array<{ value: KnowledgeOutcomeStatus; label: string }> = [
+  { value: 'progress', label: 'Avanço / evidência nova' },
+  { value: 'won', label: 'Resultado positivo' },
+  { value: 'lost', label: 'Resultado negativo' },
+  { value: 'blocked', label: 'Bloqueado' },
+  { value: 'no_change', label: 'Sem mudança material' },
+];
+
 const isDecisionBrief = (node: KnowledgeNodeSummary) => {
   const template = String(node.properties?.template ?? '');
   return node.nodeType === 'meeting'
@@ -111,13 +131,17 @@ const defaultDueAt = () => {
   return toDateTimeLocal(date);
 };
 
-const toIso = (value: string) => value ? new Date(value).toISOString() : null;
+const toIso = (value: string) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
 
-const createKey = (companyId: string, nodeId: string) => {
+const createKey = (prefix: string, companyId: string, entityId: string) => {
   const token = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `decision-activation:${companyId}:${nodeId}:${token}`;
+  return `${prefix}:${companyId}:${entityId}:${token}`;
 };
 
 const resolveTargetStage = (
@@ -132,6 +156,17 @@ const resolveTargetStage = (
   return requestedStage;
 };
 
+const blankOutcome = (companyId: string, activityId: string): OutcomeDraft => ({
+  idempotencyKey: createKey('decision-outcome', companyId, activityId),
+  outcomeStatus: 'progress',
+  observedOutcome: '',
+  confirmedFacts: '',
+  remainingGaps: '',
+  nextAction: '',
+  dueAt: '',
+  requestedStage: '',
+});
+
 export function CompanyDecisionActivationPanel({ companyId }: Props) {
   const { session } = useAuth();
   const [workspace, setWorkspace] = useState<KnowledgeCompanyWorkspace | null>(null);
@@ -140,8 +175,11 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
   const [nextAction, setNextAction] = useState(decisions.advance_diligence.nextAction);
   const [dueAt, setDueAt] = useState(defaultDueAt);
   const [confirmed, setConfirmed] = useState(false);
+  const [outcomeDraft, setOutcomeDraft] = useState<OutcomeDraft | null>(null);
+  const [outcomeConfirmed, setOutcomeConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [outcomeBusy, setOutcomeBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activationResult, setActivationResult] = useState<KnowledgeExecutionWorkspace | null>(null);
@@ -175,8 +213,24 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
     [briefExecutions],
   );
 
+  useEffect(() => {
+    if (!openExecution) {
+      setOutcomeDraft(null);
+      setOutcomeConfirmed(false);
+      return;
+    }
+    setOutcomeDraft((current) => current && current.idempotencyKey.includes(openExecution.activityId)
+      ? current
+      : blankOutcome(companyId, openExecution.activityId));
+    setOutcomeConfirmed(false);
+  }, [companyId, openExecution?.activityId]);
+
   const definition = decisions[decisionCode];
   const targetStage = resolveTargetStage(workspace?.pipeline?.stage, definition.requestedStage);
+  const outcomeTargetStage = resolveTargetStage(
+    workspace?.pipeline?.stage,
+    outcomeDraft?.requestedStage || null,
+  );
 
   const handleDecisionChange = (value: DecisionCode) => {
     setDecisionCode(value);
@@ -211,7 +265,7 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
     try {
       const result = await knowledgeVaultApi.createExecutionAction(session, {
         nodeId: latestBrief.id,
-        idempotencyKey: createKey(companyId, latestBrief.id),
+        idempotencyKey: createKey('decision-activation', companyId, latestBrief.id),
         activityType: definition.activityType,
         title: `Decisão do briefing: ${definition.label}`,
         description: [
@@ -235,23 +289,67 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
     }
   };
 
+  const completeDecisionOutcome = async () => {
+    if (!openExecution || !outcomeDraft) return;
+    if (!outcomeDraft.observedOutcome.trim()) {
+      setError('Descreva o resultado observado antes de concluir a decisão.');
+      return;
+    }
+    if (!outcomeConfirmed) {
+      setError('Confirme que o outcome representa o resultado observado e revisado por uma pessoa.');
+      return;
+    }
+
+    const outcomeText = [
+      `Resultado observado: ${outcomeDraft.observedOutcome.trim()}`,
+      outcomeDraft.confirmedFacts.trim() ? `Fatos confirmados: ${outcomeDraft.confirmedFacts.trim()}` : null,
+      outcomeDraft.remainingGaps.trim() ? `Lacunas remanescentes: ${outcomeDraft.remainingGaps.trim()}` : null,
+      `Briefing-base: ${latestBrief?.title ?? openExecution.nodeTitle}.`,
+      `Ação de origem: ${openExecution.title}.`,
+      'Guardrail: este registro descreve outcome operacional observado; não altera qualification, patterns, score ou ranking.',
+    ].filter(Boolean).join('\n\n');
+
+    setOutcomeBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await knowledgeVaultApi.completeExecutionAction(session, {
+        activityId: openExecution.activityId,
+        idempotencyKey: outcomeDraft.idempotencyKey,
+        outcomeStatus: outcomeDraft.outcomeStatus,
+        outcome: outcomeText,
+        nextAction: outcomeDraft.nextAction.trim() || null,
+        dueAt: toIso(outcomeDraft.dueAt),
+        targetStage: outcomeTargetStage,
+      });
+      setActivationResult(result);
+      setNotice('Outcome registrado: ação concluída, tarefa anterior fechada e próximo passo atualizado com lineage.');
+      setOutcomeConfirmed(false);
+      await load();
+    } catch (outcomeError) {
+      setError(outcomeError instanceof Error ? outcomeError.message : 'Falha ao registrar o outcome da decisão.');
+    } finally {
+      setOutcomeBusy(false);
+    }
+  };
+
   return (
     <Card
       title="Ativação da decisão"
-      subtitle="Converte o briefing revisado em execução comercial rastreável, usando o pipeline e as tasks existentes"
+      subtitle="Converte briefing em execução e fecha o ciclo com outcome observado no pipeline existente"
       tone="accent"
       className="dense-card company-decision-activation-card"
     >
       <div className="company-decision-activation-head">
         <div className="pill-row">
-          <Pill tone="success">briefing → execução</Pill>
+          <Pill tone="success">briefing → execução → outcome</Pill>
           <Pill tone="default">sem mutação de score</Pill>
-          <Pill tone={openExecution ? 'warning' : 'info'}>{openExecution ? 'ação aberta' : 'pronto para ativar'}</Pill>
+          <Pill tone={openExecution ? 'warning' : 'info'}>{openExecution ? 'outcome pendente' : 'pronto para ativar'}</Pill>
         </div>
         <Link className="button secondary compact-button" to="/knowledge-vault">Abrir Vault</Link>
       </div>
 
-      {loading ? <p className="table-helper">Carregando briefing validado, pipeline e ações vinculadas...</p> : null}
+      {loading ? <p className="table-helper">Carregando briefing validado, pipeline, ações e outcomes vinculados...</p> : null}
       {error ? <div className="data-banner data-banner-warning" role="alert"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
       {notice ? <div className="data-banner data-banner-success" role="status"><Pill tone="success">ok</Pill><span>{notice}</span></div> : null}
 
@@ -264,16 +362,71 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
             <Stat label="Execuções do briefing" value={String(briefExecutions.length)} helper={`${briefExecutions.filter((item) => item.status === 'done').length} concluídas`} />
           </div>
 
-          {openExecution ? (
-            <div className="company-decision-open-action">
-              <div>
-                <span className="section-label">Ação já aberta</span>
-                <strong>{openExecution.title}</strong>
-                <p>{openExecution.description || 'Sem descrição registrada.'}</p>
-                <small>Próxima ação: {openExecution.taskTitle || openExecution.actualNextAction || 'não definida'} · prazo {formatDate(openExecution.dueAt)}</small>
+          {openExecution && outcomeDraft ? (
+            <>
+              <div className="company-decision-open-action">
+                <div>
+                  <span className="section-label">Ação aguardando resultado</span>
+                  <strong>{openExecution.title}</strong>
+                  <p>{openExecution.description || 'Sem descrição registrada.'}</p>
+                  <small>Próxima ação: {openExecution.taskTitle || openExecution.actualNextAction || 'não definida'} · prazo {formatDate(openExecution.dueAt)}</small>
+                </div>
+                <Pill tone="warning">registre o outcome</Pill>
               </div>
-              <Pill tone="warning">registre o outcome</Pill>
-            </div>
+
+              <div className="company-decision-outcome-form">
+                <label>
+                  <span>Classificação do resultado</span>
+                  <select value={outcomeDraft.outcomeStatus} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, outcomeStatus: event.target.value as KnowledgeOutcomeStatus }); setOutcomeConfirmed(false); }}>
+                    {outcomeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Estágio solicitado</span>
+                  <select value={outcomeDraft.requestedStage} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, requestedStage: event.target.value as OutcomeDraft['requestedStage'] }); setOutcomeConfirmed(false); }}>
+                    <option value="">Manter estágio atual</option>
+                    {stageOrder.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
+                  </select>
+                  {outcomeDraft.requestedStage && !outcomeTargetStage ? <small>Movimento regressivo bloqueado; o estágio atual será preservado.</small> : null}
+                </label>
+
+                <label className="company-decision-activation-wide">
+                  <span>Resultado observado</span>
+                  <textarea rows={4} value={outcomeDraft.observedOutcome} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, observedOutcome: event.target.value }); setOutcomeConfirmed(false); }} placeholder="O que aconteceu na conversa, diligência, análise ou comitê? Registre apenas fatos observados e conclusões explicitamente validadas." />
+                </label>
+
+                <label className="company-decision-activation-wide">
+                  <span>Fatos confirmados</span>
+                  <textarea rows={3} value={outcomeDraft.confirmedFacts} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, confirmedFacts: event.target.value }); setOutcomeConfirmed(false); }} placeholder="Ex.: volume de recebíveis, prazo, concentração, funding atual, sponsor, ticket ou cronograma confirmados." />
+                </label>
+
+                <label className="company-decision-activation-wide">
+                  <span>Lacunas remanescentes</span>
+                  <textarea rows={3} value={outcomeDraft.remainingGaps} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, remainingGaps: event.target.value }); setOutcomeConfirmed(false); }} placeholder="O que ainda não foi provado, quais documentos faltam e quais riscos permanecem?" />
+                </label>
+
+                <label>
+                  <span>Próxima ação</span>
+                  <input value={outcomeDraft.nextAction} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, nextAction: event.target.value }); setOutcomeConfirmed(false); }} placeholder="Opcional; cria follow-up e atualiza o pipeline" />
+                </label>
+
+                <label>
+                  <span>Prazo do próximo passo</span>
+                  <input type="datetime-local" value={outcomeDraft.dueAt} onChange={(event) => { setOutcomeDraft({ ...outcomeDraft, dueAt: event.target.value }); setOutcomeConfirmed(false); }} />
+                </label>
+
+                <div className="company-decision-activation-footer company-decision-activation-wide">
+                  <label className="company-decision-activation-confirmation">
+                    <input type="checkbox" checked={outcomeConfirmed} onChange={(event) => setOutcomeConfirmed(event.target.checked)} />
+                    Confirmo que este outcome representa o resultado observado, separa fatos de lacunas e pode concluir a activity, fechar a task anterior e criar o follow-up informado.
+                  </label>
+                  <button type="button" disabled={outcomeBusy || !outcomeConfirmed || !outcomeDraft.observedOutcome.trim()} onClick={() => void completeDecisionOutcome()}>
+                    {outcomeBusy ? 'Registrando...' : 'Registrar outcome da decisão'}
+                  </button>
+                </div>
+              </div>
+            </>
           ) : (
             <div className="company-decision-activation-form">
               <label>
@@ -303,12 +456,7 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
 
               <label className="company-decision-activation-wide">
                 <span>Racional humano da decisão</span>
-                <textarea
-                  rows={4}
-                  value={rationale}
-                  onChange={(event) => { setRationale(event.target.value); setConfirmed(false); }}
-                  placeholder="Registre o que foi validado, quais evidências sustentam a decisão e quais lacunas permanecem."
-                />
+                <textarea rows={4} value={rationale} onChange={(event) => { setRationale(event.target.value); setConfirmed(false); }} placeholder="Registre o que foi validado, quais evidências sustentam a decisão e quais lacunas permanecem." />
               </label>
 
               <div className="company-decision-activation-objective company-decision-activation-wide">
@@ -354,10 +502,7 @@ export function CompanyDecisionActivationPanel({ companyId }: Props) {
       ) : null}
 
       {!loading && workspace && !latestBrief ? (
-        <EmptyState
-          title="Nenhum briefing decisório validado."
-          description="Gere, revise e salve o briefing acima. A ativação só usa uma nota versionada vinculada à empresa."
-        />
+        <EmptyState title="Nenhum briefing decisório validado." description="Gere, revise e salve o briefing acima. A ativação só usa uma nota versionada vinculada à empresa." />
       ) : null}
 
       {!loading && !workspace && !error ? (
