@@ -1,0 +1,57 @@
+name: Supabase Auth Config Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      require_management_token:
+        description: Fail when SUPABASE_ACCESS_TOKEN is unavailable
+        required: true
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - .github/workflows/supabase-auth-config-audit.yml
+      - scripts/audit-supabase-auth-config.mjs
+      - scripts/audit-supabase-auth-config.test.mjs
+      - docs/SUPABASE_AUTH_CONFIG_AUDIT.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-auth-config-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REQUIRE_SUPABASE_ACCESS_TOKEN: ${{ github.event_name == 'workflow_dispatch' && inputs.require_management_token || false }}
+      AUTH_CONFIG_AUDIT_OUTPUT: supabase-auth-config-audit.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate audit sanitizer
+        run: node scripts/audit-supabase-auth-config.test.mjs
+
+      - name: Audit Supabase Auth configuration
+        run: node scripts/audit-supabase-auth-config.mjs
+
+      - name: Upload sanitized audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-auth-config-audit-${{ github.run_id }}
+          path: supabase-auth-config-audit.json
+          if-no-files-found: warn
+          retention-days: 7
