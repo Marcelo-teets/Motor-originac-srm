@@ -127,7 +127,7 @@ export function KnowledgeSearchPage() {
       />
 
       <section className="knowledge-search-shell">
-        <form className="knowledge-search-form" onSubmit={submit}>
+        <form className="knowledge-search-form" onSubmit={submit} aria-busy={loading}>
           <label className="knowledge-search-query">
             <span>O que precisa encontrar?</span>
             <textarea
@@ -160,12 +160,12 @@ export function KnowledgeSearchPage() {
         </div>
       </section>
 
-      {notice ? <div className="data-banner data-banner-success"><Pill tone="success">copiado</Pill><span>{notice}</span></div> : null}
-      {error ? <div className="data-banner data-banner-warning"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
+      {notice ? <div className="data-banner data-banner-success" role="status" aria-live="polite"><Pill tone="success">copiado</Pill><span>{notice}</span></div> : null}
+      {error ? <div className="data-banner data-banner-warning" role="alert"><Pill tone="danger">erro</Pill><span>{error}</span></div> : null}
 
       {data ? (
         <>
-          <section className="mini-metric-grid knowledge-search-metrics">
+          <section className="mini-metric-grid knowledge-search-metrics" aria-live="polite">
             <Stat label="Resultados" value={String(data.results.length)} helper={`limite solicitado: ${data.matchCount}`} />
             <Stat label="Documentos no escopo" value={data.corpus.documents.toLocaleString('pt-BR')} helper={selectedCompany?.name ?? 'corpus completo'} />
             <Stat label="Com embedding real" value={data.corpus.embeddedDocuments.toLocaleString('pt-BR')} helper="vetores persistidos no Supabase" />
