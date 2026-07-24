@@ -46,6 +46,28 @@ jobs:
       - name: Validate company credit review command contract
         run: npm run test:company-credit-review
 
+      - name: Materialize final aligned Creditas decision
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/company-credit-review-gate'
+        env:
+          USE_SUPABASE: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COMPANY_ID: fdac3e35-1d23-41d1-a9fd-0376445d3992
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run ops:materialize-company-decision 2>&1 | tee /tmp/company-credit-materialization.log
+
+      - name: Upload final materialization diagnostics
+        if: always() && github.event_name == 'pull_request' && github.head_ref == 'agent/company-credit-review-gate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-credit-final-materialization
+          path: /tmp/company-credit-materialization.log
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
