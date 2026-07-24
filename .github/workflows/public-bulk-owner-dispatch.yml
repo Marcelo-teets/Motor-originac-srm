@@ -14,16 +14,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ceis-cnep-canary:
+  public-bulk:
     if: >-
       github.event.issue.user.login == 'Marcelo-teets' &&
-      github.event.issue.title == '[public-bulk-run] ceis-cnep-canary'
+      (github.event.issue.title == '[public-bulk-run] ceis-cnep-canary' ||
+       github.event.issue.title == '[public-bulk-run] all-light')
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       GH_TOKEN: ${{ github.token }}
+      ISSUE_TITLE: ${{ github.event.issue.title }}
     steps:
       - name: Checkout production main
         uses: actions/checkout@v4
@@ -42,22 +44,43 @@ jobs:
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
-      - name: Execute CEIS and CNEP production canary
+      - name: Resolve owner dispatch scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "$ISSUE_TITLE" = "[public-bulk-run] all-light" ]; then
+            DATASET="bndes_financing_operations,cgu_ceis,cgu_cnep,compras_contracts"
+            MAX_RESOURCES="20"
+            LOG_FILE="public-bulk-all-light.log"
+            RUN_LABEL="all-light"
+          else
+            DATASET="cgu_ceis,cgu_cnep"
+            MAX_RESOURCES="2"
+            LOG_FILE="public-bulk-canary.log"
+            RUN_LABEL="CEIS/CNEP canary"
+          fi
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "max_resources=$MAX_RESOURCES" >> "$GITHUB_OUTPUT"
+          echo "log_file=$LOG_FILE" >> "$GITHUB_OUTPUT"
+          echo "run_label=$RUN_LABEL" >> "$GITHUB_OUTPUT"
+      - name: Execute official-data production ingestion
         id: ingestion
         if: steps.secrets.outcome == 'success'
         continue-on-error: true
         working-directory: backend
+        shell: bash
         run: |
           set +e
+          LOG_FILE="${{ steps.scope.outputs.log_file }}"
           npx tsx src/cli/publicBulkData.ts \
-            --dataset cgu_ceis,cgu_cnep \
+            --dataset "${{ steps.scope.outputs.dataset }}" \
             --max-matched-rows 100000 \
-            --max-resources 2 \
+            --max-resources "${{ steps.scope.outputs.max_resources }}" \
             --trigger manual \
             --full-coverage \
-            --require-scan > public-bulk-canary.log 2>&1
+            --require-scan > "$LOG_FILE" 2>&1
           STATUS=$?
-          cat public-bulk-canary.log
+          cat "$LOG_FILE"
           exit $STATUS
       - name: Report execution result
         if: always()
@@ -65,15 +88,17 @@ jobs:
         run: |
           SECRET_OUTCOME="${{ steps.secrets.outcome }}"
           INGESTION_OUTCOME="${{ steps.ingestion.outcome }}"
+          LOG_FILE="${{ steps.scope.outputs.log_file }}"
           LOG_TAIL="No ingestion log was created."
-          if [ -f backend/public-bulk-canary.log ]; then
-            LOG_TAIL=$(tail -n 35 backend/public-bulk-canary.log | sed 's/`/\`/g')
+          if [ -n "$LOG_FILE" ] && [ -f "backend/$LOG_FILE" ]; then
+            LOG_TAIL=$(tail -n 55 "backend/$LOG_FILE" | sed 's/`/\`/g')
           fi
           BODY=$(cat <<EOF
-          Public bulk CEIS/CNEP canary diagnostics:
+          Public bulk ${{ steps.scope.outputs.run_label }} diagnostics:
 
           - secret check: **${SECRET_OUTCOME}**
           - ingestion: **${INGESTION_OUTCOME}**
+          - datasets: \`${{ steps.scope.outputs.dataset }}\`
 
           Sanitized log tail:
 
@@ -81,11 +106,11 @@ jobs:
           ${LOG_TAIL}
           \`\`\`
 
-          Operational details, when initialization succeeds, are persisted in \`public_dataset_runs\` and \`public_dataset_resource_checkpoints\`.
+          Operational details are persisted in \`public_dataset_runs\`, \`public_dataset_resource_checkpoints\` and downstream decision tables when matches exist.
           EOF
           )
           gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$BODY"
-      - name: Enforce successful canary
+      - name: Enforce successful ingestion
         if: always()
         run: |
           test "${{ steps.secrets.outcome }}" = "success"
