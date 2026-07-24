@@ -11,6 +11,7 @@ on:
       - db/migrations/125_cvm_production_intelligence_foundation.sql
       - db/migrations/126_cvm_production_intelligence_signals.sql
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
+      - db/migrations/128_cvm_explicit_candidate_delivery.sql
   push:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - db/migrations/125_cvm_production_intelligence_foundation.sql
       - db/migrations/126_cvm_production_intelligence_signals.sql
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
+      - db/migrations/128_cvm_explicit_candidate_delivery.sql
   schedule:
     - cron: "15 11 * * 2"
   workflow_dispatch:
@@ -69,7 +71,26 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Typecheck backend
-        run: npm -C backend run typecheck
+        id: typecheck
+        shell: bash
+        run: |
+          set +e
+          npm -C backend run typecheck > typecheck.log 2>&1
+          CODE=$?
+          cat typecheck.log
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cvm-typecheck-${{ github.run_id }}
+          path: typecheck.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce typecheck result
+        if: steps.typecheck.outputs.exit_code != '0'
+        run: exit 1
       - name: Test CVM production intelligence
         working-directory: backend
         run: >-
