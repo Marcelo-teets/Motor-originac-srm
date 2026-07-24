@@ -1,4 +1,5 @@
 import { CVM_DATASETS, type CvmDatasetCode } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
+import { evaluateCapitalMarketDeliveryAssertions } from '../services/capitalMarketAssertions.js';
 import { CapitalMarketDeliveryService } from '../services/capitalMarketDeliveryService.js';
 import { CapitalMarketIngestionService } from '../services/capitalMarketIngestionService.js';
 
@@ -40,16 +41,16 @@ if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
   process.exitCode = 1;
 }
 if (args.includes('--require-delivery')) {
-  const deliveredCodes = new Set(delivery.datasets.map((dataset) => dataset.datasetCode));
-  const missingDatasets = datasets.filter((dataset) => !deliveredCodes.has(dataset));
-  const failed = delivery.datasets.filter((dataset) => dataset.status === 'failed');
-  const missingEvents = delivery.datasets.filter((dataset) => dataset.eventCount <= 0);
-  if (missingDatasets.length || failed.length || missingEvents.length) {
+  const assertion = evaluateCapitalMarketDeliveryAssertions({
+    requested: datasets,
+    ingestion: ingestion.datasets,
+    delivery: delivery.datasets,
+  });
+
+  if (!assertion.ok) {
     console.error(JSON.stringify({
       error: 'Capital-market delivery assertion failed.',
-      missingDatasets,
-      failedDatasets: failed.map((dataset) => dataset.datasetCode),
-      datasetsWithoutEvents: missingEvents.map((dataset) => dataset.datasetCode),
+      ...assertion,
     }));
     process.exitCode = 1;
   }
