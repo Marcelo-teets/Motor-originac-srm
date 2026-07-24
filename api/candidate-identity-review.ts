@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-const RUNTIME = 'candidate-identity-review-v1';
+const RUNTIME = 'candidate-identity-review-v2';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
@@ -63,13 +63,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
     const user = await authResponse.json() as { id?: string; email?: string };
+    if (!user.id) {
+      writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
+      return;
+    }
+
+    const { CandidateTriageRuntime } = await import('../backend/src/services/candidateTriageRuntime.js');
+    await new CandidateTriageRuntime().requireGodMode(user.id);
+
     const body = await readJsonBody(req);
     const action = String(body.action ?? 'approve');
     const candidateId = String(body.candidateId ?? body.candidate_id ?? '').trim();
     const reviewer = { userId: user.id, email: user.email };
 
     const {
-      CandidateIdentityReviewValidationError,
       normalizeCandidateIdentityApprovalInput,
       normalizeCandidateIdentityRejectionInput,
     } = await import('../backend/src/lib/candidateIdentityReview.js');
@@ -91,13 +98,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const data = await runtime.approve(input);
     writeJson(res, 201, { status: 'real', generatedAt: new Date().toISOString(), data });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'god_mode_required') {
+      writeJson(res, 403, { status: 'partial', generatedAt: new Date().toISOString(), error: message });
+      return;
+    }
     const validationError = typeof error === 'object' && error !== null && 'statusCode' in error && Number((error as { statusCode?: unknown }).statusCode) === 422;
-    const databaseConstraint = error instanceof Error && /23514|identity|CNPJ|candidate/i.test(error.message);
+    const databaseConstraint = /23514|identity|CNPJ|candidate|not eligible/i.test(message);
     if (validationError || databaseConstraint) {
       writeJson(res, 422, {
         status: 'partial',
         generatedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
         blockers: typeof error === 'object' && error !== null && 'blockers' in error
           ? (error as { blockers?: unknown }).blockers
           : [],
@@ -105,6 +117,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
     console.error('[candidate-identity-review]', error);
-    writeJson(res, 500, { status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+    writeJson(res, 500, { status: 'partial', generatedAt: new Date().toISOString(), error: message });
   }
 }
