@@ -50,7 +50,8 @@ const metadata = {
       siteKeyConfigured: captchaSiteKeyConfigured,
       tokenTransport: 'captcha_token',
     },
-    googleOAuthButtonIncluded: true,
+    oauthProviderDiscovery: true,
+    supportedOAuthProviders: ['github', 'google'],
     godModeIncluded: true,
   },
 };
