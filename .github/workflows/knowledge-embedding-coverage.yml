@@ -74,6 +74,7 @@ jobs:
 
             final_response="$(cat "$response_file")"
             rm -f "$response_file"
+            echo "$final_response" > /tmp/knowledge-embedding-worker-response.json
             echo "$final_response" | jq .
 
             last_status="$(echo "$final_response" | jq -r '.status // "unknown"')"
@@ -98,7 +99,6 @@ jobs:
           echo "claimed=$total_claimed" >> "$GITHUB_OUTPUT"
           echo "completed=$total_completed" >> "$GITHUB_OUTPUT"
           echo "failed=$total_failed" >> "$GITHUB_OUTPUT"
-          echo "$final_response" > /tmp/knowledge-embedding-worker-response.json
 
       - name: Publish run summary
         if: always()
@@ -117,7 +117,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload worker response
-        if: always() && hashFiles('/tmp/knowledge-embedding-worker-response.json') != ''
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: knowledge-embedding-worker-response
