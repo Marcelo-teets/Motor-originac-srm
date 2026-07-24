@@ -6,10 +6,18 @@ import { buildApiUrl } from '../lib/runtimeConfig';
 type Candidate = {
   id: string;
   companyName: string;
+  legalName?: string;
+  cnpj?: string;
+  website?: string;
+  evidenceSummary?: string;
+  confidence: number;
   candidateStatus: string;
   sourceRef?: string;
   sourceUrl?: string;
   capturedAt?: string;
+  priorityTier?: string;
+  nextAction?: string;
+  whyNow?: string;
   rawPayload: Record<string, unknown>;
 };
 
@@ -37,16 +45,28 @@ const asRecord = (value: unknown): Record<string, unknown> => typeof value === '
   ? value as Record<string, unknown>
   : {};
 const text = (...values: unknown[]) => String(values.find((value) => typeof value === 'string' && value.trim()) ?? '');
+const numberValue = (...values: unknown[]) => {
+  const parsed = Number(values.find((value) => value !== null && value !== undefined && value !== '') ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
 const normalizeCandidate = (value: unknown): Candidate => {
   const raw = asRecord(value);
   return {
     id: text(raw.id),
     companyName: text(raw.companyName, raw.company_name, 'Empresa sem nome'),
+    legalName: text(raw.legalName, raw.legal_name) || undefined,
+    cnpj: text(raw.cnpj) || undefined,
+    website: text(raw.website) || undefined,
+    evidenceSummary: text(raw.evidenceSummary, raw.evidence_summary) || undefined,
+    confidence: numberValue(raw.confidence),
     candidateStatus: text(raw.candidateStatus, raw.candidate_status, 'captured'),
     sourceRef: text(raw.sourceRef, raw.source_ref) || undefined,
     sourceUrl: text(raw.sourceUrl, raw.source_url) || undefined,
     capturedAt: text(raw.capturedAt, raw.captured_at) || undefined,
+    priorityTier: text(raw.priorityTier, raw.priority_tier) || undefined,
+    nextAction: text(raw.nextAction, raw.next_action) || undefined,
+    whyNow: text(raw.whyNow, raw.why_now) || undefined,
     rawPayload: asRecord(raw.rawPayload ?? raw.raw_payload),
   };
 };
@@ -63,6 +83,7 @@ export function CandidateIdentityReviewPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [form, setForm] = useState<ReviewForm>(emptyForm);
+  const [pagination, setPagination] = useState({ limit: 50, offset: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,11 +97,27 @@ export function CandidateIdentityReviewPage() {
   const load = async () => {
     try {
       setLoading(true);
-      const response = await fetch(buildApiUrl('/discovered-candidates'), { headers, credentials: 'include' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error ?? 'Falha ao carregar candidatas.');
-      const rows = Array.isArray(payload?.data) ? payload.data.map(normalizeCandidate) : [];
+      const params = new URLSearchParams({
+        queue: 'reviewable',
+        limit: String(pagination.limit),
+        offset: String(pagination.offset),
+      });
+      const response = await fetch(buildApiUrl(`/candidate-decision-queue?${params.toString()}`), { headers, credentials: 'include' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error ?? 'Falha ao carregar candidatas revisáveis.');
+      const data = asRecord(payload?.data);
+      const rows = Array.isArray(data.items) ? data.items.map(normalizeCandidate) : [];
+      const page = asRecord(data.pagination);
       setCandidates(rows);
+      setPagination((current) => ({
+        limit: numberValue(page.limit) || current.limit,
+        offset: numberValue(page.offset),
+        total: numberValue(page.total),
+      }));
+      if (activeId && !rows.some((candidate) => candidate.id === activeId)) {
+        setActiveId(null);
+        setForm(emptyForm);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar candidatas.');
@@ -89,22 +126,22 @@ export function CandidateIdentityReviewPage() {
     }
   };
 
-  useEffect(() => { void load(); }, [headers]);
+  useEffect(() => { void load(); }, [headers, pagination.limit, pagination.offset]);
 
-  const pending = candidates.filter((candidate) => !['promoted', 'discarded'].includes(candidate.candidateStatus));
-  const reviewed = candidates.filter((candidate) => ['promoted', 'discarded'].includes(candidate.candidateStatus));
   const active = candidates.find((candidate) => candidate.id === activeId) ?? null;
+  const pageStart = pagination.total ? pagination.offset + 1 : 0;
+  const pageEnd = Math.min(pagination.offset + pagination.limit, pagination.total);
 
   const selectCandidate = (candidate: Candidate) => {
     const raw = candidate.rawPayload;
     setActiveId(candidate.id);
     setForm({
-      legalName: text(raw.review_legal_name),
-      cnpj: text(raw.review_cnpj),
-      website: text(raw.review_website),
+      legalName: text(raw.review_legal_name, candidate.legalName, candidate.companyName),
+      cnpj: formatCnpj(text(raw.review_cnpj, candidate.cnpj)),
+      website: text(raw.review_website, candidate.website),
       identitySourceUrl: text(raw.identity_evidence_url, candidate.sourceUrl),
-      evidenceSummary: text(raw.review_evidence_summary),
-      confidence: text(raw.review_confidence, '0.80'),
+      evidenceSummary: text(raw.review_evidence_summary, candidate.evidenceSummary),
+      confidence: String(numberValue(raw.review_confidence, candidate.confidence, 0.80).toFixed(2)),
       reviewNotes: text(raw.review_notes),
     });
     setError(null);
@@ -142,11 +179,15 @@ export function CandidateIdentityReviewPage() {
         throw new Error(blockers ? `${payload?.error ?? 'Revisão bloqueada'} · ${blockers}` : payload?.error ?? 'Falha na revisão.');
       }
       setSuccess(action === 'approve'
-        ? `${active.companyName} reconciliada e promovida para o Company Master real.`
+        ? `${active.companyName} reconciliada e vinculada ao Company Master. Qualification e score continuam bloqueados até análise separada.`
         : `${active.companyName} descartada com justificativa auditável.`);
       setActiveId(null);
       setForm(emptyForm);
-      await load();
+      if (candidates.length === 1 && pagination.offset > 0) {
+        setPagination((current) => ({ ...current, offset: Math.max(0, current.offset - current.limit) }));
+      } else {
+        await load();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha na revisão de identidade.');
     } finally {
@@ -154,23 +195,23 @@ export function CandidateIdentityReviewPage() {
     }
   };
 
-  if (loading) return <div className="page"><Card title="Identity Review" subtitle="Carregando fila de identidade">Aguarde...</Card></div>;
+  if (loading && !candidates.length) return <div className="page"><Card title="Identity Review" subtitle="Carregando fila priorizada de identidade">Aguarde...</Card></div>;
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Entity Resolution · Human Review"
-        title="Revisão jurídica de candidatas"
-        description="Valide razão social, CNPJ, domínio e evidência oficial. A aprovação cria ou reconcilia a empresa, registra lineage e promove a candidata em uma única transação. Crédito e fit permanecem sem classificação até análise separada."
-        actions={<div className="pill-row"><Pill tone="success">transação atômica</Pill><Pill tone="warning">sem inferência de crédito</Pill></div>}
+        title="Revisão jurídica de candidatas comerciais"
+        description="Valide razão social, CNPJ, domínio e evidência oficial. Veículos FIDC/CRI/CRA ficam no mapa de estruturas e não entram nesta fila. Crédito e fit permanecem sem classificação até análise separada."
+        actions={<div className="pill-row"><Pill tone="success">fila paginada</Pill><Pill tone="warning">sem inferência de crédito</Pill></div>}
       />
-      <DataStatusBanner source="real" note="Aprovação e rejeição são persistidas no Supabase com usuário, evidência, data e motivo." />
+      <DataStatusBanner source="real" note="A fila reúne apenas candidatas comerciais ou de identidade. Aprovação e rejeição são persistidas no Supabase com usuário, evidência, data e motivo." />
       {error ? <Card title="Revisão bloqueada" subtitle="Nenhuma alteração parcial foi persistida" tone="accent">{error}</Card> : null}
-      {success ? <Card title="Revisão concluída" subtitle="Resultado persistido no Company Master" tone="success">{success}</Card> : null}
+      {success ? <Card title="Revisão concluída" subtitle="Resultado persistido com lineage" tone="success">{success}</Card> : null}
 
       <section className="grid cols-3">
-        <Card title="Pendentes" subtitle="Aguardando identidade"><Stat label="Candidatas" value={String(pending.length)} helper="não entram no motor de decisão" /></Card>
-        <Card title="Revisadas" subtitle="Aprovadas ou descartadas"><Stat label="Candidatas" value={String(reviewed.length)} helper="com decisão humana registrada" /></Card>
+        <Card title="Fila revisável" subtitle="Comercial + identidade"><Stat label="Candidatas" value={String(pagination.total)} helper="veículos de mercado excluídos" /></Card>
+        <Card title="Página atual" subtitle={`${pageStart}-${pageEnd} de ${pagination.total}`}><Stat label="Registros" value={String(candidates.length)} helper="priorizados pelo motor" /></Card>
         <Card title="Política" subtitle="Separação de responsabilidades">
           <ul className="list compact-list">
             <li><strong>Identidade</strong><span>razão social, CNPJ e domínio</span></li>
@@ -180,22 +221,27 @@ export function CandidateIdentityReviewPage() {
       </section>
 
       <section className="grid cols-2 detail-layout">
-        <Card title="Fila de revisão" subtitle="Selecione uma candidata" className="dense-card">
-          {pending.length ? (
+        <Card title="Fila de revisão" subtitle="Selecione uma candidata priorizada" className="dense-card">
+          {candidates.length ? (
             <div className="stack-blocks compact-gap">
-              {pending.map((candidate) => (
+              {candidates.map((candidate) => (
                 <button
                   type="button"
                   key={candidate.id}
                   className={activeId === candidate.id ? 'secondary active' : 'secondary'}
                   onClick={() => selectCandidate(candidate)}
                 >
-                  <strong>{candidate.companyName}</strong>
-                  <span>{candidate.sourceRef || 'fonte não informada'} · {candidate.capturedAt || 'data indisponível'}</span>
+                  <strong>{candidate.priorityTier ? `${candidate.priorityTier} · ` : ''}{candidate.companyName}</strong>
+                  <span>{candidate.whyNow || candidate.sourceRef || 'fonte não informada'}</span>
+                  <small>{candidate.nextAction || 'Validar identidade jurídica.'}</small>
                 </button>
               ))}
+              <div className="pill-row top-gap">
+                <button type="button" className="secondary" disabled={pagination.offset === 0 || loading} onClick={() => setPagination((current) => ({ ...current, offset: Math.max(0, current.offset - current.limit) }))}>Anterior</button>
+                <button type="button" className="secondary" disabled={pagination.offset + pagination.limit >= pagination.total || loading} onClick={() => setPagination((current) => ({ ...current, offset: current.offset + current.limit }))}>Próxima</button>
+              </div>
             </div>
-          ) : <EmptyState title="Fila concluída." description="Não há candidatas aguardando revisão de identidade." />}
+          ) : <EmptyState title="Fila concluída." description="Não há candidatas comerciais ou de identidade aguardando revisão." />}
         </Card>
 
         <Card title={active ? `Revisar ${active.companyName}` : 'Formulário de identidade'} subtitle="Campos observados em fonte oficial" className="dense-card">
