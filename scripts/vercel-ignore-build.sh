@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
+# Secondary defense after git.deploymentEnabled.
+#
 # Vercel's Ignore Build Step contract is inverted:
-# - exit 0: ignore this deployment
+# - exit 0: ignore this build
 # - exit 1: continue building/deploying
 #
-# Automatic production remains tied to main. Preview capacity is opt-in through
-# preview/* and release/* branches. Deployments created outside Git (empty ref)
-# remain allowed so CLI/API recovery paths are not blocked.
+# The primary daily-quota protection lives in vercel.json under
+# git.deploymentEnabled, because ignored/cancelled builds can still count toward
+# deployment quotas. This script keeps the same policy as a defense-in-depth
+# check and allows deploys created outside Git (empty ref).
 
 set -u
 
@@ -18,7 +21,7 @@ case "$ref" in
     exit 1
     ;;
   *)
-    echo "Vercel deployment skipped for ref: $ref"
+    echo "Vercel build skipped for ref: $ref"
     echo "Use preview/* for an explicit preview or merge to main for production."
     exit 0
     ;;
