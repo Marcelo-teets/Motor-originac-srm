@@ -21,6 +21,8 @@ on:
       - db/migrations/038_cleanup_legacy_cvm_canary.sql
       - db/migrations/043_capital_market_single_running_guard.sql
       - db/migrations/092_cvm_delivery_hardening.sql
+  issues:
+    types: [opened]
   schedule:
     # Ofertas públicas: sinal de timing rápido, captura diária.
     - cron: "20 9 * * *"
@@ -60,6 +62,9 @@ concurrency:
 
 jobs:
   ingest:
+    if: >-
+      github.event_name != 'issues' ||
+      (github.actor == 'Marcelo-teets' && startsWith(github.event.issue.title, '[OPS][CVM_BOOTSTRAP]'))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -186,7 +191,12 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "issues" ]; then
+            DATASET="all"
+            REFERENCE=""
+            MAX_ROWS="100000"
+            TRIGGER="backfill"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cvm_offers}"
             REFERENCE="$REQUESTED_REFERENCE"
             MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
