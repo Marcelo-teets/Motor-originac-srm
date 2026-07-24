@@ -39,6 +39,10 @@
     {
       "path": "/api/strategic-public-data-run",
       "schedule": "15 9 * * 1"
+    },
+    {
+      "path": "/api/sources/qsa-fallback-run",
+      "schedule": "30 10 8 * *"
     }
   ],
   "rewrites": [
@@ -57,6 +61,10 @@
     {
       "source": "/api/sources/strategic-run",
       "destination": "/api/strategic-public-data-run"
+    },
+    {
+      "source": "/api/sources/qsa-fallback-run",
+      "destination": "/api/strategic-public-data-run?mode=qsa-fallback"
     },
     {
       "source": "/api/sources/agentetome",
