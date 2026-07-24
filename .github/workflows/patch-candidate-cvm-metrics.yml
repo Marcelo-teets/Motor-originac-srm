@@ -1,9 +1,7 @@
 name: Patch Candidate CVM Metrics
 
 on:
-  push:
-    branches:
-      - fix/candidate-cvm-registry-determinism
+  pull_request:
     paths:
       - .github/workflows/patch-candidate-cvm-metrics.yml
 
@@ -12,6 +10,7 @@ permissions:
 
 jobs:
   patch:
+    if: github.head_ref == 'fix/candidate-cvm-registry-determinism'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
