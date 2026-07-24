@@ -46,6 +46,16 @@ jobs:
       - name: Validate company credit review command contract
         run: npm run test:company-credit-review
 
+      - name: Materialize approved Creditas decision once
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/company-credit-review-gate'
+        env:
+          USE_SUPABASE: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COMPANY_ID: fdac3e35-1d23-41d1-a9fd-0376445d3992
+        run: npm run ops:materialize-company-decision
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
