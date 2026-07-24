@@ -1,11 +1,23 @@
 name: QSA Fallback Persistence
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/qsa-fallback-persistence.yml
+      - api/strategic-public-data-run.ts
+      - backend/src/cli/qsaFallback.ts
+      - backend/src/modules/public-data/brasilApiQsaFallback.ts
+      - backend/src/services/qsaFallbackIngestionService.ts
+      - db/migrations/098_qsa_fallback_governance.sql
+      - vercel.json
   pull_request:
     paths:
       - .github/workflows/qsa-fallback-persistence.yml
       - api/strategic-public-data-run.ts
       - api/vercelTypes.ts
+      - backend/src/cli/qsaFallback.ts
       - backend/src/modules/public-data/brasilApiQsaFallback.ts
       - backend/src/modules/public-data/brasilApiQsaFallback.test.ts
       - backend/src/services/qsaFallbackIngestionService.ts
@@ -15,6 +27,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: qsa-fallback-persistence-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -48,3 +64,35 @@ jobs:
           grep -F '"schedule": "30 10 8 * *"' vercel.json
           grep -F '"destination": "/api/strategic-public-data-run?mode=qsa-fallback"' vercel.json
           test ! -f api/qsa-fallback-run.ts
+
+  ingest-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate ingestion secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Bootstrap QSA fallback monitoring evidence
+        working-directory: backend
+        run: |
+          npx tsx src/cli/qsaFallback.ts \
+            --force \
+            --max-companies 50 \
+            --trigger backfill \
+            --require-output \
+            --require-zero-signals
