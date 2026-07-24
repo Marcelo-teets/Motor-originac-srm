@@ -350,7 +350,7 @@ async function probeResource(url: string) {
 }
 
 export async function discoverFinepPublicResources(): Promise<FinepPublicResource[]> {
-  let pageUrl = PAGE_CANDIDATES[1];
+  let pageUrl: string = PAGE_CANDIDATES[1];
   let discovered: Partial<Record<FinepResourceKind, string>> = {};
   for (const candidate of PAGE_CANDIDATES) {
     try {
