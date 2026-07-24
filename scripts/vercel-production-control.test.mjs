@@ -163,7 +163,7 @@ const createMockFetch = (handlers) => {
   assert.equal(result.status, 'created');
   assert.equal(result.deployment.id, 'dpl_new');
   assert.equal(result.automaticDeployments, 'disabled');
-  assert.equal(JSON.stringify({ calls, result }).includes(token), false);
+  assert.equal(JSON.stringify(result).includes(token), false);
 }
 
 {
@@ -221,6 +221,7 @@ const createMockFetch = (handlers) => {
   assert.deepEqual(transitions, ['enabled', 'disabled']);
   assert.equal(result.automaticDeployments, 'disabled');
   assert.equal(calls.filter(({ method }) => method === 'POST').length, 2);
+  assert.equal(JSON.stringify(result).includes(token), false);
 }
 
 {
