@@ -12,11 +12,6 @@ export function CompanyDetailKnowledgePage() {
 
   const refreshKnowledgeExecution = () => {
     setKnowledgeRevision((current) => current + 1);
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.getElementById('bloco-knowledge')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
   };
 
   return (
