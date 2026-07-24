@@ -10,13 +10,13 @@ export function OutcomeOperationsPage() {
     <div className="page outcome-operations-page">
       <PageIntro
         eyebrow="Knowledge Vault / Outcomes"
-        title="Outcome Operations"
-        description="Fila operacional para transformar ações, tarefas e pipeline em resultados confirmados, mantendo contexto, lineage e governança humana sobre qualquer atividade histórica."
+        title="Outcome Workbench"
+        description="Fila diária priorizada para confirmar resultados reais, instrumentar histórico relevante e atualizar tarefas e pipeline com lineage — sem alterar scores ou inferir decisões."
         actions={(
           <div className="pill-row">
             <Pill tone="success">Supabase real</Pill>
-            <Pill tone="info">sem outcome sintético</Pill>
-            <Pill tone="warning">contexto histórico reconstruído</Pill>
+            <Pill tone="info">prioridade explicável</Pill>
+            <Pill tone="warning">sem outcome sintético</Pill>
           </div>
         )}
       />

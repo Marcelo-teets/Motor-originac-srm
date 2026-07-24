@@ -1,18 +1,23 @@
 import type { SessionData } from './types';
 import type {
   AdoptExistingActivityResult,
+  CaptureExistingActivityOutcomeInput,
+  CaptureExistingActivityOutcomeResult,
   FactorPipelineOutcome,
   KnowledgeActivityAdoptionCandidate,
   KnowledgeOutcomeDimension,
   KnowledgeOutcomeIntelligence,
   KnowledgeOutcomeOperations,
   KnowledgeOutcomeOperationsSummary,
+  KnowledgeOutcomePriorityContext,
   KnowledgeOutcomeSummary,
   KnowledgeOutcomeTask,
   KnowledgePendingOutcome,
   KnowledgeRecentExecutionOutcome,
   KnowledgeStalePipeline,
+  OutcomePriorityBand,
   OutcomeSampleQuality,
+  OutcomeSuggestedHandling,
 } from './knowledgeOutcomeTypes';
 
 const env = import.meta.env;
@@ -27,6 +32,7 @@ const numberOrNull = (value: unknown): number | null => {
 
 const numberOrZero = (value: unknown): number => numberOrNull(value) ?? 0;
 const stringOrNull = (value: unknown): string | null => value === null || value === undefined || value === '' ? null : String(value);
+const stringArray = (value: unknown): string[] => Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 
 const mapDimension = (row: Record<string, unknown>): KnowledgeOutcomeDimension => ({
   dimensionType: String(row.dimension_type ?? ''),
@@ -112,9 +118,32 @@ const mapOperationsSummary = (row: Record<string, unknown>): KnowledgeOutcomeOpe
   dueSoonTasks: numberOrZero(row.dueSoonTasks),
   stalePipelines: numberOrZero(row.stalePipelines),
   adoptionCandidates: numberOrZero(row.adoptionCandidates),
+  immediateCandidates: numberOrZero(row.immediateCandidates),
+  highPriorityCandidates: numberOrZero(row.highPriorityCandidates),
+  dailyQueueItems: numberOrZero(row.dailyQueueItems),
+});
+
+const mapPriorityContext = (row: Record<string, unknown>): KnowledgeOutcomePriorityContext => ({
+  pipelineId: stringOrNull(row.pipelineId),
+  pipelineStage: stringOrNull(row.pipelineStage),
+  pipelinePriority: stringOrNull(row.pipelinePriority),
+  expectedStructure: stringOrNull(row.expectedStructure),
+  expectedTicket: numberOrNull(row.expectedTicket),
+  leadScore: numberOrNull(row.leadScore),
+  leadBucket: stringOrNull(row.leadBucket),
+  qualificationScore: numberOrNull(row.qualificationScore),
+  urgencyScore: numberOrNull(row.urgencyScore),
+  fundingNeedScore: numberOrNull(row.fundingNeedScore),
+  openTaskCount: numberOrZero(row.openTaskCount),
+  overdueTaskCount: numberOrZero(row.overdueTaskCount),
+  priorityScore: numberOrZero(row.priorityScore),
+  priorityBand: String(row.priorityBand ?? 'low') as OutcomePriorityBand,
+  priorityReasons: stringArray(row.priorityReasons),
+  suggestedHandling: String(row.suggestedHandling ?? 'review_context') as OutcomeSuggestedHandling,
 });
 
 const mapPendingOutcome = (row: Record<string, unknown>): KnowledgePendingOutcome => ({
+  ...mapPriorityContext(row),
   activityId: String(row.activityId ?? ''),
   companyId: String(row.companyId ?? ''),
   companyName: String(row.companyName ?? ''),
@@ -161,6 +190,7 @@ const mapStalePipeline = (row: Record<string, unknown>): KnowledgeStalePipeline 
 });
 
 const mapAdoptionCandidate = (row: Record<string, unknown>): KnowledgeActivityAdoptionCandidate => ({
+  ...mapPriorityContext(row),
   activityId: String(row.activityId ?? ''),
   companyId: String(row.companyId ?? ''),
   companyName: String(row.companyName ?? ''),
@@ -267,5 +297,20 @@ export const knowledgeOutcomeApi = {
     p_activity_id: activityId,
     p_idempotency_key: idempotencyKey,
     p_node_id: nodeId || null,
+  }),
+
+  captureExistingActivityOutcome: (
+    session: SessionData | null,
+    input: CaptureExistingActivityOutcomeInput,
+  ) => rpc<CaptureExistingActivityOutcomeResult>(session, 'knowledge_capture_existing_activity_outcome', {
+    p_activity_id: input.activityId,
+    p_adoption_idempotency_key: input.adoptionIdempotencyKey,
+    p_completion_idempotency_key: input.completionIdempotencyKey,
+    p_outcome_status: input.outcomeStatus,
+    p_outcome: input.outcome,
+    p_next_action: input.nextAction,
+    p_due_at: input.dueAt,
+    p_target_stage: input.targetStage,
+    p_node_id: input.nodeId || null,
   }),
 };
