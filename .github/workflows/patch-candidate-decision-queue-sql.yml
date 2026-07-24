@@ -1,0 +1,59 @@
+name: Patch Candidate Decision Queue SQL
+
+on:
+  push:
+    branches:
+      - feat/candidate-decision-queue
+    paths:
+      - .github/workflows/patch-candidate-decision-queue-sql.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/candidate-decision-queue
+          fetch-depth: 0
+      - name: Apply guarded SQL replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('db/migrations/119_candidate_decision_queue.sql')
+          text = path.read_text(encoding='utf-8')
+          old = """      and (coalesce(nullif(p_queue, ''), 'commercial') = 'all' or queue.queue_type = p_queue)
+"""
+          new = """      and (
+        coalesce(nullif(p_queue, ''), 'commercial') = 'all'
+        or (p_queue = 'reviewable' and queue.queue_type in ('commercial', 'identity'))
+        or queue.queue_type = p_queue
+      )
+"""
+          if old not in text:
+              raise SystemExit('queue filter anchor not found')
+          text = text.replace(old, new, 1)
+          old = """        or regexp_replace(coalesce(queue.cnpj, ''), '\\D', '', 'g') like '%' || regexp_replace(p_search, '\\D', '', 'g') || '%'
+"""
+          new = """        or (
+          nullif(regexp_replace(p_search, '\\D', '', 'g'), '') is not null
+          and regexp_replace(coalesce(queue.cnpj, ''), '\\D', '', 'g') like '%' || regexp_replace(p_search, '\\D', '', 'g') || '%'
+        )
+"""
+          if old not in text:
+              raise SystemExit('CNPJ search anchor not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm .github/workflows/patch-candidate-decision-queue-sql.yml
+      - name: Commit SQL patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(db): harden Candidate Decision Queue filters"
+          git push origin HEAD:feat/candidate-decision-queue
