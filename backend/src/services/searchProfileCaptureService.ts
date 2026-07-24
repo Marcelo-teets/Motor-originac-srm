@@ -46,8 +46,11 @@ export type SearchProfileCaptureAdapter = {
   getDiscoveredCandidate(candidateId: string): Promise<DiscoveredCandidateRecord | null>;
   updateDiscoveredCandidate(candidateId: string, patch: Partial<DiscoveredCandidateRecord>): Promise<DiscoveredCandidateRecord>;
   linkCandidateToCompany(companyId: string, candidateId: string, confidence: number, matchMethod: string): Promise<void>;
-  approveCandidateIdentityReview(input: CandidateIdentityApprovalInput): Promise<CandidateIdentityReviewResult>;
-  rejectCandidateIdentityReview(input: CandidateIdentityRejectionInput): Promise<CandidateIdentityReviewResult>;
+};
+
+export type CandidateIdentityReviewExecutor = {
+  approve(input: CandidateIdentityApprovalInput): Promise<CandidateIdentityReviewResult>;
+  reject(input: CandidateIdentityRejectionInput): Promise<CandidateIdentityReviewResult>;
 };
 
 export type SearchProfileCaptureHooks = {
@@ -67,6 +70,7 @@ export class SearchProfileCaptureService {
   constructor(
     private readonly adapter: SearchProfileCaptureAdapter,
     private readonly hooks: SearchProfileCaptureHooks = {},
+    private readonly identityReviewExecutor?: CandidateIdentityReviewExecutor,
   ) {}
 
   async runCapture(
@@ -150,7 +154,8 @@ export class SearchProfileCaptureService {
   }
 
   async approveCandidateIdentityReview(input: CandidateIdentityApprovalInput) {
-    const result = await this.adapter.approveCandidateIdentityReview(input);
+    if (!this.identityReviewExecutor) throw new Error('Candidate identity review executor is unavailable.');
+    const result = await this.identityReviewExecutor.approve(input);
     if (result.companyId && this.hooks.refreshMonitoring) {
       await this.hooks.refreshMonitoring(result.companyId).catch(() => undefined);
     }
@@ -160,7 +165,8 @@ export class SearchProfileCaptureService {
   }
 
   async rejectCandidateIdentityReview(input: CandidateIdentityRejectionInput) {
-    return this.adapter.rejectCandidateIdentityReview(input);
+    if (!this.identityReviewExecutor) throw new Error('Candidate identity review executor is unavailable.');
+    return this.identityReviewExecutor.reject(input);
   }
 
   async promoteCandidate(candidateId: string) {
