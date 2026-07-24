@@ -9,6 +9,8 @@ import type { KnowledgeSearchResponse, KnowledgeSearchResult } from '../lib/know
 import type { CompanyListItem } from '../lib/types';
 import '../styles/knowledge-search.css';
 
+const KNOWLEDGE_SEARCH_BUILD = 'knowledge-hybrid-search-v9';
+
 const suggestedQueries = [
   'funding gap e descasamento de capital',
   'recebíveis estruturáveis para FIDC',
@@ -112,7 +114,7 @@ export function KnowledgeSearchPage() {
   };
 
   return (
-    <div className="page knowledge-search-page">
+    <div className="page knowledge-search-page" data-feature-build={KNOWLEDGE_SEARCH_BUILD}>
       <PageIntro
         eyebrow="Knowledge Vault / Retrieval V9"
         title="Busca institucional híbrida"
