@@ -1,0 +1,36 @@
+name: Outcome Workbench V9 Branch CI
+
+on:
+  push:
+    branches:
+      - agent/outcome-workbench-sla-ownership-v9
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outcome-v9-branch-ci
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck frontend
+        run: npm -C frontend run typecheck
+
+      - name: Build
+        run: npm run build
