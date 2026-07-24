@@ -1,32 +1,116 @@
 name: Sync company master triage with main
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - agent/company-master-triage
     paths:
       - .github/workflows/sync-company-master-triage.yml
 
 permissions:
   contents: write
 
+concurrency:
+  group: sync-company-master-triage
+  cancel-in-progress: false
+
 jobs:
   sync:
-    if: github.head_ref == 'agent/company-master-triage'
+    if: github.ref == 'refs/heads/agent/company-master-triage'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/company-master-triage
           fetch-depth: 0
-      - name: Merge current main and remove temporary workflow
+      - name: Rebuild triage changes over current main
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "openai-project-agent"
           git config user.email "openai-project-agent@users.noreply.github.com"
+
+          keep_dir="$(mktemp -d)"
+          keep_files=(
+            api/candidate-identity-review.ts
+            api/candidate-triage.ts
+            api/vercelTypes.ts
+            backend/src/services/candidateTriageRuntime.ts
+            db/migrations/107_company_master_candidate_triage.sql
+            docs/entity-resolution/company-master-triage-v1.md
+            frontend/src/pages/CandidateIdentityReviewPage.tsx
+          )
+          for file in "${keep_files[@]}"; do
+            mkdir -p "$keep_dir/$(dirname "$file")"
+            cp "$file" "$keep_dir/$file"
+          done
+
           git fetch origin main
-          git merge --no-edit origin/main
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+          if [ "$merge_status" -ne 0 ]; then
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              git checkout --theirs -- "$file"
+              git add "$file"
+            done < <(git diff --name-only --diff-filter=U)
+          fi
+
+          for file in "${keep_files[@]}"; do
+            mkdir -p "$(dirname "$file")"
+            cp "$keep_dir/$file" "$file"
+            git add "$file"
+          done
+
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('frontend/src/App.tsx')
+          text = app.read_text()
+          old = '        <Route path="identity-review" element={<CandidateIdentityReviewPage />} />'
+          new = '        <Route path="identity-review" element={<RequireGodMode><CandidateIdentityReviewPage /></RequireGodMode>} />'
+          if old in text:
+              text = text.replace(old, new)
+          elif new not in text:
+              raise SystemExit('identity-review route contract not found')
+          app.write_text(text)
+
+          nav = Path('frontend/src/config/nav.ts')
+          text = nav.read_text()
+          old = """  {
+            to: '/identity-review',
+            label: 'Identity Review',
+            shortLabel: 'CNPJ e entidade',
+            description: 'Revisão humana de razão social, CNPJ, domínio, evidência e promoção transacional.',
+            group: 'Operação & governança',
+          },"""
+          new = """  {
+            to: '/identity-review',
+            label: 'Identity Review',
+            shortLabel: 'CNPJ e entidade',
+            description: 'Triagem GOD-MODE de entidade, CNPJ, evidência e entrada monitorável no Company Master.',
+            group: 'Operação & governança',
+            godOnly: true,
+          },"""
+          if old in text:
+              text = text.replace(old, new)
+          elif new not in text:
+              raise SystemExit('identity-review navigation contract not found')
+          nav.write_text(text)
+
+          api = Path('api/candidate-triage.ts')
+          text = api.read_text()
+          marker = "    if (action === 'confirm_classification') {"
+          guarded = "    await triage.requireGodMode(user.id);\n\n    if (action === 'confirm_classification') {"
+          if marker in text and guarded not in text:
+              text = text.replace(marker, guarded, 1)
+          text = text.replace("\n    await triage.requireGodMode(user.id);\n    const identityRuntime", "\n    const identityRuntime", 1)
+          api.write_text(text)
+          PY
+
+          git add frontend/src/App.tsx frontend/src/config/nav.ts api/candidate-triage.ts
           git rm .github/workflows/sync-company-master-triage.yml
-          git commit -m "chore: sync company master triage with current main"
+          git commit -m "chore: sync governed Company Master triage with current main"
           git push origin HEAD:agent/company-master-triage
