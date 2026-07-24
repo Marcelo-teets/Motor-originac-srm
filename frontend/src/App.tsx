@@ -57,7 +57,7 @@ export default function App() {
         <Route path="watch-lists" element={portfolioGate(<WatchListPage />)} />
         <Route path="monitoring" element={<MonitoringPage />} />
         <Route path="capture-inbox" element={<CaptureInboxPage />} />
-        <Route path="identity-review" element={<CandidateIdentityReviewPage />} />
+        <Route path="identity-review" element={<RequireGodMode><CandidateIdentityReviewPage /></RequireGodMode>} />
         <Route path="sources" element={<SourcesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
