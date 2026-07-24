@@ -8,6 +8,29 @@ create index if not exists idx_company_signals_capital_market_dataset
   on public.company_signals ((metadata ->> 'datasetCode'), observed_at desc)
   where signal_type = 'capital_market_event';
 
+-- Source health must reflect persisted reality, not only connector availability.
+update public.source_catalog source
+set status = 'partial',
+    health = 'degraded',
+    metadata = coalesce(source.metadata, '{}'::jsonb) || jsonb_build_object(
+      'deliveryState', 'awaiting_persisted_events',
+      'deliveryStateUpdatedAt', now()
+    ),
+    updated_at = now()
+where source.metadata ->> 'datasetCode' in (
+  'cvm_offers',
+  'cvm_fund_registry',
+  'cvm_fidc_monthly',
+  'cvm_cri_monthly',
+  'cvm_cra_monthly',
+  'cvm_fii_monthly'
+)
+  and not exists (
+    select 1
+    from public.capital_market_events event
+    where event.dataset_code = source.metadata ->> 'datasetCode'
+  );
+
 create or replace function public.sync_capital_market_delivery(
   p_dataset_code text
 )
@@ -26,6 +49,17 @@ declare
 begin
   if nullif(trim(p_dataset_code), '') is null then
     raise exception 'p_dataset_code is required';
+  end if;
+
+  if p_dataset_code not in (
+    'cvm_offers',
+    'cvm_fund_registry',
+    'cvm_fidc_monthly',
+    'cvm_cri_monthly',
+    'cvm_cra_monthly',
+    'cvm_fii_monthly'
+  ) then
+    raise exception 'Unsupported CVM dataset: %', p_dataset_code;
   end if;
 
   select count(*)::integer,
@@ -76,6 +110,7 @@ begin
   set status = case when v_event_count > 0 then 'real' else 'partial' end,
       health = case when v_event_count > 0 then 'healthy' else 'degraded' end,
       metadata = coalesce(source.metadata, '{}'::jsonb) || jsonb_build_object(
+        'deliveryState', case when v_event_count > 0 then 'delivered' else 'empty' end,
         'lastDeliveryAt', v_generated_at,
         'lastDeliveryEventCount', v_event_count,
         'lastDeliveryLinkedEvents', v_linked_events,
@@ -114,8 +149,14 @@ with datasets as (
     source.frequency,
     source.updated_at as source_updated_at
   from public.source_catalog source
-  where nullif(source.metadata ->> 'datasetCode', '') is not null
-    and coalesce(source.metadata ->> 'code', '') like 'src_cvm_%'
+  where source.metadata ->> 'datasetCode' in (
+    'cvm_offers',
+    'cvm_fund_registry',
+    'cvm_fidc_monthly',
+    'cvm_cri_monthly',
+    'cvm_cra_monthly',
+    'cvm_fii_monthly'
+  )
 ),
 latest_runs as (
   select distinct on (run.dataset_code)
@@ -133,6 +174,14 @@ latest_runs as (
     run.error_message,
     run.metadata
   from public.capital_market_dataset_runs run
+  where run.dataset_code in (
+    'cvm_offers',
+    'cvm_fund_registry',
+    'cvm_fidc_monthly',
+    'cvm_cri_monthly',
+    'cvm_cra_monthly',
+    'cvm_fii_monthly'
+  )
   order by run.dataset_code, run.started_at desc
 ),
 last_success as (
@@ -140,6 +189,14 @@ last_success as (
     run.dataset_code,
     max(run.finished_at) filter (where run.status in ('completed', 'partial')) as last_success_at
   from public.capital_market_dataset_runs run
+  where run.dataset_code in (
+    'cvm_offers',
+    'cvm_fund_registry',
+    'cvm_fidc_monthly',
+    'cvm_cri_monthly',
+    'cvm_cra_monthly',
+    'cvm_fii_monthly'
+  )
   group by run.dataset_code
 )
 select
@@ -207,6 +264,6 @@ grant select on public.capital_market_delivery_health to authenticated;
 grant select on public.capital_market_delivery_health to service_role;
 
 comment on function public.sync_capital_market_delivery(text) is
-  'Reconciles a CVM dataset into company links, signals, Capture Inbox candidates, run metrics and source health.';
+  'Reconciles a supported CVM dataset into company links, signals, Capture Inbox candidates, run metrics and source health.';
 comment on view public.capital_market_delivery_health is
-  'Operational health of CVM ingestion and delivery from source records through origination outputs.';
+  'Operational health of the six supported CVM datasets from source records through origination outputs.';
