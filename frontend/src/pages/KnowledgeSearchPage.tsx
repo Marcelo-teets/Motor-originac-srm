@@ -5,7 +5,11 @@ import { EmptyState, PageIntro, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { knowledgeSearchApi } from '../lib/knowledgeSearchApi';
-import type { KnowledgeSearchResponse, KnowledgeSearchResult } from '../lib/knowledgeSearchTypes';
+import type {
+  KnowledgeEmbeddingCoverage,
+  KnowledgeSearchResponse,
+  KnowledgeSearchResult,
+} from '../lib/knowledgeSearchTypes';
 import type { CompanyListItem } from '../lib/types';
 import '../styles/knowledge-search.css';
 
@@ -51,6 +55,7 @@ const buildEvidenceBlock = (result: KnowledgeSearchResult) => [
 export function KnowledgeSearchPage() {
   const { session } = useAuth();
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const [coverage, setCoverage] = useState<KnowledgeEmbeddingCoverage | null>(null);
   const [query, setQuery] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [data, setData] = useState<KnowledgeSearchResponse | null>(null);
@@ -63,6 +68,14 @@ export function KnowledgeSearchPage() {
     void api.getCompanies(session)
       .then((state) => { if (active) setCompanies(state.data); })
       .catch(() => { if (active) setCompanies([]); });
+    return () => { active = false; };
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    let active = true;
+    void knowledgeSearchApi.getEmbeddingCoverage(session)
+      .then((state) => { if (active) setCoverage(state); })
+      .catch(() => { if (active) setCoverage(null); });
     return () => { active = false; };
   }, [session?.access_token]);
 
@@ -112,9 +125,9 @@ export function KnowledgeSearchPage() {
   };
 
   return (
-    <div className="page knowledge-search-page">
+    <div className="page knowledge-search-page" data-feature-build="knowledge-embedding-coverage-v10">
       <PageIntro
-        eyebrow="Knowledge Vault / Retrieval V9"
+        eyebrow="Knowledge Vault / Retrieval V10"
         title="Busca institucional híbrida"
         description="Recupere sinais, monitoramentos e evidências por palavra e significado. O resultado preserva empresa, fonte, natureza observada ou inferida e o registro de origem."
         actions={(
@@ -125,6 +138,25 @@ export function KnowledgeSearchPage() {
           </div>
         )}
       />
+
+      {coverage ? (
+        <>
+          <section className="mini-metric-grid knowledge-search-metrics" aria-live="polite">
+            <Stat label="Cobertura semântica" value={`${coverage.documents.coveragePct.toLocaleString('pt-BR')}%`} helper={`${coverage.documents.embedded.toLocaleString('pt-BR')} de ${coverage.documents.total.toLocaleString('pt-BR')} documentos`} />
+            <Stat label="Fila pendente" value={coverage.jobs.pending.toLocaleString('pt-BR')} helper={`${coverage.jobs.processing.toLocaleString('pt-BR')} em processamento`} />
+            <Stat label="Concluídos hoje" value={coverage.jobs.completedToday.toLocaleString('pt-BR')} helper={`baseline histórico: ${coverage.jobs.baselineEmbedded.toLocaleString('pt-BR')}`} />
+            <Stat label="Falhas terminais" value={coverage.jobs.dead.toLocaleString('pt-BR')} helper={`${coverage.modelContract.model} · ${coverage.modelContract.dimensions}d`} />
+          </section>
+          <section className="knowledge-search-status knowledge-search-coverage-status">
+            <div className="pill-row">
+              <Pill tone={coverage.jobs.dead === 0 ? 'success' : 'danger'}>{coverage.jobs.dead === 0 ? 'fila saudável' : 'revisar dead letters'}</Pill>
+              <Pill tone="info">limite diário controlado</Pill>
+              <Pill tone="default">embedding sintético: não</Pill>
+            </div>
+            <p>{coverage.caveat}</p>
+          </section>
+        </>
+      ) : null}
 
       <section className="knowledge-search-shell">
         <form className="knowledge-search-form" onSubmit={submit} aria-busy={loading}>
