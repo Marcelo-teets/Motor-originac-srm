@@ -40,11 +40,14 @@ if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
   process.exitCode = 1;
 }
 if (args.includes('--require-delivery')) {
+  const deliveredCodes = new Set(delivery.datasets.map((dataset) => dataset.datasetCode));
+  const missingDatasets = datasets.filter((dataset) => !deliveredCodes.has(dataset));
   const failed = delivery.datasets.filter((dataset) => dataset.status === 'failed');
   const missingEvents = delivery.datasets.filter((dataset) => dataset.eventCount <= 0);
-  if (failed.length || missingEvents.length) {
+  if (missingDatasets.length || failed.length || missingEvents.length) {
     console.error(JSON.stringify({
       error: 'Capital-market delivery assertion failed.',
+      missingDatasets,
       failedDatasets: failed.map((dataset) => dataset.datasetCode),
       datasetsWithoutEvents: missingEvents.map((dataset) => dataset.datasetCode),
     }));
