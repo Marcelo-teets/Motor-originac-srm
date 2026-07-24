@@ -14,6 +14,7 @@ on:
       - db/migrations/062_public_score_lead_guardrails.sql
       - db/migrations/063_public_pipeline_ranking.sql
       - db/migrations/064_score_compatibility_columns.sql
+      - db/migrations/096_qualification_score_semantics.sql
       - .github/workflows/public-data-downstream-validation.yml
   push:
     branches: [main]
@@ -29,6 +30,7 @@ on:
       - db/migrations/062_public_score_lead_guardrails.sql
       - db/migrations/063_public_pipeline_ranking.sql
       - db/migrations/064_score_compatibility_columns.sql
+      - db/migrations/096_qualification_score_semantics.sql
       - .github/workflows/public-data-downstream-validation.yml
 
 permissions:
