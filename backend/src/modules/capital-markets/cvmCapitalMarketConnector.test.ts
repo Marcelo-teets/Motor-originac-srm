@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import './cvmHttp.test.js';
 import {
   CVM_DATASETS,
   extractZipEntries,
@@ -164,7 +165,6 @@ test('normalizeCapitalMarketRecord maps written-out CRI and CRA descriptions', (
   assert.equal(cri.event.instrument_type, 'CRI');
   assert.equal(cra.event.instrument_type, 'CRA');
 });
-
 
 test('natural record identity remains stable when mutable fields change', () => {
   const base = {
