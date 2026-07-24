@@ -1,0 +1,86 @@
+name: Vercel Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact 40-character SHA currently at the tip of main
+        required: true
+        type: string
+      wait_for_ready:
+        description: Wait until the deployment reaches READY or a terminal failure
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_TEAM_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      VERCEL_REPOSITORY_ID: '1185535233'
+      VERCEL_REPOSITORY_REF: main
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate production inputs
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" || {
+            echo "VERCEL_TOKEN is missing from GitHub Actions secrets."
+            exit 1
+          }
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo "A full 40-character SHA is required."
+            exit 1
+          }
+          CURRENT_SHA="$(git rev-parse HEAD)"
+          test "${REQUESTED_SHA,,}" = "${CURRENT_SHA,,}" || {
+            echo "Requested SHA $REQUESTED_SHA is not the current main SHA $CURRENT_SHA."
+            exit 1
+          }
+
+      - name: Confirm automatic Git deployments are paused
+        run: node scripts/vercel-production-control.mjs status
+
+      - name: Create one production deployment
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          WAIT_FOR_READY: ${{ inputs.wait_for_ready }}
+        run: |
+          set -euo pipefail
+          ARGS=(deploy-production "--sha=$REQUESTED_SHA")
+          if [ "$WAIT_FOR_READY" = "true" ]; then
+            ARGS+=(--wait=true --timeout-seconds=1200 --poll-seconds=10)
+          fi
+          node scripts/vercel-production-control.mjs "${ARGS[@]}"
+
+      - name: Confirm automatic deployments remain disabled
+        if: always()
+        run: node scripts/vercel-production-control.mjs disable-auto

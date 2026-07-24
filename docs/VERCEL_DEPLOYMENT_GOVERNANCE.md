@@ -2,46 +2,34 @@
 
 ## Objetivo
 
-Preservar a capacidade de deploy da Vercel para mudanças que realmente impactam produção ou precisam de preview explícito.
+Preservar a capacidade de deployment da Vercel para produção, incidentes e validações realmente necessárias.
 
-A conta Hobby possui limites de deployments e builds. Commits frequentes em branches operacionais e de agentes podem consumir essa capacidade antes de uma entrega prioritária.
+A conta Hobby atingiu o limite diário de 100 deployments em 24/07/2026. Branches antigas, criadas antes da política versionada em `vercel.json`, continuaram criando deployments cancelados e consumindo quota. Por isso, a proteção oficial passou a existir também no nível central do projeto Vercel.
 
-## Política oficial
+## Estado operacional oficial
 
-### Produção
-
-A branch `main` continua gerando deployment automático de produção.
-
-### Preview explícito
-
-Um preview deve ser solicitado criando a branch com um dos prefixos:
-
-- `preview/`
-- `release/`
-
-Exemplos:
+Configuração do projeto `motor-originac-srm`:
 
 ```text
-preview/auth-captcha-smoke
-preview/company-detail-v12
-release/2026-07-auth
+productionBranch=main
+gitProviderOptions.createDeployments=disabled
 ```
 
-### Branches sem deployment automático
+Consequências:
 
-Branches comuns de desenvolvimento não geram preview automaticamente, incluindo:
+- pushes e pull requests não criam deployments automaticamente;
+- a aplicação em produção permanece no último deployment aprovado;
+- GitHub Actions continua executando CI normalmente;
+- produção é publicada manualmente por SHA exato da `main`;
+- automações Git permanecem desligadas depois do deployment.
 
-- `agent/*`
-- `fix/*`
-- `docs/*`
-- `feat/*`
-- branches temporárias de ingestão e conectores
+## Por que a proteção central é necessária
 
-Essas branches continuam passando pelo GitHub Actions para typecheck e build. A ausência de preview automático não elimina a validação de código.
+O `vercel.json` da branch só é interpretado depois que a Vercel recebe o evento e inicia o processo associado ao commit. Branches antigas podem carregar configuração anterior. O campo central `gitProviderOptions.createDeployments=disabled` impede a criação pelo Git provider independentemente da versão existente na branch.
 
-## Proteção primária: `git.deploymentEnabled`
+## Defesa em profundidade no repositório
 
-A proteção do limite diário acontece antes da criação do deployment:
+O repositório mantém:
 
 ```json
 {
@@ -52,60 +40,104 @@ A proteção do limite diário acontece antes da criação do deployment:
       "preview/*": true,
       "release/*": true
     }
-  }
-}
-```
-
-A regra global `* = false` bloqueia branches não autorizadas. As regras específicas com valor `true` preservam produção e previews intencionais.
-
-Essa é a barreira principal porque um build apenas cancelado pelo Ignore Build Step ainda pode consumir quota de deployment.
-
-## Proteção secundária: Ignore Build Step
-
-O comando versionado em `vercel.json` é:
-
-```json
-{
+  },
   "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
 }
 ```
 
-Na Vercel:
+Essas regras continuam úteis caso a integração automática seja reabilitada futuramente, mas não substituem a política central atual.
 
-- `exit 0` ignora o build;
-- `exit 1` continua o build/deployment.
+## Produção manual por SHA
 
-O script replica a política de branches como defesa em profundidade e permite deploys manuais/API sem referência Git.
+Controlador:
+
+```text
+scripts/vercel-production-control.mjs
+```
+
+Comandos:
+
+```bash
+npm run vercel:production-control -- status
+npm run vercel:production-control -- disable-auto
+npm run vercel:production-control -- enable-auto
+npm run vercel:production-control -- deploy-production --sha=<40-char-sha> --wait=true
+```
+
+O controlador:
+
+1. exige SHA completo de 40 caracteres;
+2. procura deployment ativo/READY para o mesmo SHA;
+3. reutiliza o deployment existente quando aplicável;
+4. mantém `createDeployments=disabled`;
+5. envia `gitSource` com repo, branch `main` e SHA exato;
+6. pode aguardar estado terminal;
+7. restaura o bloqueio em `finally` se houver habilitação temporária;
+8. nunca registra o token da Vercel.
+
+## Workflow manual
+
+Arquivo:
+
+```text
+.github/workflows/vercel-production-deploy.yml
+```
+
+Regras:
+
+- execução somente por `workflow_dispatch`;
+- concurrency única para produção;
+- exige `VERCEL_TOKEN` em GitHub Actions secrets;
+- confirma que o SHA solicitado é exatamente o HEAD da `main`;
+- cria no máximo um deployment por execução;
+- confirma no final que automações Git permanecem desativadas.
 
 ## Fluxo recomendado
 
 1. Desenvolver em PR limpa sobre a `main` atual.
-2. Validar typecheck e build no GitHub Actions.
-3. Quando houver necessidade visual ou funcional de preview, usar branch `preview/*`.
-4. Fazer merge somente após os checks obrigatórios.
-5. Validar o deployment de produção pelo commit exato da `main`.
+2. Executar CI completo.
+3. Fazer merge somente com checks verdes.
+4. Identificar o SHA atual da `main`.
+5. Confirmar quota disponível.
+6. Executar o workflow manual ou o controlador com esse SHA.
+7. Aguardar `READY`.
+8. Validar `/api/health` e `/build-meta.json` contra o mesmo SHA.
+9. Executar o smoke funcional da entrega.
+10. Manter deploys Git automáticos desativados.
+
+## Preview
+
+Enquanto a política central estiver desativada, branches `preview/*` e `release/*` não geram preview automaticamente.
+
+Quando um preview for indispensável, usar um deployment manual explícito ou reabilitar a integração apenas durante uma janela controlada, restaurando `disabled` imediatamente após a criação.
 
 ## Incidente de 24/07/2026
 
-A conta alcançou o limite diário de 100 deployments. Como consequência, a correção de Auth já incorporada à `main` não pôde ser publicada imediatamente pela Vercel.
-
-O reset informado pela API da Vercel ocorre em 25/07/2026 às 13:37 no fuso `America/Sao_Paulo`.
-
-Esta política reserva capacidade para:
-
-- produção;
-- incidentes;
-- smoke tests explícitos;
-- releases priorizadas.
+- limite alcançado: 100 deployments/dia;
+- produção permaneceu no SHA anterior;
+- reset informado: 25/07/2026 às 13:37, fuso `America/Sao_Paulo`;
+- causa estrutural: volume de branches/agentes e branches antigas com política desatualizada;
+- contenção aplicada: `gitProviderOptions.createDeployments=disabled` no projeto Vercel;
+- prevenção: controlador idempotente e workflow de deployment único por SHA.
 
 ## Auth e CAPTCHA
 
-A governança de deploy não substitui a configuração externa do Auth. Para login com CAPTCHA, Production e Preview precisam possuir as variáveis públicas correspondentes ao mesmo provedor habilitado no Supabase:
+O deployment atual pode operar em dois modos:
+
+- `full`: CAPTCHA configurado, e-mail/senha e recuperação disponíveis;
+- `oauth_fallback`: GitHub OAuth disponível, e-mail/senha e recuperação desativados até a site key ser configurada.
+
+Variáveis já presentes:
 
 ```text
 VITE_CAPTCHA_ENABLED=true
 VITE_CAPTCHA_PROVIDER=turnstile
-VITE_CAPTCHA_SITE_KEY=<site key pública>
 ```
 
-Nunca armazenar secret key do CAPTCHA, credenciais OAuth ou tokens da Vercel no repositório.
+Pendente:
+
+```text
+VITE_CAPTCHA_SITE_KEY=<site key pública correspondente ao provider real>
+```
+
+Nunca armazenar CAPTCHA secret, OAuth secret, service role ou token Vercel no repositório.
