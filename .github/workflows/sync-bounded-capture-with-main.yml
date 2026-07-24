@@ -1,0 +1,30 @@
+name: Sync bounded capture branch with main
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.head_ref == 'agent/bounded-capture-fanout'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/bounded-capture-fanout
+          fetch-depth: 0
+      - name: Merge latest main and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "openai-project-agent"
+          git config user.email "openai-project-agent@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-commit --no-ff origin/main
+          git rm .github/workflows/sync-bounded-capture-with-main.yml
+          git commit -m "chore: resync bounded capture fanout with main"
+          git push origin HEAD:agent/bounded-capture-fanout
