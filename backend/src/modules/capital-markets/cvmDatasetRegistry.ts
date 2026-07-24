@@ -6,7 +6,26 @@ export type CvmDatasetCode =
   | 'cvm_fidc_monthly'
   | 'cvm_cri_monthly'
   | 'cvm_cra_monthly'
-  | 'cvm_fii_monthly';
+  | 'cvm_fii_monthly'
+  | 'cvm_securitization_ots'
+  | 'cvm_fund_documents'
+  | 'cvm_company_fre'
+  | 'cvm_company_itr'
+  | 'cvm_company_dfp';
+
+export type CapitalMarketEntityRole =
+  | 'issuer'
+  | 'securitizer'
+  | 'debtor'
+  | 'originator'
+  | 'assignor'
+  | 'fund'
+  | 'administrator'
+  | 'manager'
+  | 'custodian'
+  | 'coordinator'
+  | 'fiduciary_agent'
+  | 'auditor';
 
 export type CvmDatasetDefinition = {
   code: CvmDatasetCode;
@@ -39,6 +58,36 @@ type CkanPackageResponse = {
 };
 
 export type CsvRecord = Record<string, string>;
+
+export type NormalizedCapitalMarketEntityLink = {
+  dataset_code: CvmDatasetCode;
+  record_key: string;
+  content_hash: string;
+  entity_key: string;
+  entity_role: CapitalMarketEntityRole;
+  entity_cnpj: string | null;
+  entity_name: string | null;
+  is_primary_origination_target: boolean;
+  resolution_confidence: number;
+  source_fields: string[];
+  observed_at: string;
+  updated_at: string;
+};
+
+export type NormalizedCapitalMarketMetric = {
+  dataset_code: CvmDatasetCode;
+  record_key: string;
+  content_hash: string;
+  metric_code: string;
+  metric_label: string | null;
+  metric_value: number;
+  metric_unit: 'BRL' | 'PERCENT' | 'COUNT' | 'DAYS' | 'RATIO';
+  reference_date: string | null;
+  measurement_scope: string | null;
+  source_column: string;
+  observed_at: string;
+  updated_at: string;
+};
 
 export type NormalizedCapitalMarketRecord = {
   bronze: {
@@ -78,6 +127,8 @@ export type NormalizedCapitalMarketRecord = {
     observed_at: string;
     updated_at: string;
   };
+  entityLinks: NormalizedCapitalMarketEntityLink[];
+  metrics: NormalizedCapitalMarketMetric[];
 };
 
 export const CVM_DATASETS: Record<CvmDatasetCode, CvmDatasetDefinition> = {
@@ -135,6 +186,51 @@ export const CVM_DATASETS: Record<CvmDatasetCode, CvmDatasetDefinition> = {
     resourcePattern: /inf[_ -]?mensal[_ -]?fii.*(csv|zip)$/i,
     resourceLimit: 1,
   },
+  cvm_securitization_ots: {
+    code: 'cvm_securitization_ots',
+    sourceCode: 'src_cvm_securitization_ots',
+    packageId: 'securit-doc-inf_mensal_ots',
+    eventType: 'securitization_monthly_snapshot',
+    instrumentFallback: 'OUTRO TITULO SECURITIZACAO',
+    resourcePattern: /inf[_ -]?mensal[_ -]?ots.*(csv|zip)$/i,
+    resourceLimit: 1,
+  },
+  cvm_fund_documents: {
+    code: 'cvm_fund_documents',
+    sourceCode: 'src_cvm_fund_documents',
+    packageId: 'fi-doc-eventual',
+    eventType: 'fund_document_filing',
+    instrumentFallback: 'FUNDO',
+    resourcePattern: /(eventual[_ -]?fi|documentos.*eventuais.*fundos).*(csv|zip)$/i,
+    resourceLimit: 1,
+  },
+  cvm_company_fre: {
+    code: 'cvm_company_fre',
+    sourceCode: 'src_cvm_fre_capital_structure',
+    packageId: 'cia_aberta-doc-fre',
+    eventType: 'company_reference_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA',
+    resourcePattern: /(fre[_ -]?cia[_ -]?aberta|formularios?.*referencia.*cias?.*abertas?).*(csv|zip)$/i,
+    resourceLimit: 1,
+  },
+  cvm_company_itr: {
+    code: 'cvm_company_itr',
+    sourceCode: 'src_cvm_company_itr',
+    packageId: 'cia_aberta-doc-itr',
+    eventType: 'company_quarterly_financial_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA',
+    resourcePattern: /(itr[_ -]?cia[_ -]?aberta|informacoes?.*trimestrais.*cias?.*abertas?).*(csv|zip)$/i,
+    resourceLimit: 1,
+  },
+  cvm_company_dfp: {
+    code: 'cvm_company_dfp',
+    sourceCode: 'src_cvm_company_dfp',
+    packageId: 'cia_aberta-doc-dfp',
+    eventType: 'company_annual_financial_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA',
+    resourcePattern: /(dfp[_ -]?cia[_ -]?aberta|demonstracoes?.*financeiras.*padronizadas.*cias?.*abertas?).*(csv|zip)$/i,
+    resourceLimit: 1,
+  },
 };
 
 export const normalizeKey = (value: string) => value
@@ -166,7 +262,8 @@ export const isCvmMetadataResource = (resource: CvmResource) => {
   const key = normalizeKey(`${resource.name} ${resource.url}`);
   return key.includes('dicionariodedados')
     || key.includes('datadictionary')
-    || key.includes('documentacaodados');
+    || key.includes('documentacaodados')
+    || key.includes('/meta/');
 };
 
 export const selectDatasetResources = (
