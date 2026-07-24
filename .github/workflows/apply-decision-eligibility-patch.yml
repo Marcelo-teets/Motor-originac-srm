@@ -1,0 +1,309 @@
+name: Apply decision eligibility runtime patch
+
+on:
+  push:
+    branches:
+      - agent/decision-surface-eligibility-hardening
+    paths:
+      - .github/workflows/apply-decision-eligibility-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/decision-surface-eligibility-hardening
+          fetch-depth: 0
+      - name: Patch repository and service
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              return text.replace(old, new, 1)
+
+          repository_path = Path('backend/src/repositories/platformRepository.ts')
+          repository = repository_path.read_text()
+          repository = replace_once(
+              repository,
+              "import { env } from '../lib/env.js';\n",
+              "import { env } from '../lib/env.js';\nimport { attachCompanyDecisionMetadata } from '../lib/companyDecisionEligibility.js';\n",
+              'repository import',
+          )
+          old_map = """      return (data ?? []).map((row: any) => ({
+        id: row.id,
+        legalName: row.legal_name,
+        tradeName: row.trade_name ?? row.legal_name,
+        cnpj: row.cnpj ?? '',
+        website: row.website ?? '',
+        geography: row.geography ?? 'Brasil',
+        segment: row.segment ?? 'Unknown',
+        subsegment: row.subsegment ?? 'Unknown',
+        companyType: row.company_type ?? 'Unknown',
+        stage: row.stage ?? 'Unknown',
+        creditProduct: row.observed_payload?.credit_product ?? 'Unknown',
+        receivables: row.observed_payload?.receivables ?? [],
+        currentFundingStructure: row.current_funding_structure ?? 'Unknown',
+        description: row.observed_payload?.description ?? '',
+        signals: row.observed_payload?.signals ?? [],
+        monitoring: row.observed_payload?.monitoring ?? defaultMonitoring,
+        enrichment: row.inferred_payload?.enrichment ?? seededCompanies.find((item) => item.id === row.id)?.enrichment ?? defaultEnrichment,
+        sourceRecords: row.source_trace ?? [],
+        marketMapPeers: row.estimated_payload?.marketMapPeers ?? [],
+        activities: row.estimated_payload?.activities ?? [],
+      } satisfies CompanySeed));
+"""
+          new_map = """      return (data ?? []).map((row: any) => attachCompanyDecisionMetadata({
+        id: row.id,
+        legalName: row.legal_name,
+        tradeName: row.trade_name ?? row.legal_name,
+        cnpj: row.cnpj ?? '',
+        website: row.website ?? '',
+        geography: row.geography ?? 'Brasil',
+        segment: row.segment ?? 'Unknown',
+        subsegment: row.subsegment ?? 'Unknown',
+        companyType: row.company_type ?? 'Unknown',
+        stage: row.stage ?? 'Unknown',
+        creditProduct: row.observed_payload?.credit_product ?? 'Unknown',
+        receivables: row.observed_payload?.receivables ?? [],
+        currentFundingStructure: row.current_funding_structure ?? 'Unknown',
+        description: row.observed_payload?.description ?? row.description ?? '',
+        signals: row.observed_payload?.signals ?? [],
+        monitoring: row.observed_payload?.monitoring ?? defaultMonitoring,
+        enrichment: row.inferred_payload?.enrichment ?? seededCompanies.find((item) => item.id === row.id)?.enrichment ?? defaultEnrichment,
+        sourceRecords: row.source_trace ?? [],
+        marketMapPeers: row.estimated_payload?.marketMapPeers ?? [],
+        activities: row.estimated_payload?.activities ?? [],
+      } satisfies CompanySeed, row.metadata));
+"""
+          repository = replace_once(repository, old_map, new_map, 'company row mapping')
+          repository_path.write_text(repository)
+
+          service_path = Path('backend/src/services/platformService.ts')
+          service = service_path.read_text()
+          service = replace_once(
+              service,
+              "import { env } from '../lib/env.js';\n",
+              "import { env } from '../lib/env.js';\nimport { isCompanyDecisionEligible, isCompanyMonitoringEligible } from '../lib/companyDecisionEligibility.js';\n",
+              'service import',
+          )
+          service = replace_once(
+              service,
+              """    const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
+    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+""",
+              """    const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
+    const monitoringCompanies = env.useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies;
+    const targetCompanies = companyId ? monitoringCompanies.filter((item) => item.id === companyId) : monitoringCompanies;
+""",
+              'refresh monitoring filter',
+          )
+          service = replace_once(
+              service,
+              """    const targetCompanies = companyId ? companies.filter((item) => item.id === companyId) : companies;
+    const companyIds = new Set(targetCompanies.map((item) => item.id));
+""",
+              """    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const targetCompanies = companyId ? decisionCompanies.filter((item) => item.id === companyId) : decisionCompanies;
+    const companyIds = new Set(targetCompanies.map((item) => item.id));
+""",
+              'recompute filter',
+          )
+          old_ensure = """  private async ensureDerivedData() {
+    const [qualifications, leadScores] = await Promise.all([
+      this.repository.listQualificationSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+
+    if (!qualifications.length || !leadScores.length) {
+      await this.recomputeDerivedData();
+    }
+  }
+"""
+          new_ensure = """  private async ensureDerivedData() {
+    const [companies, qualifications, leadScores] = await Promise.all([
+      this.hydrateCompanies(),
+      this.repository.listQualificationSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const decisionIds = new Set(decisionCompanies.map((company) => company.id));
+    if (!decisionIds.size) return;
+    const qualificationIds = new Set(qualifications.map((item) => item.companyId));
+    const leadIds = new Set(leadScores.map((item) => item.companyId));
+    const missing = [...decisionIds].some((id) => !qualificationIds.has(id) || !leadIds.has(id));
+    if (missing) await this.recomputeDerivedData();
+  }
+"""
+          service = replace_once(service, old_ensure, new_ensure, 'ensure derived data')
+          old_assemble = """    const [companies, sources, patternCatalog, monitoringOutputs, qualificationSnapshots, companyPatterns, scoreSnapshots, leadScoreSnapshots] = await Promise.all([
+      this.hydrateCompanies(),
+      this.repository.listSources(),
+      this.repository.listPatternCatalog(),
+      this.repository.listMonitoringOutputs(),
+      this.repository.listQualificationSnapshots(),
+      this.repository.listCompanyPatterns(),
+      this.repository.listScoreSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+
+    const latestQualifications = latestByCompany(qualificationSnapshots);
+"""
+          new_assemble = """    const [allCompanies, sources, patternCatalog, allMonitoringOutputsRaw, allQualificationSnapshots, allCompanyPatterns, allScoreSnapshots, allLeadScoreSnapshots] = await Promise.all([
+      this.hydrateCompanies(),
+      this.repository.listSources(),
+      this.repository.listPatternCatalog(),
+      this.repository.listMonitoringOutputs(),
+      this.repository.listQualificationSnapshots(),
+      this.repository.listCompanyPatterns(),
+      this.repository.listScoreSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+    ]);
+    const companies = env.useSupabase ? allCompanies.filter(isCompanyDecisionEligible) : allCompanies;
+    const companyIds = new Set(companies.map((company) => company.id));
+    const monitoringOutputs = allMonitoringOutputsRaw.filter((item) => companyIds.has(item.companyId));
+    const qualificationSnapshots = allQualificationSnapshots.filter((item) => companyIds.has(item.companyId));
+    const companyPatterns = allCompanyPatterns.filter((item) => companyIds.has(item.companyId));
+    const scoreSnapshots = allScoreSnapshots.filter((item) => companyIds.has(item.companyId));
+    const leadScoreSnapshots = allLeadScoreSnapshots.filter((item) => companyIds.has(item.companyId));
+
+    const latestQualifications = latestByCompany(qualificationSnapshots);
+"""
+          service = replace_once(service, old_assemble, new_assemble, 'assemble filtering')
+          service = replace_once(
+              service,
+              """  async listSources() { return this.repository.listSources(); }
+  async listMonitoringOutputsAll() { return this.repository.listMonitoringOutputs(); }
+  async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
+  async listPipelineRows() { return this.repository.listPipelineRows(); }
+""",
+              """  async listSources() { return this.repository.listSources(); }
+  async listMonitoringOutputsAll() {
+    const [companies, outputs] = await Promise.all([this.hydrateCompanies(), this.repository.listMonitoringOutputs()]);
+    if (!env.useSupabase) return outputs;
+    const ids = new Set(companies.filter(isCompanyMonitoringEligible).map((company) => company.id));
+    return outputs.filter((output) => ids.has(output.companyId));
+  }
+  async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
+  async listPipelineRows() {
+    const [companies, rows] = await Promise.all([this.hydrateCompanies(), this.repository.listPipelineRows()]);
+    if (!env.useSupabase) return rows;
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
+""",
+              'list filters',
+          )
+          service = replace_once(
+              service,
+              """    const [dashboard, companies, sources, signals] = await Promise.all([
+      this.getDashboard(),
+      this.listCompanies(),
+      this.listSources(),
+      this.repository.listCompanySignals(),
+    ]);
+
+    const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
+""",
+              """    const [dashboard, hydratedCompanies, sources, signals] = await Promise.all([
+      this.getDashboard(),
+      this.hydrateCompanies(),
+      this.listSources(),
+      this.repository.listCompanySignals(),
+    ]);
+    const companies = env.useSupabase ? hydratedCompanies.filter(isCompanyMonitoringEligible) : hydratedCompanies;
+    const companyNameById = new Map(companies.map((company) => [company.id, company.tradeName]));
+""",
+              'monitoring snapshot companies',
+          )
+          service = replace_once(
+              service,
+              """    const recentTriggers = [...signals]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+""",
+              """    const recentTriggers = [...signals]
+      .filter((signal) => companyNameById.has(signal.companyId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+""",
+              'monitoring signal filter',
+          )
+          service = replace_once(
+              service,
+              """  async listPipelineStages() {
+    const rows = await this.repository.listPipelineRows();
+""",
+              """  async listPipelineStages() {
+    const rows = await this.listPipelineRows();
+""",
+              'pipeline stage filter',
+          )
+          service = replace_once(
+              service,
+              """  async getPipelineByCompany(companyId: string) { return this.repository.getPipelineByCompany(companyId); }
+  async movePipelineStage(companyId: string, stage: PipelineStage) { return this.repository.movePipelineStage(companyId, stage); }
+  async updateNextAction(companyId: string, nextAction: string) { return this.repository.updateNextAction(companyId, nextAction); }
+  async listActivities(companyId?: string) { return this.repository.listActivities(companyId); }
+  async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveActivity(activity); }
+  async listTasks(companyId?: string) { return this.repository.listTasks(companyId); }
+  async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) { return this.repository.saveTask(task); }
+""",
+              """  private async isDecisionCompany(companyId: string) {
+    if (!env.useSupabase) return true;
+    return (await this.hydrateCompanies()).some((company) => company.id === companyId && isCompanyDecisionEligible(company));
+  }
+  async getPipelineByCompany(companyId: string) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.getPipelineByCompany(companyId);
+  }
+  async movePipelineStage(companyId: string, stage: PipelineStage) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.movePipelineStage(companyId, stage);
+  }
+  async updateNextAction(companyId: string, nextAction: string) {
+    if (!(await this.isDecisionCompany(companyId))) return null;
+    return this.repository.updateNextAction(companyId, nextAction);
+  }
+  async listActivities(companyId?: string) {
+    const rows = await this.repository.listActivities(companyId);
+    if (!env.useSupabase) return rows;
+    const companies = await this.hydrateCompanies();
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
+  async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (!(await this.isDecisionCompany(activity.companyId))) throw new Error('Company is not eligible for decision activity.');
+    return this.repository.saveActivity(activity);
+  }
+  async listTasks(companyId?: string) {
+    const rows = await this.repository.listTasks(companyId);
+    if (!env.useSupabase) return rows;
+    const companies = await this.hydrateCompanies();
+    const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
+    return rows.filter((row) => ids.has(row.companyId));
+  }
+  async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (!(await this.isDecisionCompany(task.companyId))) throw new Error('Company is not eligible for decision task.');
+    return this.repository.saveTask(task);
+  }
+""",
+              'pipeline activity task guards',
+          )
+          service_path.write_text(service)
+          PY
+      - name: Commit generated patch
+        shell: bash
+        run: |
+          git config user.name "openai-project-agent"
+          git config user.email "openai-project-agent@users.noreply.github.com"
+          git rm .github/workflows/apply-decision-eligibility-patch.yml
+          git add backend/src/repositories/platformRepository.ts backend/src/services/platformService.ts
+          git commit -m "fix: filter production decision surfaces by eligibility"
+          git push origin HEAD:agent/decision-surface-eligibility-hardening
