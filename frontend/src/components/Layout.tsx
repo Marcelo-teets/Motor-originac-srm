@@ -1,13 +1,14 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { navGroups, navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
 
 export function Layout() {
-  const { logout, session } = useAuth();
+  const { logout, session, profile, isGodMode } = useAuth();
   const location = useLocation();
-  const activeItem = [...navItems]
+  const visibleNavItems = navItems.filter((item) => !item.godOnly || isGodMode);
+  const activeItem = [...visibleNavItems]
     .reverse()
-    .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? navItems[0];
+    .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? visibleNavItems[0];
 
   return (
     <div className="shell">
@@ -23,7 +24,7 @@ export function Layout() {
             <div key={group} className="sidebar-group">
               <span className="sidebar-label">{group}</span>
               <nav>
-                {navItems.filter((item) => item.group === group).map((item) => (
+                {visibleNavItems.filter((item) => item.group === group).map((item) => (
                   <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'nav active' : 'nav')} end={item.to === '/'}>
                     <span>
                       <strong>{item.label}</strong>
@@ -49,7 +50,13 @@ export function Layout() {
             <strong>{activeItem.description}</strong>
           </div>
           <div className="topbar-meta">
-            <div className="badge">{session?.user.email ?? 'Usuário autenticado'}</div>
+            <Link to="/profile" className="user-badge-link">
+              <span className="user-avatar-mini">{(profile?.full_name ?? profile?.email ?? 'U').slice(0, 1).toUpperCase()}</span>
+              <span>
+                <strong>{profile?.full_name || session?.user.email || 'Usuário autenticado'}</strong>
+                <small>{isGodMode ? 'GOD-MODE' : 'Usuário comum'}</small>
+              </span>
+            </Link>
             <div className="badge subtle">Main oficial</div>
             <button type="button" className="secondary compact-button" onClick={() => void logout()}>Sair</button>
           </div>
