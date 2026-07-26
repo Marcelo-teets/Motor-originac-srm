@@ -61,6 +61,9 @@ jobs:
       - name: Validate pipeline eligibility contract
         run: npm run test:pipeline-eligibility
 
+      - name: Validate capture-derived decision gate
+        run: npm run test:capture-derived-decision-gate
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
