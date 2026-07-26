@@ -1,0 +1,107 @@
+name: Knowledge Learning Production Smoke
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ops/rollouts/knowledge-learning-production-smoke.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-learning-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      PRODUCTION_URL: https://motor-originac-srm.vercel.app
+      EXPECTED_SHA: ${{ github.sha }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+    steps:
+      - name: Validate secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET" || {
+            echo "CRON_SECRET is missing from the production environment."
+            exit 1
+          }
+
+      - name: Wait for exact production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            CURRENT_SHA="$(node -e '
+              const response = await fetch(process.env.PRODUCTION_URL + "/build-meta.json", {
+                headers: { "cache-control": "no-cache" },
+              });
+              if (!response.ok) process.exit(2);
+              const metadata = await response.json();
+              process.stdout.write(String(metadata.commitSha ?? ""));
+            ' || true)"
+            if [ "$CURRENT_SHA" = "$EXPECTED_SHA" ]; then
+              echo "Production is on expected SHA $EXPECTED_SHA."
+              exit 0
+            fi
+            echo "Attempt $attempt: production SHA is ${CURRENT_SHA:-unavailable}; waiting for $EXPECTED_SHA."
+            sleep 10
+          done
+          echo "Production did not reach expected SHA $EXPECTED_SHA."
+          exit 1
+
+      - name: Process one real learning job
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP_CODE="$(curl --silent --show-error \
+            --output /tmp/knowledge-learning-smoke.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header 'Content-Type: application/json' \
+            --data '{"batchSize":1,"dailyLimit":1000,"leaseSeconds":900,"workerId":"production-smoke-${{ github.run_id }}"}' \
+            "$PRODUCTION_URL/api/knowledge-learning-agent")"
+
+          cat /tmp/knowledge-learning-smoke.json
+          echo
+
+          test "$HTTP_CODE" = "200" || {
+            echo "Knowledge Learning Agent returned HTTP $HTTP_CODE."
+            exit 1
+          }
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/knowledge-learning-smoke.json', 'utf8'));
+          if (payload.runtime !== 'knowledge-learning-agent-v14') {
+            throw new Error(`Unexpected runtime: ${payload.runtime}`);
+          }
+          if (payload.status !== 'completed') {
+            throw new Error(`Expected completed status, got ${payload.status}`);
+          }
+          if (!Number.isFinite(Number(payload.claimed)) || Number(payload.claimed) < 1) {
+            throw new Error(`Expected at least one claimed job, got ${payload.claimed}`);
+          }
+          const completed = Array.isArray(payload.companies)
+            ? payload.companies.filter((company) => company?.status === 'completed')
+            : [];
+          if (!completed.length) {
+            throw new Error('No company completed the learning cycle.');
+          }
+          console.log(JSON.stringify({
+            status: payload.status,
+            runtime: payload.runtime,
+            claimed: payload.claimed,
+            completedCompanies: completed.length,
+            workerId: payload.workerId,
+          }));
+          NODE
