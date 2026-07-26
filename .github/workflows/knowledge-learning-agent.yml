@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: Jobs máximos por execução
+        description: Eventos máximos consolidados por execução
         required: false
-        default: '2'
+        default: '32'
       daily_limit:
         description: Limite diário de empresas processadas
         required: false
@@ -35,7 +35,7 @@ jobs:
       - name: Process governed learning queue
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          BATCH_SIZE: ${{ inputs.batch_size || '2' }}
+          BATCH_SIZE: ${{ inputs.batch_size || '32' }}
           DAILY_LIMIT: ${{ inputs.daily_limit || '48' }}
         run: |
           set -euo pipefail
