@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
     const providerGeneratedAt = manifest.gerado_em ? String(manifest.gerado_em) : new Date().toISOString();
 
     if (!sourceId || !administrator || schemaVersion !== 1) throw new Error("invalid_ingestion_metadata");
-    if (!['manual', 'scheduled', 'retry'].includes(triggerType)) triggerType = "manual";
+    if (!["manual", "scheduled", "retry"].includes(triggerType)) triggerType = "manual";
     if (providerExpiresAt && Date.parse(providerExpiresAt) <= Date.now()) throw new Error("provider_download_link_expired");
 
     stage = "download_provider_zip";
@@ -61,11 +61,27 @@ Deno.serve(async (req: Request) => {
     if (!download.ok) throw new Error(`agentetome_download_http_${download.status}`);
     const zipBytes = new Uint8Array(await download.arrayBuffer());
     const packageHash = await sha256Hex(zipBytes);
+    const generatedDate = providerGeneratedAt.slice(0, 10);
+    const storagePath = `administrator=${slug(administrator)}/cut=${cut}/generated=${generatedDate}/${packageHash}.zip`;
+    const storageUrl = `storage://${AGENTETOME_BUCKET}/${storagePath}`;
+
+    stage = "validate_archive";
+    const parsed = await parseAgentetomeArchive({
+      zipBytes,
+      expectedHash: packageHash,
+      expectedSize,
+      expectedRows: manifest.arquivos ?? {},
+      storageUrl,
+      schemaVersion,
+    });
 
     const existing = await supabaseFetch(
       `/rest/v1/agentetome_export_packages?content_hash=eq.${packageHash}&select=id,status,row_counts`,
     ) as Array<{ id: string; status: string; row_counts: Record<string, number> }>;
     if (existing?.[0]?.status === "parsed") {
+      stage = "refresh_bronze_lineage";
+      await writeBronze(parsed.bronzeRows);
+
       stage = "refresh_existing_package";
       const refresh = await supabaseFetch("/rest/v1/rpc/refresh_agentetome_existing_package", {
         method: "POST",
@@ -81,7 +97,8 @@ Deno.serve(async (req: Request) => {
         mode: "idempotent_existing_package",
         packageId: existing[0].id,
         packageHash,
-        rows: existing[0].row_counts,
+        rows: parsed.rowCounts,
+        bronzeRowsReconciled: parsed.bronzeRows.length,
         refresh,
         rawDownloadLinkPersisted: false,
       }, RUNTIME);
@@ -113,20 +130,6 @@ Deno.serve(async (req: Request) => {
         schema_version: schemaVersion,
         runtime: RUNTIME,
       },
-    });
-
-    const generatedDate = providerGeneratedAt.slice(0, 10);
-    const storagePath = `administrator=${slug(administrator)}/cut=${cut}/generated=${generatedDate}/${packageHash}.zip`;
-    const storageUrl = `storage://${AGENTETOME_BUCKET}/${storagePath}`;
-
-    stage = "validate_archive";
-    const parsed = await parseAgentetomeArchive({
-      zipBytes,
-      expectedHash: packageHash,
-      expectedSize,
-      expectedRows: manifest.arquivos ?? {},
-      storageUrl,
-      schemaVersion,
     });
 
     stage = "store_private_zip";
