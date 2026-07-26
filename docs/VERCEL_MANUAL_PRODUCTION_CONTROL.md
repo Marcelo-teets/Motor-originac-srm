@@ -106,14 +106,9 @@ O workflow prebuilt não precisa habilitar a integração Git. Ele usa o checkou
 
 ## Estados de espera
 
-O controlador encerra a espera em:
+Somente `READY` é sucesso. Ao atingir `ERROR`, `CANCELED` ou `DELETED`, o controlador lança `deployment_not_ready` e o workflow falha.
 
-- `READY`: sucesso de build;
-- `ERROR`: falha;
-- `CANCELED`: cancelado;
-- `DELETED`: removido.
-
-`READY` ainda precisa ser seguido pelos smokes funcionais da aplicação.
+Depois de `READY`, o rollout ainda precisa passar pelos smokes funcionais do domínio canônico e pela comparação de SHA entre frontend e backend.
 
 ## Validação pós-deployment
 
