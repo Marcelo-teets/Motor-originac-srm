@@ -31,6 +31,9 @@ jobs:
       - name: Validate Vercel deployment budget guard
         run: npm run test:vercel-deploy-guard
 
+      - name: Validate Vercel Hobby function budget
+        run: npm run test:vercel-function-budget
+
       - name: Validate Vercel production controller
         run: npm run test:vercel-production-control
 
