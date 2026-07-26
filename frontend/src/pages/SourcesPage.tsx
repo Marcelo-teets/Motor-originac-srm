@@ -1,3 +1,4 @@
+import { AgentetomeOperationsPanel } from '../components/AgentetomeOperationsPanel';
 import { Card, DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -102,6 +103,8 @@ export function SourcesPage() {
         <div className="decision-card"><Pill tone="warning">Datasets públicos</Pill><strong>{publicSummary?.totalDatasets ?? 0}</strong><small>Loaders oficiais com controle de execução.</small></div>
         <div className="decision-card"><Pill tone={publicBlockers.length ? 'warning' : 'success'}>Bloqueios</Pill><strong>{publicBlockers.length}</strong><small>Impedimentos operacionais identificados automaticamente.</small></div>
       </section>
+
+      <AgentetomeOperationsPanel />
 
       {publicOperationsLoading ? (
         <Card title="Operação das fontes públicas" subtitle="Carregando runs, checkpoints e sinais"><LoadingState title="Operação pública" subtitle="Consultando o control plane no Supabase." /></Card>
