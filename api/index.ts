@@ -304,6 +304,28 @@ async function originationRuntime(req: IncomingMessage, res: ServerResponse) {
   writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: payload });
 }
 
+async function runConsolidatedHandler(pathname: string, req: IncomingMessage, res: ServerResponse) {
+  let routeHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void> | void) | null = null;
+
+  if (pathname === '/api/bounded-capture-run') {
+    routeHandler = (await import('../serverless/bounded-capture-run.js')).default;
+  } else if (pathname === '/api/bounded-capture-targets') {
+    routeHandler = (await import('../serverless/bounded-capture-targets.js')).default;
+  } else if (pathname === '/api/candidate-identity-review') {
+    routeHandler = (await import('../serverless/candidate-identity-review.js')).default;
+  } else if (pathname === '/api/company-credit-review') {
+    routeHandler = (await import('../serverless/company-credit-review.js')).default;
+  } else if (pathname === '/api/company-decision-readiness') {
+    routeHandler = (await import('../serverless/company-decision-readiness.js')).default;
+  } else if (pathname === '/api/fidc-market-map') {
+    routeHandler = (await import('../serverless/fidc-market-map.js')).default;
+  }
+
+  if (!routeHandler) return false;
+  await routeHandler(req, res);
+  return true;
+}
+
 async function ensureApp(): Promise<void> {
   if (expressApp) return;
   if (loadingPromise) return loadingPromise;
