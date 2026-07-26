@@ -314,17 +314,17 @@ async function runConsolidatedHandler(pathname: string, req: IncomingMessage, re
   let routeHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void> | void) | null = null;
 
   if (pathname === '/api/bounded-capture-run') {
-    routeHandler = (await import('../serverless/bounded-capture-run.js')).default;
+    routeHandler = boundedCaptureRunHandler;
   } else if (pathname === '/api/bounded-capture-targets') {
-    routeHandler = (await import('../serverless/bounded-capture-targets.js')).default;
+    routeHandler = boundedCaptureTargetsHandler;
   } else if (pathname === '/api/candidate-identity-review') {
-    routeHandler = (await import('../serverless/candidate-identity-review.js')).default;
+    routeHandler = candidateIdentityReviewHandler;
   } else if (pathname === '/api/company-credit-review') {
-    routeHandler = (await import('../serverless/company-credit-review.js')).default;
+    routeHandler = companyCreditReviewHandler;
   } else if (pathname === '/api/company-decision-readiness') {
-    routeHandler = (await import('../serverless/company-decision-readiness.js')).default;
+    routeHandler = companyDecisionReadinessHandler;
   } else if (pathname === '/api/fidc-market-map') {
-    routeHandler = (await import('../serverless/fidc-market-map.js')).default;
+    routeHandler = fidcMarketMapHandler;
   }
 
   if (!routeHandler) return false;
