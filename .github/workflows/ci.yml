@@ -52,6 +52,9 @@ jobs:
       - name: Validate company credit review command contract
         run: npm run test:company-credit-review
 
+      - name: Validate Agentetome production contract
+        run: npm run test:agentetome-production
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
