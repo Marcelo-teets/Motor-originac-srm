@@ -55,6 +55,9 @@ jobs:
       - name: Validate Agentetome production contract
         run: npm run test:agentetome-production
 
+      - name: Validate Knowledge Learning Agent service-role contract
+        run: npm run test:knowledge-learning-service-role
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
