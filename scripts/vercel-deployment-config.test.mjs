@@ -17,4 +17,19 @@ assert.equal(
   'the secondary Ignore Build Step guard must remain versioned',
 );
 
-console.log('Vercel pre-deployment rules: all Git-triggered deployments disabled.');
+for (const [functionPath, settings] of Object.entries(config.functions ?? {})) {
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(settings, 'memory'),
+    false,
+    `${functionPath} must not declare ignored memory settings under Active CPU billing`,
+  );
+}
+
+const platformHealthRewrite = (config.rewrites ?? []).find((rewrite) => rewrite.source === '/api/health');
+assert.deepEqual(
+  platformHealthRewrite,
+  { source: '/api/health', destination: '/api/capital-market-health?mode=platform' },
+  'platform health must bypass the heavy Express bootstrap without adding another Vercel function',
+);
+
+console.log('Vercel pre-deployment rules: Git deploys disabled, settings effective, and health is lightweight.');

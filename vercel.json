@@ -12,36 +12,28 @@
   "framework": null,
   "functions": {
     "api/index.ts": {
-      "maxDuration": 30,
-      "memory": 512
+      "maxDuration": 30
     },
     "api/capital-market-run.ts": {
-      "maxDuration": 30,
-      "memory": 1024
+      "maxDuration": 30
     },
     "api/capital-market-health.ts": {
-      "maxDuration": 15,
-      "memory": 512
+      "maxDuration": 15
     },
     "api/public-data-operations.ts": {
-      "maxDuration": 15,
-      "memory": 512
+      "maxDuration": 15
     },
     "api/strategic-public-data-run.ts": {
-      "maxDuration": 300,
-      "memory": 2048
+      "maxDuration": 300
     },
     "api/agentetome.ts": {
-      "maxDuration": 300,
-      "memory": 1024
+      "maxDuration": 300
     },
     "api/dcm-daily-operating-loop.ts": {
-      "maxDuration": 10,
-      "memory": 512
+      "maxDuration": 10
     },
     "api/dcm-daily-leads.ts": {
-      "maxDuration": 15,
-      "memory": 512
+      "maxDuration": 15
     }
   },
   "crons": [
@@ -59,6 +51,10 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/health",
+      "destination": "/api/capital-market-health?mode=platform"
+    },
     {
       "source": "/api/capital-markets/run",
       "destination": "/api/capital-market-run"

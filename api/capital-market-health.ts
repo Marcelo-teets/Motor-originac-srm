@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { getBuildInfo } from '../backend/src/lib/buildInfo.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -56,12 +57,30 @@ const numberValue = (value: string | number | null | undefined) => {
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
+const requestUrl = (req: IncomingMessage) => new URL(req.url ?? '/', `https://${getHeader(req, 'host') ?? 'localhost'}`);
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
     writeJson(res, 405, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
       error: 'Method not allowed.',
+    });
+    return;
+  }
+
+  if (requestUrl(req).searchParams.get('mode') === 'platform') {
+    const mode = process.env.USE_SUPABASE === 'true' ? 'real' : 'partial';
+    writeJson(res, 200, {
+      status: mode,
+      generatedAt: new Date().toISOString(),
+      data: {
+        service: 'backend',
+        mode,
+        uptime: process.uptime(),
+        build: getBuildInfo(),
+        runtime: 'lightweight-health-v1',
+      },
     });
     return;
   }

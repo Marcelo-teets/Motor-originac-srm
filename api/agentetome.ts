@@ -22,6 +22,15 @@ const errorStatusCode = (error: unknown) => typeof (error as any)?.statusCode ==
 const retryAfterSeconds = (error: unknown) => typeof (error as any)?.retryAfterSeconds === 'number' ? (error as any).retryAfterSeconds : undefined;
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
+const logRequestError = (error: unknown) => {
+  const statusCode = errorStatusCode(error);
+  if (statusCode >= 500) {
+    console.error('[agentetome]', error);
+    return;
+  }
+  console.warn('[agentetome] request rejected', { statusCode, message: errorMessage(error) });
+};
+
 const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -216,7 +225,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
       error: `Operação Agentetome não encontrada: ${operation}.`,
     });
   } catch (error) {
-    console.error('[agentetome]', error);
+    logRequestError(error);
     return writeJson(res, errorStatusCode(error), {
       status: 'partial',
       generatedAt: new Date().toISOString(),
