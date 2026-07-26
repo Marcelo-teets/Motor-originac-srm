@@ -11,6 +11,8 @@ const control = read('db/migrations/128_agentetome_production_control_plane.sql'
 const lineage = read('db/migrations/129_agentetome_current_snapshot_lineage.sql');
 const runtime = read('db/migrations/130_agentetome_runtime_current_vs_history.sql');
 const panel = read('frontend/src/components/AgentetomeOperationsPanel.tsx');
+const rolloutWorkflow = read('.github/workflows/agentetome-production-rollout.yml');
+const rolloutMarker = JSON.parse(read('ops/rollouts/agentetome-production-2026-07-26.json'));
 
 test('Agentetome secret stays in Supabase Vault and browser roles are denied', () => {
   assert.match(control, /vault\.decrypted_secrets/);
@@ -50,4 +52,16 @@ test('runtime reports current snapshot separately from retained history and neve
   assert.match(runtime, /'scoreImpact',false/);
   assert.match(panel, /Atualizar Agentetome agora/);
   assert.match(panel, /Validar XML/);
+});
+
+test('production rollout separates code blockers from external blockers without breaking legacy markers', () => {
+  assert.match(
+    rolloutWorkflow,
+    /const codeBlockers = marker\.acceptance\?\.codeBlockers \?\? marker\.acceptance\?\.blockers/,
+  );
+  assert.match(rolloutWorkflow, /if \(codeBlockers !== 0\) process\.exit\(1\)/);
+  assert.match(rolloutWorkflow, /externalBlockers \?\? 0/);
+  assert.equal(rolloutMarker.acceptance.codeBlockers, 0);
+  assert.equal(rolloutMarker.acceptance.externalBlockers, 1);
+  assert.equal(typeof rolloutMarker.acceptance.externalBlocker, 'string');
 });
