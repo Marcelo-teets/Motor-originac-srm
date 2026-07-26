@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { getBuildInfo } from '../backend/src/lib/buildInfo.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -56,6 +55,13 @@ const numberValue = (value: string | number | null | undefined) => {
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
+
+const getBuildInfo = () => ({
+  gitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown',
+  environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'local',
+  deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+  deploymentUrl: process.env.VERCEL_URL ?? null,
+});
 
 const requestUrl = (req: IncomingMessage) => new URL(req.url ?? '/', `https://${getHeader(req, 'host') ?? 'localhost'}`);
 
