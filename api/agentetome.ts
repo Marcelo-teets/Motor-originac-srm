@@ -79,6 +79,28 @@ const authenticateCron = (req: AgentetomeRequest) => {
   }
 };
 
+const withKnowledgeGatewayCredential = async <T>(req: AgentetomeRequest, action: () => Promise<T>): Promise<T> => {
+  // In Vercel Functions the fresh OIDC credential is delivered on the request,
+  // while VERCEL_OIDC_TOKEN is mainly available during builds/local development.
+  // The existing learning agent consumes an env credential, so bridge the
+  // request-scoped token only for this invocation and restore the process state.
+  const requestOidcToken = requestValue(req.headers['x-vercel-oidc-token']);
+  const previousOidcToken = process.env.VERCEL_OIDC_TOKEN;
+  const hasApiKey = Boolean(process.env.AI_GATEWAY_API_KEY);
+  const shouldBridgeRequestToken = !previousOidcToken && Boolean(requestOidcToken);
+
+  if (!hasApiKey && !previousOidcToken && !requestOidcToken) {
+    throw new ApiError('AI Gateway credential unavailable before claiming learning jobs.', 503, 900);
+  }
+
+  if (shouldBridgeRequestToken) process.env.VERCEL_OIDC_TOKEN = requestOidcToken;
+  try {
+    return await action();
+  } finally {
+    if (shouldBridgeRequestToken) delete process.env.VERCEL_OIDC_TOKEN;
+  }
+};
+
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
   const { supabaseUrl, serviceRoleKey } = runtimeConfig();
   const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
@@ -144,7 +166,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
       authenticateCron(req);
       const body = readBody(req);
       const learning = await import('../backend/src/ai/knowledgeLearningAgent.js');
-      const result = await learning.runKnowledgeLearningAgent(serviceRpc, {
+      const result = await withKnowledgeGatewayCredential(req, () => learning.runKnowledgeLearningAgent(serviceRpc, {
         batchSize: Number(body.batchSize ?? body.batch_size ?? 2),
         dailyLimit: Number(body.dailyLimit ?? body.daily_limit ?? 48),
         leaseSeconds: Number(body.leaseSeconds ?? body.lease_seconds ?? 900),
@@ -153,8 +175,9 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
           commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
           environment: process.env.VERCEL_ENV ?? null,
           url: process.env.VERCEL_URL ?? null,
+          gatewayCredential: process.env.AI_GATEWAY_API_KEY ? 'api_key' : 'vercel_oidc_request',
         },
-      });
+      }));
       const statusCode = result.status === 'failed' ? 502 : result.status === 'partial' ? 207 : 200;
       return writeJson(res, statusCode, { generatedAt: new Date().toISOString(), ...result });
     }
