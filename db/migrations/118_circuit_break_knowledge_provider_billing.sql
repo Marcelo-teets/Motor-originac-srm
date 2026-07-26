@@ -22,7 +22,7 @@ declare
 begin
   if current_user <> 'service_role' then raise exception 'Service role required'; end if;
 
-  provider_blocked := lower(coalesce(p_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended)%';
+  provider_blocked := lower(coalesce(p_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended|credential unavailable|configure.*api_key)%';
 
   update public.knowledge_learning_runs
   set status = 'failed', error = left(coalesce(p_error, 'unknown error'), 5000), finished_at = now()
@@ -42,7 +42,7 @@ begin
       lease_expires_at = null,
       locked_at = null,
       worker_id = null,
-      last_error = left(coalesce(p_error, 'provider billing blocked'), 5000)
+      last_error = left(coalesce(p_error, 'provider configuration blocked'), 5000)
     where id = any(coalesce(p_job_ids, '{}'::uuid[]))
       and worker_id = left(p_worker_id, 160)
       and status = 'processing';
@@ -82,24 +82,24 @@ $$;
 revoke execute on function public.knowledge_fail_learning_run(uuid, text, uuid[], text, integer) from public, anon, authenticated;
 grant execute on function public.knowledge_fail_learning_run(uuid, text, uuid[], text, integer) to service_role;
 
--- Reconcile the billing failure already observed during the governed production
--- smoke. Preserve the message and lineage, but restore the two jobs without
--- consuming their attempts and block the provider globally for six hours.
+-- Reconcile provider configuration failures already observed during governed
+-- production smokes. Preserve messages and lineage, restore jobs without
+-- consuming attempts, and block the provider globally for six hours.
 do $reconcile$
 declare
-  billing_error text;
+  provider_error text;
   blocked_until_value timestamptz := now() + interval '6 hours';
 begin
-  select max(last_error) into billing_error
+  select max(last_error) into provider_error
   from public.knowledge_learning_jobs
   where status = 'failed'
-    and lower(coalesce(last_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended)%';
+    and lower(coalesce(last_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended|credential unavailable|configure.*api_key)%';
 
-  if billing_error is not null then
+  if provider_error is not null then
     insert into public.knowledge_learning_runtime_state as state (
       singleton, provider_status, blocked_until, last_error, last_provider, updated_at
     ) values (
-      true, 'blocked', blocked_until_value, left(billing_error, 5000), 'ai_gateway', now()
+      true, 'blocked', blocked_until_value, left(provider_error, 5000), 'ai_gateway', now()
     )
     on conflict (singleton) do update set
       provider_status = excluded.provider_status,
@@ -116,9 +116,9 @@ begin
       locked_at = null,
       lease_expires_at = null,
       worker_id = null,
-      last_error = left(billing_error, 5000)
+      last_error = left(provider_error, 5000)
     where status = 'failed'
-      and lower(coalesce(last_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended)%';
+      and lower(coalesce(last_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended|credential unavailable|configure.*api_key)%';
   end if;
 end;
 $reconcile$;
