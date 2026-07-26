@@ -17,4 +17,12 @@ assert.equal(
   'the secondary Ignore Build Step guard must remain versioned',
 );
 
-console.log('Vercel pre-deployment rules: all Git-triggered deployments disabled.');
+for (const [functionPath, settings] of Object.entries(config.functions ?? {})) {
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(settings, 'memory'),
+    false,
+    `${functionPath} must not declare ignored memory settings under Active CPU billing`,
+  );
+}
+
+console.log('Vercel pre-deployment rules: Git deploys disabled and function settings are effective.');
