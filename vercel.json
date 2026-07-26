@@ -52,6 +52,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/api/capital-market-health?mode=platform"
+    },
+    {
       "source": "/api/capital-markets/run",
       "destination": "/api/capital-market-run"
     },
