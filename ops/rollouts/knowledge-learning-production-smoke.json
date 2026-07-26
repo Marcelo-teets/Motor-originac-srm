@@ -1,0 +1,10 @@
+{
+  "requestedAt": "2026-07-26T18:39:00Z",
+  "target": "production",
+  "scope": "one-real-learning-job",
+  "requiredRuntime": "knowledge-learning-agent-v14",
+  "requiredResult": "completed",
+  "minimumClaimedJobs": 1,
+  "maximumBatchSize": 1,
+  "preserveDecisionArtifacts": true
+}
