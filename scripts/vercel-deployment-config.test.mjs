@@ -25,4 +25,11 @@ for (const [functionPath, settings] of Object.entries(config.functions ?? {})) {
   );
 }
 
-console.log('Vercel pre-deployment rules: Git deploys disabled and function settings are effective.');
+const platformHealthRewrite = (config.rewrites ?? []).find((rewrite) => rewrite.source === '/api/health');
+assert.deepEqual(
+  platformHealthRewrite,
+  { source: '/api/health', destination: '/api/capital-market-health?mode=platform' },
+  'platform health must bypass the heavy Express bootstrap without adding another Vercel function',
+);
+
+console.log('Vercel pre-deployment rules: Git deploys disabled, settings effective, and health is lightweight.');
