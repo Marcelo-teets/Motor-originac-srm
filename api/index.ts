@@ -408,6 +408,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  if (await runConsolidatedHandler(pathname, req, res)) {
+    return;
+  }
+
   try {
     await ensureApp();
   } catch (err) {
