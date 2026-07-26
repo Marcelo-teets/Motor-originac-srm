@@ -10,6 +10,8 @@ declare
   corrected_definition text;
   legacy_guard constant text := 'coalesce(current_setting(''request.jwt.claim.role'', true), '''') <> ''service_role''';
   current_guard constant text := 'current_user <> ''service_role''';
+  legacy_role_variable constant text := 'request_role text := coalesce(current_setting(''request.jwt.claim.role'', true), '''');';
+  current_role_variable constant text := 'request_role text := current_user;';
 begin
   for function_record in
     select p.oid, p.proname
@@ -30,6 +32,7 @@ begin
   loop
     original_definition := pg_get_functiondef(function_record.oid);
     corrected_definition := replace(original_definition, legacy_guard, current_guard);
+    corrected_definition := replace(corrected_definition, legacy_role_variable, current_role_variable);
 
     if corrected_definition = original_definition then
       raise exception 'Legacy service-role guard was not replaced for function %', function_record.proname;
