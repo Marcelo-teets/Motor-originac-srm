@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const queueMigration = readFileSync(new URL('../db/migrations/117_govern_knowledge_learning_queue.sql', import.meta.url), 'utf8');
 const billingMigration = readFileSync(new URL('../db/migrations/118_circuit_break_knowledge_provider_billing.sql', import.meta.url), 'utf8');
+const securityMigration = readFileSync(new URL('../db/migrations/119_harden_knowledge_learning_governance_security.sql', import.meta.url), 'utf8');
 
 assert.match(queueMigration, /is_company_learning_eligible/, 'queue must use a canonical company learning gate');
 assert.match(queueMigration, /metadata->>'data_status'.*'real'/s, 'only real companies may enter the learning queue');
@@ -14,8 +15,13 @@ assert.match(queueMigration, /public\.is_company_learning_eligible\(job\.company
 assert.match(queueMigration, /attempts = greatest\(attempts - 1, 0\)/, 'provider deferral must not consume a job attempt');
 
 assert.match(billingMigration, /valid credit card\|billing\|payment method\|insufficient credits/, 'billing failures must be classified as non-transient');
+assert.match(billingMigration, /credential unavailable\|configure\.\*api_key/, 'missing provider credentials must also open the circuit');
 assert.match(billingMigration, /knowledge_block_learning_provider/, 'runtime billing failures must open the provider circuit');
-assert.match(billingMigration, /status = 'pending'.*attempts = greatest\(attempts - 1, 0\)/s, 'claimed jobs must be safely deferred on billing failure');
-assert.match(billingMigration, /interval '6 hours'/, 'the observed billing failure must be globally throttled');
+assert.match(billingMigration, /status = 'pending'.*attempts = greatest\(attempts - 1, 0\)/s, 'claimed jobs must be safely deferred on provider failure');
+assert.match(billingMigration, /interval '6 hours'/, 'the observed provider failure must be globally throttled');
 
-console.log('Knowledge Learning queue and provider circuit-breaker contracts are protected.');
+assert.match(securityMigration, /revoke execute on function public\.is_company_learning_eligible\(uuid\) from public, anon, authenticated/, 'internal learning helper must not be an authenticated RPC');
+assert.match(securityMigration, /for all\s+to service_role\s+using \(true\)\s+with check \(true\)/s, 'runtime state must have an explicit service-role-only RLS policy');
+assert.match(securityMigration, /revoke all on public\.knowledge_learning_runtime_state from public, anon, authenticated/, 'runtime state table must not leak to client roles');
+
+console.log('Knowledge Learning queue, circuit-breaker, and security contracts are protected.');
