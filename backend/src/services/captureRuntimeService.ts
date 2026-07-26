@@ -1,6 +1,7 @@
 import type { PlatformRepository } from '../repositories/platformRepository.js';
 import { env } from '../lib/env.js';
 import { selectMonitoringCompanies } from '../lib/boundedCapture.js';
+import { isCompanyDecisionEligible } from '../lib/companyDecisionEligibility.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
 import { CapturePersistenceService } from './capturePersistenceService.js';
 import { CaptureDerivedSyncService } from './captureDerivedSyncService.js';
@@ -51,10 +52,14 @@ export class CaptureRuntimeService {
 
     const reason = options.reason ?? options.triggerType ?? 'manual';
     const persisted = await this.persistence.persist(captureResults, reason);
-    // Identity-approved companies may be monitored and enriched, but the
-    // downstream service keeps qualification/score/ranking gated separately.
+
+    // Monitoring and evidence capture continue for identity-approved companies,
+    // including records awaiting a Credit Review. Decision artifacts are stricter:
+    // qualification, patterns, scores, ranking inputs and pipeline may only be
+    // materialized after the Company Master explicitly marks the company eligible.
+    const decisionCompanies = targetCompanies.filter(isCompanyDecisionEligible);
     const derived = await this.derivedSync.sync({
-      companies: targetCompanies,
+      companies: decisionCompanies,
       patternCatalog,
       captureResults,
       reason,
@@ -70,6 +75,8 @@ export class CaptureRuntimeService {
       sourcesAvailable: sources.length,
       patternCatalogAvailable: patternCatalog.length,
       companiesProcessed: captureResults.length,
+      companiesEligibleForDerivedDecision: decisionCompanies.length,
+      companiesSkippedFromDerivedDecision: Math.max(0, targetCompanies.length - decisionCompanies.length),
       outputsCollected: captureResults.reduce((sum, result) => sum + result.outputs.length, 0),
       signalsCollected: captureResults.reduce((sum, result) => sum + result.signals.length, 0),
       enrichmentsCollected: captureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
