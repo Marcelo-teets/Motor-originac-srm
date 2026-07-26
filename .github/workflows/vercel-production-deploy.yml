@@ -158,6 +158,43 @@ jobs:
             echo "CAPTCHA site key is not configured; rollout validated in OAuth fallback mode."
           fi
 
+      - name: Disconnect legacy Git integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const projectUrl = new URL(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}`);
+          projectUrl.searchParams.set('teamId', process.env.VERCEL_ORG_ID);
+          const headers = {
+            Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          };
+
+          const readProject = async () => {
+            const response = await fetch(projectUrl, { headers });
+            if (!response.ok) throw new Error(`Vercel project lookup failed with HTTP ${response.status}`);
+            return response.json();
+          };
+
+          const before = await readProject();
+          if (before.link) {
+            const linkUrl = new URL(`${projectUrl.origin}${projectUrl.pathname}/link`);
+            linkUrl.search = projectUrl.search;
+            const response = await fetch(linkUrl, { method: 'DELETE', headers, body: '{}' });
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`Vercel Git disconnect failed with HTTP ${response.status}: ${text.slice(0, 300)}`);
+            }
+            console.log('Disconnected legacy Vercel Git integration.');
+          } else {
+            console.log('Vercel Git integration was already disconnected.');
+          }
+
+          const after = await readProject();
+          if (after.link) throw new Error('Vercel project still exposes a Git link after disconnect.');
+          NODE
+
       - name: Confirm automatic deployments remain disabled
         if: always()
         run: node scripts/vercel-production-control.mjs disable-auto

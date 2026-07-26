@@ -10,6 +10,10 @@ assert.match(workflow, /vercel@\$VERCEL_CLI_VERSION" deploy[\s\S]*--prebuilt[\s\
 assert.match(workflow, /--env "GIT_SHA=\$REQUESTED_SHA"/, 'Runtime SHA must be injected into the deployment');
 assert.match(workflow, /EXPECTED_SHA="\$REQUESTED_SHA"[\s\S]*REQUIRE_CAPTCHA_SITE_KEY=false[\s\S]*smoke-auth-production\.mjs/, 'Canonical Auth smoke must validate the requested SHA');
 assert.match(workflow, /Run strict CAPTCHA smoke when configured/, 'Strict CAPTCHA smoke must run when the site key exists');
+assert.match(workflow, /Disconnect legacy Git integration/, 'Workflow must include the legacy Git unlink step');
+assert.match(workflow, /projectUrl\.pathname}\/link/, 'Workflow must target the Vercel project Git link endpoint');
+assert.match(workflow, /method: 'DELETE'/, 'Workflow must remove the Vercel Git link with DELETE');
+assert.match(workflow, /if \(after\.link\) throw new Error/, 'Workflow must verify the Git link was removed');
 assert.match(workflow, /Confirm automatic deployments remain disabled[\s\S]*if: always\(\)/, 'Automatic deployments must be disabled even after failures');
 assert.doesNotMatch(workflow, /deploy-production\s+"?--sha=/, 'Workflow must not use the broken gitSource deployment path');
 assert.doesNotMatch(workflow, /github-limited/, 'Workflow must not depend on Vercel Git credentials');
