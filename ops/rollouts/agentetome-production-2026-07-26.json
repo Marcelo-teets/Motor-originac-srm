@@ -1,0 +1,15 @@
+{
+  "rollout": "agentetome-production-finalization",
+  "requestedAt": "2026-07-26T16:08:00Z",
+  "target": "production",
+  "deploymentMode": "vercel-prebuilt-controlled",
+  "requiredRuntime": "agentetome-v2",
+  "supabaseProject": "hdghpmssudrqhsbvrdyt",
+  "acceptance": {
+    "runtimeStatus": "real",
+    "runtimeHealth": "healthy",
+    "blockers": 0,
+    "currentFidcFunds": 183,
+    "scoreImpact": false
+  }
+}
