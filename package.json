@@ -18,6 +18,7 @@
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-production-smoke": "node scripts/smoke-auth-production.test.mjs",
     "test:company-credit-review": "npx tsx --test backend/src/lib/companyCreditReview.test.ts backend/src/lib/approvedCreditReviewQualification.test.ts",
+    "test:agentetome-production": "node --test scripts/agentetome-production-contract.test.mjs",
     "test:vercel-deploy-guard": "node scripts/vercel-deployment-config.test.mjs && bash scripts/vercel-ignore-build.test.sh",
     "test:vercel-production-control": "node scripts/vercel-production-control.test.mjs",
     "ops:materialize-company-decision": "npx tsx scripts/materialize-company-decision.ts",
