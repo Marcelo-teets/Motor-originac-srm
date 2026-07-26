@@ -229,11 +229,12 @@ export class DataCaptureEngine {
       const allSignals = dedupeSignals([...filtered.signals, ...treatment.signals, ...crossSignals]);
       const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...treatment.enrichments, ...crossEnrichments]);
 
-      const runStatus = outputs.length === 0
-        ? 'failed'
-        : outputs.some((item) => item.connectorStatus !== 'real')
-          ? 'partial'
-          : 'completed';
+      // A successful connector call may legitimately return no documents for a
+      // company/source pair. Absence of evidence is not a runtime failure. Real
+      // exceptions are handled by the runtime boundary and persisted as failed.
+      const runStatus = outputs.some((item) => item.connectorStatus !== 'real')
+        ? 'partial'
+        : 'completed';
 
       return {
         run: {
