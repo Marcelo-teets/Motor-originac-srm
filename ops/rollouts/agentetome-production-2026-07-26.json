@@ -1,13 +1,15 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-26T16:25:00Z",
+  "requestedAt": "2026-07-26T16:31:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "project-integrity-audit",
+    "kind": "project-integrity-health-hotfix",
     "auditMergeSha": "689bdc46721f178dafbef60ae7b7eb15d6ef82c2",
+    "failedDeploymentSha": "1e59dd9be7bf96853bf195256a7fa30e917d2a99",
+    "rootCause": "static-esm-import-in-commonjs-serverless-output",
     "validate": [
       "lightweight-platform-health",
       "agentetome-auth-telemetry",
