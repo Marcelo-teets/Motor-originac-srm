@@ -58,6 +58,9 @@ jobs:
       - name: Validate Knowledge Learning Agent service-role contract
         run: npm run test:knowledge-learning-service-role
 
+      - name: Validate Knowledge Learning Agent OIDC contract
+        run: npm run test:knowledge-learning-oidc
+
       - name: Validate pipeline eligibility contract
         run: npm run test:pipeline-eligibility
 
