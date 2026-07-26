@@ -88,8 +88,7 @@ grant execute on function public.knowledge_fail_learning_run(uuid, text, uuid[],
 do $reconcile$
 declare
   billing_error text;
-  block_result jsonb;
-  blocked_until_value timestamptz;
+  blocked_until_value timestamptz := now() + interval '6 hours';
 begin
   select max(last_error) into billing_error
   from public.knowledge_learning_jobs
@@ -97,8 +96,17 @@ begin
     and lower(coalesce(last_error, '')) similar to '%(valid credit card|billing|payment method|insufficient credits|account.*suspended)%';
 
   if billing_error is not null then
-    block_result := public.knowledge_block_learning_provider(billing_error, 'ai_gateway', 21600);
-    blocked_until_value := (block_result->>'blockedUntil')::timestamptz;
+    insert into public.knowledge_learning_runtime_state as state (
+      singleton, provider_status, blocked_until, last_error, last_provider, updated_at
+    ) values (
+      true, 'blocked', blocked_until_value, left(billing_error, 5000), 'ai_gateway', now()
+    )
+    on conflict (singleton) do update set
+      provider_status = excluded.provider_status,
+      blocked_until = excluded.blocked_until,
+      last_error = excluded.last_error,
+      last_provider = excluded.last_provider,
+      updated_at = excluded.updated_at;
 
     update public.knowledge_learning_jobs
     set
