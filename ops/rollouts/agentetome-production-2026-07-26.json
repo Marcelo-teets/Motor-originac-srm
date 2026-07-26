@@ -1,10 +1,20 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-26T16:08:00Z",
+  "requestedAt": "2026-07-26T16:25:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
+  "followUp": {
+    "kind": "project-integrity-audit",
+    "auditMergeSha": "689bdc46721f178dafbef60ae7b7eb15d6ef82c2",
+    "validate": [
+      "lightweight-platform-health",
+      "agentetome-auth-telemetry",
+      "credit-review-governance",
+      "empty-capture-classification"
+    ]
+  },
   "acceptance": {
     "runtimeStatus": "real",
     "runtimeHealth": "healthy",
