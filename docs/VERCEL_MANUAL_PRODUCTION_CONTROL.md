@@ -96,18 +96,13 @@ Assim apenas uma execução de produção avança por vez.
 
 ## Integração Git desativada
 
-O projeto está configurado com:
+O projeto permanece configurado com:
 
 ```text
 gitProviderOptions.createDeployments=disabled
 ```
 
-O controlador tenta criar o deployment mantendo essa configuração. Se a API rejeitar a criação por causa do bloqueio central e a opção temporária estiver permitida, ele:
-
-1. habilita `createDeployments`;
-2. cria um único deployment por SHA;
-3. desabilita novamente em bloco `finally`;
-4. confirma o estado final.
+O workflow prebuilt não precisa habilitar a integração Git. Ele usa o checkout autenticado do GitHub Actions e faz upload do Build Output API com o token da Vercel. A etapa final executa `disable-auto` mesmo quando build, deploy ou smoke falham.
 
 ## Estados de espera
 
