@@ -21,6 +21,7 @@
     "test:agentetome-production": "node --test scripts/agentetome-production-contract.test.mjs",
     "test:knowledge-learning-service-role": "node --test scripts/knowledge-learning-service-role-contract.test.mjs",
     "test:pipeline-eligibility": "node --test scripts/pipeline-eligibility-contract.test.mjs",
+    "test:capture-derived-decision-gate": "node --test scripts/capture-derived-decision-contract.test.mjs",
     "test:vercel-deploy-guard": "node scripts/vercel-deployment-config.test.mjs && bash scripts/vercel-ignore-build.test.sh",
     "test:vercel-function-budget": "node scripts/vercel-function-budget.test.mjs",
     "test:vercel-production-control": "node scripts/vercel-production-control.test.mjs",
