@@ -225,7 +225,7 @@ export const createVercelProductionController = ({
       deployment = await getDeployment(idOrUrl);
     }
 
-    if (deployment.state <> 'READY') {
+    if (deployment.state !== 'READY') {
       throw new VercelControlError(
         `Deployment ${idOrUrl} reached terminal state ${deployment.state}.`,
         { code: 'deployment_not_ready' },
