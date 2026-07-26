@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+const healthSource = readFileSync(new URL('../api/capital-market-health.ts', import.meta.url), 'utf8');
 const deploymentEnabled = config.git?.deploymentEnabled;
 
 assert.equal(typeof deploymentEnabled, 'object', 'git.deploymentEnabled must be an object');
@@ -30,6 +31,12 @@ assert.deepEqual(
   platformHealthRewrite,
   { source: '/api/health', destination: '/api/capital-market-health?mode=platform' },
   'platform health must bypass the heavy Express bootstrap without adding another Vercel function',
+);
+
+assert.doesNotMatch(
+  healthSource,
+  /from\s+['"]\.\.\/backend\//,
+  'the lightweight health function must not statically import backend ESM modules into Vercel CommonJS output',
 );
 
 console.log('Vercel pre-deployment rules: Git deploys disabled, settings effective, and health is lightweight.');
