@@ -6,6 +6,12 @@
  * rotas existentes (app.get('/companies'), etc.) continuem sem mudanças.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import boundedCaptureRunHandler from '../serverless/bounded-capture-run.js';
+import boundedCaptureTargetsHandler from '../serverless/bounded-capture-targets.js';
+import candidateIdentityReviewHandler from '../serverless/candidate-identity-review.js';
+import companyCreditReviewHandler from '../serverless/company-credit-review.js';
+import companyDecisionReadinessHandler from '../serverless/company-decision-readiness.js';
+import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
 
 // Node 24 emite DEP0169 (url.parse) a partir das dependências internas do
 // Express 4 (parseurl); nosso código usa apenas WHATWG URL. Filtramos somente
