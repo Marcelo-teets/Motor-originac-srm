@@ -54,7 +54,9 @@ jobs:
             if (marker.rollout !== "agentetome-production-finalization") process.exit(1);
             if (marker.acceptance?.runtimeStatus !== "real") process.exit(1);
             if (marker.acceptance?.runtimeHealth !== "healthy") process.exit(1);
-            if (marker.acceptance?.blockers !== 0) process.exit(1);
+            const codeBlockers = marker.acceptance?.codeBlockers ?? marker.acceptance?.blockers;
+            if (codeBlockers !== 0) process.exit(1);
+            if (!Number.isInteger(marker.acceptance?.externalBlockers ?? 0)) process.exit(1);
             if (marker.acceptance?.scoreImpact !== false) process.exit(1);
           '
 
