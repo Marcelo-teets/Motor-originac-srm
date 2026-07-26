@@ -6,6 +6,12 @@
  * rotas existentes (app.get('/companies'), etc.) continuem sem mudanças.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import boundedCaptureRunHandler from '../serverless/bounded-capture-run.js';
+import boundedCaptureTargetsHandler from '../serverless/bounded-capture-targets.js';
+import candidateIdentityReviewHandler from '../serverless/candidate-identity-review.js';
+import companyCreditReviewHandler from '../serverless/company-credit-review.js';
+import companyDecisionReadinessHandler from '../serverless/company-decision-readiness.js';
+import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
 
 // Node 24 emite DEP0169 (url.parse) a partir das dependências internas do
 // Express 4 (parseurl); nosso código usa apenas WHATWG URL. Filtramos somente
@@ -304,6 +310,28 @@ async function originationRuntime(req: IncomingMessage, res: ServerResponse) {
   writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: payload });
 }
 
+async function runConsolidatedHandler(pathname: string, req: IncomingMessage, res: ServerResponse) {
+  let routeHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void> | void) | null = null;
+
+  if (pathname === '/api/bounded-capture-run') {
+    routeHandler = boundedCaptureRunHandler;
+  } else if (pathname === '/api/bounded-capture-targets') {
+    routeHandler = boundedCaptureTargetsHandler;
+  } else if (pathname === '/api/candidate-identity-review') {
+    routeHandler = candidateIdentityReviewHandler;
+  } else if (pathname === '/api/company-credit-review') {
+    routeHandler = companyCreditReviewHandler;
+  } else if (pathname === '/api/company-decision-readiness') {
+    routeHandler = companyDecisionReadinessHandler;
+  } else if (pathname === '/api/fidc-market-map') {
+    routeHandler = fidcMarketMapHandler;
+  }
+
+  if (!routeHandler) return false;
+  await routeHandler(req, res);
+  return true;
+}
+
 async function ensureApp(): Promise<void> {
   if (expressApp) return;
   if (loadingPromise) return loadingPromise;
@@ -383,6 +411,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (pathname.startsWith('/api/origination/')) {
     await originationRuntime(req, res);
+    return;
+  }
+
+  if (await runConsolidatedHandler(pathname, req, res)) {
     return;
   }
 
