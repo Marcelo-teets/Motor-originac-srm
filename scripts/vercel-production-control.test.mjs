@@ -252,4 +252,22 @@ const createMockFetch = (handlers) => {
   assert.equal(result.state, 'READY');
 }
 
+{
+  const { fetchImpl } = createMockFetch([
+    () => response({
+      id: 'dpl_failed',
+      url: 'failed.vercel.app',
+      readyState: 'ERROR',
+      meta: { githubCommitSha: sha },
+    }),
+  ]);
+  const controller = createVercelProductionController({ token, fetchImpl });
+  await assert.rejects(
+    controller.waitForDeployment('dpl_failed', { timeoutMs: 1_000, pollIntervalMs: 1 }),
+    (error) => error instanceof VercelControlError
+      && error.code === 'deployment_not_ready'
+      && /terminal state ERROR/.test(error.message),
+  );
+}
+
 console.log('Vercel production controller: all tests passed.');

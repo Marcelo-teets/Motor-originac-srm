@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       wait_for_ready:
-        description: Wait until the deployment reaches READY or a terminal failure
+        description: Retained for compatibility; production always waits for validation
         required: true
         default: true
         type: boolean
@@ -23,15 +23,15 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     environment: production
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
       VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
-      VERCEL_TEAM_ID: team_PJwucES3YmFbxf57HE52Bw0v
       VERCEL_PROJECT_NAME: motor-originac-srm
-      VERCEL_REPOSITORY_ID: '1185535233'
-      VERCEL_REPOSITORY_REF: main
+      PRODUCTION_URL: https://motor-originac-srm.vercel.app
+      VERCEL_CLI_VERSION: 50.28.0
 
     steps:
       - name: Checkout current main
@@ -44,6 +44,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
 
       - name: Validate production inputs
         shell: bash
@@ -68,18 +69,94 @@ jobs:
       - name: Confirm automatic Git deployments are paused
         run: node scripts/vercel-production-control.mjs status
 
-      - name: Create one production deployment
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          cat > .vercel/project.json <<JSON
+          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID","projectName":"$VERCEL_PROJECT_NAME"}
+          JSON
+          npx --yes "vercel@$VERCEL_CLI_VERSION" pull \
+            --yes \
+            --environment=production \
+            --token="$VERCEL_TOKEN"
+
+      - name: Build immutable production artifact
         shell: bash
         env:
           REQUESTED_SHA: ${{ inputs.sha }}
-          WAIT_FOR_READY: ${{ inputs.wait_for_ready }}
         run: |
           set -euo pipefail
-          ARGS=(deploy-production "--sha=$REQUESTED_SHA")
-          if [ "$WAIT_FOR_READY" = "true" ]; then
-            ARGS+=(--wait=true --timeout-seconds=1200 --poll-seconds=10)
+          export GITHUB_SHA="$REQUESTED_SHA"
+          export GIT_SHA="$REQUESTED_SHA"
+          export VERCEL_GIT_COMMIT_SHA="$REQUESTED_SHA"
+          export VERCEL_GIT_COMMIT_REF=main
+          export VERCEL_ENV=production
+          npx --yes "vercel@$VERCEL_CLI_VERSION" build \
+            --prod \
+            --token="$VERCEL_TOKEN"
+          test -f .vercel/output/config.json || {
+            echo "Vercel Build Output API config was not generated."
+            exit 1
+          }
+
+      - name: Deploy prebuilt artifact to production
+        id: deployment
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_OUTPUT="$(npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
+            --prebuilt \
+            --prod \
+            --yes \
+            --archive=tgz \
+            --token="$VERCEL_TOKEN" \
+            --env "GIT_SHA=$REQUESTED_SHA" \
+            --meta "requestedSha=$REQUESTED_SHA" \
+            --meta "deploymentController=motor-originacao-prebuilt")"
+          DEPLOYMENT_URL="$(printf '%s\n' "$DEPLOYMENT_OUTPUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1)"
+          test -n "$DEPLOYMENT_URL" || {
+            echo "Vercel CLI did not return a deployment URL."
+            printf '%s\n' "$DEPLOYMENT_OUTPUT"
+            exit 1
+          }
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          echo "Deployment URL: $DEPLOYMENT_URL"
+
+      - name: Validate canonical production Auth rollout
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="$PRODUCTION_URL" \
+          EXPECTED_SHA="$REQUESTED_SHA" \
+          REQUIRE_CAPTCHA_SITE_KEY=false \
+          node scripts/smoke-auth-production.mjs
+
+      - name: Run strict CAPTCHA smoke when configured
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          SITE_KEY_CONFIGURED="$(node -e '
+            const response = await fetch(process.env.PRODUCTION_URL + "/build-meta.json", { headers: { "cache-control": "no-cache" } });
+            if (!response.ok) process.exit(2);
+            const metadata = await response.json();
+            process.stdout.write(metadata?.auth?.captcha?.siteKeyConfigured === true ? "true" : "false");
+          ')"
+          if [ "$SITE_KEY_CONFIGURED" = "true" ]; then
+            BASE_URL="$PRODUCTION_URL" \
+            EXPECTED_SHA="$REQUESTED_SHA" \
+            REQUIRE_CAPTCHA_SITE_KEY=true \
+            node scripts/smoke-auth-production.mjs
+          else
+            echo "CAPTCHA site key is not configured; rollout validated in OAuth fallback mode."
           fi
-          node scripts/vercel-production-control.mjs "${ARGS[@]}"
 
       - name: Confirm automatic deployments remain disabled
         if: always()
