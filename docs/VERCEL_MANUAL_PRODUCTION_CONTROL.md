@@ -61,32 +61,13 @@ Esse comando é excepcional. A política oficial permanece `disabled`.
 
 ### Criar production deployment
 
-```bash
-VERCEL_TOKEN=<token> npm run vercel:production-control -- \
-  deploy-production \
-  --sha=<40-character-main-sha> \
-  --wait=true \
-  --timeout-seconds=1200 \
-  --poll-seconds=10
-```
+O caminho oficial é o workflow manual `.github/workflows/vercel-production-deploy.yml`. Ele recebe o SHA completo que precisa coincidir com o HEAD da `main`.
 
-## Payload Git utilizado
+O workflow executa: checkout da `main`, `vercel pull --environment=production`, `vercel build --prod` e `vercel deploy --prebuilt --prod`. O artefato é construído no GitHub Actions e enviado pelo Build Output API, sem depender da credencial Git da Vercel.
 
-```json
-{
-  "name": "motor-originac-srm",
-  "project": "prj_hsB473e7bNF0xOd6CEUwo7WFgNYs",
-  "target": "production",
-  "gitSource": {
-    "type": "github-limited",
-    "repoId": 1185535233,
-    "ref": "main",
-    "sha": "<40-character-sha>"
-  }
-}
-```
+O SHA é injetado no build e no runtime como `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA` e `GIT_SHA`. Depois do upload, o workflow valida o domínio canônico com `scripts/smoke-auth-production.mjs`.
 
-`files` não é enviado junto com `gitSource`.
+A publicação direta por `gitSource` permanece disponível apenas como ferramenta legada de diagnóstico e não é o caminho operacional de produção.
 
 ## Idempotência
 
