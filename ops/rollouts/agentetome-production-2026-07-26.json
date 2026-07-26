@@ -1,20 +1,27 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-26T16:31:00Z",
+  "requestedAt": "2026-07-26T18:34:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "project-integrity-health-hotfix",
-    "auditMergeSha": "689bdc46721f178dafbef60ae7b7eb15d6ef82c2",
-    "failedDeploymentSha": "1e59dd9be7bf96853bf195256a7fa30e917d2a99",
-    "rootCause": "static-esm-import-in-commonjs-serverless-output",
+    "kind": "second-project-integrity-audit",
+    "targetMainSha": "8d6c0b382b7932c4bec465aae81a71d1a890a8ff",
+    "fixes": [
+      "knowledge-learning-service-role-detection",
+      "pipeline-read-write-eligibility",
+      "capture-monitoring-vs-decision-gate",
+      "knowledge-learning-vercel-oidc"
+    ],
     "validate": [
+      "exact-production-sha",
       "lightweight-platform-health",
-      "agentetome-auth-telemetry",
+      "agentetome-runtime-v2",
+      "knowledge-learning-worker",
+      "pipeline-kanban-fail-closed",
       "credit-review-governance",
-      "empty-capture-classification"
+      "capture-derived-decision-separation"
     ]
   },
   "acceptance": {
