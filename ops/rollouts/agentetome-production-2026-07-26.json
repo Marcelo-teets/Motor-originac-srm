@@ -1,24 +1,25 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-26T18:34:00Z",
+  "requestedAt": "2026-07-26T18:40:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "second-project-integrity-audit",
-    "targetMainSha": "8d6c0b382b7932c4bec465aae81a71d1a890a8ff",
+    "kind": "second-project-integrity-audit-production-smoke",
+    "previousProductionSha": "cb0bc1edc68524ee9699d7ba49b76fd33a14e298",
     "fixes": [
       "knowledge-learning-service-role-detection",
       "pipeline-read-write-eligibility",
       "capture-monitoring-vs-decision-gate",
-      "knowledge-learning-vercel-oidc"
+      "knowledge-learning-vercel-oidc",
+      "knowledge-learning-real-production-smoke"
     ],
     "validate": [
       "exact-production-sha",
       "lightweight-platform-health",
       "agentetome-runtime-v2",
-      "knowledge-learning-worker",
+      "knowledge-learning-worker-completed",
       "pipeline-kanban-fail-closed",
       "credit-review-governance",
       "capture-derived-decision-separation"
