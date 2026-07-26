@@ -34,6 +34,9 @@ jobs:
       - name: Validate Vercel production controller
         run: npm run test:vercel-production-control
 
+      - name: Validate Vercel prebuilt workflow contract
+        run: npm run test:vercel-production-workflow
+
       - name: Validate GoTrue CAPTCHA payload contract
         run: npm run test:auth-captcha-payload
 
