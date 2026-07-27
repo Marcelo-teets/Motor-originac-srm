@@ -18,6 +18,10 @@ function momentumTone(momentum: string) {
   return 'info';
 }
 
+function readable(value: string) {
+  return value.replace(/_/g, ' ');
+}
+
 export function CompaniesPage() {
   const { session } = useAuth();
   const [query, setQuery] = useState('');
@@ -67,23 +71,23 @@ export function CompaniesPage() {
   const dcmCount = filtered.filter((company) => company.suggestedStructure.toLowerCase().includes('dcm')).length;
   const strongSignalCount = filtered.filter((company) => company.triggerStrength >= 70).length;
   const partialDetailCount = filtered.filter((company) => company.detailHealth === 'partial').length;
-  const leadSummary = [
-    { label: 'Prioridade imediata', value: immediateCount, helper: 'empresas para abordagem agora', tone: 'success' as const },
-    { label: 'Fit FIDC', value: fidcCount, helper: 'estrutura sugerida com FIDC', tone: 'warning' as const },
-    { label: 'Fit DCM', value: dcmCount, helper: 'potencial de dívida corporativa', tone: 'info' as const },
-    { label: 'Sinal forte', value: strongSignalCount, helper: 'trigger strength acima de 70', tone: 'default' as const },
-  ];
+  const hasActiveFilters = query.length > 0 || priority !== 'all' || structure !== 'all';
+
+  const resetFilters = () => {
+    setQuery('');
+    setPriority('all');
+    setStructure('all');
+  };
 
   return (
-    <div className="page">
+    <div className="page leads-page-v3">
       <PageIntro
-        eyebrow="Leads / Companies"
-        title="Tabela operacional de originação"
-        description="Ranking filtrável para separar esforço comercial real: prioridade, estrutura sugerida, momentum, champion, próximo passo e último sinal observado. A lista agora tolera falha parcial de detalhes sem derrubar a tela."
+        eyebrow="Radar de oportunidades"
+        title="Leads priorizados"
+        description="Uma fila para decidir onde agir. Cada lead mostra o sinal relevante, a hipótese financeira, a estrutura sugerida e a próxima ação comercial."
         actions={(
           <div className="pill-row">
-            <Pill tone="success">{filtered.length} na visão atual</Pill>
-            {partialDetailCount ? <Pill tone="warning">{partialDetailCount} detalhe(s) parcial(is)</Pill> : null}
+            <Pill tone="success">{filtered.length} na visão</Pill>
             <Link to="/pipeline" className="button secondary">Abrir pipeline</Link>
           </div>
         )}
@@ -91,99 +95,94 @@ export function CompaniesPage() {
 
       <DataStatusBanner source={data.companiesState.source} note={data.companiesState.note} />
 
-      <section className="decision-strip">
-        {leadSummary.map((item) => (
-          <div key={item.label} className="decision-card">
-            <Pill tone={item.tone}>{item.label}</Pill>
-            <strong>{item.value}</strong>
-            <small>{item.helper}</small>
-          </div>
-        ))}
+      <section className="lead-summary-strip" aria-label="Resumo dos leads">
+        <div><span>Abordar agora</span><strong>{immediateCount}</strong><small>prioridade imediata</small></div>
+        <div><span>Fit FIDC</span><strong>{fidcCount}</strong><small>recebíveis estruturáveis</small></div>
+        <div><span>Fit DCM</span><strong>{dcmCount}</strong><small>dívida corporativa</small></div>
+        <div><span>Sinal forte</span><strong>{strongSignalCount}</strong><small>trigger acima de 70</small></div>
       </section>
 
-      <Card title="Filters" subtitle="Busca rápida, filtros de prioridade e estrutura" className="dense-card">
-        <div className="toolbar-grid">
-          <label>
-            <span>Busca</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar empresa, segmento ou pattern" />
-          </label>
-          <label>
-            <span>Prioridade</span>
-            <select value={priority} onChange={(event) => setPriority(event.target.value)}>
-              <option value="all">Todas</option>
-              <option value="immediate_priority">Immediate</option>
-              <option value="high_priority">High</option>
-              <option value="monitor_closely">Monitor</option>
-            </select>
-          </label>
-          <label>
-            <span>Estrutura sugerida</span>
-            <select value={structure} onChange={(event) => setStructure(event.target.value)}>
-              <option value="all">Todas</option>
-              {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-        </div>
-      </Card>
+      <section className="lead-filter-bar">
+        <label className="lead-search-field">
+          <span>Buscar</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, segmento ou padrão" />
+        </label>
+        <label>
+          <span>Prioridade</span>
+          <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+            <option value="all">Todas</option>
+            <option value="immediate_priority">Imediata</option>
+            <option value="high_priority">Alta</option>
+            <option value="monitor_closely">Monitorar</option>
+          </select>
+        </label>
+        <label>
+          <span>Estrutura</span>
+          <select value={structure} onChange={(event) => setStructure(event.target.value)}>
+            <option value="all">Todas</option>
+            {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <button type="button" className="secondary compact-button" onClick={resetFilters} disabled={!hasActiveFilters}>Limpar</button>
+      </section>
 
-      <Card title="Leads Table" subtitle={`${filtered.length} companhias na visão atual`} actions={<Pill tone="info">desktop-first</Pill>} className="dense-card">
-        {filtered.length ? (
-          <div style={{ overflowX: 'auto', width: '100%' }}>
-            <table className="dense-table" style={{ minWidth: 1180 }}>
-              <thead>
-                <tr>
-                  <th>Company</th>
-                  <th>Watch</th>
-                  <th>Qualification Score</th>
-                  <th>Lead Score</th>
-                  <th>Pattern</th>
-                  <th>Suggested Structure</th>
-                  <th>Priority</th>
-                  <th>Commercial Priority</th>
-                  <th>Momentum</th>
-                  <th>Next Step</th>
-                  <th>Last Touchpoint</th>
-                  <th>Champion</th>
-                  <th>Last Signal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((company) => (
-                  <tr key={company.id}>
-                    <td>
-                      <Link to={`/companies/${company.id}`}><strong>{company.name}</strong></Link>
-                      <div className="table-helper">{company.segment} · {company.subsegment}</div>
-                    </td>
-                    <td><WatchListStar companyId={company.id} companyName={company.name} /></td>
-                    <td><ScoreBadge value={company.qualificationScore} kind="qualification" /></td>
-                    <td><ScoreBadge value={company.leadScore} kind="lead" /></td>
-                    <td>
-                      <strong>{company.topPatterns[0] ?? 'Sem pattern dominante'}</strong>
-                      <div className="table-helper">trigger {company.triggerStrength}</div>
-                    </td>
-                    <td>{company.suggestedStructure}</td>
-                    <td><Pill tone={priorityTone(company.leadBucket)}>{company.leadBucket.replace(/_/g, ' ')}</Pill></td>
-                    <td><Pill tone={priorityTone(company.commercialPriority)}>{company.commercialPriority}</Pill></td>
-                    <td><Pill tone={momentumTone(company.momentum)}>{company.momentum}</Pill></td>
-                    <td>{company.nextStep}</td>
-                    <td>{company.lastTouchpoint}</td>
-                    <td><Pill tone={company.championStatus === 'mapped' ? 'success' : 'warning'}>{company.championStatus}</Pill></td>
-                    <td>
-                      {company.lastSignal}
-                      {company.detailHealth === 'partial' ? <div className="table-helper">detalhe parcial: usando fallback da lista</div> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            title="Nenhuma empresa encontrada com os filtros atuais."
-            description="Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional."
-          />
+      {partialDetailCount ? <div className="inline-notice"><Pill tone="warning">atenção</Pill><span>{partialDetailCount} lead(s) usam dados parciais de detalhe, sem bloquear a fila.</span></div> : null}
+
+      <section className="lead-card-list" aria-label="Lista de leads priorizados">
+        {filtered.length ? filtered.map((company, index) => (
+          <article key={company.id} className="lead-card-v3">
+            <div className="lead-card-rank">{String(index + 1).padStart(2, '0')}</div>
+
+            <div className="lead-card-main">
+              <div className="lead-card-title-row">
+                <div>
+                  <Link to={`/companies/${company.id}`} className="lead-company-link">{company.name}</Link>
+                  <span>{company.segment} · {company.subsegment}</span>
+                </div>
+                <WatchListStar companyId={company.id} companyName={company.name} />
+              </div>
+
+              <div className="lead-card-thesis">
+                <div>
+                  <span className="lead-field-label">Por que agora</span>
+                  <strong>{company.topPatterns[0] ?? 'Sem padrão dominante'}</strong>
+                  <p>{company.lastSignal}</p>
+                </div>
+                <div>
+                  <span className="lead-field-label">Estrutura sugerida</span>
+                  <strong>{company.suggestedStructure}</strong>
+                  <p>Trigger {company.triggerStrength} · momentum {readable(company.momentum)}</p>
+                </div>
+                <div>
+                  <span className="lead-field-label">Próxima ação</span>
+                  <strong>{company.nextStep}</strong>
+                  <p>Champion {readable(company.championStatus)} · último contato {company.lastTouchpoint}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lead-card-score">
+              <span>Lead score</span>
+              <ScoreBadge value={company.leadScore} kind="lead" />
+              <small>Qualification {company.qualificationScore}</small>
+            </div>
+
+            <div className="lead-card-status">
+              <Pill tone={priorityTone(company.leadBucket)}>{readable(company.leadBucket)}</Pill>
+              <Pill tone={momentumTone(company.momentum)}>{readable(company.momentum)}</Pill>
+              <Link to={`/companies/${company.id}`} className="button secondary compact-button">Abrir análise</Link>
+            </div>
+          </article>
+        )) : (
+          <Card title="Nenhum lead encontrado" subtitle="A visão atual não retornou empresas">
+            <EmptyState
+              title="Nenhuma empresa encontrada com os filtros atuais."
+              description="Limpe a busca ou selecione outra prioridade/estrutura para recuperar o ranking operacional."
+              action={<button type="button" onClick={resetFilters}>Limpar filtros</button>}
+            />
+          </Card>
         )}
-      </Card>
+      </section>
     </div>
   );
 }
