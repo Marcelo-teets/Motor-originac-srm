@@ -1,18 +1,38 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import ExcelJS from "npm:exceljs@4.4.0";
 
-const RUNTIME = "historical-excel-export-v5";
+const RUNTIME = "historical-excel-export-v6";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ARCHIVE_BUCKET = "historical-excel-archive";
+const ARCHIVE_STORAGE_PROVIDER = Deno.env.get("ARCHIVE_STORAGE_PROVIDER") === "google_drive"
+  ? "google_drive"
+  : "supabase_storage";
+const GOOGLE_DRIVE_CLIENT_ID = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID") ?? "";
+const GOOGLE_DRIVE_CLIENT_SECRET = Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET") ?? "";
+const GOOGLE_DRIVE_REFRESH_TOKEN = Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN") ?? "";
+const GOOGLE_DRIVE_ARCHIVE_FOLDER_ID = Deno.env.get("GOOGLE_DRIVE_ARCHIVE_FOLDER_ID") ?? "";
+const GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID = Deno.env.get("GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID") ?? "";
 const MAX_CELL_CHARS = 32_000;
 const MAX_ROWS_PER_INVOCATION = 1_000;
 const encoder = new TextEncoder();
+
+type ArchiveProvider = "supabase_storage" | "google_drive";
 
 type TableConfig = {
   dateColumn: string;
   datasetColumn?: string;
   resource: string;
+};
+
+type StoredArchivePart = {
+  provider: ArchiveProvider;
+  storageBucket: string;
+  storagePath: string;
+  externalFileId: string | null;
+  externalFolderId: string | null;
+  externalUrl: string | null;
+  metadata: Record<string, unknown>;
 };
 
 const TABLE_CONFIG: Record<string, TableConfig> = {
@@ -40,6 +60,8 @@ const TABLE_CONFIG: Record<string, TableConfig> = {
   qualification_snapshots: { dateColumn: "created_at", resource: "qualification_snapshots" },
   lead_score_snapshots: { dateColumn: "created_at", resource: "lead_score_snapshots" },
 };
+
+let googleTokenCache: { accessToken: string; expiresAt: number } | null = null;
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -237,6 +259,7 @@ async function buildWorkbook(input: {
     ["base_columns", JSON.stringify(expanded.baseColumns)],
     ["exported_at", new Date().toISOString()],
     ["runtime", RUNTIME],
+    ["storage_provider", ARCHIVE_STORAGE_PROVIDER],
   ]);
   manifest.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   manifest.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF17365D" } };
@@ -266,9 +289,263 @@ async function patchRun(runId: string, patch: Record<string, unknown>) {
   });
 }
 
+async function googleAccessToken() {
+  if (googleTokenCache && googleTokenCache.expiresAt > Date.now() + 60_000) {
+    return googleTokenCache.accessToken;
+  }
+  if (!GOOGLE_DRIVE_CLIENT_ID || !GOOGLE_DRIVE_CLIENT_SECRET || !GOOGLE_DRIVE_REFRESH_TOKEN) {
+    throw new Error("google_drive_oauth_credentials_missing");
+  }
+
+  const body = new URLSearchParams({
+    client_id: GOOGLE_DRIVE_CLIENT_ID,
+    client_secret: GOOGLE_DRIVE_CLIENT_SECRET,
+    refresh_token: GOOGLE_DRIVE_REFRESH_TOKEN,
+    grant_type: "refresh_token",
+  });
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || !payload.access_token) {
+    throw new Error(`google_oauth_${response.status}:${JSON.stringify(payload).slice(0, 500)}`);
+  }
+
+  const accessToken = String(payload.access_token);
+  const expiresIn = Number(payload.expires_in ?? 3600);
+  googleTokenCache = { accessToken, expiresAt: Date.now() + expiresIn * 1000 };
+  return accessToken;
+}
+
+async function googleJson(path: string, init: RequestInit = {}) {
+  const accessToken = await googleAccessToken();
+  const response = await fetch(`https://www.googleapis.com${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      ...(init.headers ?? {}),
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`google_api_${response.status}:${text.replace(/\s+/g, " ").slice(0, 800)}`);
+  }
+  if (!text) return null;
+  return JSON.parse(text);
+}
+
+async function ensureGoogleRunFolder(input: {
+  runId: string;
+  tableName: string;
+  datasetCode: string | null;
+  cutoffAt: string;
+}) {
+  if (!GOOGLE_DRIVE_ARCHIVE_FOLDER_ID) throw new Error("google_drive_archive_folder_missing");
+  const folderName = `${slug(input.tableName)}__${slug(input.datasetCode ?? "all")}__${input.cutoffAt.slice(0, 10)}__${input.runId}`;
+  const q = [
+    `'${GOOGLE_DRIVE_ARCHIVE_FOLDER_ID.replaceAll("'", "\\'")}' in parents`,
+    `name='${folderName.replaceAll("'", "\\'")}'`,
+    "mimeType='application/vnd.google-apps.folder'",
+    "trashed=false",
+  ].join(" and ");
+  const found = await googleJson(`/drive/v3/files?spaces=drive&q=${encodeURIComponent(q)}&fields=files(id,name,webViewLink)&pageSize=10`) as {
+    files?: Array<{ id: string; name: string; webViewLink?: string }>;
+  };
+  if (found.files?.[0]?.id) return found.files[0].id;
+
+  const created = await googleJson("/drive/v3/files?fields=id,name,webViewLink,parents", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [GOOGLE_DRIVE_ARCHIVE_FOLDER_ID],
+      appProperties: {
+        archiveRunId: input.runId,
+        archiveTable: input.tableName,
+        archiveDataset: input.datasetCode ?? "*",
+      },
+    }),
+  }) as { id: string };
+  return created.id;
+}
+
+function concatBytes(...chunks: Uint8Array[]) {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+async function uploadGoogleDriveFile(input: {
+  bytes: Uint8Array;
+  fileName: string;
+  folderId: string;
+  runId: string;
+  tableName: string;
+  datasetCode: string | null;
+  partNumber: number;
+  sha256: string;
+}) {
+  const accessToken = await googleAccessToken();
+  const boundary = `origination_archive_${crypto.randomUUID()}`;
+  const metadata = {
+    name: input.fileName,
+    parents: [input.folderId],
+    appProperties: {
+      archiveRunId: input.runId,
+      archiveTable: input.tableName,
+      archiveDataset: input.datasetCode ?? "*",
+      archivePartNumber: String(input.partNumber),
+      archiveSha256: input.sha256,
+    },
+  };
+  const prefix = encoder.encode(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+  );
+  const suffix = encoder.encode(`\r\n--${boundary}--`);
+  const body = concatBytes(prefix, input.bytes, suffix);
+  const response = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink,parents",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`google_drive_upload_${response.status}:${text.replace(/\s+/g, " ").slice(0, 800)}`);
+  }
+  return JSON.parse(text) as {
+    id: string;
+    name: string;
+    size?: string;
+    webViewLink?: string;
+    parents?: string[];
+  };
+}
+
+async function appendGoogleCatalogRow(values: unknown[]) {
+  if (!GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID) return null;
+  try {
+    await googleJson(
+      `/sheets/v4/spreadsheets/${encodeURIComponent(GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID)}/values/${encodeURIComponent("MANIFESTO!A:Q")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ values: [values] }),
+      },
+    );
+    return null;
+  } catch (error) {
+    return errorMessage(error).slice(0, 500);
+  }
+}
+
+async function storeArchivePart(input: {
+  bytes: Uint8Array;
+  runId: string;
+  tableName: string;
+  datasetCode: string | null;
+  cutoffAt: string;
+  partNumber: number;
+  workbookName: string;
+  logicalStoragePath: string;
+  sha256: string;
+  rowCount: number;
+  minRecordAt: string | null;
+  maxRecordAt: string | null;
+}): Promise<StoredArchivePart> {
+  if (ARCHIVE_STORAGE_PROVIDER === "google_drive") {
+    const folderId = await ensureGoogleRunFolder(input);
+    const file = await uploadGoogleDriveFile({
+      bytes: input.bytes,
+      fileName: input.workbookName,
+      folderId,
+      runId: input.runId,
+      tableName: input.tableName,
+      datasetCode: input.datasetCode,
+      partNumber: input.partNumber,
+      sha256: input.sha256,
+    });
+    const externalUrl = file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`;
+    const catalogWarning = await appendGoogleCatalogRow([
+      input.runId,
+      input.tableName,
+      input.datasetCode ?? "*",
+      input.cutoffAt,
+      input.partNumber,
+      file.id,
+      input.workbookName,
+      externalUrl,
+      input.rowCount,
+      input.minRecordAt ?? "",
+      input.maxRecordAt ?? "",
+      input.bytes.length,
+      input.sha256,
+      "uploaded",
+      new Date().toISOString(),
+      "google_drive",
+      folderId,
+    ]);
+
+    return {
+      provider: "google_drive",
+      storageBucket: "google-drive",
+      storagePath: `${folderId}/${file.id}`,
+      externalFileId: file.id,
+      externalFolderId: folderId,
+      externalUrl,
+      metadata: {
+        google_file_name: file.name,
+        google_reported_size: file.size ?? null,
+        catalog_sync_warning: catalogWarning,
+      },
+    };
+  }
+
+  const upload = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${ARCHIVE_BUCKET}/${storageObjectPath(input.logicalStoragePath)}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "x-upsert": "true",
+      },
+      body: input.bytes,
+    },
+  );
+  if (!upload.ok) {
+    throw new Error(`storage_upload_http_${upload.status}:${(await upload.text()).slice(0, 500)}`);
+  }
+
+  return {
+    provider: "supabase_storage",
+    storageBucket: ARCHIVE_BUCKET,
+    storagePath: input.logicalStoragePath,
+    externalFileId: null,
+    externalFolderId: null,
+    externalUrl: null,
+    metadata: {},
+  };
+}
+
 async function finalizeRun(runId: string, resource: string) {
   const parts = await supabaseFetch(
-    `/rest/v1/data_archive_parts?run_id=eq.${encodeURIComponent(runId)}&select=part_number,row_count,storage_path,sha256,size_bytes&order=part_number.asc`,
+    `/rest/v1/data_archive_parts?run_id=eq.${encodeURIComponent(runId)}&select=part_number,row_count,storage_provider,storage_path,external_file_id,external_url,sha256,size_bytes&order=part_number.asc`,
   ) as Array<Record<string, unknown>>;
   const rows = parts.reduce((sum, part) => sum + Number(part.row_count ?? 0), 0);
   await patchRun(runId, {
@@ -276,16 +553,19 @@ async function finalizeRun(runId: string, resource: string) {
     completed_at: new Date().toISOString(),
     row_count: rows,
     part_count: parts.length,
+    storage_provider: ARCHIVE_STORAGE_PROVIDER,
+    storage_bucket: ARCHIVE_STORAGE_PROVIDER === "google_drive" ? "google-drive" : ARCHIVE_BUCKET,
     export_metadata: {
       runtime: RUNTIME,
       pagination: "cursor",
       eligibility_version: 2,
       resource,
       rows_per_invocation: MAX_ROWS_PER_INVOCATION,
+      storage_provider: ARCHIVE_STORAGE_PROVIDER,
       parts,
     },
   });
-  return { rows, parts: parts.length };
+  return { rows, parts: parts.length, storageProvider: ARCHIVE_STORAGE_PROVIDER };
 }
 
 Deno.serve(async (req) => {
@@ -329,6 +609,8 @@ Deno.serve(async (req) => {
         status: "running",
         started_at: new Date().toISOString(),
         error_message: null,
+        storage_provider: ARCHIVE_STORAGE_PROVIDER,
+        storage_bucket: ARCHIVE_STORAGE_PROVIDER === "google_drive" ? "google-drive" : ARCHIVE_BUCKET,
       });
     }
 
@@ -382,25 +664,23 @@ Deno.serve(async (req) => {
     const sha256 = await sha256Hex(workbook.bytes);
     const datasetFolder = datasetCode ? `dataset=${slug(datasetCode)}` : "dataset=all";
     const workbookName = `${slug(tableName)}_${datasetCode ? `${slug(datasetCode)}_` : ""}${cutoffAt.slice(0, 10)}_part_${String(partNumber).padStart(3, "0")}.xlsx`;
-    const storagePath = `table=${slug(tableName)}/${datasetFolder}/cutoff=${cutoffAt.slice(0, 10)}/run=${runId}/${workbookName}`;
+    const logicalStoragePath = `table=${slug(tableName)}/${datasetFolder}/cutoff=${cutoffAt.slice(0, 10)}/run=${runId}/${workbookName}`;
 
     stage = `upload_part_${partNumber}`;
-    const upload = await fetch(
-      `${SUPABASE_URL}/storage/v1/object/${ARCHIVE_BUCKET}/${storageObjectPath(storagePath)}`,
-      {
-        method: "POST",
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "x-upsert": "true",
-        },
-        body: workbook.bytes,
-      },
-    );
-    if (!upload.ok) {
-      throw new Error(`storage_upload_http_${upload.status}:${(await upload.text()).slice(0, 500)}`);
-    }
+    const stored = await storeArchivePart({
+      bytes: workbook.bytes,
+      runId,
+      tableName,
+      datasetCode,
+      cutoffAt,
+      partNumber,
+      workbookName,
+      logicalStoragePath,
+      sha256,
+      rowCount: rows.length,
+      minRecordAt: workbook.minRecordAt,
+      maxRecordAt: workbook.maxRecordAt,
+    });
 
     stage = `register_part_${partNumber}`;
     await supabaseFetch("/rest/v1/data_archive_parts?on_conflict=run_id,part_number", {
@@ -413,8 +693,13 @@ Deno.serve(async (req) => {
         run_id: runId,
         part_number: partNumber,
         workbook_name: workbookName,
-        storage_bucket: ARCHIVE_BUCKET,
-        storage_path: storagePath,
+        storage_provider: stored.provider,
+        storage_bucket: stored.storageBucket,
+        storage_path: stored.storagePath,
+        external_file_id: stored.externalFileId,
+        external_folder_id: stored.externalFolderId,
+        external_url: stored.externalUrl,
+        migrated_at: stored.provider === "google_drive" ? new Date().toISOString() : null,
         row_count: rows.length,
         min_record_at: workbook.minRecordAt,
         max_record_at: workbook.maxRecordAt,
@@ -428,6 +713,8 @@ Deno.serve(async (req) => {
           include_raw_payload: includeRawPayload,
           cursor,
           order_column: orderColumn,
+          storage_provider: stored.provider,
+          ...stored.metadata,
         },
       }),
     });
@@ -462,6 +749,7 @@ Deno.serve(async (req) => {
       partNumber,
       rows: rows.length,
       nextCursor,
+      storageProvider: stored.provider,
       continuation,
     });
   } catch (error) {
