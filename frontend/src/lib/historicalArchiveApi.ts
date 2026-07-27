@@ -1,6 +1,7 @@
 import type { SessionData } from './types';
 
 export type ArchiveRunStatus = 'queued' | 'running' | 'completed' | 'verified' | 'pruned' | 'failed';
+export type ArchiveStorageProvider = 'supabase_storage' | 'google_drive';
 
 export type HistoricalArchiveRun = {
   id: string;
@@ -10,6 +11,7 @@ export type HistoricalArchiveRun = {
   include_raw_payload: boolean;
   chunk_rows: number;
   status: ArchiveRunStatus;
+  storage_provider: ArchiveStorageProvider;
   storage_bucket: string;
   row_count: number;
   part_count: number;
@@ -32,8 +34,13 @@ export type HistoricalArchivePart = {
   run_id: string;
   part_number: number;
   workbook_name: string;
+  storage_provider: ArchiveStorageProvider;
   storage_bucket: string;
   storage_path: string;
+  external_file_id: string | null;
+  external_folder_id: string | null;
+  external_url: string | null;
+  migrated_at: string | null;
   row_count: number;
   min_record_at: string | null;
   max_record_at: string | null;
@@ -62,12 +69,25 @@ export type HistoricalArchiveSummary = {
   archived_rows: number;
   pruned_rows: number;
   storage_bytes: number;
+  supabase_storage_bytes: number;
+  google_drive_bytes: number;
   parts: number;
+};
+
+export type DatabaseStorageHealth = {
+  database_bytes: number;
+  target_bytes: number;
+  warning_bytes: number;
+  critical_bytes: number;
+  free_quota_bytes: number;
+  state: 'healthy' | 'warning' | 'critical' | 'quota_exceeded';
+  captured_at: string;
 };
 
 export type HistoricalArchiveCatalog = {
   status: 'ok';
   summary: HistoricalArchiveSummary;
+  storage_health: DatabaseStorageHealth | null;
   total: number;
   runs: HistoricalArchiveRun[];
   policies: HistoricalArchivePolicy[];
@@ -123,7 +143,13 @@ export const historicalArchiveApi = {
       headers: headers(session),
       body: JSON.stringify({ action: 'download', partId }),
     });
-    return parse<{ status: 'ok'; signedUrl: string; workbookName: string; expiresIn: number }>(response);
+    return parse<{
+      status: 'ok';
+      provider: ArchiveStorageProvider;
+      signedUrl: string;
+      workbookName: string;
+      expiresIn: number;
+    }>(response);
   },
 
   async cleanupFailed(session: SessionData) {
