@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, EmptyState, ErrorState, LoadingState, PageIntro, Pill, Stat } from '../components/UI';
+import { Card, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../components/UI';
 import { useAuth } from '../lib/auth';
 import {
   historicalArchiveApi,
   type ArchiveRunStatus,
+  type ArchiveStorageProvider,
   type HistoricalArchiveCatalog,
   type HistoricalArchivePart,
 } from '../lib/historicalArchiveApi';
@@ -25,6 +26,18 @@ const statusTone = (status: ArchiveRunStatus) => {
   if (status === 'failed') return 'danger' as const;
   if (status === 'queued' || status === 'running' || status === 'completed') return 'warning' as const;
   return 'info' as const;
+};
+
+const storageHealthTone = (state?: string | null) => {
+  if (state === 'healthy') return 'success' as const;
+  if (state === 'warning') return 'warning' as const;
+  if (state === 'critical' || state === 'quota_exceeded') return 'danger' as const;
+  return 'info' as const;
+};
+
+const providerLabel: Record<ArchiveStorageProvider, string> = {
+  google_drive: 'Google Drive',
+  supabase_storage: 'Storage legado',
 };
 
 const statusLabel: Record<ArchiveRunStatus, string> = {
@@ -97,7 +110,7 @@ export function HistoricalArchivePage() {
       const result = await historicalArchiveApi.createDownload(session, part.id);
       window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível gerar o download.');
+      setError(err instanceof Error ? err.message : 'Não foi possível abrir o arquivo.');
     } finally {
       setDownloadingId(null);
     }
@@ -120,24 +133,25 @@ export function HistoricalArchivePage() {
   };
 
   if (loading && !catalog) {
-    return <LoadingState title="Arquivo histórico" subtitle="Carregando runs, políticas, checksums e arquivos Excel privados." />;
+    return <LoadingState title="Arquivo histórico" subtitle="Carregando uso, políticas, checksums e arquivos privados." />;
   }
   if (error && !catalog) {
     return <ErrorState title="Arquivo histórico" error={error} action={<button type="button" onClick={() => void loadCatalog()}>Tentar novamente</button>} />;
   }
 
   const summary = catalog?.summary;
+  const storageHealth = catalog?.storage_health;
   const selectedRun = catalog?.runs.find((run) => run.id === selectedRunId);
 
   return (
     <div className="page">
       <PageIntro
         eyebrow="Governança / GOD-MODE"
-        title="Arquivo histórico em Excel"
-        description="Camada secundária, privada e auditável para consultar dados frios sem pressionar o Supabase operacional. Cada parte possui manifesto, contagem e SHA-256."
+        title="Arquivo histórico e limite gratuito"
+        description="O Supabase permanece como banco quente. Dados brutos e payloads antigos são validados, arquivados no Google Drive e removidos do banco operacional sem perder lineage ou capacidade de consulta."
         actions={(
           <div className="pill-row">
-            <Pill tone="success">bucket privado</Pill>
+            <Pill tone="success">Google Drive privado</Pill>
             <Pill tone="info">checksum + contagem</Pill>
             <button type="button" className="secondary compact-button" disabled={cleaning} onClick={() => void cleanupFailed()}>
               {cleaning ? 'Limpando...' : 'Limpar tentativas falhas'}
@@ -150,9 +164,13 @@ export function HistoricalArchivePage() {
       {notice ? <div className="auth-alert auth-alert-success">{notice}</div> : null}
 
       <section className="decision-strip">
-        <div className="decision-card"><Pill tone="info">Linhas arquivadas</Pill><strong>{formatNumber(summary?.archived_rows ?? 0)}</strong><small>Registros com Excel verificado.</small></div>
-        <div className="decision-card"><Pill tone="success">Fora do banco quente</Pill><strong>{formatNumber(summary?.pruned_rows ?? 0)}</strong><small>Linhas brutas removidas após validação.</small></div>
-        <div className="decision-card"><Pill tone="info">Arquivos</Pill><strong>{formatNumber(summary?.parts ?? 0)}</strong><small>{formatBytes(summary?.storage_bytes ?? 0)} no bucket privado.</small></div>
+        <div className="decision-card">
+          <Pill tone={storageHealthTone(storageHealth?.state)}>Banco operacional</Pill>
+          <strong>{formatBytes(storageHealth?.database_bytes ?? 0)}</strong>
+          <small>Meta: {formatBytes(storageHealth?.target_bytes ?? 0)} · limite gratuito: {formatBytes(storageHealth?.free_quota_bytes ?? 0)}.</small>
+        </div>
+        <div className="decision-card"><Pill tone="success">Fora do banco quente</Pill><strong>{formatNumber(summary?.pruned_rows ?? 0)}</strong><small>Linhas removidas somente após validação.</small></div>
+        <div className="decision-card"><Pill tone="info">Google Drive</Pill><strong>{formatBytes(summary?.google_drive_bytes ?? 0)}</strong><small>Arquivo frio, privado e consultável.</small></div>
         <div className="decision-card"><Pill tone={summary?.failed_runs ? 'warning' : 'success'}>Saúde</Pill><strong>{summary?.failed_runs ?? 0}</strong><small>Runs falhos; artefatos podem ser limpos sem afetar dados válidos.</small></div>
       </section>
 
@@ -180,12 +198,12 @@ export function HistoricalArchivePage() {
         </div>
       </Card>
 
-      <Card title="Execuções de arquivamento" subtitle="Espelhos, payloads frios e linhas brutas já externalizadas" className="dense-card">
+      <Card title="Execuções de arquivamento" subtitle="Espelhos, payloads frios e linhas brutas externalizadas" className="dense-card">
         {(catalog?.runs ?? []).length ? (
           <div className="table-wrap">
             <table className="dense-table">
               <thead>
-                <tr><th>Base / dataset</th><th>Status</th><th>Corte</th><th>Linhas</th><th>Partes / tamanho</th><th>Concluído</th><th>Ação</th></tr>
+                <tr><th>Base / dataset</th><th>Destino</th><th>Status</th><th>Corte</th><th>Linhas</th><th>Partes / tamanho</th><th>Concluído</th><th>Ação</th></tr>
               </thead>
               <tbody>
                 {(catalog?.runs ?? []).map((run) => (
@@ -195,6 +213,7 @@ export function HistoricalArchivePage() {
                       <div className="table-helper">{run.dataset_code ?? '*'} · {run.requested_by ?? 'system'}</div>
                       {run.error_message ? <div className="table-helper">erro: {run.error_message}</div> : null}
                     </td>
+                    <td><Pill tone={run.storage_provider === 'google_drive' ? 'success' : 'info'}>{providerLabel[run.storage_provider]}</Pill></td>
                     <td><Pill tone={statusTone(run.status)}>{statusLabel[run.status]}</Pill></td>
                     <td>{formatDate(run.cutoff_at)}</td>
                     <td>{formatNumber(run.row_count)}</td>
@@ -218,25 +237,26 @@ export function HistoricalArchivePage() {
       {selectedRunId ? (
         <Card
           title={`Partes do arquivo · ${selectedRun?.dataset_code ?? selectedRun?.table_name ?? selectedRunId}`}
-          subtitle="Links assinados expiram em cinco minutos e preservam o bucket privado."
+          subtitle="Arquivos do Google Drive abrem na pasta privada; arquivos legados usam link assinado de cinco minutos."
           className="dense-card"
         >
           {partsLoading ? <LoadingState title="Partes do Excel" subtitle="Consultando manifesto e checksums." /> : parts.length ? (
             <div className="table-wrap">
               <table className="dense-table">
-                <thead><tr><th>Parte</th><th>Arquivo</th><th>Linhas</th><th>Período</th><th>Tamanho</th><th>SHA-256</th><th>Download</th></tr></thead>
+                <thead><tr><th>Parte</th><th>Arquivo</th><th>Destino</th><th>Linhas</th><th>Período</th><th>Tamanho</th><th>SHA-256</th><th>Abrir</th></tr></thead>
                 <tbody>
                   {parts.map((part) => (
                     <tr key={part.id}>
                       <td>{part.part_number}</td>
                       <td><strong>{part.workbook_name}</strong></td>
+                      <td><Pill tone={part.storage_provider === 'google_drive' ? 'success' : 'info'}>{providerLabel[part.storage_provider]}</Pill></td>
                       <td>{formatNumber(part.row_count)}</td>
                       <td>{formatDate(part.min_record_at)} → {formatDate(part.max_record_at)}</td>
                       <td>{formatBytes(part.size_bytes)}</td>
                       <td><span className="table-helper">{part.sha256.slice(0, 12)}…{part.sha256.slice(-8)}</span></td>
                       <td>
                         <button type="button" className="secondary compact-button" disabled={downloadingId === part.id} onClick={() => void downloadPart(part)}>
-                          {downloadingId === part.id ? 'Gerando...' : 'Baixar Excel'}
+                          {downloadingId === part.id ? 'Abrindo...' : part.storage_provider === 'google_drive' ? 'Abrir no Drive' : 'Baixar Excel'}
                         </button>
                       </td>
                     </tr>
@@ -248,7 +268,7 @@ export function HistoricalArchivePage() {
         </Card>
       ) : null}
 
-      <Card title="Políticas de retenção" subtitle="O que fica no Supabase e o que pode migrar para Excel" className="dense-card">
+      <Card title="Políticas de retenção" subtitle="O que fica no Supabase e o que migra para o arquivo frio" className="dense-card">
         <div className="table-wrap">
           <table className="dense-table">
             <thead><tr><th>Tabela</th><th>Dataset</th><th>Modo</th><th>Janela quente</th><th>Prune permitido</th><th>Regra</th></tr></thead>
