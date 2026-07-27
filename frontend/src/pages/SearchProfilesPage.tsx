@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Card, DataStatusBanner, PageIntro, Pill } from '../components/UI';
+import { Card, DataStatusBanner, EmptyState, PageIntro, Pill } from '../components/UI';
 import { defaultSearchProfileDraft, searchProfilePresets } from '../mocks/data';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
-const profileGroups: Array<{ title: string; fields: Array<{ key: keyof SearchProfileDraft; label: string; options: string[] }> }> = [
+const profileSteps: Array<{ number: string; title: string; description: string; fields: Array<{ key: keyof SearchProfileDraft; label: string; options: string[] }> }> = [
   {
-    title: 'Segmentação',
+    number: '01',
+    title: 'Defina o universo',
+    description: 'Quem deve entrar no radar.',
     fields: [
       { key: 'segment', label: 'Segmento', options: searchProfilePresets.segments },
       { key: 'subsegment', label: 'Subsetor', options: searchProfilePresets.subsegments },
@@ -17,12 +19,21 @@ const profileGroups: Array<{ title: string; fields: Array<{ key: keyof SearchPro
     ],
   },
   {
-    title: 'Estrutura e sinais',
+    number: '02',
+    title: 'Defina a tese financeira',
+    description: 'Que necessidade e estrutura queremos detectar.',
     fields: [
       { key: 'creditProduct', label: 'Produto de crédito', options: searchProfilePresets.creditProducts },
       { key: 'receivables', label: 'Recebíveis', options: searchProfilePresets.receivables },
       { key: 'targetStructure', label: 'Estrutura alvo', options: searchProfilePresets.targetStructures },
-      { key: 'signalIntensity', label: 'Intensidade mínima de sinais', options: searchProfilePresets.signalIntensity },
+    ],
+  },
+  {
+    number: '03',
+    title: 'Ajuste a qualidade',
+    description: 'Evite ruído e priorize sinais recentes.',
+    fields: [
+      { key: 'signalIntensity', label: 'Intensidade mínima', options: searchProfilePresets.signalIntensity },
       { key: 'minimumConfidence', label: 'Confidence mínima', options: searchProfilePresets.minimumConfidence },
       { key: 'timeWindow', label: 'Janela temporal', options: searchProfilePresets.timeWindows },
     ],
@@ -40,17 +51,15 @@ export function SearchProfilesPage() {
   const { data, loading, error, setData } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const summary = useMemo(() => ([
-    `Segmento ${draft.segment}`,
-    `Subsetor ${draft.subsegment}`,
-    `Tipo ${draft.companyType}`,
-    `Geografia ${draft.geography}`,
-    `Produto ${draft.creditProduct}`,
-    `Recebíveis ${draft.receivables}`,
-    `Estrutura alvo ${draft.targetStructure}`,
-    `Intensidade ${draft.signalIntensity}`,
-    `Confidence mínima ${draft.minimumConfidence}`,
-    `Janela ${draft.timeWindow}`,
+    { label: 'Universo', value: `${draft.segment} · ${draft.subsegment}` },
+    { label: 'Empresa', value: `${draft.companyType} · ${draft.geography}` },
+    { label: 'Tese', value: `${draft.creditProduct} · ${draft.receivables}` },
+    { label: 'Estrutura', value: draft.targetStructure },
+    { label: 'Qualidade', value: `${draft.signalIntensity} · ${draft.minimumConfidence}` },
+    { label: 'Janela', value: draft.timeWindow },
   ]), [draft]);
+
+  const selectedProfile = data?.data.find((profile) => profile.id === selectedProfileId);
 
   const handleSave = async () => {
     setSaving(true);
@@ -72,7 +81,8 @@ export function SearchProfilesPage() {
       });
       const refreshed = await api.getSearchProfiles(session);
       setData(refreshed);
-      setSaveMessage(`Perfil salvo com sucesso: ${saved.name}.`);
+      setSelectedProfileId(saved.id);
+      setSaveMessage(`Perfil salvo: ${saved.name}.`);
     } catch (saveError) {
       setSaveMessage(saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.');
     } finally {
@@ -82,7 +92,7 @@ export function SearchProfilesPage() {
 
   const handleRun = async () => {
     if (!selectedProfileId) {
-      setSaveMessage('Selecione um perfil persistido para rodar a busca.');
+      setSaveMessage('Selecione um perfil salvo para executar a busca.');
       return;
     }
     setRunning(true);
@@ -90,7 +100,7 @@ export function SearchProfilesPage() {
     try {
       const result = await api.runSearchProfile(session, selectedProfileId);
       setCandidates(result.candidates);
-      setSaveMessage(`Busca executada: ${result.candidates.length} candidato(s) capturado(s).`);
+      setSaveMessage(`Busca concluída: ${result.candidates.length} candidato(s) capturado(s).`);
     } catch (runError) {
       setSaveMessage(runError instanceof Error ? runError.message : 'Falha ao rodar busca.');
     } finally {
@@ -103,7 +113,7 @@ export function SearchProfilesPage() {
       await api.promoteSearchCandidate(session, candidateId);
       const refreshed = await api.getSearchProfileCandidates(session, selectedProfileId);
       setCandidates(refreshed);
-      setSaveMessage('Candidato promovido com sucesso.');
+      setSaveMessage('Candidato promovido para a base de leads.');
     } catch (promoteError) {
       setSaveMessage(promoteError instanceof Error ? promoteError.message : 'Falha ao promover candidato.');
     }
@@ -113,100 +123,118 @@ export function SearchProfilesPage() {
   if (error || !data) return <div className="page"><Card title="Search Profiles" subtitle="Falha ao carregar perfis">{error}</Card></div>;
 
   return (
-    <div className="page">
+    <div className="page search-profiles-v3">
       <PageIntro
-        eyebrow="Search Profiles"
-        title="Builder executivo de perfis de busca"
-        description="A tela continua enxuta, mas agora lê e grava perfis reais no backend protegido por Supabase Auth, preservando a arquitetura já consolidada na main."
+        eyebrow="Descoberta orientada por tese"
+        title="Criar perfil de busca"
+        description="Configure o universo, a hipótese financeira e a qualidade mínima dos sinais. Depois salve, execute e promova apenas os candidatos que merecem entrar no ranking."
         actions={<Pill tone={data.source === 'real' ? 'success' : 'warning'}>{data.source === 'real' ? 'persistência real' : 'persistência parcial'}</Pill>}
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
 
-      <section className="grid cols-2 search-layout">
-        <Card title="Configuração do perfil" subtitle="Filtros agrupados em duas colunas, desktop-first" className="dense-card">
-          <div className="profile-groups">
-            {profileGroups.map((group) => (
-              <div key={group.title} className="profile-group">
-                <h4>{group.title}</h4>
-                <div className="form-grid two">
-                  {group.fields.map((field) => (
-                    <label key={field.key}>
-                      <span>{field.label}</span>
-                      <select value={draft[field.key]} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}>
-                        {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    </label>
-                  ))}
+      <section className="profile-builder-layout">
+        <div className="profile-step-list">
+          {profileSteps.map((step) => (
+            <section key={step.number} className="profile-step-card">
+              <div className="profile-step-heading">
+                <span>{step.number}</span>
+                <div>
+                  <h3>{step.title}</h3>
+                  <p>{step.description}</p>
                 </div>
+              </div>
+              <div className="form-grid two">
+                {step.fields.map((field) => (
+                  <label key={field.key}>
+                    <span>{field.label}</span>
+                    <select value={draft[field.key]} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}>
+                      {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <aside className="profile-summary-panel">
+          <p className="eyebrow">Resumo do perfil</p>
+          <h3>{draft.segment} · {draft.targetStructure}</h3>
+          <div className="profile-summary-list-v3">
+            {summary.map((item) => (
+              <div key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
               </div>
             ))}
           </div>
-        </Card>
-
-        <Card title="Resumo do perfil" subtitle="Leitura rápida do perfil configurado + ações principais" tone="accent" className="dense-card">
-          <div className="summary-list">
-            {summary.map((item) => <div key={item} className="summary-item">{item}</div>)}
-          </div>
-          {saveMessage ? <p className="table-helper">{saveMessage}</p> : null}
-          <div className="actions sticky-actions">
-            <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar perfil'}</button>
+          {saveMessage ? <div className="inline-notice"><span>{saveMessage}</span></div> : null}
+          <div className="profile-primary-actions">
+            <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar novo perfil'}</button>
             <button type="button" className="secondary" onClick={() => void handleRun()} disabled={running || !selectedProfileId}>
-              {running ? 'Rodando...' : 'Rodar busca'}
+              {running ? 'Executando...' : selectedProfile ? `Executar ${selectedProfile.name}` : 'Selecione um perfil abaixo'}
             </button>
           </div>
-        </Card>
+        </aside>
       </section>
 
-      <Card title="Perfis persistidos" subtitle={`${data.data.length} perfil(is) retornados do backend`} className="dense-card">
-        <table className="dense-table">
-          <thead>
-            <tr><th>Nome</th><th>Segmento</th><th>Estrutura</th><th>Recebíveis</th><th>Status</th></tr>
-          </thead>
-          <tbody>
-            {data.data.map((profile) => (
-              <tr key={profile.id}>
-                <td>
-                  <label className="row-between">
+      <Card title="Perfis salvos" subtitle="Selecione um perfil para executar a descoberta" actions={<Pill tone="info">{data.data.length} perfil(is)</Pill>}>
+        {data.data.length ? (
+          <div className="saved-profile-grid">
+            {data.data.map((profile) => {
+              const selected = selectedProfileId === profile.id;
+              return (
+                <button
+                  key={profile.id}
+                  type="button"
+                  className={`saved-profile-card ${selected ? 'selected' : ''}`}
+                  onClick={() => setSelectedProfileId(profile.id)}
+                >
+                  <span className="saved-profile-radio" aria-hidden="true" />
+                  <span>
                     <strong>{profile.name}</strong>
-                    <input type="radio" name="selected_profile" checked={selectedProfileId === profile.id} onChange={() => setSelectedProfileId(profile.id)} />
-                  </label>
-                  <div className="table-helper">{profile.companyType} · {profile.geography}</div>
-                </td>
-                <td>{profile.segment} · {profile.subsegment}</td>
-                <td>{profile.targetStructure}</td>
-                <td>{profile.receivables.join(', ')}</td>
-                <td>{profile.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <small>{profile.segment} · {profile.subsegment}</small>
+                  </span>
+                  <span className="saved-profile-meta">
+                    <small>{profile.targetStructure}</small>
+                    <small>{profile.status}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState title="Nenhum perfil salvo" description="Configure o primeiro perfil acima e salve para iniciar a descoberta." />
+        )}
       </Card>
 
-      <Card title="Discovery candidates" subtitle="Candidatos retornados pelo run selecionado" className="dense-card">
+      <Card title="Candidatos encontrados" subtitle="Revise a evidência antes de promover para a base oficial" actions={<Pill tone={candidates.length ? 'success' : 'info'}>{candidates.length} candidato(s)</Pill>}>
         {candidates.length === 0 ? (
-          <div className="table-helper">Nenhum candidato carregado.</div>
+          <EmptyState title="Nenhum candidato carregado" description="Selecione um perfil salvo e execute a busca para preencher esta fila." />
         ) : (
-          <table className="dense-table">
-            <thead>
-              <tr><th>Empresa</th><th>Fonte</th><th>Confidence</th><th>Status</th><th>Ação</th></tr>
-            </thead>
-            <tbody>
-              {candidates.map((candidate) => (
-                <tr key={candidate.id}>
-                  <td><strong>{candidate.companyName}</strong><div className="table-helper">{candidate.segment} · {candidate.website ?? 'sem site'}</div></td>
-                  <td>{candidate.sourceRef}</td>
-                  <td>{Math.round(candidate.confidence * 100)}%</td>
-                  <td>{candidate.status}</td>
-                  <td>
-                    <button type="button" disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
-                      {candidate.status === 'promoted' ? 'Promovido' : 'Promover'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="candidate-list-v3">
+            {candidates.map((candidate) => (
+              <article key={candidate.id}>
+                <div>
+                  <strong>{candidate.companyName}</strong>
+                  <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+                </div>
+                <div>
+                  <span className="lead-field-label">Fonte</span>
+                  <strong>{candidate.sourceRef}</strong>
+                </div>
+                <div>
+                  <span className="lead-field-label">Confidence</span>
+                  <strong>{Math.round(candidate.confidence * 100)}%</strong>
+                </div>
+                <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status}</Pill>
+                <button type="button" className={candidate.status === 'promoted' ? 'secondary compact-button' : 'compact-button'} disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
+                  {candidate.status === 'promoted' ? 'Promovido' : 'Promover lead'}
+                </button>
+              </article>
+            ))}
+          </div>
         )}
       </Card>
     </div>
