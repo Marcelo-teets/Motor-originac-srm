@@ -74,7 +74,7 @@ export function Layout() {
             <nav>{primaryItems.map(renderNavItem)}</nav>
           </div>
 
-          <details className="sidebar-disclosure" defaultOpen={intelligenceItems.some((item) => location.pathname.startsWith(item.to))}>
+          <details className="sidebar-disclosure" open={intelligenceItems.some((item) => location.pathname.startsWith(item.to)) || undefined}>
             <summary>
               <span>Inteligência e cobertura</span>
               <span aria-hidden="true">+</span>
@@ -82,7 +82,7 @@ export function Layout() {
             <nav>{intelligenceItems.map(renderNavItem)}</nav>
           </details>
 
-          <details className="sidebar-disclosure" defaultOpen={operationsItems.some((item) => location.pathname.startsWith(item.to))}>
+          <details className="sidebar-disclosure" open={operationsItems.some((item) => location.pathname.startsWith(item.to)) || undefined}>
             <summary>
               <span>Operação e governança</span>
               <span aria-hidden="true">+</span>
