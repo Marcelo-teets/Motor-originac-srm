@@ -18,7 +18,6 @@ with check (true);
 revoke all privileges on table public.vector_documents from anon, authenticated;
 grant select on table public.vector_documents to authenticated;
 
-revoke all on function public.set_user_role_by_email(text, text) from public, anon, authenticated;
 drop function if exists public.set_user_role_by_email(text, text);
 
 comment on table public.vector_documents is
