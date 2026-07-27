@@ -1,11 +1,16 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-const RUNTIME = "historical-excel-catalog-v1";
+const RUNTIME = "historical-excel-catalog-v2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ARCHIVE_BUCKET = "historical-excel-archive";
+const GOOGLE_DRIVE_CLIENT_ID = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID") ?? "";
+const GOOGLE_DRIVE_CLIENT_SECRET = Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET") ?? "";
+const GOOGLE_DRIVE_REFRESH_TOKEN = Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN") ?? "";
 const encoder = new TextEncoder();
+
+let googleTokenCache: { accessToken: string; expiresAt: number } | null = null;
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -78,6 +83,47 @@ function numberParam(url: URL, name: string, fallback: number, max: number) {
   return Math.max(0, Math.min(max, Math.trunc(parsed)));
 }
 
+async function googleAccessToken() {
+  if (googleTokenCache && googleTokenCache.expiresAt > Date.now() + 60_000) {
+    return googleTokenCache.accessToken;
+  }
+  if (!GOOGLE_DRIVE_CLIENT_ID || !GOOGLE_DRIVE_CLIENT_SECRET || !GOOGLE_DRIVE_REFRESH_TOKEN) {
+    throw new Error("google_drive_oauth_credentials_missing");
+  }
+
+  const body = new URLSearchParams({
+    client_id: GOOGLE_DRIVE_CLIENT_ID,
+    client_secret: GOOGLE_DRIVE_CLIENT_SECRET,
+    refresh_token: GOOGLE_DRIVE_REFRESH_TOKEN,
+    grant_type: "refresh_token",
+  });
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const payload = await tokenResponse.json().catch(() => ({})) as Record<string, unknown>;
+  if (!tokenResponse.ok || !payload.access_token) {
+    throw new Error(`google_oauth_${tokenResponse.status}:${JSON.stringify(payload).slice(0, 500)}`);
+  }
+
+  const accessToken = String(payload.access_token);
+  const expiresIn = Number(payload.expires_in ?? 3600);
+  googleTokenCache = { accessToken, expiresAt: Date.now() + expiresIn * 1000 };
+  return accessToken;
+}
+
+async function deleteGoogleDriveFile(fileId: string) {
+  const accessToken = await googleAccessToken();
+  const deleteResponse = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+    { method: "DELETE", headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (!deleteResponse.ok && deleteResponse.status !== 404) {
+    throw new Error(`google_drive_delete_${deleteResponse.status}:${(await deleteResponse.text()).slice(0, 500)}`);
+  }
+}
+
 async function listCatalog(url: URL) {
   const limit = Math.max(1, numberParam(url, "limit", 50, 100));
   const offset = numberParam(url, "offset", 0, 100_000);
@@ -88,7 +134,7 @@ async function listCatalog(url: URL) {
   if (runId) {
     const { data: parts, error } = await admin
       .from("data_archive_parts")
-      .select("id, run_id, part_number, workbook_name, storage_bucket, storage_path, row_count, min_record_at, max_record_at, sha256, size_bytes, created_at")
+      .select("id, run_id, part_number, workbook_name, storage_provider, storage_bucket, storage_path, external_file_id, external_folder_id, external_url, migrated_at, row_count, min_record_at, max_record_at, sha256, size_bytes, created_at")
       .eq("run_id", runId)
       .order("part_number", { ascending: true });
     if (error) throw error;
@@ -97,24 +143,32 @@ async function listCatalog(url: URL) {
 
   let runsQuery = admin
     .from("data_archive_runs")
-    .select("id, table_name, dataset_code, cutoff_at, include_raw_payload, chunk_rows, status, storage_bucket, row_count, part_count, requested_by, started_at, completed_at, verified_at, pruned_at, error_message, request_metadata, export_metadata, prune_result, created_at, updated_at", { count: "exact" })
+    .select("id, table_name, dataset_code, cutoff_at, include_raw_payload, chunk_rows, status, storage_provider, storage_bucket, row_count, part_count, requested_by, started_at, completed_at, verified_at, pruned_at, error_message, request_metadata, export_metadata, prune_result, created_at, updated_at", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (tableName) runsQuery = runsQuery.eq("table_name", tableName);
   if (status) runsQuery = runsQuery.eq("status", status);
 
-  const [{ data: runs, error: runsError, count }, { data: policies, error: policiesError }, { data: allRuns, error: summaryError }, { data: allParts, error: partsError }] = await Promise.all([
+  const [
+    { data: runs, error: runsError, count },
+    { data: policies, error: policiesError },
+    { data: allRuns, error: summaryError },
+    { data: allParts, error: partsError },
+    { data: healthRows, error: healthError },
+  ] = await Promise.all([
     runsQuery,
     admin.from("data_archive_policies").select("table_name, dataset_code, retention_mode, hot_retention_days, allow_prune, enabled, excel_sheet_prefix, notes").order("table_name").order("dataset_code"),
-    admin.from("data_archive_runs").select("status, row_count, part_count"),
-    admin.from("data_archive_parts").select("run_id, size_bytes, row_count"),
+    admin.from("data_archive_runs").select("status, storage_provider, row_count, part_count"),
+    admin.from("data_archive_parts").select("run_id, storage_provider, size_bytes, row_count"),
+    admin.from("database_storage_snapshots").select("database_bytes, target_bytes, warning_bytes, critical_bytes, free_quota_bytes, state, captured_at").order("captured_at", { ascending: false }).limit(1),
   ]);
 
   if (runsError) throw runsError;
   if (policiesError) throw policiesError;
   if (summaryError) throw summaryError;
   if (partsError) throw partsError;
+  if (healthError) throw healthError;
 
   const runSize = new Map<string, number>();
   for (const part of allParts ?? []) {
@@ -139,12 +193,19 @@ async function listCatalog(url: URL) {
       .filter((run) => run.status === "pruned")
       .reduce((sum, run) => sum + Number(run.row_count ?? 0), 0),
     storage_bytes: (allParts ?? []).reduce((sum, part) => sum + Number(part.size_bytes ?? 0), 0),
+    supabase_storage_bytes: (allParts ?? [])
+      .filter((part) => String(part.storage_provider ?? "supabase_storage") === "supabase_storage")
+      .reduce((sum, part) => sum + Number(part.size_bytes ?? 0), 0),
+    google_drive_bytes: (allParts ?? [])
+      .filter((part) => String(part.storage_provider) === "google_drive")
+      .reduce((sum, part) => sum + Number(part.size_bytes ?? 0), 0),
     parts: (allParts ?? []).length,
   };
 
   return {
     status: "ok",
     summary,
+    storage_health: healthRows?.[0] ?? null,
     filters: { table: tableName || null, status: status || null, limit, offset },
     total: count ?? enrichedRuns.length,
     runs: enrichedRuns,
@@ -152,14 +213,29 @@ async function listCatalog(url: URL) {
   };
 }
 
-async function signedDownload(partId: string) {
+async function archiveDownload(partId: string) {
   const { data: part, error: partError } = await admin
     .from("data_archive_parts")
-    .select("id, workbook_name, storage_bucket, storage_path")
+    .select("id, workbook_name, storage_provider, storage_bucket, storage_path, external_file_id, external_url")
     .eq("id", partId)
     .maybeSingle();
   if (partError) throw partError;
   if (!part) throw new Error("archive_part_not_found");
+
+  if (String(part.storage_provider) === "google_drive") {
+    const externalUrl = String(
+      part.external_url || (part.external_file_id ? `https://drive.google.com/file/d/${part.external_file_id}/view` : ""),
+    );
+    if (!externalUrl) throw new Error("google_drive_archive_url_missing");
+    return {
+      status: "ok",
+      provider: "google_drive",
+      partId,
+      workbookName: part.workbook_name,
+      expiresIn: 0,
+      signedUrl: externalUrl,
+    };
+  }
 
   const { data, error } = await admin.storage
     .from(part.storage_bucket || ARCHIVE_BUCKET)
@@ -168,6 +244,7 @@ async function signedDownload(partId: string) {
 
   return {
     status: "ok",
+    provider: "supabase_storage",
     partId,
     workbookName: part.workbook_name,
     expiresIn: 300,
@@ -192,14 +269,20 @@ async function cleanupFailedArchives() {
   for (const run of runs ?? []) {
     const { data: parts, error: partsError } = await admin
       .from("data_archive_parts")
-      .select("id, storage_bucket, storage_path, size_bytes, row_count")
+      .select("id, storage_provider, storage_bucket, storage_path, external_file_id, size_bytes, row_count")
       .eq("run_id", run.id);
     if (partsError) throw partsError;
 
     const byBucket = new Map<string, string[]>();
     for (const part of parts ?? []) {
-      const bucket = String(part.storage_bucket || ARCHIVE_BUCKET);
-      byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), String(part.storage_path)]);
+      const provider = String(part.storage_provider ?? "supabase_storage");
+      if (provider === "google_drive") {
+        if (part.external_file_id) await deleteGoogleDriveFile(String(part.external_file_id));
+        deletedObjects += 1;
+      } else {
+        const bucket = String(part.storage_bucket || ARCHIVE_BUCKET);
+        byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), String(part.storage_path)]);
+      }
       releasedBytes += Number(part.size_bytes ?? 0);
     }
 
@@ -276,7 +359,7 @@ Deno.serve(async (req) => {
     }
 
     await requireGodMode(req);
-    if (action === "download") return response(200, await signedDownload(String(body.partId ?? "")));
+    if (action === "download") return response(200, await archiveDownload(String(body.partId ?? "")));
     if (action === "cleanup_failed") return response(200, await cleanupFailedArchives());
 
     return response(400, { status: "error", error: "unsupported_action" });
