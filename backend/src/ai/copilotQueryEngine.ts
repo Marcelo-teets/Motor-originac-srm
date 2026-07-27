@@ -72,6 +72,7 @@ export class CopilotQueryEngine {
       await this.client.upsert('ai_conversations', [{
         id: conversationId,
         owner_name: userId ?? null,
+        owner_user_id: userId ?? null,
         context_type: 'company',
         context_id: companyId,
         title: buildConversationTitle(question),
