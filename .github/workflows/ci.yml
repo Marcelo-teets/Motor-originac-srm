@@ -74,25 +74,7 @@ jobs:
         run: npm -C backend run typecheck
 
       - name: Typecheck frontend
-        id: frontend_typecheck
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          npm -C frontend run typecheck 2>&1 | tee /tmp/frontend-typecheck.log
-
-      - name: Upload frontend typecheck diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-typecheck-diagnostics
-          path: /tmp/frontend-typecheck.log
-          if-no-files-found: warn
-          retention-days: 1
-
-      - name: Enforce frontend typecheck result
-        if: steps.frontend_typecheck.outcome == 'failure'
-        run: exit 1
+        run: npm -C frontend run typecheck
 
       - name: Typecheck Vercel functions
         id: serverless_typecheck
