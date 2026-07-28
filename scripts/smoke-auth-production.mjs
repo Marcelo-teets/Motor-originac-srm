@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+
+const canonicalPublicAuthConfig = JSON.parse(readFileSync(
+  new URL('../frontend/public-auth.config.json', import.meta.url),
+  'utf8',
+));
 
 const AUTH_ROUTES = [
   '/login',
@@ -97,10 +102,16 @@ const shaMatches = (actual, expected) => (
 export const runAuthProductionSmoke = async ({
   baseUrl,
   expectedSha,
+  expectedSupabaseUrl = canonicalPublicAuthConfig.supabaseUrl,
+  expectedSupabasePublishableKey = canonicalPublicAuthConfig.supabasePublishableKey,
   fetchImpl = fetch,
 } = {}) => {
   assert.ok(baseUrl, 'baseUrl is required');
+  assert.ok(expectedSupabaseUrl, 'expectedSupabaseUrl is required');
+  assert.ok(expectedSupabasePublishableKey, 'expectedSupabasePublishableKey is required');
+
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  const normalizedSupabaseUrl = normalizeBaseUrl(expectedSupabaseUrl);
   const checks = [];
 
   const healthResponse = await fetchWithRetry(`${normalizedBaseUrl}/api/health`, {}, fetchImpl);
@@ -131,9 +142,12 @@ export const runAuthProductionSmoke = async ({
 
   assert.equal(metadata?.auth?.mode, 'email_password_and_oauth', 'Auth mode must expose email/password and OAuth');
   assert.equal(metadata?.auth?.emailPasswordConfigured, true, 'Email/password must be available');
+  assert.equal(metadata?.auth?.publicClient?.supabaseUrlConfigured, true, 'Supabase public URL must be configured');
+  assert.equal(metadata?.auth?.publicClient?.publishableKeyConfigured, true, 'Supabase publishable key must be configured');
+  assert.equal(metadata?.auth?.publicClient?.projectRef, canonicalPublicAuthConfig.supabaseProjectRef, 'Auth build points to the wrong Supabase project');
   assert.equal(metadata?.auth?.captchaEnabled, false, 'CAPTCHA must be disabled');
   assert.equal(metadata?.auth?.captcha, undefined, 'Legacy CAPTCHA metadata must not be emitted');
-  checks.push({ check: 'captcha-removed', status: 'passed', detail: 'server and frontend contract require captchaEnabled=false' });
+  checks.push({ check: 'public-auth-config', status: 'passed', detail: `project=${canonicalPublicAuthConfig.supabaseProjectRef}; captcha=false` });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
   const loginHtml = await loginResponse.text();
@@ -153,7 +167,20 @@ export const runAuthProductionSmoke = async ({
   for (const marker of FORBIDDEN_BUNDLE_MARKERS) {
     assert.equal(bundle.includes(marker), false, `Production bundle still contains retired CAPTCHA marker: ${marker}`);
   }
-  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: `required=${REQUIRED_BUNDLE_MARKERS.join(', ')}; captcha markers absent` });
+  assert.ok(bundle.includes(normalizedSupabaseUrl), 'Production bundle does not contain the canonical Supabase URL');
+  assert.ok(bundle.includes(expectedSupabasePublishableKey), 'Production bundle does not contain the active Supabase publishable key');
+  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: 'routes, project URL and active publishable key embedded; CAPTCHA markers absent' });
+
+  const settingsResponse = await fetchWithRetry(`${normalizedSupabaseUrl}/auth/v1/settings`, {
+    headers: {
+      apikey: expectedSupabasePublishableKey,
+      Accept: 'application/json',
+    },
+  }, fetchImpl);
+  const settings = await readJson(settingsResponse, 'Supabase Auth settings');
+  assert.ok(settings && typeof settings === 'object', 'Supabase Auth settings payload is invalid');
+  assert.ok(settings.external && typeof settings.external === 'object', 'Supabase OAuth provider settings are unavailable');
+  checks.push({ check: 'supabase-auth-settings', status: 'passed', detail: 'HTTP 200 with active public client key' });
 
   assert.equal(metadata?.auth?.oauthProviderDiscovery, true, 'OAuth provider discovery is not declared in this build');
   assert.ok(metadata?.auth?.supportedOAuthProviders?.includes('github'), 'GitHub OAuth support is not declared in this build');
@@ -168,7 +195,7 @@ export const runAuthProductionSmoke = async ({
     expectedSha: expectedSha ?? null,
     deployedSha: metadata.commitSha,
     deploymentEnvironment: metadata.environment,
-    generatedAt: new Date().toISOString(),
+    supabaseProjectRef: canonicalPublicAuthConfig.supabaseProjectRef,
     checks,
   };
 };
@@ -187,6 +214,7 @@ const appendSummary = (report) => {
     `- Result: **${report.status}**`,
     `- Auth mode: **${report.authMode}**`,
     `- URL: ${report.baseUrl}`,
+    `- Supabase project: \`${report.supabaseProjectRef}\``,
     `- Deployed SHA: \`${report.deployedSha}\``,
     `- Expected SHA: \`${report.expectedSha ?? 'not provided'}\``,
     `- Environment: \`${report.deploymentEnvironment}\``,
@@ -202,6 +230,10 @@ const main = async () => {
   const report = await runAuthProductionSmoke({
     baseUrl: process.env.BASE_URL || 'https://motor-originac-srm.vercel.app',
     expectedSha: process.env.EXPECTED_SHA || undefined,
+    expectedSupabaseUrl: process.env.EXPECTED_SUPABASE_URL || canonicalPublicAuthConfig.supabaseUrl,
+    expectedSupabasePublishableKey: process.env.EXPECTED_SUPABASE_PUBLISHABLE_KEY
+      || process.env.EXPECTED_SUPABASE_ANON_KEY
+      || canonicalPublicAuthConfig.supabasePublishableKey,
   });
 
   console.log(JSON.stringify(report, null, 2));
