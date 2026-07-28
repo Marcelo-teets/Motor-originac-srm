@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizeCapitalMarketRecord } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 import {
+  normalizeCvmDownloadResource,
   persistCapitalMarketRecordsAdaptive,
   serializeCapitalMarketBatch,
   type BatchPersistResult,
@@ -69,4 +70,14 @@ test('does not hide non-timeout persistence failures', async () => {
     }),
     /permission denied/,
   );
+});
+
+test('uses CKAN CSV metadata when a resource title has no extension', () => {
+  const resource = normalizeCvmDownloadResource({
+    name: 'Documentos Eventuais de Fundos de Investimento (2026)',
+    url: 'https://dados.cvm.gov.br/dados/FI/DOC/EVENTUAL/DADOS/eventual_fi_2026.csv',
+    format: 'CSV',
+  });
+
+  assert.equal(resource.name, 'Documentos Eventuais de Fundos de Investimento (2026).csv');
 });
