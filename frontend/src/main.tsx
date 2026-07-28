@@ -9,6 +9,7 @@ import './styles/fidc-market-map.css';
 import './styles/auth-profile.css';
 import './styles/dcm-daily.css';
 import './styles/ux-v3.css';
+import './styles/ux-v4.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

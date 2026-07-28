@@ -52,6 +52,8 @@ export function DashboardPage() {
   const strongTriggerLeads = topLeads.filter((lead) => lead.triggerStrength >= 70).length;
   const averageLeadScore = topLeads.length > 0 ? Math.round(topLeads.reduce((sum, lead) => sum + lead.leadScore, 0) / topLeads.length) : 0;
   const maxPipeline = Math.max(...dashboard.pipeline.map((entry) => entry.count), 1);
+  const activePipeline = dashboard.pipeline.filter((entry) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(entry.stage)).reduce((sum, entry) => sum + entry.count, 0);
+  const commercialBlockers = abmWeekly.data.cooling_accounts.length + abmWeekly.data.without_champion.length + abmWeekly.data.overdue_next_steps.length + abmWeekly.data.critical_open_objections.length;
 
   const decisionCards = [
     { label: 'Abordar agora', value: String(immediateLeads), helper: 'prioridade imediata', tone: 'success' as const },
@@ -60,21 +62,64 @@ export function DashboardPage() {
     { label: 'Score médio', value: String(averageLeadScore), helper: 'base priorizada', tone: 'default' as const },
   ];
 
+  const dailyActions = [
+    {
+      number: '01',
+      title: immediateLeads > 0 ? `Revisar ${immediateLeads} lead(s) para abordagem` : 'Revisar o ranking de leads',
+      description: 'Validar timing, estrutura sugerida e a próxima ação antes de iniciar contato.',
+      to: '/companies',
+      tone: immediateLeads > 0 ? 'success' as const : 'info' as const,
+      label: 'Abrir fila',
+    },
+    {
+      number: '02',
+      title: commercialBlockers > 0 ? `Resolver ${commercialBlockers} bloqueio(s) comercial(is)` : 'Pipeline sem bloqueios críticos',
+      description: 'Contas esfriando, sem champion, com ação vencida ou objeção crítica precisam de tratamento.',
+      to: '/pipeline',
+      tone: commercialBlockers > 0 ? 'warning' as const : 'success' as const,
+      label: 'Abrir pipeline',
+    },
+    {
+      number: '03',
+      title: `Processar ${dashboard.monitoring.triggers24h} trigger(s) das últimas 24h`,
+      description: 'Novos sinais podem alterar timing, score e prioridade das empresas monitoradas.',
+      to: '/monitoring',
+      tone: dashboard.monitoring.triggers24h > 0 ? 'info' as const : 'default' as const,
+      label: 'Revisar sinais',
+    },
+  ];
+
   return (
-    <div className="page dashboard-page-v3">
+    <div className="page dashboard-page-v4">
       <PageIntro
-        eyebrow="Cockpit de decisão"
-        title="O que merece ação hoje"
-        description="Prioridade comercial, razão financeira, estrutura sugerida e próximo passo — sem misturar infraestrutura com a decisão de originação."
+        eyebrow="Cockpit diário"
+        title="O que precisa acontecer hoje"
+        description="A rotina do Motor começa pela decisão: quem merece atenção, qual hipótese financeira sustenta a abordagem e qual ação move a oportunidade."
         actions={(
           <div className="pill-row">
-            <Link to="/companies" className="button">Ver ranking completo</Link>
-            <Link to="/pipeline" className="button secondary">Abrir pipeline</Link>
+            <Link to="/companies" className="button">Abrir fila de decisão</Link>
+            <Link to="/search-profiles" className="button secondary">Criar nova busca</Link>
           </div>
         )}
       />
 
       <DataStatusBanner source={dashboardState.source} note={dashboardState.note} />
+
+      <section className="daily-action-deck" aria-label="Plano de trabalho do dia">
+        {dailyActions.map((action) => (
+          <article key={action.number}>
+            <div className="daily-action-number">{action.number}</div>
+            <div>
+              <div className="daily-action-heading">
+                <strong>{action.title}</strong>
+                <Pill tone={action.tone}>ação do dia</Pill>
+              </div>
+              <p>{action.description}</p>
+            </div>
+            <Link to={action.to} className="button secondary compact-button">{action.label}</Link>
+          </article>
+        ))}
+      </section>
 
       <section className="decision-strip decision-strip-v3" aria-label="Resumo de decisão">
         {decisionCards.map((item) => (
@@ -104,9 +149,27 @@ export function DashboardPage() {
             <strong>{bestNextLead.leadScore}</strong>
             <Pill tone={priorityTone(bestNextLead.bucket)}>{formatBucket(bestNextLead.bucket)}</Pill>
           </div>
-          <Link to={`/companies/${bestNextLead.companyId}`} className="button next-action-button">Abrir análise</Link>
+          <Link to={`/companies/${bestNextLead.companyId}`} className="button next-action-button">Abrir decisão</Link>
         </section>
       ) : null}
+
+      <section className="origination-funnel" aria-label="Fluxo de originação">
+        <Link to="/search-profiles">
+          <span>01</span><strong>Descoberta</strong><small>{companies.length} empresas na base</small>
+        </Link>
+        <i aria-hidden="true">→</i>
+        <Link to="/companies">
+          <span>02</span><strong>Priorização</strong><small>{topLeads.length} leads ranqueados</small>
+        </Link>
+        <i aria-hidden="true">→</i>
+        <Link to="/pipeline">
+          <span>03</span><strong>Execução</strong><small>{activePipeline} deals ativos</small>
+        </Link>
+        <i aria-hidden="true">→</i>
+        <Link to="/outcome-operations">
+          <span>04</span><strong>Aprendizado</strong><small>outcomes e reciclagem</small>
+        </Link>
+      </section>
 
       <section className="dashboard-command-grid">
         <Card
@@ -136,9 +199,9 @@ export function DashboardPage() {
           <Card title="Pulso comercial" subtitle="Pendências que travam avanço no funil">
             <div className="pulse-list">
               <Link to="/dcm-daily"><span>Top contas da semana</span><strong>{abmWeekly.data.top_accounts.length}</strong></Link>
-              <Link to="/dcm-daily"><span>Contas esfriando</span><strong>{abmWeekly.data.cooling_accounts.length}</strong></Link>
-              <Link to="/dcm-daily"><span>Sem champion</span><strong>{abmWeekly.data.without_champion.length}</strong></Link>
-              <Link to="/outcome-operations"><span>Ações vencidas</span><strong>{abmWeekly.data.overdue_next_steps.length}</strong></Link>
+              <Link to="/pipeline"><span>Contas esfriando</span><strong>{abmWeekly.data.cooling_accounts.length}</strong></Link>
+              <Link to="/pipeline"><span>Sem champion</span><strong>{abmWeekly.data.without_champion.length}</strong></Link>
+              <Link to="/pipeline"><span>Ações vencidas</span><strong>{abmWeekly.data.overdue_next_steps.length}</strong></Link>
             </div>
           </Card>
 
