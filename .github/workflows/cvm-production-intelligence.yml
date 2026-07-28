@@ -14,6 +14,7 @@ on:
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
       - db/migrations/128_cvm_explicit_candidate_delivery.sql
       - db/migrations/129_cvm_atomic_batch_persistence.sql
+      - db/migrations/136_cvm_free_tier_storage_guard.sql
   push:
     branches: [main]
     paths:
@@ -27,8 +28,7 @@ on:
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
       - db/migrations/128_cvm_explicit_candidate_delivery.sql
       - db/migrations/129_cvm_atomic_batch_persistence.sql
-  schedule:
-    - cron: "15 11 * * 2"
+      - db/migrations/136_cvm_free_tier_storage_guard.sql
   workflow_dispatch:
     inputs:
       dataset:
@@ -39,7 +39,6 @@ on:
         options:
           - all_extended
           - cvm_securitization_ots
-          - cvm_fund_documents
           - cvm_company_fre
           - cvm_company_itr
           - cvm_company_dfp
@@ -50,7 +49,7 @@ on:
       max_rows:
         description: Limite de linhas por dataset
         required: true
-        default: "100000"
+        default: "25000"
         type: string
 
 permissions:
@@ -61,7 +60,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXTENDED_DATASETS: cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp
+  EXTENDED_DATASETS: cvm_securitization_ots,cvm_company_fre,cvm_company_itr,cvm_company_dfp
 
 jobs:
   validate:
@@ -105,7 +104,7 @@ jobs:
           src/services/cvmProductionIntelligence.test.ts
 
   ingest:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -137,13 +136,9 @@ jobs:
         run: |
           DATASET="${REQUESTED_DATASET:-all_extended}"
           if [ "$DATASET" = "all_extended" ]; then DATASET="$EXTENDED_DATASETS"; fi
-          MAX_ROWS="${REQUESTED_MAX_ROWS:-100000}"
-          TRIGGER="schedule"
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then TRIGGER="backfill"; fi
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then TRIGGER="manual"; fi
+          MAX_ROWS="${REQUESTED_MAX_ROWS:-25000}"
           echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
           echo "max_rows=$MAX_ROWS" >> "$GITHUB_OUTPUT"
-          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
       - name: Ingest and deliver official CVM datasets
         working-directory: backend
         shell: bash
@@ -151,7 +146,7 @@ jobs:
           ARGS=(
             --dataset "${{ steps.scope.outputs.dataset }}"
             --max-rows "${{ steps.scope.outputs.max_rows }}"
-            --trigger "${{ steps.scope.outputs.trigger }}"
+            --trigger manual
             --require-delivery
           )
           if [ -n "$REQUESTED_REFERENCE" ]; then ARGS+=(--reference "$REQUESTED_REFERENCE"); fi
