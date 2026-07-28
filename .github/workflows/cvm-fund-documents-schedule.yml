@@ -62,11 +62,30 @@ jobs:
       - run: npm ci
       - run: npm -C backend run typecheck
       - name: Test document resource selection and parsing contracts
+        id: document_tests
         working-directory: backend
+        shell: bash
         run: |
+          set +e
           npm exec -- tsx --test \
             src/modules/capital-markets/cvmCapitalMarketConnector.test.ts \
-            src/modules/capital-markets/cvmFundDocumentResources.test.ts
+            src/modules/capital-markets/cvmFundDocumentResources.test.ts \
+            > cvm-fund-document-tests.log 2>&1
+          CODE=$?
+          cat cvm-fund-document-tests.log
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload document test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cvm-fund-document-tests-${{ github.run_id }}
+          path: backend/cvm-fund-document-tests.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce document test result
+        if: steps.document_tests.outputs.exit_code != '0'
+        run: exit 1
 
   ingest:
     if: github.event_name != 'pull_request'
