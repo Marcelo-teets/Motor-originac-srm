@@ -17,6 +17,19 @@ const sgsSource: SourceCatalogEntry = {
   },
 };
 
+const creditSource: SourceCatalogEntry = {
+  id: 'f7de7493-3350-46d2-85aa-8f5c10647fad',
+  name: 'BCB SGS Series Temporais de Credito',
+  sourceType: 'api',
+  category: 'credit_market',
+  status: 'real',
+  health: 'healthy',
+  metadata: {
+    code: 'src_bcb_sgs_credit_series',
+    series: [{ code: 21082, name: 'Inadimplência da carteira de crédito - Total', unit: '%' }],
+  },
+};
+
 const sgsPayload = JSON.stringify([{ data: '15/07/2026', valor: '10,75' }]);
 
 const withCountingFetch = async (run: (calls: () => number) => Promise<void>) => {
@@ -33,15 +46,14 @@ const withCountingFetch = async (run: (calls: () => number) => Promise<void>) =>
   }
 };
 
-test('captureBcbSgsMacro persists catalog source id and memoizes fetches per run', async () => {
+test('captureBcbSgsMacro persists catalog source id and caches source-wide fetches across companies', async () => {
   await withCountingFetch(async (calls) => {
-    const collectedAt = new Date().toISOString();
     const [first, second] = await Promise.all([
-      captureBcbSgsMacro(companySeeds[0]!, [sgsSource], collectedAt),
-      captureBcbSgsMacro(companySeeds[1] ?? companySeeds[0]!, [sgsSource], collectedAt),
+      captureBcbSgsMacro(companySeeds[0]!, [sgsSource], '2026-07-28T15:00:00.000Z'),
+      captureBcbSgsMacro(companySeeds[1] ?? companySeeds[0]!, [sgsSource], '2026-07-28T15:00:01.000Z'),
     ]);
 
-    assert.equal(calls(), 1, 'series fetch must run once per engine run, not per company');
+    assert.equal(calls(), 1, 'company-agnostic series must be fetched once inside the cache window');
 
     for (const bundle of [first, second]) {
       assert.equal(bundle.outputs.length, 1);
@@ -53,6 +65,22 @@ test('captureBcbSgsMacro persists catalog source id and memoizes fetches per run
       assert.equal(bundle.enrichments[0]!.enrichmentType, 'macro_credit_context');
       assert.equal(bundle.enrichments[0]!.payload.sourceId, sgsSource.id);
     }
+  });
+});
+
+test('captureBcbSgsMacro activates the separate credit-cycle catalog source', async () => {
+  await withCountingFetch(async (calls) => {
+    const bundle = await captureBcbSgsMacro(
+      companySeeds[0]!,
+      [sgsSource, creditSource],
+      '2026-07-28T15:05:00.000Z',
+    );
+
+    assert.equal(calls(), 1, 'macro source remains cached and only the new credit source is fetched');
+    assert.equal(bundle.outputs.length, 2);
+    assert.deepEqual(bundle.outputs.map((item) => item.sourceId).sort(), [creditSource.id, sgsSource.id].sort());
+    assert.ok(bundle.signals.some((item) => item.signalType === 'macro_credit_cycle'));
+    assert.ok(bundle.enrichments.some((item) => item.enrichmentType === 'credit_cycle_context'));
   });
 });
 
@@ -70,7 +98,8 @@ test('captureBcbSgsMacro degrades to partial when every series fails', async () 
     throw new Error('network down');
   }) as typeof fetch;
   try {
-    const bundle = await captureBcbSgsMacro(companySeeds[0]!, [sgsSource], new Date().toISOString());
+    const isolatedSource = { ...sgsSource, id: 'sgs-failure-isolated' };
+    const bundle = await captureBcbSgsMacro(companySeeds[0]!, [isolatedSource], new Date().toISOString());
     assert.equal(bundle.outputs[0]!.connectorStatus, 'partial');
     assert.equal(bundle.signals[0]!.signalStrength, 30);
   } finally {
