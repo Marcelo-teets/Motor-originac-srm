@@ -1,22 +1,23 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-28T15:44:00Z",
+  "requestedAt": "2026-07-28T16:03:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "fidcs-source-governance-production-rollout",
-    "sourcePr": 351,
-    "previousProductionSha": "3fca78a3906065994fff6631992ef8aacfeaa234",
-    "applicationHeadSha": "ef35de75e7687ec2b4a0cd464789a8f6704defda",
+    "kind": "fidcs-cvm-production-rollout",
+    "sourcePr": 359,
+    "previousProductionSha": "204fb74f349b39e0474e64df694520f75b834045",
+    "applicationHeadSha": "7570ba41040b224f919104c0b1d68623fccc79be",
     "rolloutContractFix": "none",
     "fixes": [
+      "fidcs-esm-safe-runtime-loading",
       "fidcs-public-cnpj-validation-runtime",
-      "fidcs-lightweight-monitoring-persistence",
-      "source-catalog-semantic-deduplication",
-      "standby-versus-degraded-health-semantics",
-      "cvm-canonical-source-boundary"
+      "cvm-adaptive-microbatch-persistence",
+      "cvm-ckan-csv-resource-recognition",
+      "cvm-free-tier-row-bounds",
+      "source-catalog-semantic-deduplication"
     ],
     "validate": [
       "exact-production-sha",
