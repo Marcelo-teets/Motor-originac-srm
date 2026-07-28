@@ -42,7 +42,7 @@ test('Vercel CAPTCHA variables are deleted across all targets', async () => {
     if (method === 'DELETE') {
       const id = String(url).split('/env/')[1].split('?')[0];
       deleted.push(id);
-      return new Response('', { status: 204 });
+      return new Response(null, { status: 204 });
     }
     listCalls += 1;
     const remaining = listCalls === 1 ? envs : envs.filter(({ id }) => !deleted.includes(id));
