@@ -13,6 +13,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaVersion, setCaptchaVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderOption[]>([]);
   const [oauthLoading, setOAuthLoading] = useState(true);
@@ -43,23 +44,27 @@ export function LoginPage() {
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
-  const emailPasswordConfigured = !captchaConfig.enabled || Boolean(captchaConfig.siteKey);
   const hasOAuthProviders = oauthProviders.length > 0;
-  const captchaBlocked = captchaConfig.enabled && !captchaToken;
+  const captchaBlocked = captchaConfig.enabled && Boolean(captchaConfig.siteKey) && !captchaToken;
+
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    setCaptchaVersion((current) => current + 1);
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    if (!emailPasswordConfigured) {
-      setError('O acesso por e-mail e senha aguarda a configuração da chave pública do CAPTCHA. Use o acesso OAuth disponível acima.');
+    if (captchaBlocked) {
+      setError('Conclua o desafio de segurança antes de entrar.');
       return;
     }
 
     try {
       await login(email.trim(), password, captchaToken ?? undefined);
     } catch (err) {
-      setCaptchaToken(null);
+      resetCaptcha();
       setError(err instanceof Error ? err.message : 'Falha inesperada no login.');
     }
   };
@@ -81,7 +86,7 @@ export function LoginPage() {
         <div>
           <p className="eyebrow">Acesso seguro</p>
           <h2>Entrar na plataforma</h2>
-          <p className="auth-copy">Use um provedor OAuth habilitado ou, quando o CAPTCHA estiver configurado, seu e-mail e senha.</p>
+          <p className="auth-copy">Use seu e-mail e senha ou um provedor de acesso habilitado.</p>
         </div>
 
         {oauthLoading ? <div className="auth-progress" aria-label="Carregando provedores OAuth" /> : null}
@@ -93,6 +98,7 @@ export function LoginPage() {
                 key={provider}
                 type="button"
                 className="oauth-button"
+                disabled={loading}
                 onClick={() => window.location.assign(supabaseAuth.getOAuthUrl(provider))}
               >
                 <span className="oauth-mark">{mark}</span>
@@ -102,23 +108,21 @@ export function LoginPage() {
           </div>
         ) : null}
 
-        {!emailPasswordConfigured && hasOAuthProviders ? (
+        {!captchaConfig.configured && hasOAuthProviders ? (
           <div className="auth-alert auth-alert-warning">
-            O acesso por e-mail, senha e recuperação está temporariamente indisponível até a conclusão da configuração do CAPTCHA. Use o provedor OAuth acima.
+            O desafio de segurança não foi carregado. O acesso com Google continua disponível enquanto a configuração do CAPTCHA é concluída.
           </div>
         ) : null}
 
         {oauthUnavailable ? (
           <div className="auth-alert auth-alert-warning">
-            {emailPasswordConfigured
-              ? 'Não foi possível consultar os provedores OAuth. O acesso por e-mail e senha continua disponível.'
-              : 'Não foi possível consultar os provedores OAuth e o CAPTCHA ainda não está configurado. O acesso está temporariamente indisponível.'}
+            Não foi possível consultar os provedores de acesso. O formulário de e-mail e senha continua disponível.
           </div>
         ) : null}
 
         {hasOAuthProviders ? <div className="auth-divider"><span>ou</span></div> : null}
 
-        <form className="form-grid" onSubmit={handleSubmit} aria-disabled={!emailPasswordConfigured}>
+        <form className="form-grid" onSubmit={handleSubmit} aria-busy={loading}>
           <label>
             <span>E-mail</span>
             <input
@@ -126,7 +130,8 @@ export function LoginPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
-              disabled={!emailPasswordConfigured}
+              autoFocus
+              disabled={loading}
               required
             />
           </label>
@@ -137,23 +142,21 @@ export function LoginPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
-              disabled={!emailPasswordConfigured}
+              disabled={loading}
               required
             />
           </label>
 
           <div className="auth-row-between">
             <span className="table-helper">Acesso protegido pelo Supabase</span>
-            {emailPasswordConfigured
-              ? <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
-              : <span className="table-helper">Recuperação aguardando CAPTCHA</span>}
+            <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
           </div>
 
-          <CaptchaChallenge onToken={setCaptchaToken} />
-          {error ? <div className="auth-alert auth-alert-error">{error}</div> : null}
+          <CaptchaChallenge key={captchaVersion} onToken={setCaptchaToken} />
+          {error ? <div className="auth-alert auth-alert-error" role="alert">{error}</div> : null}
 
-          <button type="submit" disabled={loading || !emailPasswordConfigured || captchaBlocked}>
-            {loading ? 'Entrando...' : emailPasswordConfigured ? 'Entrar' : 'Aguardando configuração do CAPTCHA'}
+          <button type="submit" disabled={loading || captchaBlocked}>
+            {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
       </section>
