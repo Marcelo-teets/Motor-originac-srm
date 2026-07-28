@@ -1,0 +1,93 @@
+name: Google Drive Cold Archive
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/google-drive-cold-archive.yml'
+      - 'scripts/google-drive-cold-archive-migrate.mjs'
+      - 'db/migrations/*hot_cold*'
+      - 'docs/hot-cold-storage-policy.md'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/google-drive-cold-archive.yml'
+      - 'scripts/google-drive-cold-archive-migrate.mjs'
+      - 'db/migrations/*hot_cold*'
+      - 'docs/hot-cold-storage-policy.md'
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum archive parts per run
+        required: true
+        default: '25'
+        type: string
+      delete_staging:
+        description: Delete Supabase Storage object after Drive migration
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-drive-cold-archive
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate migration script syntax
+        run: node --check scripts/google-drive-cold-archive-migrate.mjs
+
+  migrate:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate archive credentials
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET GOOGLE_DRIVE_REFRESH_TOKEN; do
+            test -n "${!name:-}" || { echo "$name is missing"; exit 1; }
+          done
+
+      - name: Migrate verified archive parts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ARCHIVE_FOLDER_ID: 16RwLyzLUm45BshgO5Qkr9kZunYBfDuNV
+          GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID: 1z29lCdGlZdndvurzZP7LqGPOreyIm5onlnmFvUquY3Y
+          REQUESTED_LIMIT: ${{ inputs.limit || '25' }}
+          DELETE_STAGING: ${{ inputs.delete_staging || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=("--limit=${REQUESTED_LIMIT}")
+          if [ "$DELETE_STAGING" = "true" ]; then ARGS+=("--delete-staging"); fi
+          node scripts/google-drive-cold-archive-migrate.mjs "${ARGS[@]}"
