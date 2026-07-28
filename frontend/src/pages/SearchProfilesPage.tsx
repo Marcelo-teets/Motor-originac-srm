@@ -6,36 +6,39 @@ import { useAuth } from '../lib/auth';
 import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
-const profileSteps: Array<{ number: string; title: string; description: string; fields: Array<{ key: keyof SearchProfileDraft; label: string; options: string[] }> }> = [
+const profileSteps: Array<{ number: string; title: string; description: string; guidance: string; fields: Array<{ key: keyof SearchProfileDraft; label: string; helper: string; options: string[] }> }> = [
   {
     number: '01',
     title: 'Defina o universo',
     description: 'Quem deve entrar no radar.',
+    guidance: 'Comece amplo o suficiente para não perder empresas relevantes, mas mantenha um recorte coerente com a tese de originação.',
     fields: [
-      { key: 'segment', label: 'Segmento', options: searchProfilePresets.segments },
-      { key: 'subsegment', label: 'Subsetor', options: searchProfilePresets.subsegments },
-      { key: 'companyType', label: 'Tipo de empresa', options: searchProfilePresets.companyTypes },
-      { key: 'geography', label: 'Geografia', options: searchProfilePresets.geographies },
+      { key: 'segment', label: 'Segmento', helper: 'Vertical principal da empresa.', options: searchProfilePresets.segments },
+      { key: 'subsegment', label: 'Subsetor', helper: 'Recorte operacional mais específico.', options: searchProfilePresets.subsegments },
+      { key: 'companyType', label: 'Tipo de empresa', helper: 'Modelo societário ou estágio desejado.', options: searchProfilePresets.companyTypes },
+      { key: 'geography', label: 'Geografia', helper: 'O projeto opera com foco Brasil.', options: searchProfilePresets.geographies },
     ],
   },
   {
     number: '02',
     title: 'Defina a tese financeira',
-    description: 'Que necessidade e estrutura queremos detectar.',
+    description: 'Que necessidade queremos detectar.',
+    guidance: 'A busca deve refletir uma hipótese de crédito. Escolha o produto, os recebíveis e a estrutura que justificam acompanhar essas empresas.',
     fields: [
-      { key: 'creditProduct', label: 'Produto de crédito', options: searchProfilePresets.creditProducts },
-      { key: 'receivables', label: 'Recebíveis', options: searchProfilePresets.receivables },
-      { key: 'targetStructure', label: 'Estrutura alvo', options: searchProfilePresets.targetStructures },
+      { key: 'creditProduct', label: 'Produto de crédito', helper: 'Indício de necessidade ou oferta de crédito.', options: searchProfilePresets.creditProducts },
+      { key: 'receivables', label: 'Recebíveis', helper: 'Fluxos potencialmente estruturáveis.', options: searchProfilePresets.receivables },
+      { key: 'targetStructure', label: 'Estrutura alvo', helper: 'Produto que deve orientar a qualificação.', options: searchProfilePresets.targetStructures },
     ],
   },
   {
     number: '03',
     title: 'Ajuste a qualidade',
-    description: 'Evite ruído e priorize sinais recentes.',
+    description: 'Controle ruído, confiança e recência.',
+    guidance: 'Quanto maior a confiança e a intensidade, menor o volume e maior a precisão. Use janelas curtas para sinais de timing e janelas maiores para sinais estruturais.',
     fields: [
-      { key: 'signalIntensity', label: 'Intensidade mínima', options: searchProfilePresets.signalIntensity },
-      { key: 'minimumConfidence', label: 'Confidence mínima', options: searchProfilePresets.minimumConfidence },
-      { key: 'timeWindow', label: 'Janela temporal', options: searchProfilePresets.timeWindows },
+      { key: 'signalIntensity', label: 'Intensidade mínima', helper: 'Força mínima para considerar um sinal.', options: searchProfilePresets.signalIntensity },
+      { key: 'minimumConfidence', label: 'Confidence mínima', helper: 'Qualidade mínima da evidência.', options: searchProfilePresets.minimumConfidence },
+      { key: 'timeWindow', label: 'Janela temporal', helper: 'Período observado na descoberta.', options: searchProfilePresets.timeWindows },
     ],
   },
 ];
@@ -43,6 +46,8 @@ const profileSteps: Array<{ number: string; title: string; description: string; 
 export function SearchProfilesPage() {
   const { session } = useAuth();
   const [draft, setDraft] = useState<SearchProfileDraft>(defaultSearchProfileDraft);
+  const [activeStep, setActiveStep] = useState(0);
+  const [workspaceTab, setWorkspaceTab] = useState<'builder' | 'saved' | 'results'>('builder');
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
@@ -60,6 +65,7 @@ export function SearchProfilesPage() {
   ]), [draft]);
 
   const selectedProfile = data?.data.find((profile) => profile.id === selectedProfileId);
+  const currentStep = profileSteps[activeStep];
 
   const handleSave = async () => {
     setSaving(true);
@@ -83,6 +89,7 @@ export function SearchProfilesPage() {
       setData(refreshed);
       setSelectedProfileId(saved.id);
       setSaveMessage(`Perfil salvo: ${saved.name}.`);
+      setWorkspaceTab('saved');
     } catch (saveError) {
       setSaveMessage(saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.');
     } finally {
@@ -90,17 +97,19 @@ export function SearchProfilesPage() {
     }
   };
 
-  const handleRun = async () => {
-    if (!selectedProfileId) {
+  const handleRun = async (profileId = selectedProfileId) => {
+    if (!profileId) {
       setSaveMessage('Selecione um perfil salvo para executar a busca.');
       return;
     }
+    setSelectedProfileId(profileId);
     setRunning(true);
     setSaveMessage(null);
     try {
-      const result = await api.runSearchProfile(session, selectedProfileId);
+      const result = await api.runSearchProfile(session, profileId);
       setCandidates(result.candidates);
       setSaveMessage(`Busca concluída: ${result.candidates.length} candidato(s) capturado(s).`);
+      setWorkspaceTab('results');
     } catch (runError) {
       setSaveMessage(runError instanceof Error ? runError.message : 'Falha ao rodar busca.');
     } finally {
@@ -123,120 +132,176 @@ export function SearchProfilesPage() {
   if (error || !data) return <div className="page"><Card title="Search Profiles" subtitle="Falha ao carregar perfis">{error}</Card></div>;
 
   return (
-    <div className="page search-profiles-v3">
+    <div className="page search-profile-workspace">
       <PageIntro
         eyebrow="Descoberta orientada por tese"
-        title="Criar perfil de busca"
-        description="Configure o universo, a hipótese financeira e a qualidade mínima dos sinais. Depois salve, execute e promova apenas os candidatos que merecem entrar no ranking."
+        title="Perfis de busca"
+        description="Crie uma tese de descoberta, execute o monitoramento e promova apenas empresas que tenham evidência suficiente para entrar no funil."
         actions={<Pill tone={data.source === 'real' ? 'success' : 'warning'}>{data.source === 'real' ? 'persistência real' : 'persistência parcial'}</Pill>}
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
 
-      <section className="profile-builder-layout">
-        <div className="profile-step-list">
-          {profileSteps.map((step) => (
-            <section key={step.number} className="profile-step-card">
-              <div className="profile-step-heading">
-                <span>{step.number}</span>
-                <div>
-                  <h3>{step.title}</h3>
-                  <p>{step.description}</p>
-                </div>
+      <nav className="workspace-tabs" aria-label="Etapas dos perfis de busca">
+        <button type="button" className={workspaceTab === 'builder' ? 'active' : ''} onClick={() => setWorkspaceTab('builder')}>
+          <span>1</span><strong>Criar perfil</strong><small>Definir universo e tese</small>
+        </button>
+        <button type="button" className={workspaceTab === 'saved' ? 'active' : ''} onClick={() => setWorkspaceTab('saved')}>
+          <span>2</span><strong>Perfis salvos</strong><small>{data.data.length} configuração(ões)</small>
+        </button>
+        <button type="button" className={workspaceTab === 'results' ? 'active' : ''} onClick={() => setWorkspaceTab('results')}>
+          <span>3</span><strong>Revisar candidatos</strong><small>{candidates.length} resultado(s)</small>
+        </button>
+      </nav>
+
+      {saveMessage ? <div className="inline-notice"><span>{saveMessage}</span></div> : null}
+
+      {workspaceTab === 'builder' ? (
+        <section className="profile-wizard-layout">
+          <div className="profile-wizard-main">
+            <div className="profile-stepper" aria-label="Etapas de criação">
+              {profileSteps.map((step, index) => (
+                <button
+                  key={step.number}
+                  type="button"
+                  className={index === activeStep ? 'active' : index < activeStep ? 'complete' : ''}
+                  onClick={() => setActiveStep(index)}
+                >
+                  <span>{index < activeStep ? '✓' : step.number}</span>
+                  <strong>{step.title}</strong>
+                </button>
+              ))}
+            </div>
+
+            <Card title={`${currentStep.number} · ${currentStep.title}`} subtitle={currentStep.description} className="profile-wizard-card">
+              <div className="profile-guidance-banner">
+                <span aria-hidden="true">i</span>
+                <p>{currentStep.guidance}</p>
               </div>
-              <div className="form-grid two">
-                {step.fields.map((field) => (
+              <div className="profile-choice-grid">
+                {currentStep.fields.map((field) => (
                   <label key={field.key}>
                     <span>{field.label}</span>
                     <select value={draft[field.key]} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}>
                       {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
+                    <small>{field.helper}</small>
                   </label>
                 ))}
               </div>
-            </section>
-          ))}
-        </div>
-
-        <aside className="profile-summary-panel">
-          <p className="eyebrow">Resumo do perfil</p>
-          <h3>{draft.segment} · {draft.targetStructure}</h3>
-          <div className="profile-summary-list-v3">
-            {summary.map((item) => (
-              <div key={item.label}>
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
+              <div className="profile-wizard-actions">
+                <button type="button" className="secondary" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))}>Voltar</button>
+                {activeStep < profileSteps.length - 1 ? (
+                  <button type="button" onClick={() => setActiveStep((current) => Math.min(profileSteps.length - 1, current + 1))}>Continuar</button>
+                ) : (
+                  <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar perfil'}</button>
+                )}
               </div>
-            ))}
+            </Card>
           </div>
-          {saveMessage ? <div className="inline-notice"><span>{saveMessage}</span></div> : null}
-          <div className="profile-primary-actions">
-            <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar novo perfil'}</button>
-            <button type="button" className="secondary" onClick={() => void handleRun()} disabled={running || !selectedProfileId}>
-              {running ? 'Executando...' : selectedProfile ? `Executar ${selectedProfile.name}` : 'Selecione um perfil abaixo'}
-            </button>
-          </div>
-        </aside>
-      </section>
 
-      <Card title="Perfis salvos" subtitle="Selecione um perfil para executar a descoberta" actions={<Pill tone="info">{data.data.length} perfil(is)</Pill>}>
-        {data.data.length ? (
-          <div className="saved-profile-grid">
-            {data.data.map((profile) => {
-              const selected = selectedProfileId === profile.id;
-              return (
-                <button
-                  key={profile.id}
-                  type="button"
-                  className={`saved-profile-card ${selected ? 'selected' : ''}`}
-                  onClick={() => setSelectedProfileId(profile.id)}
-                >
-                  <span className="saved-profile-radio" aria-hidden="true" />
-                  <span>
-                    <strong>{profile.name}</strong>
-                    <small>{profile.segment} · {profile.subsegment}</small>
-                  </span>
-                  <span className="saved-profile-meta">
-                    <small>{profile.targetStructure}</small>
-                    <small>{profile.status}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="Nenhum perfil salvo" description="Configure o primeiro perfil acima e salve para iniciar a descoberta." />
-        )}
-      </Card>
+          <aside className="profile-live-preview">
+            <p className="eyebrow">Prévia da tese</p>
+            <h3>{draft.segment} · {draft.targetStructure}</h3>
+            <p>Este perfil buscará empresas com os critérios abaixo e exigirá evidência mínima antes de gerar candidatos.</p>
+            <div className="profile-summary-list-v3">
+              {summary.map((item) => (
+                <div key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="profile-preview-flow">
+              <span>Fontes</span><i>→</i><span>Sinais</span><i>→</i><span>Candidatos</span><i>→</i><span>Leads</span>
+            </div>
+          </aside>
+        </section>
+      ) : null}
 
-      <Card title="Candidatos encontrados" subtitle="Revise a evidência antes de promover para a base oficial" actions={<Pill tone={candidates.length ? 'success' : 'info'}>{candidates.length} candidato(s)</Pill>}>
-        {candidates.length === 0 ? (
-          <EmptyState title="Nenhum candidato carregado" description="Selecione um perfil salvo e execute a busca para preencher esta fila." />
-        ) : (
-          <div className="candidate-list-v3">
-            {candidates.map((candidate) => (
-              <article key={candidate.id}>
-                <div>
-                  <strong>{candidate.companyName}</strong>
-                  <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
-                </div>
-                <div>
-                  <span className="lead-field-label">Fonte</span>
-                  <strong>{candidate.sourceRef}</strong>
-                </div>
-                <div>
-                  <span className="lead-field-label">Confidence</span>
-                  <strong>{Math.round(candidate.confidence * 100)}%</strong>
-                </div>
-                <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status}</Pill>
-                <button type="button" className={candidate.status === 'promoted' ? 'secondary compact-button' : 'compact-button'} disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
-                  {candidate.status === 'promoted' ? 'Promovido' : 'Promover lead'}
-                </button>
-              </article>
-            ))}
+      {workspaceTab === 'saved' ? (
+        <section className="saved-profiles-workspace">
+          <div className="workspace-section-heading">
+            <div>
+              <p className="eyebrow">Biblioteca de perfis</p>
+              <h2>Escolha uma tese para executar</h2>
+              <p>O perfil selecionado controla o universo, os sinais e os critérios mínimos da próxima busca.</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => setWorkspaceTab('builder')}>Criar novo perfil</button>
           </div>
-        )}
-      </Card>
+
+          {data.data.length ? (
+            <div className="saved-profile-list-v4">
+              {data.data.map((profile) => {
+                const selected = selectedProfileId === profile.id;
+                return (
+                  <article key={profile.id} className={selected ? 'selected' : ''}>
+                    <button type="button" className="saved-profile-select" onClick={() => setSelectedProfileId(profile.id)}>
+                      <span className="saved-profile-radio" aria-hidden="true" />
+                      <span>
+                        <strong>{profile.name}</strong>
+                        <small>{profile.segment} · {profile.subsegment} · {profile.geography}</small>
+                      </span>
+                    </button>
+                    <div className="saved-profile-details">
+                      <div><span>Estrutura</span><strong>{profile.targetStructure}</strong></div>
+                      <div><span>Recebíveis</span><strong>{profile.receivables.join(', ') || 'Não definidos'}</strong></div>
+                      <div><span>Qualidade</span><strong>{profile.minimumSignalIntensity} · {Math.round(profile.minimumConfidence * 100)}%</strong></div>
+                    </div>
+                    <div className="saved-profile-actions">
+                      <Pill tone={profile.status === 'active' ? 'success' : 'warning'}>{profile.status}</Pill>
+                      <button type="button" disabled={running} onClick={() => void handleRun(profile.id)}>{running && selected ? 'Executando...' : 'Executar busca'}</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState title="Nenhum perfil salvo" description="Crie o primeiro perfil para iniciar a descoberta estruturada de empresas." action={<button type="button" onClick={() => setWorkspaceTab('builder')}>Criar perfil</button>} />
+          )}
+        </section>
+      ) : null}
+
+      {workspaceTab === 'results' ? (
+        <section className="candidate-review-workspace">
+          <div className="workspace-section-heading">
+            <div>
+              <p className="eyebrow">Revisão humana</p>
+              <h2>Candidatos encontrados</h2>
+              <p>{selectedProfile ? `Resultados do perfil ${selectedProfile.name}.` : 'Execute um perfil salvo para carregar candidatos.'}</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => setWorkspaceTab('saved')}>Executar outro perfil</button>
+          </div>
+
+          {candidates.length ? (
+            <div className="candidate-review-list">
+              {candidates.map((candidate) => (
+                <article key={candidate.id}>
+                  <div className="candidate-confidence-ring" style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as React.CSSProperties}>
+                    <strong>{Math.round(candidate.confidence * 100)}%</strong>
+                  </div>
+                  <div className="candidate-review-main">
+                    <div>
+                      <strong>{candidate.companyName}</strong>
+                      <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+                    </div>
+                    <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
+                    <small>Fonte: {candidate.sourceRef}</small>
+                  </div>
+                  <div className="candidate-review-status">
+                    <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status}</Pill>
+                    <button type="button" className={candidate.status === 'promoted' ? 'secondary' : ''} disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
+                      {candidate.status === 'promoted' ? 'Já é lead' : 'Promover para leads'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="Nenhum candidato carregado" description="Escolha um perfil salvo e execute a busca para preencher esta fila de revisão." action={<button type="button" onClick={() => setWorkspaceTab('saved')}>Abrir perfis salvos</button>} />
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
