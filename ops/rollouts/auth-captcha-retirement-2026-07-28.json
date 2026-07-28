@@ -1,6 +1,7 @@
 {
   "rollout": "auth-captcha-retirement",
-  "requestedAt": "2026-07-28T15:45:00Z",
+  "requestedAt": "2026-07-28T15:52:00Z",
+  "triggerAttempt": 2,
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
