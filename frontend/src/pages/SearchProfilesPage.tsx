@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useMemo, useState } from 'react';
 import { Card, DataStatusBanner, EmptyState, PageIntro, Pill } from '../components/UI';
 import { defaultSearchProfileDraft, searchProfilePresets } from '../mocks/data';
@@ -277,7 +278,7 @@ export function SearchProfilesPage() {
             <div className="candidate-review-list">
               {candidates.map((candidate) => (
                 <article key={candidate.id}>
-                  <div className="candidate-confidence-ring" style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as React.CSSProperties}>
+                  <div className="candidate-confidence-ring" style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
                     <strong>{Math.round(candidate.confidence * 100)}%</strong>
                   </div>
                   <div className="candidate-review-main">
