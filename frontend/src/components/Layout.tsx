@@ -9,9 +9,9 @@ const intelligencePaths = ['/market-map', '/watch-lists', '/dcm-daily', '/outcom
 const operationsPaths = ['/monitoring', '/capture-inbox', '/identity-review', '/credit-review', '/sources', '/agents', '/historical-archive', '/users'];
 
 const workflowSteps = [
-  { to: '/search-profiles', number: '01', label: 'Descobrir', description: 'Criar universos e capturar empresas' },
-  { to: '/companies', number: '02', label: 'Priorizar', description: 'Separar os leads que merecem ação' },
-  { to: '/companies', number: '03', label: 'Analisar', description: 'Validar tese, estrutura e timing' },
+  { to: '/', number: '01', label: 'Hoje', description: 'Decidir a agenda de originação' },
+  { to: '/search-profiles', number: '02', label: 'Descobrir', description: 'Criar universos e capturar empresas' },
+  { to: '/companies', number: '03', label: 'Priorizar & analisar', description: 'Validar tese, estrutura e timing' },
   { to: '/pipeline', number: '04', label: 'Executar', description: 'Avançar, registrar e acompanhar' },
 ];
 
@@ -155,12 +155,10 @@ export function Layout() {
         </header>
 
         <nav className="workflow-rail" aria-label="Fluxo principal de originação">
-          {workflowSteps.map((step, index) => {
-            const active = step.to === '/companies'
-              ? location.pathname.startsWith('/companies') && (index === 1 || index === 2)
-              : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
+          {workflowSteps.map((step) => {
+            const active = step.to === '/' ? location.pathname === '/' : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
             return (
-              <Link key={`${step.number}-${step.label}`} to={step.to} className={active ? 'active' : ''}>
+              <Link key={step.number} to={step.to} className={active ? 'active' : ''}>
                 <span>{step.number}</span>
                 <span>
                   <strong>{step.label}</strong>
