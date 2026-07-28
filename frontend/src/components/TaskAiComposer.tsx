@@ -162,7 +162,7 @@ export function TaskAiComposer() {
                         <strong>{index + 1}. {task.title}</strong>
                         <span>{task.target === 'todo' ? 'To Do · pessoal' : `Planner · ${task.bucket}`} · {formatDueDate(task.dueDate)} · prioridade {task.importance === 'high' ? 'alta' : 'normal'}</span>
                       </div>
-                      <Pill tone={created ? 'success' : task.target === 'planner' ? 'warning' : 'neutral'}>{created ? 'criada' : task.target}</Pill>
+                      <Pill tone={created ? 'success' : task.target === 'planner' ? 'warning' : 'default'}>{created ? 'criada' : task.target}</Pill>
                     </div>
                     {task.description ? <div className="table-helper">{task.description}</div> : null}
                     <div className="table-helper">Por quê: {task.rationale}</div>
