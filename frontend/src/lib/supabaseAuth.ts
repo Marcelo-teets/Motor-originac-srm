@@ -1,3 +1,4 @@
+import publicAuthConfig from '../../public-auth.config.json';
 import type { SessionData } from './types';
 import {
   buildPasswordGrantPayload,
@@ -30,8 +31,17 @@ export type UserProfile = {
   updated_at: string;
 };
 
-const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '');
+const supabaseUrl = String(
+  import.meta.env.VITE_SUPABASE_URL
+  ?? publicAuthConfig.supabaseUrl
+  ?? '',
+).replace(/\/$/, '');
+const supabaseAnonKey = String(
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+  ?? import.meta.env.VITE_SUPABASE_ANON_KEY
+  ?? publicAuthConfig.supabasePublishableKey
+  ?? '',
+);
 
 const supportedOAuthProviders: OAuthProviderOption[] = [
   { provider: 'github', label: 'GitHub', mark: 'GH' },
@@ -40,7 +50,7 @@ const supportedOAuthProviders: OAuthProviderOption[] = [
 
 const requireConfig = () => {
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase não está configurado no frontend. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
+    throw new Error('Supabase não está configurado no frontend. Verifique a configuração pública de Auth.');
   }
 };
 

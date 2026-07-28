@@ -30,6 +30,7 @@ jobs:
       VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
       VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
       VERCEL_PROJECT_NAME: motor-originac-srm
+      SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
       PRODUCTION_URL: https://motor-originac-srm.vercel.app
       VERCEL_CLI_VERSION: 50.28.0
 
@@ -68,6 +69,9 @@ jobs:
 
       - name: Confirm automatic Git deployments are paused
         run: node scripts/vercel-production-control.mjs status
+
+      - name: Synchronize canonical public Supabase Auth config
+        run: node scripts/sync-public-auth-env-to-vercel.mjs
 
       - name: Link exact Vercel project
         shell: bash
@@ -155,7 +159,7 @@ jobs:
             REQUIRE_CAPTCHA_SITE_KEY=true \
             node scripts/smoke-auth-production.mjs
           else
-            echo "CAPTCHA site key is not configured; rollout validated in OAuth fallback mode."
+            echo "CAPTCHA is retired; canonical public Auth configuration was validated."
           fi
 
       - name: Disconnect legacy Git integration

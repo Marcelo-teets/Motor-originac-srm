@@ -70,6 +70,9 @@ jobs:
       - name: Disable Supabase CAPTCHA and delete Vercel CAPTCHA variables
         run: node scripts/retire-captcha-production.mjs
 
+      - name: Synchronize canonical public Supabase Auth config
+        run: node scripts/sync-public-auth-env-to-vercel.mjs
+
       - name: Link exact Vercel project
         shell: bash
         run: |
