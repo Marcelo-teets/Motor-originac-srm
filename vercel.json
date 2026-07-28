@@ -29,6 +29,9 @@
     "api/agentetome.ts": {
       "maxDuration": 300
     },
+    "api/fidcs.ts": {
+      "maxDuration": 30
+    },
     "api/dcm-daily-operating-loop.ts": {
       "maxDuration": 10
     },
@@ -86,6 +89,22 @@
     {
       "source": "/api/sources/agentetome/:operation",
       "destination": "/api/agentetome?operation=:operation"
+    },
+    {
+      "source": "/api/sources/fidcs/status",
+      "destination": "/api/fidcs?operation=status"
+    },
+    {
+      "source": "/api/sources/fidcs/fund/:cnpj",
+      "destination": "/api/fidcs?operation=fund&cnpj=:cnpj"
+    },
+    {
+      "source": "/api/sources/fidcs/run",
+      "destination": "/api/fidcs?operation=run"
+    },
+    {
+      "source": "/api/sources/fidcs/cron-run",
+      "destination": "/api/fidcs?operation=cron-run"
     },
     {
       "source": "/api/origination/daily-operating-loop",
