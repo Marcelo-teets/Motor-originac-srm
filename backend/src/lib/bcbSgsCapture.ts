@@ -10,7 +10,36 @@ type CaptureBundle = {
   enrichments: EnrichmentRecord[];
 };
 
+type SourceRuntimeConfig = {
+  title: string;
+  signalType: string;
+  enrichmentType: string;
+  provider: string;
+  confidence: number;
+  signalStrength: number;
+};
+
 const SGS_PORTAL_URL = 'https://dadosabertos.bcb.gov.br/dataset?groups=indicadores-economicos';
+const CACHE_TTL_MS = 5 * 60 * 1_000;
+
+const SOURCE_CONFIG: Record<string, SourceRuntimeConfig> = {
+  src_bcb_sgs: {
+    title: 'Indexadores macro BCB SGS',
+    signalType: 'macro_indexer_context',
+    enrichmentType: 'macro_credit_context',
+    provider: 'Banco Central do Brasil (SGS)',
+    confidence: 0.7,
+    signalStrength: 48,
+  },
+  src_bcb_sgs_credit_series: {
+    title: 'Ciclo de crédito BCB SGS',
+    signalType: 'macro_credit_cycle',
+    enrichmentType: 'credit_cycle_context',
+    provider: 'Banco Central do Brasil (SGS Crédito)',
+    confidence: 0.82,
+    signalStrength: 62,
+  },
+};
 
 const emptyBundle = (): CaptureBundle => ({ outputs: [], signals: [], enrichments: [] });
 
@@ -19,51 +48,55 @@ const runtimeSource = (source: SourceCatalogEntry): RuntimeSource => ({
   runtimeCode: inferSourceCode(source),
 });
 
-const findSource = (sources: SourceCatalogEntry[]) => sources
+const findSources = (sources: SourceCatalogEntry[]) => sources
   .filter((source) => source.status !== 'planned')
   .map(runtimeSource)
-  .find((source) => source.runtimeCode === 'src_bcb_sgs');
+  .filter((source) => Boolean(SOURCE_CONFIG[source.runtimeCode]));
 
-// The engine runs one capture per company in parallel; macro series are
-// company-agnostic, so fetches are memoized per engine run (collectedAt key)
-// to keep the cost at one request per series per run.
-let seriesCache: { key: string; promise: Promise<BcbSgsSeriesResult[]> } | null = null;
+// Macro and credit-cycle series are company-agnostic. The capture engine may
+// fan out one task per company, so a short TTL cache keeps the provider cost at
+// one request per series while preserving fresh data for later runs.
+const seriesCache = new Map<string, { expiresAt: number; promise: Promise<BcbSgsSeriesResult[]> }>();
 
-const fetchSeriesOnce = (source: RuntimeSource, collectedAt: string) => {
-  if (seriesCache?.key !== collectedAt) {
-    const series = parseSeriesMetadata(source.metadata?.series);
-    seriesCache = {
-      key: collectedAt,
-      promise: Promise.all(series.map(async (config) => {
-        try {
-          return await fetchBcbSgsSeries(config);
-        } catch {
-          return { ...config, observations: [], latest: null } satisfies BcbSgsSeriesResult;
-        }
-      })),
-    };
-  }
-  return seriesCache.promise;
+const fetchSeriesOnce = (source: RuntimeSource) => {
+  const cacheKey = source.id;
+  const cached = seriesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+  const series = parseSeriesMetadata(source.metadata?.series);
+  const promise = Promise.all(series.map(async (config) => {
+    try {
+      return await fetchBcbSgsSeries(config);
+    } catch {
+      return { ...config, observations: [], latest: null } satisfies BcbSgsSeriesResult;
+    }
+  }));
+
+  seriesCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, promise });
+  return promise;
 };
 
-export async function captureBcbSgsMacro(company: CompanySeed, sources: SourceCatalogEntry[], collectedAt: string): Promise<CaptureBundle> {
-  const source = findSource(sources);
-  if (!source) return emptyBundle();
-
-  const results = await fetchSeriesOnce(source, collectedAt);
+const captureSource = async (
+  company: CompanySeed,
+  source: RuntimeSource,
+  collectedAt: string,
+): Promise<CaptureBundle> => {
+  const config = SOURCE_CONFIG[source.runtimeCode];
+  const results = await fetchSeriesOnce(source);
   const observed = results.filter((result) => result.latest);
   const status = observed.length ? 'real' : 'partial';
-  const confidence = observed.length ? 0.7 : 0.38;
+  const confidence = observed.length ? config.confidence : 0.38;
   const summary = observed.length
     ? observed.map((result) => `${result.name}: ${result.latest!.value}${result.unit ? ` ${result.unit}` : ''} (${result.latest!.date})`).join(' · ')
     : 'Séries SGS indisponíveis nesta execução; usando fallback parcial.';
+  const sourceUrl = source.url ?? SGS_PORTAL_URL;
 
   return {
     outputs: [{
       id: crypto.randomUUID(),
       companyId: company.id,
       sourceId: source.id,
-      title: 'Indexadores macro BCB SGS',
+      title: config.title,
       summary,
       collectedAt,
       confidenceScore: confidence,
@@ -77,27 +110,28 @@ export async function captureBcbSgsMacro(company: CompanySeed, sources: SourceCa
           observations: result.observations,
         })),
         seriesObserved: observed.length,
-        sourceUrl: SGS_PORTAL_URL,
+        sourceUrl,
         timestamp: collectedAt,
         confidenceScore: confidence,
         sourceCode: source.runtimeCode,
         sourceName: source.name,
         sourceCategory: source.category,
+        cacheTtlMs: CACHE_TTL_MS,
       },
     }],
     signals: [{
       id: crypto.randomUUID(),
       companyId: company.id,
       sourceId: source.id,
-      signalType: 'macro_indexer_context',
-      signalStrength: observed.length ? 48 : 30,
+      signalType: config.signalType,
+      signalStrength: observed.length ? config.signalStrength : 30,
       confidenceScore: confidence,
       evidencePayload: {
         note: summary,
-        provider: 'Banco Central do Brasil (SGS)',
+        provider: config.provider,
         sourceCode: source.runtimeCode,
         sourceName: source.name,
-        sourceUrl: SGS_PORTAL_URL,
+        sourceUrl,
         seriesObserved: observed.length,
         timestamp: collectedAt,
       },
@@ -107,18 +141,34 @@ export async function captureBcbSgsMacro(company: CompanySeed, sources: SourceCa
     enrichments: [{
       id: crypto.randomUUID(),
       companyId: company.id,
-      enrichmentType: 'macro_credit_context',
-      provider: 'Banco Central do Brasil (SGS)',
+      enrichmentType: config.enrichmentType,
+      provider: config.provider,
       payload: {
         sourceId: source.id,
         sourceCode: source.runtimeCode,
         sourceConfidence: confidence,
         series: results.map((result) => ({ code: result.code, name: result.name, unit: result.unit, latest: result.latest })),
-        sourceUrl: SGS_PORTAL_URL,
+        sourceUrl,
         collectedAt,
       },
       observedVsInferred: 'observed',
       createdAt: collectedAt,
     }],
   };
+};
+
+export async function captureBcbSgsMacro(
+  company: CompanySeed,
+  sources: SourceCatalogEntry[],
+  collectedAt: string,
+): Promise<CaptureBundle> {
+  const activeSources = findSources(sources);
+  if (!activeSources.length) return emptyBundle();
+
+  const bundles = await Promise.all(activeSources.map((source) => captureSource(company, source, collectedAt)));
+  return bundles.reduce<CaptureBundle>((combined, bundle) => ({
+    outputs: [...combined.outputs, ...bundle.outputs],
+    signals: [...combined.signals, ...bundle.signals],
+    enrichments: [...combined.enrichments, ...bundle.enrichments],
+  }), emptyBundle());
 }
