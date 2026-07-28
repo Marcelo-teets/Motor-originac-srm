@@ -9,16 +9,13 @@ import {
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
-const BATCH_SIZE = 100;
+const INITIAL_BATCH_SIZE = 100;
 const MAX_ROWS = 500_000;
 const STALE_RUN_MS = 30 * 60 * 1_000;
 const allDatasets = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
-const chunks = <T>(items: T[]) => Array.from(
-  { length: Math.ceil(items.length / BATCH_SIZE) },
-  (_, index) => items.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
-);
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const isConflict = (error: unknown) => /uq_capital_market_dataset_single_running|duplicate key|23505/i.test(message(error));
+const isStatementTimeout = (error: unknown) => /57014|statement timeout|canceling statement due to statement timeout/i.test(message(error));
 const resourceKey = (resource: CvmResource) => resource.id?.trim() || resource.url;
 const timestamp = (value: string | null | undefined) => {
   const parsed = Date.parse(value ?? '');
@@ -49,7 +46,7 @@ type Checkpoint = {
 };
 type Source = { id: string; name: string; metadata?: Record<string, unknown> };
 
-type BatchPersistResult = {
+export type BatchPersistResult = {
   bronzeRowsWritten: number;
   eventsWritten: number;
   entityLinksWritten: number;
@@ -59,12 +56,63 @@ type BatchPersistResult = {
   recordsUnchanged: number;
 };
 
+export type AdaptiveBatchPersistResult = BatchPersistResult & {
+  effectiveBatchSize: number;
+  timeoutSplits: number;
+};
+
+const emptyBatchPersistResult = (): BatchPersistResult => ({
+  bronzeRowsWritten: 0,
+  eventsWritten: 0,
+  entityLinksWritten: 0,
+  metricsWritten: 0,
+  recordsInserted: 0,
+  recordsUpdated: 0,
+  recordsUnchanged: 0,
+});
+
+const addBatchPersistResult = (target: BatchPersistResult, persisted: BatchPersistResult) => {
+  target.bronzeRowsWritten += Number(persisted.bronzeRowsWritten ?? 0);
+  target.eventsWritten += Number(persisted.eventsWritten ?? 0);
+  target.entityLinksWritten += Number(persisted.entityLinksWritten ?? 0);
+  target.metricsWritten += Number(persisted.metricsWritten ?? 0);
+  target.recordsInserted += Number(persisted.recordsInserted ?? 0);
+  target.recordsUpdated += Number(persisted.recordsUpdated ?? 0);
+  target.recordsUnchanged += Number(persisted.recordsUnchanged ?? 0);
+};
+
 export const serializeCapitalMarketBatch = (records: NormalizedCapitalMarketRecord[]) => records.map((record) => ({
   bronze: record.bronze,
   event: record.event,
   entity_links: record.entityLinks,
   metrics: record.metrics,
 }));
+
+export const persistCapitalMarketRecordsAdaptive = async (
+  records: NormalizedCapitalMarketRecord[],
+  persistBatch: (batch: NormalizedCapitalMarketRecord[]) => Promise<BatchPersistResult>,
+  initialBatchSize = INITIAL_BATCH_SIZE,
+): Promise<AdaptiveBatchPersistResult> => {
+  const totals = emptyBatchPersistResult();
+  let cursor = 0;
+  let effectiveBatchSize = Math.max(1, Math.min(Math.floor(initialBatchSize), INITIAL_BATCH_SIZE));
+  let timeoutSplits = 0;
+
+  while (cursor < records.length) {
+    const batch = records.slice(cursor, cursor + effectiveBatchSize);
+    try {
+      const persisted = await persistBatch(batch);
+      addBatchPersistResult(totals, persisted);
+      cursor += batch.length;
+    } catch (error) {
+      if (!isStatementTimeout(error) || batch.length <= 1) throw error;
+      effectiveBatchSize = Math.max(1, Math.floor(batch.length / 2));
+      timeoutSplits += 1;
+    }
+  }
+
+  return { ...totals, effectiveBatchSize, timeoutSplits };
+};
 
 export type CapitalMarketDatasetSummary = {
   datasetCode: CvmDatasetCode;
@@ -125,6 +173,7 @@ const emptySummary = (datasetCode: CvmDatasetCode, error: string): CapitalMarket
 
 export class CapitalMarketIngestionService {
   private readonly client = getSupabaseClient();
+  private persistenceBatchSize = INITIAL_BATCH_SIZE;
 
   async run(options: CapitalMarketIngestionOptions = {}) {
     if (!this.client) throw new Error('Supabase client not configured for capital-market ingestion.');
@@ -306,6 +355,7 @@ export class CapitalMarketIngestionService {
         packageId: definition.packageId,
         resourceFingerprints: processedFingerprints,
         skippedResourceFingerprints: skippedFingerprints,
+        effectivePersistenceBatchSize: this.persistenceBatchSize,
       },
       updated_at: finishedAt,
     }, [{ column: 'id', value: runId }]);
@@ -324,6 +374,7 @@ export class CapitalMarketIngestionService {
             resourcesProcessed: summary.resourcesProcessed,
             resourcesSkipped: summary.resourcesSkipped,
             signalsWritten: summary.signalsWritten,
+            effectivePersistenceBatchSize: this.persistenceBatchSize,
             errors: summary.errors.slice(0, 10),
           },
         },
@@ -363,28 +414,20 @@ export class CapitalMarketIngestionService {
   }
 
   private async persist(records: NormalizedCapitalMarketRecord[]) {
-    const totals: BatchPersistResult = {
-      bronzeRowsWritten: 0,
-      eventsWritten: 0,
-      entityLinksWritten: 0,
-      metricsWritten: 0,
-      recordsInserted: 0,
-      recordsUpdated: 0,
-      recordsUnchanged: 0,
-    };
-    for (const batch of chunks(records)) {
-      const persisted = await this.client!.rpc<BatchPersistResult>('persist_capital_market_batch', {
-        p_records: serializeCapitalMarketBatch(batch),
-      });
-      if (!persisted) throw new Error('persist_capital_market_batch returned no result.');
-      totals.bronzeRowsWritten += Number(persisted.bronzeRowsWritten ?? 0);
-      totals.eventsWritten += Number(persisted.eventsWritten ?? 0);
-      totals.entityLinksWritten += Number(persisted.entityLinksWritten ?? 0);
-      totals.metricsWritten += Number(persisted.metricsWritten ?? 0);
-      totals.recordsInserted += Number(persisted.recordsInserted ?? 0);
-      totals.recordsUpdated += Number(persisted.recordsUpdated ?? 0);
-      totals.recordsUnchanged += Number(persisted.recordsUnchanged ?? 0);
-    }
+    const persisted = await persistCapitalMarketRecordsAdaptive(
+      records,
+      async (batch) => {
+        const result = await this.client!.rpc<BatchPersistResult>('persist_capital_market_batch', {
+          p_records: serializeCapitalMarketBatch(batch),
+        });
+        if (!result) throw new Error('persist_capital_market_batch returned no result.');
+        return result;
+      },
+      this.persistenceBatchSize,
+    );
+
+    this.persistenceBatchSize = persisted.effectiveBatchSize;
+    const { effectiveBatchSize: _effectiveBatchSize, timeoutSplits: _timeoutSplits, ...totals } = persisted;
     return totals;
   }
 }
