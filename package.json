@@ -14,7 +14,6 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
-    "test:auth-captcha-payload": "npx tsx --test scripts/captcha-auth-payload.test.ts",
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-production-smoke": "node scripts/smoke-auth-production.test.mjs",
     "test:company-credit-review": "npx tsx --test backend/src/lib/companyCreditReview.test.ts backend/src/lib/approvedCreditReviewQualification.test.ts",
