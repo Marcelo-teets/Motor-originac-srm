@@ -8,6 +8,16 @@ import { useAsyncData } from '../lib/useAsyncData';
 
 const PIPELINE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
 
+type PipelineWorkspaceRow = PipelineRow & {
+  company?: {
+    id: string;
+    name: string;
+    segment: string;
+    suggestedStructure: string;
+    leadScore: number;
+  };
+};
+
 const stageLabels: Record<PipelineStage, string> = {
   Identified: 'Identificados',
   Qualified: 'Qualificados',
@@ -66,7 +76,7 @@ export function PipelinePage() {
       rows: rows.map((row) => ({
         ...row,
         company: companyMap.get(row.companyId),
-      })),
+      })) as PipelineWorkspaceRow[],
       abm,
       health: {
         snapshotOk: snapshotResult.status === 'fulfilled',
@@ -104,7 +114,7 @@ export function PipelinePage() {
   const missingNextAction = filteredRows.filter((row) => !row.nextAction?.trim() || row.nextAction === 'Definir próximo passo').length;
   const attentionCount = data.abm.cooling_accounts.length + data.abm.without_champion.length + data.abm.overdue_next_steps.length + data.abm.critical_open_objections.length;
 
-  const moveCompany = async (row: PipelineRow, targetStage: PipelineStage) => {
+  const moveCompany = async (row: PipelineWorkspaceRow, targetStage: PipelineStage) => {
     if (row.stage === targetStage) return;
     setMovingCompanyId(row.companyId);
     setFeedback('');
