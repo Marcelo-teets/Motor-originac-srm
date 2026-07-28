@@ -1,0 +1,157 @@
+name: CVM Fund Documents Ingestion
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/cvm-fund-documents-schedule.yml
+      - backend/src/modules/capital-markets/**
+      - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/cli/capitalMarkets.ts
+      - db/migrations/133_cvm_fund_documents_and_source_schedules.sql
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/cvm-fund-documents-schedule.yml
+      - backend/src/modules/capital-markets/**
+      - backend/src/services/capitalMarketIngestionService.ts
+      - backend/src/cli/capitalMarkets.ts
+      - db/migrations/133_cvm_fund_documents_and_source_schedules.sql
+  schedule:
+    - cron: "5 10 * * *"
+    - cron: "35 10 * * 1"
+    - cron: "55 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset documental CVM
+        required: true
+        default: cvm_fund_documents
+        type: choice
+        options:
+          - cvm_fund_documents
+          - cvm_fund_document_deliveries
+          - all
+      reference:
+        description: Competência opcional (YYYY-MM ou YYYY)
+        required: false
+        type: string
+      max_rows:
+        description: Limite de linhas
+        required: true
+        default: "50000"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cvm-fund-documents-${{ github.event.schedule || inputs.dataset || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm -C backend run typecheck
+      - name: Test document resource selection and parsing contracts
+        id: document_tests
+        working-directory: backend
+        shell: bash
+        run: |
+          set +e
+          npm exec -- tsx --test \
+            src/modules/capital-markets/cvmCapitalMarketConnector.test.ts \
+            src/modules/capital-markets/cvmFundDocumentResources.test.ts \
+            > cvm-fund-document-tests.log 2>&1
+          CODE=$?
+          cat cvm-fund-document-tests.log
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload document test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cvm-fund-document-tests-${{ github.run_id }}
+          path: backend/cvm-fund-document-tests.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce document test result
+        if: steps.document_tests.outputs.exit_code != '0'
+        run: exit 1
+
+  ingest:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
+      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
+      REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate Supabase secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Run scheduled document ingestion
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_dataset() {
+            local dataset="$1"
+            local reference="$2"
+            local max_rows="$3"
+            local trigger="$4"
+            local args=(
+              --dataset "$dataset"
+              --max-rows "$max_rows"
+              --trigger "$trigger"
+              --require-records
+              --require-delivery
+            )
+            if [ -n "$reference" ]; then args+=(--reference "$reference"); fi
+            npm exec -- tsx src/cli/capitalMarkets.ts "${args[@]}"
+          }
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            run_dataset cvm_fund_documents "" 250 manual
+            run_dataset cvm_fund_document_deliveries "" 250 manual
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            DATASET="${REQUESTED_DATASET:-cvm_fund_documents}"
+            REFERENCE="$REQUESTED_REFERENCE"
+            MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
+            if [ "$DATASET" = "all" ]; then
+              run_dataset cvm_fund_documents "$REFERENCE" "$MAX_ROWS" manual
+              run_dataset cvm_fund_document_deliveries "$REFERENCE" "$MAX_ROWS" manual
+            else
+              run_dataset "$DATASET" "$REFERENCE" "$MAX_ROWS" manual
+            fi
+          elif [ "$SCHEDULE_EXPRESSION" = "5 10 * * *" ]; then
+            CURRENT_MONTH="$(date -u +%Y-%m)"
+            PREVIOUS_MONTH="$(date -u -d '1 month ago' +%Y-%m)"
+            run_dataset cvm_fund_document_deliveries "$CURRENT_MONTH" 25000 schedule
+            run_dataset cvm_fund_document_deliveries "$PREVIOUS_MONTH" 25000 schedule
+          elif [ "$SCHEDULE_EXPRESSION" = "35 10 * * 1" ]; then
+            run_dataset cvm_fund_documents "$(date -u +%Y)" 50000 schedule
+          else
+            run_dataset cvm_fund_document_deliveries "$(date -u +%Y)" 100000 schedule
+          fi

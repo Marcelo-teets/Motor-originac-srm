@@ -9,6 +9,7 @@ export type CvmDatasetCode =
   | 'cvm_fii_monthly'
   | 'cvm_securitization_ots'
   | 'cvm_fund_documents'
+  | 'cvm_fund_document_deliveries'
   | 'cvm_company_fre'
   | 'cvm_company_itr'
   | 'cvm_company_dfp';
@@ -35,6 +36,7 @@ export type CvmDatasetDefinition = {
   instrumentFallback: string;
   resourcePattern: RegExp;
   resourceLimit: number;
+  dedupeByFamily?: boolean;
 };
 
 export type CvmResource = {
@@ -133,103 +135,53 @@ export type NormalizedCapitalMarketRecord = {
 
 export const CVM_DATASETS: Record<CvmDatasetCode, CvmDatasetDefinition> = {
   cvm_offers: {
-    code: 'cvm_offers',
-    sourceCode: 'src_cvm_offers',
-    packageId: 'oferta-distrib',
-    eventType: 'public_offering',
-    instrumentFallback: 'OFERTA PUBLICA',
-    resourcePattern: /oferta.*(distribuicao|resolucao[_ -]?160).*(csv|zip)$/i,
-    resourceLimit: 4,
+    code: 'cvm_offers', sourceCode: 'src_cvm_offers', packageId: 'oferta-distrib', eventType: 'public_offering',
+    instrumentFallback: 'OFERTA PUBLICA', resourcePattern: /oferta.*(distribuicao|resolucao[_ -]?160).*(csv|zip)$/i, resourceLimit: 4,
   },
   cvm_fund_registry: {
-    code: 'cvm_fund_registry',
-    sourceCode: 'src_cvm_fund_registry',
-    packageId: 'fi-cad',
-    eventType: 'fund_registration',
-    instrumentFallback: 'FUNDO',
-    resourcePattern: /registro.*(fundo|classe|subclasse).*(csv|zip)$/i,
-    resourceLimit: 4,
+    code: 'cvm_fund_registry', sourceCode: 'src_cvm_fund_registry', packageId: 'fi-cad', eventType: 'fund_registration',
+    instrumentFallback: 'FUNDO', resourcePattern: /registro.*(fundo|classe|subclasse).*(csv|zip)$/i, resourceLimit: 4,
   },
   cvm_fidc_monthly: {
-    code: 'cvm_fidc_monthly',
-    sourceCode: 'src_cvm_fidc_monthly',
-    packageId: 'fidc-doc-inf_mensal',
-    eventType: 'fidc_monthly_snapshot',
-    instrumentFallback: 'FIDC',
-    resourcePattern: /inf[_ -]?mensal[_ -]?fidc.*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_fidc_monthly', sourceCode: 'src_cvm_fidc_monthly', packageId: 'fidc-doc-inf_mensal', eventType: 'fidc_monthly_snapshot',
+    instrumentFallback: 'FIDC', resourcePattern: /inf[_ -]?mensal[_ -]?fidc.*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_cri_monthly: {
-    code: 'cvm_cri_monthly',
-    sourceCode: 'src_cvm_cri_monthly',
-    packageId: 'securit-doc-inf_mensal_cri',
-    eventType: 'cri_monthly_snapshot',
-    instrumentFallback: 'CRI',
-    resourcePattern: /inf[_ -]?mensal[_ -]?cri.*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_cri_monthly', sourceCode: 'src_cvm_cri_monthly', packageId: 'securit-doc-inf_mensal_cri', eventType: 'cri_monthly_snapshot',
+    instrumentFallback: 'CRI', resourcePattern: /inf[_ -]?mensal[_ -]?cri.*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_cra_monthly: {
-    code: 'cvm_cra_monthly',
-    sourceCode: 'src_cvm_cra_monthly',
-    packageId: 'securit-doc-inf_mensal_cra',
-    eventType: 'cra_monthly_snapshot',
-    instrumentFallback: 'CRA',
-    resourcePattern: /inf[_ -]?mensal[_ -]?cra.*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_cra_monthly', sourceCode: 'src_cvm_cra_monthly', packageId: 'securit-doc-inf_mensal_cra', eventType: 'cra_monthly_snapshot',
+    instrumentFallback: 'CRA', resourcePattern: /inf[_ -]?mensal[_ -]?cra.*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_fii_monthly: {
-    code: 'cvm_fii_monthly',
-    sourceCode: 'src_cvm_fii_monthly',
-    packageId: 'fii-doc-inf_mensal',
-    eventType: 'fii_monthly_snapshot',
-    instrumentFallback: 'FII',
-    resourcePattern: /inf[_ -]?mensal[_ -]?fii.*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_fii_monthly', sourceCode: 'src_cvm_fii_monthly', packageId: 'fii-doc-inf_mensal', eventType: 'fii_monthly_snapshot',
+    instrumentFallback: 'FII', resourcePattern: /inf[_ -]?mensal[_ -]?fii.*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_securitization_ots: {
-    code: 'cvm_securitization_ots',
-    sourceCode: 'src_cvm_securitization_ots',
-    packageId: 'securit-doc-inf_mensal_ots',
-    eventType: 'securitization_monthly_snapshot',
-    instrumentFallback: 'OUTRO TITULO SECURITIZACAO',
-    resourcePattern: /inf[_ -]?mensal[_ -]?ots.*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_securitization_ots', sourceCode: 'src_cvm_securitization_ots', packageId: 'securit-doc-inf_mensal_ots', eventType: 'securitization_monthly_snapshot',
+    instrumentFallback: 'OUTRO TITULO SECURITIZACAO', resourcePattern: /inf[_ -]?mensal[_ -]?ots.*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_fund_documents: {
-    code: 'cvm_fund_documents',
-    sourceCode: 'src_cvm_fund_documents',
-    packageId: 'fi-doc-eventual',
-    eventType: 'fund_document_filing',
-    instrumentFallback: 'FUNDO',
-    resourcePattern: /(eventual[_ -]?fi|documentos.*eventuais.*fundos).*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_fund_documents', sourceCode: 'src_cvm_fund_documents', packageId: 'fi-doc-eventual', eventType: 'fund_document_filing',
+    instrumentFallback: 'FUNDO', resourcePattern: /(eventual[_ -]?fi|documentos.*eventuais.*fundos).*(csv|zip)$/i, resourceLimit: 1,
+  },
+  cvm_fund_document_deliveries: {
+    code: 'cvm_fund_document_deliveries', sourceCode: 'src_cvm_fundos_documentos_entrega', packageId: 'fi-doc-entrega', eventType: 'fund_document_delivery',
+    instrumentFallback: 'FUNDO', resourcePattern: /(fi[_ -]?entrega[_ -]?documento|documentos.*entregues.*fundos).*(csv|zip)$/i,
+    resourceLimit: 14, dedupeByFamily: false,
   },
   cvm_company_fre: {
-    code: 'cvm_company_fre',
-    sourceCode: 'src_cvm_fre_capital_structure',
-    packageId: 'cia_aberta-doc-fre',
-    eventType: 'company_reference_snapshot',
-    instrumentFallback: 'COMPANHIA ABERTA',
-    resourcePattern: /(fre[_ -]?cia[_ -]?aberta|formularios?.*referencia.*cias?.*abertas?).*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_company_fre', sourceCode: 'src_cvm_fre_capital_structure', packageId: 'cia_aberta-doc-fre', eventType: 'company_reference_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA', resourcePattern: /(fre[_ -]?cia[_ -]?aberta|formularios?.*referencia.*cias?.*abertas?).*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_company_itr: {
-    code: 'cvm_company_itr',
-    sourceCode: 'src_cvm_company_itr',
-    packageId: 'cia_aberta-doc-itr',
-    eventType: 'company_quarterly_financial_snapshot',
-    instrumentFallback: 'COMPANHIA ABERTA',
-    resourcePattern: /(itr[_ -]?cia[_ -]?aberta|informacoes?.*trimestrais.*cias?.*abertas?).*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_company_itr', sourceCode: 'src_cvm_company_itr', packageId: 'cia_aberta-doc-itr', eventType: 'company_quarterly_financial_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA', resourcePattern: /(itr[_ -]?cia[_ -]?aberta|informacoes?.*trimestrais.*cias?.*abertas?).*(csv|zip)$/i, resourceLimit: 1,
   },
   cvm_company_dfp: {
-    code: 'cvm_company_dfp',
-    sourceCode: 'src_cvm_company_dfp',
-    packageId: 'cia_aberta-doc-dfp',
-    eventType: 'company_annual_financial_snapshot',
-    instrumentFallback: 'COMPANHIA ABERTA',
-    resourcePattern: /(dfp[_ -]?cia[_ -]?aberta|demonstracoes?.*financeiras.*padronizadas.*cias?.*abertas?).*(csv|zip)$/i,
-    resourceLimit: 1,
+    code: 'cvm_company_dfp', sourceCode: 'src_cvm_company_dfp', packageId: 'cia_aberta-doc-dfp', eventType: 'company_annual_financial_snapshot',
+    instrumentFallback: 'COMPANHIA ABERTA', resourcePattern: /(dfp[_ -]?cia[_ -]?aberta|demonstracoes?.*financeiras.*padronizadas.*cias?.*abertas?).*(csv|zip)$/i, resourceLimit: 1,
   },
 };
 
@@ -258,6 +210,19 @@ const resourcePriority = (definition: CvmDatasetDefinition, resource: CvmResourc
   return 0;
 };
 
+const resourceFileName = (resource: CvmResource) => {
+  const cleanUrl = resource.url.split('?')[0] ?? resource.url;
+  const fromUrl = decodeURIComponent(cleanUrl.split('/').at(-1) ?? '').trim();
+  const supportedFromUrl = /\.(csv|zip)$/i.test(fromUrl);
+  const supportedFromName = /\.(csv|zip)$/i.test(resource.name);
+  return supportedFromName || !supportedFromUrl ? resource.name : fromUrl;
+};
+
+export const normalizeCvmResourceName = (resource: CvmResource): CvmResource => ({
+  ...resource,
+  name: resourceFileName(resource),
+});
+
 export const isCvmMetadataResource = (resource: CvmResource) => {
   const key = normalizeKey(`${resource.name} ${resource.url}`);
   return key.includes('dicionariodedados')
@@ -275,7 +240,8 @@ export const selectDatasetResources = (
   const supported = resources
     .filter((resource) => Boolean(resource.url)
       && !isCvmMetadataResource(resource)
-      && definition.resourcePattern.test(`${resource.name} ${resource.url}`));
+      && definition.resourcePattern.test(`${resource.name} ${resource.url}`))
+    .map((resource) => definition.code === 'cvm_offers' ? resource : normalizeCvmResourceName(resource));
   const referenced = referenceKey
     ? supported.filter((resource) => normalizeReference(`${resource.name} ${resource.url}`).includes(referenceKey))
     : supported;
@@ -297,7 +263,7 @@ export const selectDatasetResources = (
   const seen = new Set<string>();
   for (const item of candidates) {
     const family = normalizeKey(item.resource.name).replace(/\d{4,8}/g, '');
-    if (seen.has(family)) continue;
+    if (definition.dedupeByFamily !== false && seen.has(family)) continue;
     seen.add(family);
     selected.push(item.resource);
     if (selected.length >= definition.resourceLimit) break;

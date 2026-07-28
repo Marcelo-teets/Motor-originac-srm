@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-const RUNTIME = 'bounded-capture-targets-v1';
+const RUNTIME = 'bounded-capture-targets-v2';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
@@ -22,6 +22,11 @@ const authorized = (req: IncomingMessage) => {
   return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
 };
 
+const cadenceFrom = (req: IncomingMessage) => {
+  const value = new URL(req.url ?? '/', 'https://runtime.local').searchParams.get('cadence') ?? 'all';
+  return new Set(['frequent', 'daily', 'weekly', 'monthly', 'all']).has(value) ? value : 'all';
+};
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
     writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
@@ -38,14 +43,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       import('../backend/src/lib/boundedCapture.js'),
     ]);
     const useSupabase = process.env.USE_SUPABASE === 'true';
+    const cadence = cadenceFrom(req) as 'frequent' | 'daily' | 'weekly' | 'monthly' | 'all';
     const repository = createPlatformRepository(useSupabase ? 'supabase' : 'memory');
     const [allCompanies, allSources] = await Promise.all([
       repository.listCompanies(),
       repository.listSources(),
     ]);
     const companies = selectMonitoringCompanies(allCompanies, useSupabase);
-    const sources = selectCaptureSources(allSources);
-    const targets = buildBoundedCaptureTargets(allCompanies, allSources, useSupabase);
+    const sources = selectCaptureSources(allSources, cadence);
+    const targets = buildBoundedCaptureTargets(allCompanies, allSources, useSupabase, cadence);
 
     writeJson(res, 200, {
       status: useSupabase ? 'real' : 'partial',
@@ -54,8 +60,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         policy: {
           boundedScopeRequired: true,
           maxParallelism: 3,
-          sourceStatus: 'real',
           sourceHealth: 'healthy',
+          cadence,
           companyGate: useSupabase ? 'monitoring_eligible' : 'memory_fallback',
         },
         companies: companies.map((company) => ({ id: company.id, name: company.tradeName })),

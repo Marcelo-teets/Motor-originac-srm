@@ -1,0 +1,44 @@
+name: Source Activation Probes
+
+on:
+  schedule:
+    - cron: "0 12 * * 2"
+  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/source-activation-probes.yml
+      - scripts/sources/probe-source-catalog.mjs
+      - db/migrations/133_cvm_fund_documents_and_source_schedules.sql
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-activation-probes
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check scripts/sources/probe-source-catalog.mjs
+
+  probe:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/sources/probe-source-catalog.mjs
