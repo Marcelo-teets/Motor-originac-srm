@@ -24,11 +24,6 @@ const deploymentEnvironment = (
   || 'local'
 ).trim();
 
-const captchaEnabled = env.VITE_CAPTCHA_ENABLED !== 'false';
-const captchaProvider = (env.VITE_CAPTCHA_PROVIDER || 'turnstile').trim().toLowerCase();
-const captchaSiteKeyConfigured = Boolean((env.VITE_CAPTCHA_SITE_KEY || '').trim());
-const emailPasswordConfigured = !captchaEnabled || captchaSiteKeyConfigured;
-
 const metadata = {
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
@@ -36,8 +31,8 @@ const metadata = {
   branch,
   environment: deploymentEnvironment,
   auth: {
-    mode: emailPasswordConfigured ? 'full' : 'oauth_fallback',
-    emailPasswordConfigured,
+    mode: 'email_password_and_oauth',
+    emailPasswordConfigured: true,
     oauthFallbackSupported: true,
     routes: [
       '/login',
@@ -48,12 +43,7 @@ const metadata = {
       '/change-password',
       '/users',
     ],
-    captcha: {
-      enabled: captchaEnabled,
-      provider: captchaProvider,
-      siteKeyConfigured: captchaSiteKeyConfigured,
-      tokenTransport: 'gotrue_meta_security.captcha_token',
-    },
+    captchaEnabled: false,
     oauthProviderDiscovery: true,
     supportedOAuthProviders: ['github', 'google'],
     godModeIncluded: true,
