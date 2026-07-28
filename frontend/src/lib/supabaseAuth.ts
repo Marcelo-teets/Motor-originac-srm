@@ -38,47 +38,6 @@ const supportedOAuthProviders: OAuthProviderOption[] = [
   { provider: 'google', label: 'Google', mark: 'G' },
 ];
 
-const readFrontendEnv = (...keys: string[]) => {
-  for (const key of keys) {
-    const value = import.meta.env[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return '';
-};
-
-const parseOptionalBoolean = (value: string, fallback: boolean) => {
-  if (!value) return fallback;
-  if (['true', '1', 'yes', 'on'].includes(value.toLowerCase())) return true;
-  if (['false', '0', 'no', 'off'].includes(value.toLowerCase())) return false;
-  return fallback;
-};
-
-const captchaSiteKey = readFrontendEnv(
-  'VITE_CAPTCHA_SITE_KEY',
-  'VITE_AUTH_CAPTCHA_SITE_KEY',
-  'VITE_SUPABASE_CAPTCHA_SITE_KEY',
-  'VITE_TURNSTILE_SITE_KEY',
-  'VITE_HCAPTCHA_SITE_KEY',
-);
-const captchaProviderValue = readFrontendEnv(
-  'VITE_CAPTCHA_PROVIDER',
-  'VITE_AUTH_CAPTCHA_PROVIDER',
-  'VITE_SUPABASE_CAPTCHA_PROVIDER',
-);
-const captchaEnabledValue = readFrontendEnv(
-  'VITE_CAPTCHA_ENABLED',
-  'VITE_AUTH_CAPTCHA_ENABLED',
-  'VITE_SUPABASE_CAPTCHA_ENABLED',
-);
-const captchaEnabled = parseOptionalBoolean(captchaEnabledValue, Boolean(captchaSiteKey));
-
-export const captchaConfig = {
-  enabled: captchaEnabled,
-  provider: captchaProviderValue.toLowerCase() === 'hcaptcha' ? 'hcaptcha' as const : 'turnstile' as const,
-  siteKey: captchaSiteKey,
-  configured: !captchaEnabled || Boolean(captchaSiteKey),
-};
-
 const requireConfig = () => {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Supabase não está configurado no frontend. Verifique VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
@@ -105,12 +64,6 @@ const authError = (payload: Record<string, any>, fallback: string) => {
   const code = String(payload.error_code ?? payload.code ?? '');
   const message = String(payload.error_description ?? payload.msg ?? payload.message ?? payload.error ?? fallback);
 
-  if (code === 'captcha_failed' || /captcha/i.test(message)) {
-    if (!captchaConfig.siteKey) {
-      return new Error('O Supabase exige CAPTCHA, mas a chave pública não chegou ao frontend. Use o acesso com Google ou configure VITE_CAPTCHA_SITE_KEY na Vercel.');
-    }
-    return new Error('Não foi possível validar o CAPTCHA. Refaça o desafio de segurança e tente novamente.');
-  }
   if (/invalid login credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
   if (code === 'email_not_confirmed' || /email not confirmed/i.test(message)) return new Error('Confirme seu e-mail antes de entrar.');
   if (code === 'over_request_rate_limit' || /rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
@@ -143,31 +96,25 @@ const buildSession = async (payload: Record<string, any>): Promise<SessionData> 
 };
 
 export const supabaseAuth = {
-  async signInWithPassword(email: string, password: string, captchaToken?: string) {
+  async signInWithPassword(email: string, password: string) {
     requireConfig();
-    if (captchaConfig.enabled && captchaConfig.siteKey && !captchaToken) {
-      throw new Error('Conclua o CAPTCHA para entrar.');
-    }
     const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(buildPasswordGrantPayload(email, password, captchaToken)),
+      body: JSON.stringify(buildPasswordGrantPayload(email, password)),
     });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Falha ao autenticar.');
     return buildSession(payload);
   },
 
-  async sendPasswordRecovery(email: string, captchaToken?: string) {
+  async sendPasswordRecovery(email: string) {
     requireConfig();
-    if (captchaConfig.enabled && captchaConfig.siteKey && !captchaToken) {
-      throw new Error('Conclua o CAPTCHA para recuperar a senha.');
-    }
     const redirectTo = `${window.location.origin}/reset-password`;
     const response = await fetch(`${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(buildPasswordRecoveryPayload(email, captchaToken)),
+      body: JSON.stringify(buildPasswordRecoveryPayload(email)),
     });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível enviar o e-mail de recuperação.');
