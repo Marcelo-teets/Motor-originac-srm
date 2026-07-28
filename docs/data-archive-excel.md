@@ -2,39 +2,22 @@
 
 A política oficial é manter dados novos e operacionais no Supabase e dados históricos, brutos ou pesados no Google Drive/Sheets.
 
-## Limites
-- meta: 400 MB;
-- alerta: 425 MB;
-- crítico: 450 MB;
-- emergência: 475 MB;
-- limite gratuito: 500 MB.
+- Meta do banco: 400 MB.
+- Alerta: 425 MB.
+- Crítico: 450 MB.
+- Emergência: 475 MB.
+- Limite gratuito: 500 MB.
 
-## Comportamento
-- abaixo de 400 MB: normal;
-- 400–425 MB: arquivo preventivo;
-- 425–450 MB: bloquear backfills e limitar ingestões;
-- 450–475 MB: suspender cargas históricas;
-- acima de 475 MB: emergência, sem carga nova até retorno à meta.
+Acima de 425 MB, backfills e cargas massivas são bloqueados. O arquivamento prioriza bronze/raw, payloads pesados e depois histórico analítico já fora da janela operacional. Para dados regulatórios, a decisão de quente/frio usa `reference_date`, `event_date` ou `ref_date`, e não apenas a data de ingestão.
 
-## Ordem de arquivamento
-1. bronze/raw após normalização;
-2. payloads pesados de eventos;
-3. payloads de documentos e monitoring;
-4. snapshots antigos preservando estado recente;
-5. vínculos e métricas históricos somente após regressão de qualification, patterns e ranking.
+Nenhum dado é removido antes de upload, checksum SHA-256, reconciliação de contagem, manifesto e status `verified`.
 
-## Data de corte
-Usar data de negócio (`reference_date`, `event_date`, `ref_date`) para mercado de capitais; `observed_at` para monitoring; `created_at` para scores. Um registro antigo ingerido hoje continua sendo histórico.
+Destinos:
+- Google Drive: workbooks particionados;
+- Google Sheets: catálogo e segundo banco histórico;
+- Supabase Storage: staging legado e contingência.
 
-## Segurança
-Nenhum prune antes de upload, SHA-256, contagem, reconciliação, `allow_prune=true`, status `verified` e registro no MANIFESTO.
-
-## Destinos
-- Google Drive: workbooks particionados por tabela, dataset, competência e run;
-- Google Sheets: catálogo/segundo banco com manifesto e links privados;
-- Supabase Storage: staging legado e contingência, nunca destino definitivo.
-
-## Secrets
+Secrets:
 ```env
 ARCHIVE_STORAGE_PROVIDER=google_drive
 GOOGLE_DRIVE_CLIENT_ID=<oauth-client-id>
