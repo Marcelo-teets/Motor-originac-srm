@@ -37,6 +37,9 @@
     },
     "api/dcm-daily-leads.ts": {
       "maxDuration": 15
+    },
+    "api/microsoft.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -51,6 +54,10 @@
     {
       "path": "/api/sources/qsa-fallback-run",
       "schedule": "30 10 8 * *"
+    },
+    {
+      "path": "/api/integrations/microsoft/cron-sync",
+      "schedule": "15 12 * * *"
     }
   ],
   "rewrites": [
@@ -117,6 +124,10 @@
     {
       "source": "/api/origination/daily-leads",
       "destination": "/api/dcm-daily-leads"
+    },
+    {
+      "source": "/api/integrations/microsoft/:operation",
+      "destination": "/api/microsoft?operation=:operation"
     },
     {
       "source": "/api/:path*",
