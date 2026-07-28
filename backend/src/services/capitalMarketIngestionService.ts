@@ -10,7 +10,8 @@ import {
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
 const INITIAL_BATCH_SIZE = 100;
-const MAX_ROWS = 500_000;
+const DEFAULT_MAX_ROWS = 5_000;
+const MAX_ROWS = 20_000;
 const STALE_RUN_MS = 30 * 60 * 1_000;
 const allDatasets = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -29,6 +30,16 @@ const fingerprint = (resource: CvmResource) => [
 const recordsHash = (records: NormalizedCapitalMarketRecord[]) => createHash('sha256')
   .update(records.map((record) => record.event.content_hash).sort().join('|'))
   .digest('hex');
+
+export const normalizeCvmDownloadResource = (resource: CvmResource): CvmResource => {
+  const name = resource.name?.trim() || 'resource';
+  const csvByMetadata = /csv/i.test(resource.format ?? '');
+  const csvByUrl = /\.csv(?:$|\?)/i.test(resource.url);
+  if ((csvByMetadata || csvByUrl) && !/\.(?:csv|zip)$/i.test(name)) {
+    return { ...resource, name: `${name}.csv` };
+  }
+  return resource;
+};
 
 export type CapitalMarketIngestionOptions = {
   datasets?: CvmDatasetCode[];
@@ -178,7 +189,7 @@ export class CapitalMarketIngestionService {
   async run(options: CapitalMarketIngestionOptions = {}) {
     if (!this.client) throw new Error('Supabase client not configured for capital-market ingestion.');
     const datasets = options.datasets?.length ? [...new Set(options.datasets)] : allDatasets;
-    const maxRows = Math.max(1, Math.min(options.maxRows ?? 50_000, MAX_ROWS));
+    const maxRows = Math.max(1, Math.min(options.maxRows ?? DEFAULT_MAX_ROWS, MAX_ROWS));
     const summaries: CapitalMarketDatasetSummary[] = [];
     for (const datasetCode of datasets) {
       summaries.push(await this.runDataset(datasetCode, {
@@ -272,7 +283,8 @@ export class CapitalMarketIngestionService {
     const skippedFingerprints: string[] = [];
 
     try {
-      const resources = await discoverCvmResources(datasetCode, options.reference);
+      const resources = (await discoverCvmResources(datasetCode, options.reference))
+        .map(normalizeCvmDownloadResource);
       const candidates = resources.filter((resource) => {
         const checkpoint = checkpointByKey.get(resourceKey(resource));
         if (!shouldSkipCapitalMarketResource({ ...options, resource, checkpoint })) return true;
