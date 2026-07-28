@@ -28,7 +28,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { SearchProfilesPage } from './pages/SearchProfilesPage';
 import { SourcesPage } from './pages/SourcesPage';
-import { TaskCenterPage } from './pages/TaskCenterPage';
+import { TaskCenterWithAiPage } from './pages/TaskCenterWithAiPage';
 import { UsersPage } from './pages/UsersPage';
 import { WatchListPage } from './pages/WatchListPage';
 
@@ -69,7 +69,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="origination-os" element={<OriginationOsPage />} />
         <Route path="dcm-daily" element={<DcmDailyOutreachPage />} />
-        <Route path="task-center" element={<TaskCenterPage />} />
+        <Route path="task-center" element={<TaskCenterWithAiPage />} />
         <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
         <Route path="knowledge-learning" element={<KnowledgeLearningAgentPage />} />
         <Route path="knowledge-search" element={<KnowledgeSearchPage />} />
