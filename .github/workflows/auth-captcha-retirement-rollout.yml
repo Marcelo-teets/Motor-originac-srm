@@ -1,0 +1,173 @@
+name: Auth CAPTCHA Retirement Rollout
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ops/rollouts/auth-captcha-retirement-2026-07-28.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  retire-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      PRODUCTION_URL: https://motor-originac-srm.vercel.app
+      VERCEL_CLI_VERSION: 50.28.0
+
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate rollout marker and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || {
+            echo "SUPABASE_ACCESS_TOKEN is missing from GitHub Actions secrets."
+            exit 1
+          }
+          test -n "$VERCEL_TOKEN" || {
+            echo "VERCEL_TOKEN is missing from GitHub Actions secrets."
+            exit 1
+          }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node -e '
+            const marker = require("./ops/rollouts/auth-captcha-retirement-2026-07-28.json");
+            if (marker.rollout !== "auth-captcha-retirement") process.exit(1);
+            if (marker.target !== "production") process.exit(1);
+            if (marker.acceptance?.captchaEnabled !== false) process.exit(1);
+            if (marker.acceptance?.emailPasswordEnabled !== true) process.exit(1);
+            if (marker.acceptance?.codeBlockers !== 0) process.exit(1);
+          '
+
+      - name: Confirm automatic Git deployments are paused
+        run: node scripts/vercel-production-control.mjs status
+
+      - name: Disable Supabase CAPTCHA and delete Vercel CAPTCHA variables
+        run: node scripts/retire-captcha-production.mjs
+
+      - name: Link exact Vercel project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          cat > .vercel/project.json <<JSON
+          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID","projectName":"$VERCEL_PROJECT_NAME"}
+          JSON
+          npx --yes "vercel@$VERCEL_CLI_VERSION" pull \
+            --yes \
+            --environment=production \
+            --token="$VERCEL_TOKEN"
+
+      - name: Build immutable production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_SHA="$GITHUB_SHA"
+          export VERCEL_GIT_COMMIT_SHA="$GITHUB_SHA"
+          export VERCEL_GIT_COMMIT_REF=main
+          export VERCEL_ENV=production
+          npx --yes "vercel@$VERCEL_CLI_VERSION" build \
+            --prod \
+            --token="$VERCEL_TOKEN"
+          test -f .vercel/output/config.json
+
+      - name: Deploy prebuilt artifact to production
+        id: deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_OUTPUT="$(npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
+            --prebuilt \
+            --prod \
+            --yes \
+            --archive=tgz \
+            --token="$VERCEL_TOKEN" \
+            --env "GIT_SHA=$GITHUB_SHA" \
+            --meta "requestedSha=$GITHUB_SHA" \
+            --meta "deploymentController=auth-captcha-retirement")"
+          DEPLOYMENT_URL="$(printf '%s\n' "$DEPLOYMENT_OUTPUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1)"
+          test -n "$DEPLOYMENT_URL"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          echo "Deployment URL: $DEPLOYMENT_URL"
+
+      - name: Validate captcha-free production Auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="$PRODUCTION_URL" \
+          EXPECTED_SHA="$GITHUB_SHA" \
+          node scripts/smoke-auth-production.mjs
+
+      - name: Verify Supabase CAPTCHA remains disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const response = await fetch(`https://api.supabase.com/v1/projects/${process.env.SUPABASE_PROJECT_REF}/config/auth`, {
+            headers: {
+              Authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,
+              Accept: 'application/json',
+            },
+          });
+          if (!response.ok) throw new Error(`Supabase Auth verification failed with HTTP ${response.status}`);
+          const config = await response.json();
+          if (config.security_captcha_enabled !== false) throw new Error('Supabase CAPTCHA was re-enabled unexpectedly.');
+          console.log(JSON.stringify({ security_captcha_enabled: false }));
+          NODE
+
+      - name: Disconnect legacy Git integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const projectUrl = new URL(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}`);
+          projectUrl.searchParams.set('teamId', process.env.VERCEL_ORG_ID);
+          const headers = {
+            Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          };
+          const readProject = async () => {
+            const response = await fetch(projectUrl, { headers });
+            if (!response.ok) throw new Error(`Vercel project lookup failed with HTTP ${response.status}`);
+            return response.json();
+          };
+          const before = await readProject();
+          if (before.link) {
+            const linkUrl = new URL(`${projectUrl.origin}${projectUrl.pathname}/link`);
+            linkUrl.search = projectUrl.search;
+            const response = await fetch(linkUrl, { method: 'DELETE', headers, body: '{}' });
+            if (!response.ok) throw new Error(`Vercel Git disconnect failed with HTTP ${response.status}`);
+          }
+          const after = await readProject();
+          if (after.link) throw new Error('Vercel project still exposes a Git link after disconnect.');
+          NODE
+
+      - name: Confirm automatic deployments remain disabled
+        if: always()
+        run: node scripts/vercel-production-control.mjs disable-auto

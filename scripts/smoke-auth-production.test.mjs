@@ -5,9 +5,7 @@ import { runAuthProductionSmoke } from './smoke-auth-production.mjs';
 
 const sha = '1234567890abcdef1234567890abcdef12345678';
 const appShell = '<!doctype html><html><head><script type="module" src="/assets/index-test.js"></script></head><body><div id="root"></div></body></html>';
-const bundle = [
-  'gotrue_meta_security',
-  'captcha_token',
+const validBundle = [
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
@@ -17,15 +15,15 @@ const bundle = [
   'god_mode',
 ].join(';');
 
-const buildMetadata = (siteKeyConfigured = true) => ({
+const buildMetadata = () => ({
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
   commitSha: sha,
   branch: 'main',
   environment: 'production',
   auth: {
-    mode: siteKeyConfigured ? 'full' : 'oauth_fallback',
-    emailPasswordConfigured: siteKeyConfigured,
+    mode: 'email_password_and_oauth',
+    emailPasswordConfigured: true,
     oauthFallbackSupported: true,
     routes: [
       '/login',
@@ -36,19 +34,14 @@ const buildMetadata = (siteKeyConfigured = true) => ({
       '/change-password',
       '/users',
     ],
-    captcha: {
-      enabled: true,
-      provider: 'turnstile',
-      siteKeyConfigured,
-      tokenTransport: 'gotrue_meta_security.captcha_token',
-    },
+    captchaEnabled: false,
     oauthProviderDiscovery: true,
     supportedOAuthProviders: ['github', 'google'],
     godModeIncluded: true,
   },
 });
 
-const startServer = async ({ siteKeyConfigured = true } = {}) => {
+const startServer = async ({ bundle = validBundle, metadata = buildMetadata() } = {}) => {
   const server = createServer((request, response) => {
     const path = request.url?.split('?')[0];
 
@@ -66,7 +59,7 @@ const startServer = async ({ siteKeyConfigured = true } = {}) => {
 
     if (path === '/build-meta.json') {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(buildMetadata(siteKeyConfigured)));
+      response.end(JSON.stringify(metadata));
       return;
     }
 
@@ -102,9 +95,9 @@ const startServer = async ({ siteKeyConfigured = true } = {}) => {
   try {
     const report = await runAuthProductionSmoke({ baseUrl, expectedSha: sha });
     assert.equal(report.status, 'passed');
-    assert.equal(report.authMode, 'full');
+    assert.equal(report.authMode, 'email_password_and_oauth');
     assert.equal(report.deployedSha, sha);
-    assert.equal(report.checks.length, 9);
+    assert.equal(report.checks.find(({ check }) => check === 'captcha-removed')?.status, 'passed');
   } finally {
     server.close();
     await once(server, 'close');
@@ -112,28 +105,28 @@ const startServer = async ({ siteKeyConfigured = true } = {}) => {
 }
 
 {
-  const { server, baseUrl } = await startServer({ siteKeyConfigured: false });
-  try {
-    const report = await runAuthProductionSmoke({
-      baseUrl,
-      expectedSha: sha,
-      requireCaptchaSiteKey: false,
-    });
-    assert.equal(report.status, 'passed_with_oauth_fallback');
-    assert.equal(report.authMode, 'oauth_fallback');
-    assert.equal(report.checks.find(({ check }) => check === 'captcha-config')?.status, 'fallback');
-  } finally {
-    server.close();
-    await once(server, 'close');
-  }
-}
-
-{
-  const { server, baseUrl } = await startServer({ siteKeyConfigured: false });
+  const metadata = buildMetadata();
+  metadata.auth.captchaEnabled = true;
+  const { server, baseUrl } = await startServer({ metadata });
   try {
     await assert.rejects(
       runAuthProductionSmoke({ baseUrl, expectedSha: sha }),
-      /VITE_CAPTCHA_SITE_KEY is not configured/,
+      /CAPTCHA must be disabled/,
+    );
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+}
+
+{
+  const { server, baseUrl } = await startServer({
+    bundle: `${validBundle};captcha_token;gotrue_meta_security`,
+  });
+  try {
+    await assert.rejects(
+      runAuthProductionSmoke({ baseUrl, expectedSha: sha }),
+      /retired CAPTCHA marker/,
     );
   } finally {
     server.close();

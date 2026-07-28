@@ -9,9 +9,7 @@ const AUTH_ROUTES = [
   '/auth/callback',
 ];
 
-const BUNDLE_MARKERS = [
-  'gotrue_meta_security',
-  'captcha_token',
+const REQUIRED_BUNDLE_MARKERS = [
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
@@ -19,6 +17,17 @@ const BUNDLE_MARKERS = [
   'github',
   'google',
   'god_mode',
+];
+
+const FORBIDDEN_BUNDLE_MARKERS = [
+  'gotrue_meta_security',
+  'captcha_token',
+  'CaptchaChallenge',
+  'VITE_CAPTCHA_',
+  'VITE_TURNSTILE_SITE_KEY',
+  'VITE_HCAPTCHA_SITE_KEY',
+  'challenges.cloudflare.com/turnstile',
+  'js.hcaptcha.com',
 ];
 
 const normalizeBaseUrl = (value) => value.replace(/\/+$/, '');
@@ -88,7 +97,6 @@ const shaMatches = (actual, expected) => (
 export const runAuthProductionSmoke = async ({
   baseUrl,
   expectedSha,
-  requireCaptchaSiteKey = true,
   fetchImpl = fetch,
 } = {}) => {
   assert.ok(baseUrl, 'baseUrl is required');
@@ -100,28 +108,15 @@ export const runAuthProductionSmoke = async ({
   const healthSha = resolveHealthSha(health);
   assert.equal(health?.status, 'real', 'Backend health must report status=real');
   assert.equal(health?.data?.mode, 'real', 'Backend health must report mode=real');
-  if (expectedSha) {
-    assert.ok(
-      shaMatches(healthSha, expectedSha),
-      `Production backend SHA ${healthSha ?? 'missing'} does not match expected SHA ${expectedSha}`,
-    );
-  }
+  if (expectedSha) assert.ok(shaMatches(healthSha, expectedSha), `Production backend SHA ${healthSha ?? 'missing'} does not match expected SHA ${expectedSha}`);
   checks.push({ check: 'backend-health', status: 'passed', detail: healthSha ?? 'sha unavailable' });
 
   const metadataResponse = await fetchWithRetry(`${normalizedBaseUrl}/build-meta.json`, {}, fetchImpl);
   const metadata = await readJson(metadataResponse, 'Frontend build metadata');
   assert.equal(metadata?.schemaVersion, 1, 'Unsupported frontend build metadata schema');
   assert.ok(metadata?.commitSha && metadata.commitSha !== 'local', 'Frontend build metadata has no deployment SHA');
-  if (expectedSha) {
-    assert.ok(
-      shaMatches(metadata.commitSha, expectedSha),
-      `Frontend SHA ${metadata.commitSha} does not match expected SHA ${expectedSha}`,
-    );
-  }
-  assert.ok(
-    shaMatches(metadata.commitSha, healthSha),
-    `Frontend SHA ${metadata.commitSha} and backend SHA ${healthSha ?? 'missing'} are inconsistent`,
-  );
+  if (expectedSha) assert.ok(shaMatches(metadata.commitSha, expectedSha), `Frontend SHA ${metadata.commitSha} does not match expected SHA ${expectedSha}`);
+  assert.ok(shaMatches(metadata.commitSha, healthSha), `Frontend SHA ${metadata.commitSha} and backend SHA ${healthSha ?? 'missing'} are inconsistent`);
   checks.push({ check: 'frontend-backend-sha', status: 'passed', detail: metadata.commitSha });
 
   for (const route of AUTH_ROUTES) {
@@ -134,42 +129,11 @@ export const runAuthProductionSmoke = async ({
     checks.push({ check: `route:${route}`, status: 'passed', detail: `HTTP ${response.status}` });
   }
 
-  assert.equal(metadata?.auth?.captcha?.enabled, true, 'CAPTCHA must be enabled in production');
-  assert.equal(
-    metadata?.auth?.captcha?.tokenTransport,
-    'gotrue_meta_security.captcha_token',
-    'CAPTCHA token transport is incorrect',
-  );
-  assert.ok(
-    ['turnstile', 'hcaptcha'].includes(metadata?.auth?.captcha?.provider),
-    `Unsupported CAPTCHA provider: ${metadata?.auth?.captcha?.provider ?? 'missing'}`,
-  );
-
-  const siteKeyConfigured = metadata?.auth?.captcha?.siteKeyConfigured === true;
-  const expectedAuthMode = siteKeyConfigured ? 'full' : 'oauth_fallback';
-  assert.equal(metadata?.auth?.mode, expectedAuthMode, 'Auth operating mode does not match CAPTCHA configuration');
-  assert.equal(
-    metadata?.auth?.emailPasswordConfigured,
-    siteKeyConfigured,
-    'Email/password availability does not match CAPTCHA site key state',
-  );
-
-  if (requireCaptchaSiteKey) {
-    assert.equal(
-      siteKeyConfigured,
-      true,
-      'VITE_CAPTCHA_SITE_KEY is not configured in the production frontend build',
-    );
-    assert.equal(metadata?.auth?.mode, 'full', 'Full Auth rollout requires auth.mode=full');
-  } else if (!siteKeyConfigured) {
-    assert.equal(metadata?.auth?.oauthFallbackSupported, true, 'OAuth fallback is not declared in this build');
-  }
-
-  checks.push({
-    check: 'captcha-config',
-    status: siteKeyConfigured ? 'passed' : 'fallback',
-    detail: `${metadata.auth.captcha.provider}; siteKey=${siteKeyConfigured}; transport=${metadata.auth.captcha.tokenTransport}; mode=${metadata.auth.mode}`,
-  });
+  assert.equal(metadata?.auth?.mode, 'email_password_and_oauth', 'Auth mode must expose email/password and OAuth');
+  assert.equal(metadata?.auth?.emailPasswordConfigured, true, 'Email/password must be available');
+  assert.equal(metadata?.auth?.captchaEnabled, false, 'CAPTCHA must be disabled');
+  assert.equal(metadata?.auth?.captcha, undefined, 'Legacy CAPTCHA metadata must not be emitted');
+  checks.push({ check: 'captcha-removed', status: 'passed', detail: 'server and frontend contract require captchaEnabled=false' });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
   const loginHtml = await loginResponse.text();
@@ -183,29 +147,22 @@ export const runAuthProductionSmoke = async ({
   }
   const bundle = bundleParts.join('\n');
 
-  for (const marker of BUNDLE_MARKERS) {
+  for (const marker of REQUIRED_BUNDLE_MARKERS) {
     assert.ok(bundle.includes(marker), `Production bundle is missing Auth marker: ${marker}`);
   }
-  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: BUNDLE_MARKERS.join(', ') });
+  for (const marker of FORBIDDEN_BUNDLE_MARKERS) {
+    assert.equal(bundle.includes(marker), false, `Production bundle still contains retired CAPTCHA marker: ${marker}`);
+  }
+  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: `required=${REQUIRED_BUNDLE_MARKERS.join(', ')}; captcha markers absent` });
 
   assert.equal(metadata?.auth?.oauthProviderDiscovery, true, 'OAuth provider discovery is not declared in this build');
-  assert.ok(
-    metadata?.auth?.supportedOAuthProviders?.includes('github'),
-    'GitHub OAuth support is not declared in this build',
-  );
-  assert.ok(
-    metadata?.auth?.supportedOAuthProviders?.includes('google'),
-    'Google OAuth support is not declared in this build',
-  );
+  assert.ok(metadata?.auth?.supportedOAuthProviders?.includes('github'), 'GitHub OAuth support is not declared in this build');
+  assert.ok(metadata?.auth?.supportedOAuthProviders?.includes('google'), 'Google OAuth support is not declared in this build');
   assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support is not declared in this build');
-  checks.push({
-    check: 'oauth-and-god-mode',
-    status: 'passed',
-    detail: 'dynamic provider discovery; github/google supported; GOD-MODE declared',
-  });
+  checks.push({ check: 'oauth-and-god-mode', status: 'passed', detail: 'dynamic provider discovery; github/google supported; GOD-MODE declared' });
 
   return {
-    status: siteKeyConfigured ? 'passed' : 'passed_with_oauth_fallback',
+    status: 'passed',
     authMode: metadata.auth.mode,
     baseUrl: normalizedBaseUrl,
     expectedSha: expectedSha ?? null,
@@ -245,7 +202,6 @@ const main = async () => {
   const report = await runAuthProductionSmoke({
     baseUrl: process.env.BASE_URL || 'https://motor-originac-srm.vercel.app',
     expectedSha: process.env.EXPECTED_SHA || undefined,
-    requireCaptchaSiteKey: process.env.REQUIRE_CAPTCHA_SITE_KEY !== 'false',
   });
 
   console.log(JSON.stringify(report, null, 2));

@@ -15,7 +15,7 @@ type AuthContextValue = {
   loading: boolean;
   isAuthenticated: boolean;
   isGodMode: boolean;
-  login: (email: string, password: string, captchaToken?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   acceptSession: (session: SessionData) => Promise<void>;
   refreshProfile: () => Promise<UserProfile | null>;
   logout: () => Promise<void>;
@@ -104,10 +104,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     loading,
     isAuthenticated: Boolean(session?.access_token && profile?.status === 'active'),
     isGodMode: profile?.role === 'god_mode' && profile.status === 'active',
-    async login(email, password, captchaToken) {
+    async login(email, password) {
       setLoading(true);
       try {
-        const nextSession = await supabaseAuth.signInWithPassword(email, password, captchaToken);
+        const nextSession = await supabaseAuth.signInWithPassword(email, password);
         await hydrateSession(nextSession);
       } finally {
         setLoading(false);

@@ -1,0 +1,31 @@
+{
+  "rollout": "auth-captcha-retirement",
+  "requestedAt": "2026-07-28T15:45:00Z",
+  "target": "production",
+  "deploymentMode": "vercel-prebuilt-controlled",
+  "supabaseProject": "hdghpmssudrqhsbvrdyt",
+  "changes": [
+    "disable-supabase-auth-captcha",
+    "remove-vercel-captcha-environment-variables",
+    "remove-frontend-captcha-component",
+    "remove-captcha-token-payload",
+    "enable-email-password-login-without-captcha",
+    "enable-password-recovery-without-captcha"
+  ],
+  "validate": [
+    "supabase-security-captcha-enabled-false",
+    "vercel-captcha-environment-variables-absent",
+    "frontend-bundle-captcha-markers-absent",
+    "email-password-login-route-ready",
+    "password-recovery-route-ready",
+    "frontend-backend-production-sha-equal",
+    "automatic-git-deployments-disabled"
+  ],
+  "acceptance": {
+    "captchaEnabled": false,
+    "emailPasswordEnabled": true,
+    "oauthEnabled": true,
+    "godModePreserved": true,
+    "codeBlockers": 0
+  }
+}

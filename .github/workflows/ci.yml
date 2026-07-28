@@ -40,8 +40,8 @@ jobs:
       - name: Validate Vercel prebuilt workflow contract
         run: npm run test:vercel-production-workflow
 
-      - name: Validate GoTrue CAPTCHA payload contract
-        run: npm run test:auth-captcha-payload
+      - name: Validate CAPTCHA retirement controller
+        run: npm run test:auth-captcha-retirement
 
       - name: Validate sanitized Supabase Auth config audit
         run: npm run test:auth-config-audit
