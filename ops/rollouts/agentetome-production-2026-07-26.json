@@ -1,23 +1,24 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-28T16:03:00Z",
+  "requestedAt": "2026-07-28T18:57:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "fidcs-cvm-production-rollout",
-    "sourcePr": 359,
-    "previousProductionSha": "204fb74f349b39e0474e64df694520f75b834045",
-    "applicationHeadSha": "7570ba41040b224f919104c0b1d68623fccc79be",
-    "rolloutContractFix": "none",
+    "kind": "auth-public-config-production-rollout",
+    "sourcePr": 366,
+    "previousProductionSha": "f43ffe2b2f06d25681a769f717dfdccc5390fc34",
+    "applicationHeadSha": "638f0da46af938856f9b48ec4a0503af70a163c8",
+    "rolloutContractFix": "public-supabase-client-required",
     "fixes": [
-      "fidcs-esm-safe-runtime-loading",
-      "fidcs-public-cnpj-validation-runtime",
-      "cvm-adaptive-microbatch-persistence",
-      "cvm-ckan-csv-resource-recognition",
-      "cvm-free-tier-row-bounds",
-      "source-catalog-semantic-deduplication"
+      "canonical-supabase-public-client-config",
+      "vercel-public-auth-environment-sync",
+      "publishable-key-only-frontend-guard",
+      "truthful-auth-build-metadata",
+      "real-supabase-settings-smoke",
+      "email-password-login-restoration",
+      "oauth-provider-discovery-restoration"
     ],
     "validate": [
       "exact-production-sha",
@@ -25,7 +26,10 @@
       "backend-typecheck",
       "serverless-typecheck",
       "production-build",
-      "canonical-auth-smoke",
+      "canonical-public-config-in-bundle",
+      "supabase-auth-settings-http-200",
+      "email-password-configured",
+      "captcha-disabled",
       "agentetome-runtime-contract",
       "automatic-git-deployments-disabled"
     ]
