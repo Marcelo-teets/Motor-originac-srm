@@ -3,6 +3,8 @@ import { isCompanyMonitoringEligible } from './companyDecisionEligibility.js';
 
 export const CAPTURE_RUNTIME_BUDGET_MS = 24_000;
 
+export type CaptureCadence = 'frequent' | 'daily' | 'weekly' | 'monthly' | 'all';
+
 export type BoundedCaptureTarget = {
   companyId: string;
   companyName: string;
@@ -23,17 +25,30 @@ export const selectMonitoringCompanies = (companies: CompanySeed[], useSupabase:
   useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies
 );
 
-export const selectCaptureSources = (sources: SourceCatalogEntry[]) => sources.filter((source) => (
-  source.status === 'real' && source.health === 'healthy'
-));
+const schedulePolicy = (source: SourceCatalogEntry) => {
+  const candidate = source.metadata?.schedulePolicy;
+  return candidate && typeof candidate === 'object' ? candidate as Record<string, unknown> : null;
+};
+
+export const selectCaptureSources = (sources: SourceCatalogEntry[], cadence: CaptureCadence = 'all') => sources.filter((source) => {
+  const status = String(source.status);
+  const statusEligible = status === 'real' || status === 'partial' || status === 'active';
+  if (!statusEligible || source.health !== 'healthy') return false;
+
+  const policy = schedulePolicy(source);
+  if (!policy) return cadence === 'all';
+  if (policy.enabled === false || policy.runner !== 'bounded_capture') return false;
+  return cadence === 'all' || policy.cadence === cadence;
+});
 
 export const buildBoundedCaptureTargets = (
   companies: CompanySeed[],
   sources: SourceCatalogEntry[],
   useSupabase: boolean,
+  cadence: CaptureCadence = 'all',
 ): BoundedCaptureTarget[] => {
   const eligibleCompanies = selectMonitoringCompanies(companies, useSupabase);
-  const eligibleSources = selectCaptureSources(sources);
+  const eligibleSources = selectCaptureSources(sources, cadence);
   return eligibleCompanies.flatMap((company) => eligibleSources.map((source) => ({
     companyId: company.id,
     companyName: company.tradeName,
