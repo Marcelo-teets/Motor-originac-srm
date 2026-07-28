@@ -241,7 +241,7 @@ export const selectDatasetResources = (
     .filter((resource) => Boolean(resource.url)
       && !isCvmMetadataResource(resource)
       && definition.resourcePattern.test(`${resource.name} ${resource.url}`))
-    .map(normalizeCvmResourceName);
+    .map((resource) => definition.code === 'cvm_offers' ? resource : normalizeCvmResourceName(resource));
   const referenced = referenceKey
     ? supported.filter((resource) => normalizeReference(`${resource.name} ${resource.url}`).includes(referenceKey))
     : supported;
