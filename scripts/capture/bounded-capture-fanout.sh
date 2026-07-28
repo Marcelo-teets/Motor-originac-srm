@@ -5,22 +5,29 @@ set -euo pipefail
 : "${TARGETS_URL:?targets url is missing}"
 : "${CAPTURE_URL:?capture url is missing}"
 MAX_PARALLELISM="${MAX_PARALLELISM:-3}"
+CAPTURE_CADENCE="${CAPTURE_CADENCE:-all}"
 SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+separator='?'
+if [[ "$TARGETS_URL" == *'?'* ]]; then separator='&'; fi
+TARGETS_REQUEST_URL="${TARGETS_URL}${separator}cadence=${CAPTURE_CADENCE}"
 
 http_code="$(curl --silent --show-error \
   --output targets.json \
   --write-out '%{http_code}' \
   --max-time 25 \
   --header "Authorization: Bearer ${CAPTURE_TOKEN}" \
-  "${TARGETS_URL}")"
+  "${TARGETS_REQUEST_URL}")"
 if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
   echo "Target discovery failed with HTTP $http_code" >&2
   cat targets.json >&2
   exit 1
 fi
 jq -e '.data.policy.boundedScopeRequired == true' targets.json >/dev/null
+jq -e --arg cadence "$CAPTURE_CADENCE" '.data.policy.cadence == $cadence' targets.json >/dev/null
 jq -r '.data.targets[] | [.companyId, .sourceId, .companyName, .sourceName] | @tsv' targets.json > capture-targets.tsv
 {
+  echo "cadence=$CAPTURE_CADENCE"
   echo "companies=$(jq -r '.data.counts.companies' targets.json)"
   echo "sources=$(jq -r '.data.counts.sources' targets.json)"
   echo "targets=$(jq -r '.data.counts.targets' targets.json)"
@@ -28,7 +35,7 @@ jq -r '.data.targets[] | [.companyId, .sourceId, .companyName, .sourceName] | @t
 
 mkdir -p capture-results
 if [[ ! -s capture-targets.tsv ]]; then
-  echo "No monitoring-eligible capture targets." >> "$SUMMARY_FILE"
+  echo "No monitoring-eligible capture targets for cadence $CAPTURE_CADENCE." >> "$SUMMARY_FILE"
   exit 0
 fi
 
