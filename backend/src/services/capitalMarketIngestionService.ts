@@ -9,13 +9,14 @@ import {
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
-const BATCH_SIZE = 100;
-const MAX_ROWS = 500_000;
+const BATCH_SIZE = 50;
+const DEFAULT_MAX_ROWS = 5_000;
+const MAX_ROWS = 20_000;
 const STALE_RUN_MS = 30 * 60 * 1_000;
 const allDatasets = Object.keys(CVM_DATASETS) as CvmDatasetCode[];
-const chunks = <T>(items: T[]) => Array.from(
-  { length: Math.ceil(items.length / BATCH_SIZE) },
-  (_, index) => items.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
+const chunks = <T>(items: T[], batchSize = BATCH_SIZE) => Array.from(
+  { length: Math.ceil(items.length / batchSize) },
+  (_, index) => items.slice(index * batchSize, (index + 1) * batchSize),
 );
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const isConflict = (error: unknown) => /uq_capital_market_dataset_single_running|duplicate key|23505/i.test(message(error));
@@ -49,7 +50,7 @@ type Checkpoint = {
 };
 type Source = { id: string; name: string; metadata?: Record<string, unknown> };
 
-type BatchPersistResult = {
+export type BatchPersistResult = {
   bronzeRowsWritten: number;
   eventsWritten: number;
   entityLinksWritten: number;
@@ -59,12 +60,72 @@ type BatchPersistResult = {
   recordsUnchanged: number;
 };
 
+const emptyBatchPersistResult = (): BatchPersistResult => ({
+  bronzeRowsWritten: 0,
+  eventsWritten: 0,
+  entityLinksWritten: 0,
+  metricsWritten: 0,
+  recordsInserted: 0,
+  recordsUpdated: 0,
+  recordsUnchanged: 0,
+});
+
+const addBatchPersistResult = (target: BatchPersistResult, source: Partial<BatchPersistResult>) => {
+  target.bronzeRowsWritten += Number(source.bronzeRowsWritten ?? 0);
+  target.eventsWritten += Number(source.eventsWritten ?? 0);
+  target.entityLinksWritten += Number(source.entityLinksWritten ?? 0);
+  target.metricsWritten += Number(source.metricsWritten ?? 0);
+  target.recordsInserted += Number(source.recordsInserted ?? 0);
+  target.recordsUpdated += Number(source.recordsUpdated ?? 0);
+  target.recordsUnchanged += Number(source.recordsUnchanged ?? 0);
+};
+
 export const serializeCapitalMarketBatch = (records: NormalizedCapitalMarketRecord[]) => records.map((record) => ({
   bronze: record.bronze,
   event: record.event,
   entity_links: record.entityLinks,
   metrics: record.metrics,
 }));
+
+export const isCapitalMarketStatementTimeout = (error: unknown) => (
+  /(?:\b57014\b|statement timeout|canceling statement)/i.test(message(error))
+);
+
+export const normalizeCvmDownloadResource = (resource: CvmResource): CvmResource => {
+  const name = resource.name?.trim() || 'resource';
+  const csvByMetadata = /csv/i.test(resource.format ?? '');
+  const csvByUrl = /\.csv(?:$|\?)/i.test(resource.url);
+  if ((csvByMetadata || csvByUrl) && !/\.(?:csv|zip)$/i.test(name)) {
+    return { ...resource, name: `${name}.csv` };
+  }
+  return resource;
+};
+
+export const persistCapitalMarketBatches = async (
+  records: NormalizedCapitalMarketRecord[],
+  persistBatch: (
+    batch: ReturnType<typeof serializeCapitalMarketBatch>,
+  ) => Promise<BatchPersistResult | null>,
+  batchSize = BATCH_SIZE,
+): Promise<BatchPersistResult> => {
+  const totals = emptyBatchPersistResult();
+
+  const persistAdaptive = async (batch: NormalizedCapitalMarketRecord[]): Promise<void> => {
+    try {
+      const persisted = await persistBatch(serializeCapitalMarketBatch(batch));
+      if (!persisted) throw new Error('persist_capital_market_batch returned no result.');
+      addBatchPersistResult(totals, persisted);
+    } catch (error) {
+      if (!isCapitalMarketStatementTimeout(error) || batch.length <= 1) throw error;
+      const midpoint = Math.ceil(batch.length / 2);
+      await persistAdaptive(batch.slice(0, midpoint));
+      await persistAdaptive(batch.slice(midpoint));
+    }
+  };
+
+  for (const batch of chunks(records, batchSize)) await persistAdaptive(batch);
+  return totals;
+};
 
 export type CapitalMarketDatasetSummary = {
   datasetCode: CvmDatasetCode;
@@ -129,7 +190,7 @@ export class CapitalMarketIngestionService {
   async run(options: CapitalMarketIngestionOptions = {}) {
     if (!this.client) throw new Error('Supabase client not configured for capital-market ingestion.');
     const datasets = options.datasets?.length ? [...new Set(options.datasets)] : allDatasets;
-    const maxRows = Math.max(1, Math.min(options.maxRows ?? 50_000, MAX_ROWS));
+    const maxRows = Math.max(1, Math.min(options.maxRows ?? DEFAULT_MAX_ROWS, MAX_ROWS));
     const summaries: CapitalMarketDatasetSummary[] = [];
     for (const datasetCode of datasets) {
       summaries.push(await this.runDataset(datasetCode, {
@@ -223,7 +284,8 @@ export class CapitalMarketIngestionService {
     const skippedFingerprints: string[] = [];
 
     try {
-      const resources = await discoverCvmResources(datasetCode, options.reference);
+      const resources = (await discoverCvmResources(datasetCode, options.reference))
+        .map(normalizeCvmDownloadResource);
       const candidates = resources.filter((resource) => {
         const checkpoint = checkpointByKey.get(resourceKey(resource));
         if (!shouldSkipCapitalMarketResource({ ...options, resource, checkpoint })) return true;
@@ -363,28 +425,9 @@ export class CapitalMarketIngestionService {
   }
 
   private async persist(records: NormalizedCapitalMarketRecord[]) {
-    const totals: BatchPersistResult = {
-      bronzeRowsWritten: 0,
-      eventsWritten: 0,
-      entityLinksWritten: 0,
-      metricsWritten: 0,
-      recordsInserted: 0,
-      recordsUpdated: 0,
-      recordsUnchanged: 0,
-    };
-    for (const batch of chunks(records)) {
-      const persisted = await this.client!.rpc<BatchPersistResult>('persist_capital_market_batch', {
-        p_records: serializeCapitalMarketBatch(batch),
-      });
-      if (!persisted) throw new Error('persist_capital_market_batch returned no result.');
-      totals.bronzeRowsWritten += Number(persisted.bronzeRowsWritten ?? 0);
-      totals.eventsWritten += Number(persisted.eventsWritten ?? 0);
-      totals.entityLinksWritten += Number(persisted.entityLinksWritten ?? 0);
-      totals.metricsWritten += Number(persisted.metricsWritten ?? 0);
-      totals.recordsInserted += Number(persisted.recordsInserted ?? 0);
-      totals.recordsUpdated += Number(persisted.recordsUpdated ?? 0);
-      totals.recordsUnchanged += Number(persisted.recordsUnchanged ?? 0);
-    }
-    return totals;
+    return persistCapitalMarketBatches(records, async (batch) => this.client!.rpc<BatchPersistResult>(
+      'persist_capital_market_batch',
+      { p_records: batch },
+    ));
   }
 }
