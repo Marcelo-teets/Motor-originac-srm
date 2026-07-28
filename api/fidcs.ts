@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import { fetchFidcsFundSnapshot, normalizeCnpj, type FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
+import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -14,6 +14,12 @@ const SOURCE_CODE = 'src_fidcs_com_br';
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const errorStatus = (error: unknown) => typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 500;
+const loadFidcsModule = () => import('../backend/src/lib/fidcsComBr.js');
+const normalizeCnpjInput = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 14) throw new ApiError('CNPJ deve conter 14 dígitos.', 400);
+  return digits;
+};
 
 const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -140,12 +146,13 @@ const latestFidcCnpjs = async (limit: number) => {
     if (cnpj.length !== 14 || seen.has(cnpj)) return false;
     seen.add(cnpj);
     return true;
-  }).slice(0, limit).map((row) => ({ ...row, fund_cnpj: normalizeCnpj(String(row.fund_cnpj)) }));
+  }).slice(0, limit).map((row) => ({ ...row, fund_cnpj: normalizeCnpjInput(String(row.fund_cnpj)) }));
 };
 
 const persistSnapshot = async (snapshot: FidcsFundSnapshot) => serviceRpc<string>('persist_fidcs_validation', { p_snapshot: snapshot });
 
 const probeOne = async (cnpj: string) => {
+  const { fetchFidcsFundSnapshot } = await loadFidcsModule();
   const snapshot = await fetchFidcsFundSnapshot(cnpj, { sessionCookie: process.env.FIDCS_SESSION_COOKIE });
   const outputId = await persistSnapshot(snapshot);
   return { outputId, snapshot };
@@ -205,7 +212,7 @@ export default async function handler(req: FidcsRequest, res: VercelResponse) {
       return writeJson(res, 200, { status: status.status ?? source.status, generatedAt: new Date().toISOString(), data: status });
     }
     if (operation === 'fund' && req.method === 'GET') {
-      const cnpj = normalizeCnpj(String(requestValue(req.query.cnpj) ?? ''));
+      const cnpj = normalizeCnpjInput(String(requestValue(req.query.cnpj) ?? ''));
       const result = await probeOne(cnpj);
       await updateSourceHealth(source, 'real', 'healthy', {
         status: 'completed', finishedAt: new Date().toISOString(), cnpj,
