@@ -53,6 +53,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/task-center',
+    label: 'Planner + To Do',
+    shortLabel: 'Central de tarefas',
+    description: 'Tarefas pessoais no Microsoft To Do e trabalho compartilhado no Planner.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/dcm-daily',
     label: 'Fila diária DCM',
     shortLabel: 'Abordagens do dia',

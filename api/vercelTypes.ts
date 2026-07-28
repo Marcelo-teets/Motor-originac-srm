@@ -5,7 +5,9 @@ export type VercelRequest = {
 };
 
 export type VercelResponse = {
+  statusCode: number;
   setHeader: (name: string, value: string) => void;
   status: (statusCode: number) => VercelResponse;
   json: (body: unknown) => VercelResponse;
+  end: (body?: unknown) => VercelResponse;
 };
