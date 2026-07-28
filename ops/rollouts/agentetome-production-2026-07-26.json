@@ -1,25 +1,22 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-28T01:34:00Z",
+  "requestedAt": "2026-07-28T15:19:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "ux-workspace-v4-production-rollout",
-    "previousProductionSha": "24b74a0bb5790a1fff60bb24ed81da6b18d72e1e",
-    "applicationMainSha": "71004455eea9b5b1bf9293d3776533433408fe75",
+    "kind": "auth-login-unblock-production-rollout",
+    "sourcePr": 348,
+    "previousProductionSha": "e55eb4d99bd12eb428e23fb05f876ffa8a9bde1b",
+    "applicationHeadSha": "3201640947eb34a090603f6d4e83377d070989f0",
     "rolloutContractFix": "none",
     "fixes": [
-      "global-command-palette",
-      "persistent-origination-workflow-rail",
-      "daily-action-dashboard",
-      "actionable-lead-decision-queue",
-      "real-pipeline-kanban",
-      "commercial-attention-queue",
-      "guided-search-profile-wizard",
-      "company-context-workspace",
-      "responsive-workspace-design-system"
+      "interactive-email-and-password-fields",
+      "captcha-environment-alias-compatibility",
+      "captcha-token-reset-after-failure",
+      "password-recovery-unblock",
+      "actionable-auth-error-messages"
     ],
     "validate": [
       "exact-production-sha",
@@ -27,8 +24,8 @@
       "backend-typecheck",
       "serverless-typecheck",
       "production-build",
+      "gotrue-captcha-payload-contract",
       "canonical-auth-smoke",
-      "new-css-bundle",
       "automatic-git-deployments-disabled"
     ]
   },
