@@ -40,6 +40,9 @@
     },
     "api/microsoft.ts": {
       "maxDuration": 30
+    },
+    "api/task-ai.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -128,6 +131,10 @@
     {
       "source": "/api/integrations/microsoft/:operation",
       "destination": "/api/microsoft?operation=:operation"
+    },
+    {
+      "source": "/api/integrations/task-ai",
+      "destination": "/api/task-ai"
     },
     {
       "source": "/api/:path*",
