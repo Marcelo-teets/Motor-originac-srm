@@ -1,9 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { CaptchaChallenge } from '../components/CaptchaChallenge';
 import { useAuth } from '../lib/auth';
 import {
-  captchaConfig,
   supabaseAuth,
   type OAuthProviderOption,
 } from '../lib/supabaseAuth';
@@ -12,8 +10,6 @@ export function LoginPage() {
   const { login, loading, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaVersion, setCaptchaVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderOption[]>([]);
   const [oauthLoading, setOAuthLoading] = useState(true);
@@ -45,26 +41,14 @@ export function LoginPage() {
   if (isAuthenticated) return <Navigate to="/" replace />;
 
   const hasOAuthProviders = oauthProviders.length > 0;
-  const captchaBlocked = captchaConfig.enabled && Boolean(captchaConfig.siteKey) && !captchaToken;
-
-  const resetCaptcha = () => {
-    setCaptchaToken(null);
-    setCaptchaVersion((current) => current + 1);
-  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    if (captchaBlocked) {
-      setError('Conclua o desafio de segurança antes de entrar.');
-      return;
-    }
-
     try {
-      await login(email.trim(), password, captchaToken ?? undefined);
+      await login(email.trim(), password);
     } catch (err) {
-      resetCaptcha();
       setError(err instanceof Error ? err.message : 'Falha inesperada no login.');
     }
   };
@@ -108,12 +92,6 @@ export function LoginPage() {
           </div>
         ) : null}
 
-        {!captchaConfig.configured && hasOAuthProviders ? (
-          <div className="auth-alert auth-alert-warning">
-            O desafio de segurança não foi carregado. O acesso com Google continua disponível enquanto a configuração do CAPTCHA é concluída.
-          </div>
-        ) : null}
-
         {oauthUnavailable ? (
           <div className="auth-alert auth-alert-warning">
             Não foi possível consultar os provedores de acesso. O formulário de e-mail e senha continua disponível.
@@ -152,10 +130,9 @@ export function LoginPage() {
             <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
           </div>
 
-          <CaptchaChallenge key={captchaVersion} onToken={setCaptchaToken} />
           {error ? <div className="auth-alert auth-alert-error" role="alert">{error}</div> : null}
 
-          <button type="submit" disabled={loading || captchaBlocked}>
+          <button type="submit" disabled={loading}>
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
