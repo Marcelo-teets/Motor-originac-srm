@@ -2,25 +2,53 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
+import { CommandPalette } from './CommandPalette';
 
-const primaryPaths = ['/', '/companies', '/pipeline', '/search-profiles'];
+const primaryPaths = ['/', '/search-profiles', '/companies', '/pipeline'];
 const intelligencePaths = ['/market-map', '/watch-lists', '/dcm-daily', '/outcome-operations', '/knowledge-vault', '/knowledge-search', '/knowledge-learning', '/origination-os'];
 const operationsPaths = ['/monitoring', '/capture-inbox', '/identity-review', '/credit-review', '/sources', '/agents', '/historical-archive', '/users'];
+
+const workflowSteps = [
+  { to: '/search-profiles', number: '01', label: 'Descobrir', description: 'Criar universos e capturar empresas' },
+  { to: '/companies', number: '02', label: 'Priorizar', description: 'Separar os leads que merecem ação' },
+  { to: '/companies', number: '03', label: 'Analisar', description: 'Validar tese, estrutura e timing' },
+  { to: '/pipeline', number: '04', label: 'Executar', description: 'Avançar, registrar e acompanhar' },
+];
 
 export function Layout() {
   const { logout, session, profile, isGodMode } = useAuth();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const visibleNavItems = useMemo(() => navItems.filter((item) => !item.godOnly || isGodMode), [isGodMode]);
   const activeItem = [...visibleNavItems]
     .reverse()
     .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? visibleNavItems[0];
 
-  const primaryItems = visibleNavItems.filter((item) => primaryPaths.includes(item.to));
+  const primaryItems = primaryPaths
+    .map((path) => visibleNavItems.find((item) => item.to === path))
+    .filter((item): item is (typeof visibleNavItems)[number] => Boolean(item));
   const intelligenceItems = visibleNavItems.filter((item) => intelligencePaths.includes(item.to));
   const operationsItems = visibleNavItems.filter((item) => operationsPaths.includes(item.to));
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT' || target?.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+      if (!typing && event.key === '/') {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const renderNavItem = (item: (typeof visibleNavItems)[number]) => (
     <NavLink
@@ -41,7 +69,9 @@ export function Layout() {
   const userInitial = (profile?.full_name ?? profile?.email ?? 'U').slice(0, 1).toUpperCase();
 
   return (
-    <div className="shell shell-v3">
+    <div className="shell shell-v4">
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
+
       <button
         type="button"
         className="mobile-menu-button secondary"
@@ -54,23 +84,29 @@ export function Layout() {
 
       {menuOpen ? <button type="button" className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
 
-      <aside id="main-sidebar" className={`sidebar sidebar-v3 ${menuOpen ? 'sidebar-open' : ''}`}>
-        <div className="sidebar-brand sidebar-brand-v3">
+      <aside id="main-sidebar" className={`sidebar sidebar-v3 sidebar-v4 ${menuOpen ? 'sidebar-open' : ''}`}>
+        <Link to="/" className="sidebar-brand sidebar-brand-v3 sidebar-brand-link">
           <div className="brand-mark" aria-hidden="true">M</div>
           <div>
             <p className="eyebrow">Origination Intelligence</p>
             <h1>Motor SRM</h1>
           </div>
-        </div>
+        </Link>
+
+        <button type="button" className="global-search-trigger" onClick={() => setCommandOpen(true)}>
+          <span aria-hidden="true">⌕</span>
+          <span>Buscar no Motor</span>
+          <kbd>⌘ K</kbd>
+        </button>
 
         <div className="sidebar-context">
           <span className="context-dot" aria-hidden="true" />
-          <span>Ambiente de produção</span>
+          <span>Produção · dados reais</span>
         </div>
 
         <div className="sidebar-section sidebar-section-v3">
           <div className="sidebar-group">
-            <span className="sidebar-label">Fluxo principal</span>
+            <span className="sidebar-label">Telas principais</span>
             <nav>{primaryItems.map(renderNavItem)}</nav>
           </div>
 
@@ -103,18 +139,38 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="content content-v3">
-        <header className="topbar topbar-v3">
+      <main className="content content-v3 content-v4">
+        <header className="topbar topbar-v3 topbar-v4">
           <div className="topbar-title">
             <p className="eyebrow">Motor SRM / {activeItem.group}</p>
             <strong>{activeItem.label}</strong>
             <span>{activeItem.description}</span>
           </div>
           <div className="topbar-meta topbar-actions">
-            <Link to="/search-profiles" className="button secondary compact-button">Novo perfil</Link>
-            <Link to="/companies" className="button compact-button">Abrir leads</Link>
+            <button type="button" className="secondary compact-button topbar-search" onClick={() => setCommandOpen(true)}>
+              Buscar <kbd>⌘ K</kbd>
+            </button>
+            <Link to="/companies" className="button compact-button">Abrir fila</Link>
           </div>
         </header>
+
+        <nav className="workflow-rail" aria-label="Fluxo principal de originação">
+          {workflowSteps.map((step, index) => {
+            const active = step.to === '/companies'
+              ? location.pathname.startsWith('/companies') && (index === 1 || index === 2)
+              : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
+            return (
+              <Link key={`${step.number}-${step.label}`} to={step.to} className={active ? 'active' : ''}>
+                <span>{step.number}</span>
+                <span>
+                  <strong>{step.label}</strong>
+                  <small>{step.description}</small>
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+
         <Outlet />
       </main>
     </div>
