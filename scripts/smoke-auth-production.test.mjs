@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import test from 'node:test';
 import { runAuthProductionSmoke } from './smoke-auth-production.mjs';
 
 const sha = '1234567890abcdef1234567890abcdef12345678';
