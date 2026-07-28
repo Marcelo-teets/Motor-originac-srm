@@ -1,22 +1,22 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-28T15:19:00Z",
+  "requestedAt": "2026-07-28T15:44:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "auth-login-unblock-production-rollout",
-    "sourcePr": 348,
-    "previousProductionSha": "e55eb4d99bd12eb428e23fb05f876ffa8a9bde1b",
-    "applicationHeadSha": "3201640947eb34a090603f6d4e83377d070989f0",
+    "kind": "fidcs-source-governance-production-rollout",
+    "sourcePr": 351,
+    "previousProductionSha": "3fca78a3906065994fff6631992ef8aacfeaa234",
+    "applicationHeadSha": "ef35de75e7687ec2b4a0cd464789a8f6704defda",
     "rolloutContractFix": "none",
     "fixes": [
-      "interactive-email-and-password-fields",
-      "captcha-environment-alias-compatibility",
-      "captcha-token-reset-after-failure",
-      "password-recovery-unblock",
-      "actionable-auth-error-messages"
+      "fidcs-public-cnpj-validation-runtime",
+      "fidcs-lightweight-monitoring-persistence",
+      "source-catalog-semantic-deduplication",
+      "standby-versus-degraded-health-semantics",
+      "cvm-canonical-source-boundary"
     ],
     "validate": [
       "exact-production-sha",
@@ -24,8 +24,8 @@
       "backend-typecheck",
       "serverless-typecheck",
       "production-build",
-      "gotrue-captcha-payload-contract",
       "canonical-auth-smoke",
+      "agentetome-runtime-contract",
       "automatic-git-deployments-disabled"
     ]
   },
