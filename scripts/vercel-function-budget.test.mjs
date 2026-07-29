@@ -4,12 +4,17 @@ import { join } from 'node:path';
 
 const apiEntries = readdirSync('api')
   .filter((name) => name.endsWith('.ts'))
-  .filter((name) => /export\s+default/.test(readFileSync(join('api', name), 'utf8')));
+  .filter((name) => !name.endsWith('.d.ts'));
 
 assert.ok(
   apiEntries.length <= 12,
   `Vercel Hobby supports at most 12 Serverless Functions; api/ declares ${apiEntries.length}: ${apiEntries.join(', ')}`,
 );
+
+for (const name of apiEntries) {
+  const source = readFileSync(join('api', name), 'utf8');
+  assert.match(source, /export\s+default/, `${name} is inside api/ but does not export a Vercel handler. Move helpers to serverless/ or use a .d.ts declaration.`);
+}
 
 const consolidatedRoutes = [
   'bounded-capture-run',
