@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useMemo, useState } from 'react';
-import { Card, DataStatusBanner, EmptyState, PageIntro, Pill } from '../components/UI';
+import { Card, DataStatusBanner, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../components/UI';
 import { defaultSearchProfileDraft, searchProfilePresets } from '../mocks/data';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -44,17 +44,20 @@ const profileSteps: Array<{ number: string; title: string; description: string; 
   },
 ];
 
+type Feedback = { tone: 'success' | 'error' | 'warning'; message: string } | null;
+
 export function SearchProfilesPage() {
   const { session } = useAuth();
   const [draft, setDraft] = useState<SearchProfileDraft>(defaultSearchProfileDraft);
   const [activeStep, setActiveStep] = useState(0);
   const [workspaceTab, setWorkspaceTab] = useState<'builder' | 'saved' | 'results'>('builder');
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
-  const [running, setRunning] = useState(false);
+  const [runningProfileId, setRunningProfileId] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
-  const { data, loading, error, setData } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
+  const { data, loading, error, setData, reload } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const summary = useMemo(() => ([
     { label: 'Universo', value: `${draft.segment} · ${draft.subsegment}` },
@@ -69,8 +72,9 @@ export function SearchProfilesPage() {
   const currentStep = profileSteps[activeStep];
 
   const handleSave = async () => {
+    if (saving) return;
     setSaving(true);
-    setSaveMessage(null);
+    setFeedback(null);
     try {
       const saved = await api.saveSearchProfile(session, {
         name: `${draft.segment} · ${draft.targetStructure}`,
@@ -89,10 +93,10 @@ export function SearchProfilesPage() {
       const refreshed = await api.getSearchProfiles(session);
       setData(refreshed);
       setSelectedProfileId(saved.id);
-      setSaveMessage(`Perfil salvo: ${saved.name}.`);
+      setFeedback({ tone: 'success', message: `Perfil salvo: ${saved.name}.` });
       setWorkspaceTab('saved');
     } catch (saveError) {
-      setSaveMessage(saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.');
+      setFeedback({ tone: 'error', message: saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.' });
     } finally {
       setSaving(false);
     }
@@ -100,37 +104,43 @@ export function SearchProfilesPage() {
 
   const handleRun = async (profileId = selectedProfileId) => {
     if (!profileId) {
-      setSaveMessage('Selecione um perfil salvo para executar a busca.');
+      setFeedback({ tone: 'warning', message: 'Selecione um perfil salvo para executar a busca.' });
       return;
     }
+    if (runningProfileId) return;
     setSelectedProfileId(profileId);
-    setRunning(true);
-    setSaveMessage(null);
+    setRunningProfileId(profileId);
+    setFeedback(null);
     try {
       const result = await api.runSearchProfile(session, profileId);
       setCandidates(result.candidates);
-      setSaveMessage(`Busca concluída: ${result.candidates.length} candidato(s) capturado(s).`);
+      setFeedback({ tone: 'success', message: `Busca concluída: ${result.candidates.length} candidato(s) capturado(s).` });
       setWorkspaceTab('results');
     } catch (runError) {
-      setSaveMessage(runError instanceof Error ? runError.message : 'Falha ao rodar busca.');
+      setFeedback({ tone: 'error', message: runError instanceof Error ? runError.message : 'Falha ao rodar busca.' });
     } finally {
-      setRunning(false);
+      setRunningProfileId(null);
     }
   };
 
   const handlePromote = async (candidateId: string) => {
+    if (promotingId) return;
+    setPromotingId(candidateId);
+    setFeedback(null);
     try {
       await api.promoteSearchCandidate(session, candidateId);
       const refreshed = await api.getSearchProfileCandidates(session, selectedProfileId);
       setCandidates(refreshed);
-      setSaveMessage('Candidato promovido para a base de leads.');
+      setFeedback({ tone: 'success', message: 'Candidato promovido para a base de leads.' });
     } catch (promoteError) {
-      setSaveMessage(promoteError instanceof Error ? promoteError.message : 'Falha ao promover candidato.');
+      setFeedback({ tone: 'error', message: promoteError instanceof Error ? promoteError.message : 'Falha ao promover candidato.' });
+    } finally {
+      setPromotingId(null);
     }
   };
 
-  if (loading) return <div className="page"><Card title="Search Profiles" subtitle="Carregando perfis persistidos">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Search Profiles" subtitle="Falha ao carregar perfis">{error}</Card></div>;
+  if (loading) return <LoadingState title="Perfis de busca" subtitle="Carregando teses de descoberta persistidas." />;
+  if (error || !data) return <ErrorState title="Perfis de busca" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   return (
     <div className="page search-profile-workspace">
@@ -144,18 +154,23 @@ export function SearchProfilesPage() {
       <DataStatusBanner source={data.source} note={data.note} />
 
       <nav className="workspace-tabs" aria-label="Etapas dos perfis de busca">
-        <button type="button" className={workspaceTab === 'builder' ? 'active' : ''} onClick={() => setWorkspaceTab('builder')}>
+        <button type="button" aria-pressed={workspaceTab === 'builder'} className={workspaceTab === 'builder' ? 'active' : ''} onClick={() => setWorkspaceTab('builder')}>
           <span>1</span><strong>Criar perfil</strong><small>Definir universo e tese</small>
         </button>
-        <button type="button" className={workspaceTab === 'saved' ? 'active' : ''} onClick={() => setWorkspaceTab('saved')}>
+        <button type="button" aria-pressed={workspaceTab === 'saved'} className={workspaceTab === 'saved' ? 'active' : ''} onClick={() => setWorkspaceTab('saved')}>
           <span>2</span><strong>Perfis salvos</strong><small>{data.data.length} configuração(ões)</small>
         </button>
-        <button type="button" className={workspaceTab === 'results' ? 'active' : ''} onClick={() => setWorkspaceTab('results')}>
+        <button type="button" aria-pressed={workspaceTab === 'results'} className={workspaceTab === 'results' ? 'active' : ''} onClick={() => setWorkspaceTab('results')}>
           <span>3</span><strong>Revisar candidatos</strong><small>{candidates.length} resultado(s)</small>
         </button>
       </nav>
 
-      {saveMessage ? <div className="inline-notice"><span>{saveMessage}</span></div> : null}
+      {feedback ? (
+        <div className={`inline-notice inline-notice-${feedback.tone === 'error' ? 'error' : feedback.tone === 'success' ? 'success' : ''}`} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
+          <Pill tone={feedback.tone === 'error' ? 'danger' : feedback.tone}>{feedback.tone === 'error' ? 'erro' : feedback.tone === 'success' ? 'concluído' : 'atenção'}</Pill>
+          <span>{feedback.message}</span>
+        </div>
+      ) : null}
 
       {workspaceTab === 'builder' ? (
         <section className="profile-wizard-layout">
@@ -165,6 +180,7 @@ export function SearchProfilesPage() {
                 <button
                   key={step.number}
                   type="button"
+                  aria-current={index === activeStep ? 'step' : undefined}
                   className={index === activeStep ? 'active' : index < activeStep ? 'complete' : ''}
                   onClick={() => setActiveStep(index)}
                 >
@@ -191,9 +207,9 @@ export function SearchProfilesPage() {
                 ))}
               </div>
               <div className="profile-wizard-actions">
-                <button type="button" className="secondary" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))}>Voltar</button>
+                <button type="button" className="secondary" disabled={activeStep === 0 || saving} onClick={() => setActiveStep((current) => Math.max(0, current - 1))}>Voltar</button>
                 {activeStep < profileSteps.length - 1 ? (
-                  <button type="button" onClick={() => setActiveStep((current) => Math.min(profileSteps.length - 1, current + 1))}>Continuar</button>
+                  <button type="button" disabled={saving} onClick={() => setActiveStep((current) => Math.min(profileSteps.length - 1, current + 1))}>Continuar</button>
                 ) : (
                   <button type="button" onClick={() => void handleSave()} disabled={saving}>{saving ? 'Salvando...' : 'Salvar perfil'}</button>
                 )}
@@ -213,8 +229,8 @@ export function SearchProfilesPage() {
                 </div>
               ))}
             </div>
-            <div className="profile-preview-flow">
-              <span>Fontes</span><i>→</i><span>Sinais</span><i>→</i><span>Candidatos</span><i>→</i><span>Leads</span>
+            <div className="profile-preview-flow" aria-label="Fontes geram sinais, candidatos e leads">
+              <span>Fontes</span><i aria-hidden="true">→</i><span>Sinais</span><i aria-hidden="true">→</i><span>Candidatos</span><i aria-hidden="true">→</i><span>Leads</span>
             </div>
           </aside>
         </section>
@@ -235,9 +251,10 @@ export function SearchProfilesPage() {
             <div className="saved-profile-list-v4">
               {data.data.map((profile) => {
                 const selected = selectedProfileId === profile.id;
+                const running = runningProfileId === profile.id;
                 return (
                   <article key={profile.id} className={selected ? 'selected' : ''}>
-                    <button type="button" className="saved-profile-select" onClick={() => setSelectedProfileId(profile.id)}>
+                    <button type="button" aria-pressed={selected} className="saved-profile-select" onClick={() => setSelectedProfileId(profile.id)}>
                       <span className="saved-profile-radio" aria-hidden="true" />
                       <span>
                         <strong>{profile.name}</strong>
@@ -251,7 +268,7 @@ export function SearchProfilesPage() {
                     </div>
                     <div className="saved-profile-actions">
                       <Pill tone={profile.status === 'active' ? 'success' : 'warning'}>{profile.status}</Pill>
-                      <button type="button" disabled={running} onClick={() => void handleRun(profile.id)}>{running && selected ? 'Executando...' : 'Executar busca'}</button>
+                      <button type="button" disabled={runningProfileId !== null} onClick={() => void handleRun(profile.id)}>{running ? 'Executando...' : 'Executar busca'}</button>
                     </div>
                   </article>
                 );
@@ -276,27 +293,31 @@ export function SearchProfilesPage() {
 
           {candidates.length ? (
             <div className="candidate-review-list">
-              {candidates.map((candidate) => (
-                <article key={candidate.id}>
-                  <div className="candidate-confidence-ring" style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
-                    <strong>{Math.round(candidate.confidence * 100)}%</strong>
-                  </div>
-                  <div className="candidate-review-main">
-                    <div>
-                      <strong>{candidate.companyName}</strong>
-                      <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+              {candidates.map((candidate) => {
+                const promoted = candidate.status === 'promoted';
+                const promoting = promotingId === candidate.id;
+                return (
+                  <article key={candidate.id}>
+                    <div className="candidate-confidence-ring" role="img" aria-label={`Confiança de ${Math.round(candidate.confidence * 100)}%`} style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
+                      <strong>{Math.round(candidate.confidence * 100)}%</strong>
                     </div>
-                    <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
-                    <small>Fonte: {candidate.sourceRef}</small>
-                  </div>
-                  <div className="candidate-review-status">
-                    <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status}</Pill>
-                    <button type="button" className={candidate.status === 'promoted' ? 'secondary' : ''} disabled={candidate.status === 'promoted'} onClick={() => void handlePromote(candidate.id)}>
-                      {candidate.status === 'promoted' ? 'Já é lead' : 'Promover para leads'}
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className="candidate-review-main">
+                      <div>
+                        <strong>{candidate.companyName}</strong>
+                        <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+                      </div>
+                      <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
+                      <small>Fonte: {candidate.sourceRef}</small>
+                    </div>
+                    <div className="candidate-review-status">
+                      <Pill tone={promoted ? 'success' : 'warning'}>{candidate.status}</Pill>
+                      <button type="button" className={promoted ? 'secondary' : ''} disabled={promoted || promotingId !== null} onClick={() => void handlePromote(candidate.id)}>
+                        {promoted ? 'Já é lead' : promoting ? 'Promovendo...' : 'Promover para leads'}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <EmptyState title="Nenhum candidato carregado" description="Escolha um perfil salvo e execute a busca para preencher esta fila de revisão." action={<button type="button" onClick={() => setWorkspaceTab('saved')}>Abrir perfis salvos</button>} />
