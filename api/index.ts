@@ -11,20 +11,8 @@ import boundedCaptureTargetsHandler from '../serverless/bounded-capture-targets.
 import candidateIdentityReviewHandler from '../serverless/candidate-identity-review.js';
 import companyCreditReviewHandler from '../serverless/company-credit-review.js';
 import companyDecisionReadinessHandler from '../serverless/company-decision-readiness.js';
+import { installExpressUrlBridge } from '../serverless/express-url-bridge.js';
 import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
-
-// Node 24 emite DEP0169 (url.parse) a partir das dependências internas do
-// Express 4 (parseurl); nosso código usa apenas WHATWG URL. Filtramos somente
-// esse código para manter os logs de produção limpos sem silenciar outras
-// deprecations. Remoção definitiva depende de upgrade do Express.
-const originalEmitWarning = process.emitWarning.bind(process);
-process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
-  const code = typeof args[0] === 'object' && args[0] !== null
-    ? (args[0] as { code?: string }).code
-    : typeof args[1] === 'string' ? args[1] : undefined;
-  if (code === 'DEP0169') return;
-  return originalEmitWarning(warning as string, ...(args as [never]));
-}) as typeof process.emitWarning;
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
@@ -43,7 +31,7 @@ const getHeader = (req: IncomingMessage, key: string) => {
 
 const parseUrl = (req: IncomingMessage) => {
   const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL((req as any).url ?? '/', `https://${host}`);
+  return new URL(req.url ?? '/', `https://${host}`);
 };
 
 const isAuthorizedCron = (req: IncomingMessage) => {
@@ -187,7 +175,9 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
 
   const checks = await Promise.all(tables.map((table) => supabaseCount(table)));
   const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
-  const canAccessCoreTables = checks.filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table)).every((check) => check.ok);
+  const canAccessCoreTables = checks
+    .filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table))
+    .every((check) => check.ok);
   const cronConfigured = envFlag('CRON_SECRET');
   const useSupabase = process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials);
 
@@ -238,6 +228,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       reason: triggerType === 'cron' ? 'vercel_cron' : 'manual_serverless_runtime',
     });
     const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
+
     await insertCaptureAuditRun({
       triggerType,
       status: result.persisted.status === 'real' ? 'completed' : 'partial',
@@ -262,7 +253,12 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
         persisted: result.persisted,
       },
     });
-    writeJson(res, result.persisted.status === 'real' ? 200 : 207, { status: result.persisted.status, generatedAt: new Date().toISOString(), data: result });
+
+    writeJson(res, result.persisted.status === 'real' ? 200 : 207, {
+      status: result.persisted.status,
+      generatedAt: new Date().toISOString(),
+      data: result,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await insertCaptureAuditRun({
@@ -338,7 +334,9 @@ async function ensureApp(): Promise<void> {
 
   loadingPromise = (async () => {
     const mod = await import('../backend/src/server.js');
-    expressApp = (mod as any).app ?? (mod as any).default;
+    expressApp = (mod as { app?: ExpressLike; default?: ExpressLike }).app
+      ?? (mod as { default?: ExpressLike }).default
+      ?? null;
     if (!expressApp) {
       throw new Error(
         'backend/src/server.ts não exporta `app`. ' +
@@ -386,7 +384,7 @@ async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) 
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  const originalUrl = (req as any).url ?? '/';
+  const originalUrl = req.url ?? '/';
   const pathname = parseUrl(req).pathname;
 
   if (pathname === '/api/search-profiles/cron/run') {
@@ -426,10 +424,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // Remove prefixo /api: /api/companies → /companies
-  (req as any).url = originalUrl.replace(/^\/api(?=\/|$)/, '') || '/';
+  // Remove prefixo /api: /api/companies → /companies. O bridge mantém os
+  // caches de URL esperados pelo Express 4 sincronizados sem usar url.parse().
+  const rewrittenUrl = originalUrl.replace(/^\/api(?=\/|$)/, '') || '/';
+  const expressRequest = installExpressUrlBridge(req, rewrittenUrl);
 
-  (expressApp as ExpressLike)(req, res, () => {
-    writeJson(res, 404, { error: 'Not found', path: (req as any).url });
+  (expressApp as ExpressLike)(expressRequest, res, () => {
+    writeJson(res, 404, { error: 'Not found', path: expressRequest.url });
   });
 }
