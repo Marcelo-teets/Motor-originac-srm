@@ -31,6 +31,7 @@
     "test:vercel-function-budget": "node scripts/vercel-function-budget.test.mjs",
     "test:vercel-production-control": "node scripts/vercel-production-control.test.mjs",
     "test:vercel-production-workflow": "node scripts/vercel-production-workflow.test.mjs",
+    "test:vercel-url-runtime": "npx tsx --test serverless/express-url-bridge.test.ts",
     "ops:materialize-company-decision": "npx tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
