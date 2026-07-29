@@ -11,13 +11,13 @@ import boundedCaptureTargetsHandler from '../serverless/bounded-capture-targets.
 import candidateIdentityReviewHandler from '../serverless/candidate-identity-review.js';
 import companyCreditReviewHandler from '../serverless/company-credit-review.js';
 import companyDecisionReadinessHandler from '../serverless/company-decision-readiness.js';
-import { installExpressUrlBridge } from '../serverless/express-url-bridge.js';
 import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
 let expressApp: ExpressLike | null = null;
 let loadingPromise: Promise<void> | null = null;
+const CAPTURE_HEALTH_QUERY_TIMEOUT_MS = 4_000;
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -64,6 +64,7 @@ async function supabaseCount(table: string) {
 
   try {
     const response = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(CAPTURE_HEALTH_QUERY_TIMEOUT_MS),
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
@@ -83,7 +84,15 @@ async function supabaseCount(table: string) {
 
     return { table, ok: true, count, error: null };
   } catch (error) {
-    return { table, ok: false, count: null, error: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      table,
+      ok: false,
+      count: null,
+      error: error instanceof DOMException && error.name === 'TimeoutError'
+        ? `timeout_after_${CAPTURE_HEALTH_QUERY_TIMEOUT_MS}ms`
+        : message,
+    };
   }
 }
 
@@ -198,6 +207,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
       canRunAgainstSupabase: hasSupabaseCredentials && useSupabase,
       canAuthorizeWorkflow: cronConfigured,
       coreTablesAccessible: canAccessCoreTables,
+      queryTimeoutMs: CAPTURE_HEALTH_QUERY_TIMEOUT_MS,
     },
     tables: checks,
   });
@@ -424,12 +434,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // Remove prefixo /api: /api/companies → /companies. O bridge mantém os
-  // caches de URL esperados pelo Express 4 sincronizados sem usar url.parse().
-  const rewrittenUrl = originalUrl.replace(/^\/api(?=\/|$)/, '') || '/';
-  const expressRequest = installExpressUrlBridge(req, rewrittenUrl);
+  // Remove prefixo /api: /api/companies → /companies.
+  req.url = originalUrl.replace(/^\/api(?=\/|$)/, '') || '/';
 
-  (expressApp as ExpressLike)(expressRequest, res, () => {
-    writeJson(res, 404, { error: 'Not found', path: expressRequest.url });
+  (expressApp as ExpressLike)(req, res, () => {
+    writeJson(res, 404, { error: 'Not found', path: req.url });
   });
 }
