@@ -10,6 +10,7 @@ import './styles/auth-profile.css';
 import './styles/dcm-daily.css';
 import './styles/ux-v3.css';
 import './styles/ux-v4.css';
+import './styles/task-center-v2.css';
 import './styles/hardening.css';
 
 const root = document.getElementById('root');
