@@ -1,29 +1,30 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-29T03:05:00Z",
+  "requestedAt": "2026-07-29T03:22:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "vercel-whatwg-url-bridge-production-rollout",
-    "sourcePr": 377,
-    "previousProductionSha": "c8ca0c0b738bc0f6d2be36bcc29c72de68167610",
-    "applicationHeadSha": "35da39fbea6e9db3c4d5e296f6fa644d02370c51",
-    "rolloutContractFix": "express-whatwg-url-cache-bridge-without-global-warning-suppression",
+    "kind": "node22-runtime-bounded-capture-health-production-rollout",
+    "sourcePr": 379,
+    "previousProductionSha": "22cf57a77632f8b1d70c846ea0aaa21d533d9d63",
+    "applicationHeadSha": "a389f0b007f325fed01bce1d0206ab7372edcd69",
+    "rolloutContractFix": "stable-node22-production-plus-bounded-supabase-health-probes",
     "fixes": [
-      "remove-global-process-emitwarning-override",
-      "whatwg-url-only-serverless-request-parsing",
-      "express-parsed-url-cache-compatibility",
-      "router-url-rewrite-cache-synchronization",
-      "original-url-query-preservation",
-      "node24-dep0169-runtime-cleanup",
-      "vercel-url-runtime-unit-test",
-      "vercel-url-runtime-ci-gate"
+      "vercel-production-node22-runtime-pin",
+      "node24-ci-forward-compatibility-gate",
+      "capture-health-four-second-query-timeout",
+      "capture-health-partial-diagnostics-instead-of-function-timeout",
+      "remove-ineffective-express-url-bridge",
+      "keep-global-warning-visibility",
+      "vercel-runtime-stability-ci-contract"
     ],
     "validate": [
       "exact-production-sha",
-      "vercel-whatwg-url-runtime-contract",
+      "production-node22-build-runtime",
+      "ci-remains-node24",
+      "vercel-runtime-stability-contract",
       "vercel-function-budget-12-of-12",
       "frontend-quality-contract",
       "frontend-typecheck",
@@ -36,6 +37,7 @@
       "microsoft-status-unauthorized-contract-401",
       "microsoft-status-no-dep0169-warning",
       "task-ai-unauthorized-contract-401",
+      "capture-health-no-504",
       "runtime-error-review",
       "automatic-git-deployments-disabled"
     ]
