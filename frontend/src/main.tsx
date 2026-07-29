@@ -10,8 +10,12 @@ import './styles/auth-profile.css';
 import './styles/dcm-daily.css';
 import './styles/ux-v3.css';
 import './styles/ux-v4.css';
+import './styles/hardening.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const root = document.getElementById('root');
+if (!root) throw new Error('Elemento raiz da aplicação não foi encontrado.');
+
+ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
