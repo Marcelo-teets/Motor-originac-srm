@@ -35,7 +35,21 @@ textarea::placeholder { color: var(--text-faint); }
 
 .inline-notice { justify-content: flex-start; }
 .inline-notice-success { border-left: 2px solid var(--success); background: rgba(78,197,141,.07); }
+.inline-notice-warning { border-left: 2px solid var(--warning); background: rgba(229,181,77,.07); }
 .inline-notice-error { border-left: 2px solid var(--danger); background: rgba(239,100,97,.07); }
+
+/* Normaliza o nome legado ainda usado em módulos Microsoft/IA. */
+.button-secondary {
+  background: rgba(255,255,255,.035);
+  color: var(--text-soft);
+  border-color: var(--border-strong);
+}
+.button-secondary:hover:not(:disabled) {
+  filter: none;
+  background: rgba(255,255,255,.065);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
 
 .password-field { position: relative; }
 .password-field input { padding-right: 78px; }
