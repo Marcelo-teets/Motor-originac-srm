@@ -14,6 +14,7 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
+    "test:frontend-quality": "node --test scripts/frontend-quality-contract.test.mjs",
     "test:auth-captcha-retirement": "node --test scripts/retire-captcha-production.test.mjs",
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-public-env": "node --test scripts/sync-public-auth-env-to-vercel.test.mjs",

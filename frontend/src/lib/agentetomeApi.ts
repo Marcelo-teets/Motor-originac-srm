@@ -1,3 +1,4 @@
+import { fetchWithPolicy } from './http';
 import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 
@@ -70,6 +71,7 @@ type Envelope<T> = {
 
 const authHeaders = (session: SessionData | null) => ({
   'Content-Type': 'application/json',
+  Accept: 'application/json',
   ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
 });
 
@@ -83,7 +85,7 @@ async function parseEnvelope<T>(response: Response): Promise<Envelope<T>> {
 }
 
 export async function getAgentetomeRuntime(session: SessionData | null): Promise<AgentetomeRuntimeStatus> {
-  const response = await fetch(buildApiUrl('/sources/agentetome'), { headers: authHeaders(session) });
+  const response = await fetchWithPolicy(buildApiUrl('/sources/agentetome'), { headers: authHeaders(session) }, { timeoutMs: 22_000, retries: 1 });
   return (await parseEnvelope<AgentetomeRuntimeStatus>(response)).data!;
 }
 
@@ -91,7 +93,7 @@ export async function queueAgentetomeRefresh(
   session: SessionData | null,
   input: { administrator?: string; cut?: 'recente' | 'competencia'; competence?: string; format?: 'csv' | 'xlsx' } = {},
 ): Promise<AgentetomeRefreshResult> {
-  const response = await fetch(buildApiUrl('/sources/agentetome/admin-export'), {
+  const response = await fetchWithPolicy(buildApiUrl('/sources/agentetome/admin-export'), {
     method: 'POST',
     headers: authHeaders(session),
     body: JSON.stringify({
@@ -100,7 +102,7 @@ export async function queueAgentetomeRefresh(
       competencia: input.competence,
       formato: input.format ?? 'csv',
     }),
-  });
+  }, { timeoutMs: 28_000 });
   return (await parseEnvelope<AgentetomeRefreshResult>(response)).data!;
 }
 
@@ -108,11 +110,11 @@ export async function validateAgentetomeXml(
   session: SessionData | null,
   xmlBase64: string,
 ): Promise<AgentetomeValidationResult> {
-  const response = await fetch(buildApiUrl('/sources/agentetome/validate-xml'), {
+  const response = await fetchWithPolicy(buildApiUrl('/sources/agentetome/validate-xml'), {
     method: 'POST',
     headers: authHeaders(session),
     body: JSON.stringify({ xmlBase64 }),
-  });
+  }, { timeoutMs: 28_000 });
   const raw = await response.text();
   let payload: AgentetomeValidationResult;
   try { payload = JSON.parse(raw) as AgentetomeValidationResult; } catch { throw new Error(`Validação XML retornou resposta inválida (${response.status}).`); }

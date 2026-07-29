@@ -28,6 +28,7 @@ import type {
   SourceEntry,
   TaskRecord,
 } from './types';
+import { fetchWithPolicy, safeResponsePreview } from './http';
 import { buildApiUrl } from './runtimeConfig';
 
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
@@ -44,57 +45,44 @@ const readJsonPayload = async <T>(response: Response, path: string): Promise<Api
     return {
       status: 'partial',
       data: undefined as T,
-      error: response.ok ? undefined : `${response.status} ${response.statusText || 'Empty response'}`,
+      error: response.ok ? undefined : `${response.status} ${response.statusText || 'Resposta vazia'}`,
     };
   }
 
   if (!contentType.includes('application/json')) {
-    const preview = raw.replace(/\s+/g, ' ').slice(0, 160);
-    throw new Error(`Resposta não-JSON em ${path}. Status ${response.status}. Isso costuma indicar rota protegida, HTML da Vercel ou backend indisponível. Preview: ${preview}`);
+    const preview = safeResponsePreview(raw);
+    console.warn('[frontend-api] resposta não-JSON', { path, status: response.status, preview });
+    throw new Error(`O servidor retornou uma resposta incompatível em ${path}. Tente novamente em instantes.`);
   }
 
   try {
     return JSON.parse(raw) as ApiEnvelope<T> & { error?: string };
   } catch {
-    throw new Error(`JSON inválido em ${path}. Status ${response.status}.`);
+    throw new Error(`O servidor retornou dados inválidos em ${path}. Tente novamente.`);
   }
 };
 
-async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
+async function requestEnvelope<T>(path: string, session: SessionData | null, init: RequestInit = {}): Promise<ApiEnvelope<T>> {
   const url = buildApiUrl(path);
-  let response: Response;
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
 
-  try {
-    response = await fetch(url, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        ...(init?.headers ?? {}),
-      },
-    });
-  } catch (error) {
-    throw new Error(`Falha de rede ao acessar ${path}: ${error instanceof Error ? error.message : 'backend indisponível'}`);
-  }
-
+  const response = await fetchWithPolicy(url, { ...init, headers }, { timeoutMs: 25_000, retries: 1 });
   const payload = await readJsonPayload<T>(response, path);
+  if (response.status === 401) throw new Error('Sua sessão não foi aceita pelo backend. Atualize a página ou entre novamente.');
   if (!response.ok) throw new Error(payload.error ?? `${path} falhou com status ${response.status}`);
   return payload;
 }
 
-const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
-  data: payload.data,
-  source: payload.status,
-  note: stateNote(path, payload.status),
-});
-
 export const api = {
   login: async (email: string, password: string) => {
-    const response = await fetch(buildApiUrl('/auth/login'), {
+    const response = await fetchWithPolicy(buildApiUrl('/auth/login'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email, password }),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readJsonPayload<SessionData>(response, '/auth/login');
     if (!response.ok) throw new Error(payload.error ?? 'Falha ao autenticar.');
     return payload.data;
@@ -246,3 +234,9 @@ export const api = {
     };
   },
 };
+
+const toState = <T>(path: string, payload: ApiEnvelope<T>): DataState<T> => ({
+  data: payload.data,
+  source: payload.status,
+  note: stateNote(path, payload.status),
+});

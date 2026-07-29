@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DataStatusBanner, EmptyState, LoadingState, PageIntro, Pill } from '../components/UI';
+import { DataStatusBanner, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AbmWeeklyWarRoom, DataState, PipelineRow, PipelineSnapshot, PipelineStage } from '../lib/types';
@@ -17,6 +17,8 @@ type PipelineWorkspaceRow = PipelineRow & {
     leadScore: number;
   };
 };
+
+type Feedback = { tone: 'success' | 'error'; message: string } | null;
 
 const stageLabels: Record<PipelineStage, string> = {
   Identified: 'Identificados',
@@ -43,7 +45,7 @@ const emptyPipeline = (): DataState<PipelineSnapshot> => ({
   data: { stages: [], recentActivities: [] },
 });
 
-function stageTone(stage: PipelineStage) {
+function stageTone(stage: PipelineStage): 'success' | 'danger' | 'warning' | 'info' {
   if (stage === 'ClosedWon') return 'success';
   if (stage === 'ClosedLost') return 'danger';
   if (stage === 'Mandated' || stage === 'Structuring') return 'warning';
@@ -55,9 +57,9 @@ export function PipelinePage() {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'board' | 'attention'>('board');
   const [movingCompanyId, setMovingCompanyId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const { data, loading, setData } = useAsyncData(async () => {
+  const { data, loading, error, setData, reload } = useAsyncData(async () => {
     const [snapshotResult, rowsResult, companiesResult, abmResult] = await Promise.allSettled([
       api.getPipelineSnapshot(session),
       api.listPipeline(session),
@@ -106,7 +108,7 @@ export function PipelinePage() {
   ])), [filteredRows]);
 
   if (loading) return <LoadingState title="Pipeline" subtitle="Montando o quadro comercial, alertas e próximas ações." />;
-  if (!data) return <LoadingState title="Pipeline" subtitle="Preparando o workspace operacional." />;
+  if (error || !data) return <ErrorState title="Pipeline" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   const openStages = PIPELINE_STAGES.filter((stage) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(stage));
   const activeDeals = filteredRows.filter((row) => openStages.includes(row.stage)).length;
@@ -115,18 +117,18 @@ export function PipelinePage() {
   const attentionCount = data.abm.cooling_accounts.length + data.abm.without_champion.length + data.abm.overdue_next_steps.length + data.abm.critical_open_objections.length;
 
   const moveCompany = async (row: PipelineWorkspaceRow, targetStage: PipelineStage) => {
-    if (row.stage === targetStage) return;
+    if (row.stage === targetStage || movingCompanyId) return;
     setMovingCompanyId(row.companyId);
-    setFeedback('');
+    setFeedback(null);
     try {
       await api.movePipelineStage(session, row.companyId, targetStage);
       setData((current) => current ? {
         ...current,
         rows: current.rows.map((item) => item.companyId === row.companyId ? { ...item, stage: targetStage } : item),
       } : current);
-      setFeedback(`${row.company?.name ?? 'Empresa'} movida para ${stageLabels[targetStage]}.`);
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : 'Não foi possível mover a empresa.');
+      setFeedback({ tone: 'success', message: `${row.company?.name ?? 'Empresa'} movida para ${stageLabels[targetStage]}.` });
+    } catch (moveError) {
+      setFeedback({ tone: 'error', message: moveError instanceof Error ? moveError.message : 'Não foi possível mover a empresa.' });
     } finally {
       setMovingCompanyId(null);
     }
@@ -164,12 +166,12 @@ export function PipelinePage() {
 
       <section className="pipeline-toolbar">
         <div className="segmented-control" aria-label="Visão do pipeline">
-          <button type="button" className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>Quadro</button>
-          <button type="button" className={view === 'attention' ? 'active' : ''} onClick={() => setView('attention')}>Fila de atenção <span>{attentionCount}</span></button>
+          <button type="button" aria-pressed={view === 'board'} className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>Quadro</button>
+          <button type="button" aria-pressed={view === 'attention'} className={view === 'attention' ? 'active' : ''} onClick={() => setView('attention')}>Fila de atenção <span>{attentionCount}</span></button>
         </div>
         <label>
           <span>Buscar no pipeline</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, estrutura, responsável ou ação" />
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, estrutura, responsável ou ação" />
         </label>
         <div className="pipeline-health-pills">
           <Pill tone={data.health.rowsOk ? 'success' : 'warning'}>{data.health.rowsOk ? 'CRM real' : 'CRM parcial'}</Pill>
@@ -177,25 +179,25 @@ export function PipelinePage() {
         </div>
       </section>
 
-      {feedback ? <div className="inline-notice"><span>{feedback}</span></div> : null}
+      {feedback ? <div className={`inline-notice inline-notice-${feedback.tone}`} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{feedback.message}</span></div> : null}
 
       {view === 'board' ? (
         <section className="pipeline-board" aria-label="Kanban do pipeline">
           {PIPELINE_STAGES.map((stage) => {
             const rows = board.get(stage) ?? [];
             return (
-              <section key={stage} className={`pipeline-column pipeline-column-${stage.toLowerCase()}`}>
+              <section key={stage} className={`pipeline-column pipeline-column-${stage.toLowerCase()}`} aria-labelledby={`pipeline-stage-${stage}`}>
                 <header>
                   <div>
                     <span className="pipeline-stage-dot" aria-hidden="true" />
-                    <strong>{stageLabels[stage]}</strong>
+                    <strong id={`pipeline-stage-${stage}`}>{stageLabels[stage]}</strong>
                   </div>
                   <Pill tone={stageTone(stage)}>{rows.length}</Pill>
                 </header>
 
                 <div className="pipeline-column-body">
                   {rows.length ? rows.map((row) => (
-                    <article key={row.id} className="pipeline-deal-card">
+                    <article key={row.id} className="pipeline-deal-card" aria-busy={movingCompanyId === row.companyId}>
                       <div className="pipeline-deal-heading">
                         <Link to={`/companies/${row.companyId}`}>{row.company?.name ?? row.companyId}</Link>
                         <small>{row.owner}</small>
@@ -209,7 +211,7 @@ export function PipelinePage() {
                         <span>Mover para</span>
                         <select
                           value={row.stage}
-                          disabled={movingCompanyId === row.companyId}
+                          disabled={movingCompanyId !== null}
                           onChange={(event) => void moveCompany(row, event.target.value as PipelineStage)}
                         >
                           {PIPELINE_STAGES.map((option) => <option key={option} value={option}>{stageLabels[option]}</option>)}

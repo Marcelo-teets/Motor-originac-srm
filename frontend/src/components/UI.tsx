@@ -31,11 +31,22 @@ export function Stat({ label, value, helper, trend }: { label: string; value: st
   );
 }
 
-export function ProgressBar({ value, max = 100, tone = 'default' }: { value: number; max?: number; tone?: 'default' | 'success' | 'warning' | 'info' }) {
+export function ProgressBar({ value, max = 100, tone = 'default', label = 'Progresso' }: { value: number; max?: number; tone?: 'default' | 'success' | 'warning' | 'info'; label?: string }) {
   const safeMax = max > 0 ? max : 100;
-  const safeValue = Number.isFinite(value) ? value : 0;
-  const width = `${Math.min(100, Math.max(0, Math.round((safeValue / safeMax) * 100)))}%`;
-  return <div className="bar"><i className={`bar-${tone}`} style={{ width } as CSSProperties} /></div>;
+  const safeValue = Number.isFinite(value) ? Math.min(safeMax, Math.max(0, value)) : 0;
+  const width = `${Math.round((safeValue / safeMax) * 100)}%`;
+  return (
+    <div
+      className="bar"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={safeMax}
+      aria-valuenow={safeValue}
+    >
+      <i className={`bar-${tone}`} style={{ width } as CSSProperties} />
+    </div>
+  );
 }
 
 export function KeyValueList({ items }: { items: Array<{ label: string; value: ReactNode }> }) {
@@ -68,7 +79,7 @@ export function DataStatusBanner({ source, note }: { source: DataSourceKind; not
   const tone: Record<DataSourceKind, 'success' | 'warning' | 'info'> = { real: 'success', partial: 'warning', mock: 'info' };
   const label: Record<DataSourceKind, string> = { real: 'Backend real', partial: 'Parcial / derivado', mock: 'Fallback mock' };
   return (
-    <div className={`data-banner data-banner-${source}`}>
+    <div className={`data-banner data-banner-${source}`} role="status">
       <Pill tone={tone[source]}>{label[source]}</Pill>
       <span>{note}</span>
     </div>
@@ -77,9 +88,9 @@ export function DataStatusBanner({ source, note }: { source: DataSourceKind; not
 
 export function LoadingState({ title, subtitle = 'Carregando dados operacionais do backend oficial.' }: { title: string; subtitle?: string }) {
   return (
-    <div className="page">
+    <div className="page" aria-busy="true">
       <Card title={title} subtitle={subtitle}>
-        <div className="state-box state-loading">
+        <div className="state-box state-loading" role="status" aria-live="polite">
           <span className="loading-dot" aria-hidden="true" />
           <div>
             <strong>Montando visão de originação...</strong>
@@ -96,11 +107,11 @@ export function ErrorState({ title, error, action }: { title: string; error?: st
   return (
     <div className="page">
       <Card title={title} subtitle="Falha controlada de carregamento" actions={action}>
-        <div className="state-box state-error">
+        <div className="state-box state-error" role="alert" aria-live="assertive">
           <Pill tone="danger">atenção</Pill>
           <div>
             <strong>{message}</strong>
-            <p>Verifique autenticação, disponibilidade do backend e variáveis de produção. A tela não deve quebrar silenciosamente.</p>
+            <p>A sessão foi preservada. Tente novamente; se a falha persistir, verifique a saúde do backend e das fontes.</p>
           </div>
         </div>
       </Card>
@@ -110,7 +121,7 @@ export function ErrorState({ title, error, action }: { title: string; error?: st
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
-    <div className="summary-item empty-state">
+    <div className="summary-item empty-state" role="status">
       <div className="stack-blocks compact-gap">
         <Pill tone="warning">sem dados</Pill>
         <strong>{title}</strong>

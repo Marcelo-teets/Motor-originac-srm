@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom';
 import { CapitalMarketHealthPanel } from '../components/CapitalMarketHealthPanel';
-import { Card, DataStatusBanner, PageIntro, Pill, ProgressBar, ScoreBadge } from '../components/UI';
+import { Card, DataStatusBanner, ErrorState, LoadingState, PageIntro, Pill, ProgressBar, ScoreBadge } from '../components/UI';
 import { VercelOpsPanel } from '../components/VercelOpsPanel';
 import { WatchListWidget } from '../components/WatchListWidget';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import type { AbmWeeklyWarRoom } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
-function priorityTone(bucket: string) {
+function priorityTone(bucket: string): 'success' | 'warning' | 'info' {
   if (bucket.includes('immediate')) return 'success';
   if (bucket.includes('high')) return 'warning';
   return 'info';
@@ -17,24 +18,37 @@ function formatBucket(bucket: string) {
   return bucket.replace(/_/g, ' ');
 }
 
+const emptyAbm = (): AbmWeeklyWarRoom => ({
+  top_accounts: [],
+  cooling_accounts: [],
+  without_champion: [],
+  overdue_next_steps: [],
+  critical_open_objections: [],
+});
+
 export function DashboardPage() {
   const { session } = useAuth();
-  const { data, loading, error } = useAsyncData(
+  const { data, loading, error, reload } = useAsyncData(
     async () => {
-      const [dashboardState, companiesState, abmWeekly] = await Promise.all([
+      const [dashboardState, companiesState] = await Promise.all([
         api.getDashboard(session),
         api.getCompanies(session),
-        api.getAbmWeekly(session),
       ]);
-      return { dashboardState, companiesState, abmWeekly };
+      const [abmResult] = await Promise.allSettled([api.getAbmWeekly(session)]);
+      return {
+        dashboardState,
+        companiesState,
+        abmWeekly: abmResult.status === 'fulfilled' ? abmResult.value.data : emptyAbm(),
+        abmAvailable: abmResult.status === 'fulfilled',
+      };
     },
     [session?.access_token],
   );
 
-  if (loading) return <div className="page"><Card title="Dashboard" subtitle="Carregando visão executiva do backend oficial">Aguarde...</Card></div>;
-  if (error || !data) return <div className="page"><Card title="Dashboard" subtitle="Falha ao carregar dados do dashboard">{error}</Card></div>;
+  if (loading) return <LoadingState title="Dashboard" subtitle="Carregando visão executiva do backend oficial." />;
+  if (error || !data) return <ErrorState title="Dashboard" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
-  const { dashboardState, companiesState, abmWeekly } = data;
+  const { dashboardState, companiesState, abmWeekly, abmAvailable } = data;
   const dashboard = dashboardState.data;
   const companies = companiesState.data;
   const topLeads = dashboard.topLeads.map((lead) => {
@@ -53,7 +67,7 @@ export function DashboardPage() {
   const averageLeadScore = topLeads.length > 0 ? Math.round(topLeads.reduce((sum, lead) => sum + lead.leadScore, 0) / topLeads.length) : 0;
   const maxPipeline = Math.max(...dashboard.pipeline.map((entry) => entry.count), 1);
   const activePipeline = dashboard.pipeline.filter((entry) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(entry.stage)).reduce((sum, entry) => sum + entry.count, 0);
-  const commercialBlockers = abmWeekly.data.cooling_accounts.length + abmWeekly.data.without_champion.length + abmWeekly.data.overdue_next_steps.length + abmWeekly.data.critical_open_objections.length;
+  const commercialBlockers = abmWeekly.cooling_accounts.length + abmWeekly.without_champion.length + abmWeekly.overdue_next_steps.length + abmWeekly.critical_open_objections.length;
 
   const decisionCards = [
     { label: 'Abordar agora', value: String(immediateLeads), helper: 'prioridade imediata', tone: 'success' as const },
@@ -104,6 +118,7 @@ export function DashboardPage() {
       />
 
       <DataStatusBanner source={dashboardState.source} note={dashboardState.note} />
+      {!abmAvailable ? <div className="inline-notice"><Pill tone="warning">ABM parcial</Pill><span>O cockpit principal está operacional, mas bloqueios e momentum comerciais não puderam ser atualizados.</span></div> : null}
 
       <section className="daily-action-deck" aria-label="Plano de trabalho do dia">
         {dailyActions.map((action) => (
@@ -198,10 +213,10 @@ export function DashboardPage() {
         <div className="dashboard-side-stack">
           <Card title="Pulso comercial" subtitle="Pendências que travam avanço no funil">
             <div className="pulse-list">
-              <Link to="/dcm-daily"><span>Top contas da semana</span><strong>{abmWeekly.data.top_accounts.length}</strong></Link>
-              <Link to="/pipeline"><span>Contas esfriando</span><strong>{abmWeekly.data.cooling_accounts.length}</strong></Link>
-              <Link to="/pipeline"><span>Sem champion</span><strong>{abmWeekly.data.without_champion.length}</strong></Link>
-              <Link to="/pipeline"><span>Ações vencidas</span><strong>{abmWeekly.data.overdue_next_steps.length}</strong></Link>
+              <Link to="/dcm-daily"><span>Top contas da semana</span><strong>{abmWeekly.top_accounts.length}</strong></Link>
+              <Link to="/pipeline"><span>Contas esfriando</span><strong>{abmWeekly.cooling_accounts.length}</strong></Link>
+              <Link to="/pipeline"><span>Sem champion</span><strong>{abmWeekly.without_champion.length}</strong></Link>
+              <Link to="/pipeline"><span>Ações vencidas</span><strong>{abmWeekly.overdue_next_steps.length}</strong></Link>
             </div>
           </Card>
 
@@ -224,7 +239,7 @@ export function DashboardPage() {
             {dashboard.pipeline.slice(0, 6).map((item) => (
               <div key={item.stage}>
                 <div className="row-between"><span>{item.stage}</span><strong>{item.count}</strong></div>
-                <ProgressBar value={item.count} max={maxPipeline} tone="info" />
+                <ProgressBar value={item.count} max={maxPipeline} tone="info" label={`${item.stage}: ${item.count} oportunidades`} />
               </div>
             ))}
           </div>

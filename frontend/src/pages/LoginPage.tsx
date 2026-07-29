@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import {
@@ -10,33 +10,29 @@ export function LoginPage() {
   const { login, loading, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderOption[]>([]);
   const [oauthLoading, setOAuthLoading] = useState(true);
   const [oauthUnavailable, setOAuthUnavailable] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-
-    supabaseAuth.getEnabledOAuthProviders()
-      .then((providers) => {
-        if (!active) return;
-        setOAuthProviders(providers);
-        setOAuthUnavailable(false);
-      })
-      .catch(() => {
-        if (!active) return;
-        setOAuthProviders([]);
-        setOAuthUnavailable(true);
-      })
-      .finally(() => {
-        if (active) setOAuthLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
+  const loadProviders = useCallback(async () => {
+    setOAuthLoading(true);
+    setOAuthUnavailable(false);
+    try {
+      const providers = await supabaseAuth.getEnabledOAuthProviders();
+      setOAuthProviders(providers);
+    } catch {
+      setOAuthProviders([]);
+      setOAuthUnavailable(true);
+    } finally {
+      setOAuthLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadProviders();
+  }, [loadProviders]);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
@@ -55,7 +51,7 @@ export function LoginPage() {
 
   return (
     <div className="auth-shell">
-      <section className="auth-panel auth-brand-panel">
+      <section className="auth-panel auth-brand-panel" aria-label="Apresentação do Motor SRM">
         <p className="eyebrow">Origination Intelligence Platform</p>
         <h1>Motor SRM</h1>
         <p>Inteligência institucional para encontrar, qualificar e converter oportunidades reais de crédito estruturado.</p>
@@ -66,14 +62,14 @@ export function LoginPage() {
         </div>
       </section>
 
-      <section className="auth-panel auth-form-panel">
+      <main className="auth-panel auth-form-panel">
         <div>
           <p className="eyebrow">Acesso seguro</p>
           <h2>Entrar na plataforma</h2>
           <p className="auth-copy">Use seu e-mail e senha ou um provedor de acesso habilitado.</p>
         </div>
 
-        {oauthLoading ? <div className="auth-progress" aria-label="Carregando provedores OAuth" /> : null}
+        {oauthLoading ? <div className="auth-progress" role="status" aria-label="Carregando provedores de acesso" /> : null}
 
         {hasOAuthProviders ? (
           <div className="oauth-provider-list">
@@ -85,7 +81,7 @@ export function LoginPage() {
                 disabled={loading}
                 onClick={() => window.location.assign(supabaseAuth.getOAuthUrl(provider))}
               >
-                <span className="oauth-mark">{mark}</span>
+                <span className="oauth-mark" aria-hidden="true">{mark}</span>
                 Continuar com {label}
               </button>
             ))}
@@ -93,8 +89,11 @@ export function LoginPage() {
         ) : null}
 
         {oauthUnavailable ? (
-          <div className="auth-alert auth-alert-warning">
-            Não foi possível consultar os provedores de acesso. O formulário de e-mail e senha continua disponível.
+          <div className="auth-alert auth-alert-warning" role="status">
+            <span>Os provedores externos não responderam. O acesso por e-mail e senha continua disponível.</span>
+            <button type="button" className="secondary compact-button" onClick={() => void loadProviders()} disabled={oauthLoading}>
+              Consultar novamente
+            </button>
           </div>
         ) : null}
 
@@ -105,9 +104,13 @@ export function LoginPage() {
             <span>E-mail</span>
             <input
               type="email"
+              name="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              inputMode="email"
+              spellCheck={false}
+              autoCapitalize="none"
               autoFocus
               disabled={loading}
               required
@@ -115,14 +118,26 @@ export function LoginPage() {
           </label>
           <label>
             <span>Senha</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              disabled={loading}
-              required
-            />
+            <div className="password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                disabled={loading}
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((current) => !current)}
+                disabled={loading}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
           </label>
 
           <div className="auth-row-between">
@@ -130,13 +145,13 @@ export function LoginPage() {
             <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
           </div>
 
-          {error ? <div className="auth-alert auth-alert-error" role="alert">{error}</div> : null}
+          {error ? <div className="auth-alert auth-alert-error" role="alert" aria-live="assertive">{error}</div> : null}
 
-          <button type="submit" disabled={loading}>
+          <button type="submit" disabled={loading || !email.trim() || !password}>
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
-      </section>
+      </main>
     </div>
   );
 }

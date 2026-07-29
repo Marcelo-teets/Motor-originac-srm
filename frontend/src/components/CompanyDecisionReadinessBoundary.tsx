@@ -13,10 +13,10 @@ const integer = new Intl.NumberFormat('pt-BR');
 export function CompanyDecisionReadinessBoundary({ children, scope = 'portfolio' }: Props) {
   const { session } = useAuth();
   const { id = '' } = useParams();
-  const { data, loading, error } = useAsyncData(() => getCompanyDecisionReadiness(session), [session?.access_token]);
+  const { data, loading, error, reload } = useAsyncData(() => getCompanyDecisionReadiness(session), [session?.access_token]);
 
   if (loading) return <LoadingState title="Company Master" subtitle="Validando elegibilidade das entidades antes de carregar scores e pipeline." />;
-  if (error || !data) return <ErrorState title="Company Master quality gate" error={error} />;
+  if (error || !data) return <ErrorState title="Company Master quality gate" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   const readiness = data.data;
   const allowed = scope === 'company' ? readiness.companyMaster.eligibleCompanyIds.includes(id) : readiness.gateOpen;

@@ -1,3 +1,4 @@
+import { fetchWithPolicy } from './http';
 import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 import type { WatchList, WatchListItem, WatchListUpdate } from './watchlistTypes';
@@ -21,17 +22,20 @@ const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   return path + ' carregado via fallback mock.';
 };
 
-async function requestEnvelope<T>(path: string, session: SessionData | null, init?: RequestInit): Promise<ApiEnvelope<T>> {
-  const response = await fetch(buildApiUrl(path), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: 'Bearer ' + session.access_token } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-  const payload = await response.json() as ApiEnvelope<T> & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? 'Request failed');
+async function requestEnvelope<T>(path: string, session: SessionData | null, init: RequestInit = {}): Promise<ApiEnvelope<T>> {
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body) headers.set('Content-Type', 'application/json');
+  if (session?.access_token) headers.set('Authorization', 'Bearer ' + session.access_token);
+  const response = await fetchWithPolicy(buildApiUrl(path), { ...init, headers }, { timeoutMs: 20_000, retries: 1 });
+  const raw = await response.text();
+  let payload: ApiEnvelope<T> & { error?: string };
+  try {
+    payload = JSON.parse(raw) as ApiEnvelope<T> & { error?: string };
+  } catch {
+    throw new Error(`Watch list retornou uma resposta inválida (${response.status}).`);
+  }
+  if (!response.ok) throw new Error(payload.error ?? `Watch list falhou (${response.status}).`);
   return payload;
 }
 

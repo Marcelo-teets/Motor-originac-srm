@@ -1,3 +1,4 @@
+import { fetchWithPolicy, safeResponsePreview } from './http';
 import { buildApiUrl } from './runtimeConfig';
 import type { DataSourceKind, DataState } from './types';
 
@@ -42,13 +43,13 @@ async function readCapturePayload(response: Response): Promise<CaptureHealth & {
   const contentType = response.headers.get('content-type') ?? '';
 
   if (!raw.trim()) {
-    return { ...emptyCaptureHealth(), error: response.ok ? undefined : `${response.status} ${response.statusText || 'Empty response'}` };
+    return { ...emptyCaptureHealth(), error: response.ok ? undefined : `${response.status} ${response.statusText || 'Resposta vazia'}` };
   }
 
   if (!contentType.includes('application/json')) {
     return {
       ...emptyCaptureHealth(),
-      error: `Healthcheck retornou resposta não-JSON. Status ${response.status}. Preview: ${raw.replace(/\s+/g, ' ').slice(0, 140)}`,
+      error: `Healthcheck retornou resposta não-JSON. Status ${response.status}. Preview: ${safeResponsePreview(raw, 140)}`,
     };
   }
 
@@ -67,7 +68,7 @@ async function readCapturePayload(response: Response): Promise<CaptureHealth & {
 
 export async function getCaptureHealth(): Promise<DataState<CaptureHealth>> {
   try {
-    const response = await fetch(buildApiUrl('/data-capture/health'));
+    const response = await fetchWithPolicy(buildApiUrl('/data-capture/health'), { headers: { Accept: 'application/json' } }, { timeoutMs: 12_000, retries: 1 });
     const payload = await readCapturePayload(response);
 
     if (!response.ok) {
