@@ -1,16 +1,18 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-07-29T00:54:00Z",
+  "requestedAt": "2026-07-29T01:03:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "frontend-hardening-production-rollout",
-    "sourcePr": 371,
+    "kind": "frontend-hardening-production-rollout-v2",
+    "sourcePr": 373,
     "previousProductionSha": "242266f075c1a83a5b4c5a6ba6994b6c59468969",
-    "applicationHeadSha": "d6aa63bfcebd3ae848e68949ca7370514caa5be7",
-    "rolloutContractFix": "frontend-resilience-accessibility-session-quality",
+    "applicationHeadSha": "a9d69679b7241d2c85b6310af07ea9aec1d0f914",
+    "failedDeploymentId": "dpl_CjfTSSnJWgndtGjAcEBK6ToMCdF8",
+    "failedDeploymentCode": "exceeded_serverless_functions_per_deployment",
+    "rolloutContractFix": "frontend-hardening-plus-vercel-hobby-function-discovery",
     "fixes": [
       "route-level-lazy-loading-and-error-isolation",
       "explicit-not-found-experience",
@@ -24,11 +26,14 @@
       "pipeline-write-concurrency-guard",
       "search-profile-write-concurrency-guard",
       "institutional-integrations-request-bounds",
-      "frontend-quality-ci-contract"
+      "frontend-quality-ci-contract",
+      "vercel-function-discovery-helper-retirement",
+      "vercel-function-budget-complete-count"
     ],
     "validate": [
       "exact-production-sha",
       "frontend-quality-contract",
+      "vercel-function-budget-12-of-12",
       "frontend-typecheck",
       "backend-typecheck",
       "serverless-typecheck",
