@@ -1,5 +1,6 @@
 import publicAuthConfig from '../../public-auth.config.json';
 import type { SessionData } from './types';
+import { fetchWithPolicy } from './http';
 import {
   buildPasswordGrantPayload,
   buildPasswordRecoveryPayload,
@@ -66,7 +67,7 @@ const readPayload = async (response: Response) => {
   try {
     return JSON.parse(text) as Record<string, any>;
   } catch {
-    return { message: text };
+    return { message: response.ok ? 'Resposta inválida do serviço de autenticação.' : 'O serviço de autenticação retornou uma resposta inválida.' };
   }
 };
 
@@ -77,13 +78,14 @@ const authError = (payload: Record<string, any>, fallback: string) => {
   if (/invalid login credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
   if (code === 'email_not_confirmed' || /email not confirmed/i.test(message)) return new Error('Confirme seu e-mail antes de entrar.');
   if (code === 'over_request_rate_limit' || /rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
+  if (code === 'refresh_token_not_found' || /invalid refresh token|refresh token.*expired/i.test(message)) return new Error('Sua sessão expirou. Entre novamente.');
   if (code === 'user_banned') return new Error('Este acesso está desativado.');
   return new Error(message || fallback);
 };
 
 const fetchAuthUser = async (accessToken: string) => {
   requireConfig();
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: authHeaders(accessToken) });
+  const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/user`, { headers: authHeaders(accessToken) }, { timeoutMs: 15_000 });
   const payload = await readPayload(response);
   if (!response.ok) throw authError(payload, 'Não foi possível validar o usuário.');
   return payload;
@@ -108,35 +110,47 @@ const buildSession = async (payload: Record<string, any>): Promise<SessionData> 
 export const supabaseAuth = {
   async signInWithPassword(email: string, password: string) {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(buildPasswordGrantPayload(email, password)),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Falha ao autenticar.');
+    return buildSession(payload);
+  },
+
+  async refreshSession(refreshToken: string) {
+    requireConfig();
+    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }, { timeoutMs: 15_000 });
+    const payload = await readPayload(response);
+    if (!response.ok) throw authError(payload, 'Não foi possível renovar sua sessão.');
     return buildSession(payload);
   },
 
   async sendPasswordRecovery(email: string) {
     requireConfig();
     const redirectTo = `${window.location.origin}/reset-password`;
-    const response = await fetch(`${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(buildPasswordRecoveryPayload(email)),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível enviar o e-mail de recuperação.');
   },
 
   async updatePassword(accessToken: string, password: string) {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/user`, {
       method: 'PUT',
       headers: authHeaders(accessToken),
       body: JSON.stringify({ password }),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.');
     return payload;
@@ -144,9 +158,9 @@ export const supabaseAuth = {
 
   async getEnabledOAuthProviders(): Promise<OAuthProviderOption[]> {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/settings`, {
       headers: { ...authHeaders(), Accept: 'application/json' },
-    });
+    }, { timeoutMs: 10_000, retries: 1 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível consultar os provedores OAuth.');
     const external = payload.external && typeof payload.external === 'object'
@@ -175,9 +189,9 @@ export const supabaseAuth = {
 
   async getProfile(session: SessionData): Promise<UserProfile> {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
       headers: { ...authHeaders(session.access_token), Accept: 'application/json' },
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível carregar o perfil.');
     const profile = Array.isArray(payload) ? payload[0] : undefined;
@@ -187,11 +201,11 @@ export const supabaseAuth = {
 
   async updateProfile(session: SessionData, changes: Pick<UserProfile, 'full_name' | 'job_title' | 'phone' | 'avatar_url' | 'timezone' | 'locale'>): Promise<UserProfile> {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
       method: 'PATCH',
       headers: { ...authHeaders(session.access_token), Prefer: 'return=representation' },
       body: JSON.stringify(changes),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível salvar o perfil.');
     return (Array.isArray(payload) ? payload[0] : payload) as UserProfile;
@@ -199,9 +213,9 @@ export const supabaseAuth = {
 
   async listUsers(session: SessionData): Promise<UserProfile[]> {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/rest/v1/user_profiles?select=*&order=created_at.asc`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?select=*&order=created_at.asc`, {
       headers: authHeaders(session.access_token),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível listar os usuários.');
     return (Array.isArray(payload) ? payload : []) as UserProfile[];
@@ -209,11 +223,11 @@ export const supabaseAuth = {
 
   async setUserAccess(session: SessionData, userId: string, role: UserRole, status: UserStatus): Promise<UserProfile> {
     requireConfig();
-    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/set_user_access`, {
+    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/rpc/set_user_access`, {
       method: 'POST',
       headers: authHeaders(session.access_token),
       body: JSON.stringify({ target_user_id: userId, new_role: role, new_status: status }),
-    });
+    }, { timeoutMs: 15_000 });
     const payload = await readPayload(response);
     if (!response.ok) throw authError(payload, 'Não foi possível atualizar o acesso do usuário.');
     return (Array.isArray(payload) ? payload[0] : payload) as UserProfile;
