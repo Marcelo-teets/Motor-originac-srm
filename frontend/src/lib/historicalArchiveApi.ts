@@ -1,3 +1,5 @@
+import { fetchWithPolicy } from './http';
+import { supabaseRuntimeHeaders } from './supabaseRuntime';
 import type { SessionData } from './types';
 
 export type ArchiveRunStatus = 'queued' | 'running' | 'completed' | 'verified' | 'pruned' | 'failed';
@@ -73,66 +75,55 @@ export type HistoricalArchiveCatalog = {
   policies: HistoricalArchivePolicy[];
 };
 
-const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '');
-
-const requireConfig = () => {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase não está configurado no frontend.');
-  }
-};
-
-const headers = (session: SessionData) => ({
-  apikey: supabaseAnonKey,
-  Authorization: `Bearer ${session.access_token}`,
-  'Content-Type': 'application/json',
-});
+const runtimeFor = (session: SessionData) => supabaseRuntimeHeaders(session, 'Arquivo histórico');
 
 const parse = async <T>(response: Response): Promise<T> => {
   const text = await response.text();
-  let payload: any = {};
-  try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = text ? JSON.parse(text) as Record<string, unknown> : {};
+  } catch {
+    throw new Error(`Arquivo histórico retornou uma resposta inválida (${response.status}).`);
+  }
   if (!response.ok) throw new Error(String(payload.error ?? payload.message ?? 'Falha ao consultar o arquivo histórico.'));
   return payload as T;
 };
 
-const endpoint = () => `${supabaseUrl}/functions/v1/historical-excel-catalog`;
-
 export const historicalArchiveApi = {
   async getCatalog(session: SessionData, filters?: { table?: string; status?: string; limit?: number; offset?: number }) {
-    requireConfig();
+    const { runtime, headers } = runtimeFor(session);
     const query = new URLSearchParams();
     if (filters?.table) query.set('table', filters.table);
     if (filters?.status) query.set('status', filters.status);
     query.set('limit', String(filters?.limit ?? 50));
     query.set('offset', String(filters?.offset ?? 0));
-    const response = await fetch(`${endpoint()}?${query.toString()}`, { headers: headers(session) });
+    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog?${query.toString()}`, { headers }, { timeoutMs: 20_000, retries: 1 });
     return parse<HistoricalArchiveCatalog>(response);
   },
 
   async getParts(session: SessionData, runId: string) {
-    requireConfig();
-    const response = await fetch(`${endpoint()}?runId=${encodeURIComponent(runId)}`, { headers: headers(session) });
+    const { runtime, headers } = runtimeFor(session);
+    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog?runId=${encodeURIComponent(runId)}`, { headers }, { timeoutMs: 20_000, retries: 1 });
     return parse<{ status: 'ok'; runId: string; parts: HistoricalArchivePart[] }>(response);
   },
 
   async createDownload(session: SessionData, partId: string) {
-    requireConfig();
-    const response = await fetch(endpoint(), {
+    const { runtime, headers } = runtimeFor(session);
+    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog`, {
       method: 'POST',
-      headers: headers(session),
+      headers,
       body: JSON.stringify({ action: 'download', partId }),
-    });
+    }, { timeoutMs: 20_000 });
     return parse<{ status: 'ok'; signedUrl: string; workbookName: string; expiresIn: number }>(response);
   },
 
   async cleanupFailed(session: SessionData) {
-    requireConfig();
-    const response = await fetch(endpoint(), {
+    const { runtime, headers } = runtimeFor(session);
+    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog`, {
       method: 'POST',
-      headers: headers(session),
+      headers,
       body: JSON.stringify({ action: 'cleanup_failed' }),
-    });
+    }, { timeoutMs: 28_000 });
     return parse<{
       status: 'cleaned';
       runs: number;
