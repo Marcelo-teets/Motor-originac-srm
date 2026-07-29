@@ -17,7 +17,7 @@ export function AuthCallbackPage() {
         window.history.replaceState({}, document.title, '/auth/callback');
         if (!cancelled) navigate('/', { replace: true });
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível concluir o login OAuth.');
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível concluir o login externo.');
       }
     };
     void complete();
@@ -26,13 +26,13 @@ export function AuthCallbackPage() {
 
   return (
     <div className="auth-shell auth-shell-single">
-      <section className="auth-panel auth-form-panel">
+      <main className="auth-panel auth-form-panel" aria-busy={!error}>
         <p className="eyebrow">OAuth</p>
         <h2>{error ? 'Falha ao concluir acesso' : 'Concluindo login seguro...'}</h2>
-        <p className="auth-copy">Estamos validando a sessão Google no Supabase e carregando seu perfil de acesso.</p>
-        {error ? <div className="auth-alert auth-alert-error">{error}</div> : <div className="auth-progress" aria-label="Carregando" />}
+        <p className="auth-copy">Estamos validando a sessão do provedor externo no Supabase e carregando seu perfil de acesso.</p>
+        {error ? <div className="auth-alert auth-alert-error" role="alert" aria-live="assertive">{error}</div> : <div className="auth-progress" role="status" aria-label="Validando sessão" />}
         {error ? <Link to="/login" className="button">Voltar ao login</Link> : null}
-      </section>
+      </main>
     </div>
   );
 }
