@@ -1,9 +1,7 @@
+import { fetchWithPolicy } from './http';
+import { supabaseRuntimeHeaders } from './supabaseRuntime';
 import type { SessionData } from './types';
 import type { KnowledgeLearningRun, KnowledgeLearningStatus } from './knowledgeLearningTypes';
-
-const env = import.meta.env;
-const supabaseUrl = String(env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const supabaseAnonKey = String(env.VITE_SUPABASE_ANON_KEY ?? '');
 
 type RpcError = { message?: string; details?: string; hint?: string };
 type RawRun = Omit<KnowledgeLearningRun, 'nodesCreated' | 'nodesUpdated' | 'linksApplied' | 'referencesApplied'> & {
@@ -20,19 +18,19 @@ type RawStatus = {
 };
 
 const rpc = async <T>(session: SessionData | null, name: string, args: Record<string, unknown>): Promise<T> => {
-  if (!supabaseUrl || !supabaseAnonKey) throw new Error('Supabase não configurado no frontend.');
-  if (!session?.access_token) throw new Error('Sessão autenticada necessária.');
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
+  const { runtime, headers } = supabaseRuntimeHeaders(session, 'Knowledge Learning Agent');
+  const response = await fetchWithPolicy(`${runtime.url}/rest/v1/rpc/${name}`, {
     method: 'POST',
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(args),
-  });
+  }, { timeoutMs: 20_000 });
   const raw = await response.text();
-  const payload = raw ? JSON.parse(raw) as T | RpcError : null;
+  let payload: T | RpcError | null = null;
+  try {
+    payload = raw ? JSON.parse(raw) as T | RpcError : null;
+  } catch {
+    throw new Error(`RPC ${name} retornou uma resposta inválida (${response.status}).`);
+  }
   if (!response.ok) {
     const error = payload as RpcError | null;
     throw new Error(error?.message ?? error?.details ?? `RPC ${name} falhou (${response.status}).`);
