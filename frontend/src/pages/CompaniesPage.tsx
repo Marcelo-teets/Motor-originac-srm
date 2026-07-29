@@ -6,13 +6,13 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsyncData } from '../lib/useAsyncData';
 
-function priorityTone(bucket: string) {
+function priorityTone(bucket: string): 'success' | 'warning' | 'info' {
   if (bucket.includes('immediate')) return 'success';
   if (bucket.includes('high')) return 'warning';
   return 'info';
 }
 
-function momentumTone(momentum: string) {
+function momentumTone(momentum: string): 'success' | 'warning' | 'info' {
   if (momentum === 'cooling') return 'warning';
   if (momentum === 'accelerating') return 'success';
   return 'info';
@@ -24,6 +24,7 @@ function readable(value: string) {
 
 type LeadFocus = 'all' | 'immediate' | 'fidc' | 'dcm' | 'monitor';
 type LeadSort = 'lead' | 'timing' | 'qualification' | 'confidence';
+type Feedback = { tone: 'success' | 'error'; message: string } | null;
 
 export function CompaniesPage() {
   const { session } = useAuth();
@@ -34,41 +35,47 @@ export function CompaniesPage() {
   const [sortBy, setSortBy] = useState<LeadSort>('lead');
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [movingId, setMovingId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const { data, loading, error } = useAsyncData(
+  const { data, loading, error, reload } = useAsyncData(
     async () => {
-      const [companiesState, weekly] = await Promise.all([api.getCompanies(session), api.getAbmWeekly(session)]);
-      const warMap = new Map(weekly.data.top_accounts.map((item) => [item.company_id, item]));
-      const detailResults = await Promise.allSettled(companiesState.data.map((company) => api.getCompany(session, company.id)));
-      const details = companiesState.data.map((company, index) => {
-        const detailResult = detailResults[index];
-        const detailState = detailResult?.status === 'fulfilled' ? detailResult.value : null;
+      const companiesState = await api.getCompanies(session);
+      const [weeklyResult] = await Promise.allSettled([api.getAbmWeekly(session)]);
+      const weekly = weeklyResult.status === 'fulfilled' ? weeklyResult.value.data : null;
+      const warMap = new Map((weekly?.top_accounts ?? []).map((item) => [item.company_id, item]));
+      const withoutChampion = new Set((weekly?.without_champion ?? []).map((item) => item.company_id));
+      const overdueMap = new Map((weekly?.overdue_next_steps ?? []).map((item) => [item.company_id, item.next_step_due_at]));
+
+      const companies = companiesState.data.map((company) => {
         const war = warMap.get(company.id);
+        const structureLabel = company.suggestedStructure.toLowerCase();
         return {
           ...company,
-          lastSignal: detailState?.data.signals[0]?.note ?? detailState?.data.monitoring.feedHighlights[0] ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
+          lastSignal: company.thesis ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
           commercialPriority: war?.priority_band ?? 'monitor',
           momentum: war?.momentum_status ?? 'stable',
-          nextStep: detailState?.data.company.nextAction ?? company.nextAction ?? 'Definir próximo passo',
-          lastTouchpoint: detailState?.data.activities[0]?.dueDate ?? '-',
-          championStatus: ((detailState?.data.activities.length ?? 0) > 0 ? 'mapped' : 'unmapped'),
-          detailHealth: detailState ? 'ok' : 'partial',
-          fitFidc: detailState?.data.qualification.fit_fidc ?? company.suggestedStructure.toLowerCase().includes('fidc'),
-          fitDcm: detailState?.data.qualification.fit_dcm ?? company.suggestedStructure.toLowerCase().includes('dcm'),
-          urgency: detailState?.data.qualification.urgency_score ?? company.urgencyScore ?? 0,
-          evidenceCount: detailState?.data.signals.length ?? 0,
+          nextStep: company.nextAction ?? 'Definir próximo passo',
+          nextStepDueAt: overdueMap.get(company.id) ?? 'não informado',
+          championStatus: withoutChampion.has(company.id) ? 'unmapped' : (weekly ? 'mapped' : 'not_verified'),
+          fitFidc: structureLabel.includes('fidc'),
+          fitDcm: structureLabel.includes('dcm') || structureLabel.includes('debênture') || structureLabel.includes('debenture'),
+          urgency: company.urgencyScore ?? 0,
+          evidenceCount: company.topPatterns.length + (company.thesis ? 1 : 0),
         };
       });
-      return { companiesState, companies: details };
+      return { companiesState, companies, abmAvailable: Boolean(weekly) };
     },
     [session?.access_token],
   );
 
   const filtered = useMemo(() => {
     if (!data) return [];
+    const normalizedQuery = query.trim().toLowerCase();
     const rows = data.companies.filter((company) => {
-      const matchesQuery = [company.name, company.segment, company.subsegment, company.topPatterns.join(' '), company.lastSignal].join(' ').toLowerCase().includes(query.toLowerCase());
+      const matchesQuery = !normalizedQuery || [company.name, company.segment, company.subsegment, company.topPatterns.join(' '), company.lastSignal]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery);
       const matchesPriority = priority === 'all' || company.leadBucket === priority;
       const matchesStructure = structure === 'all' || company.suggestedStructure === structure;
       const matchesFocus = focus === 'all'
@@ -88,14 +95,13 @@ export function CompaniesPage() {
   }, [data, focus, priority, query, sortBy, structure]);
 
   if (loading) return <LoadingState title="Leads" subtitle="Carregando ranking, sinais e camada comercial das empresas." />;
-  if (error || !data) return <ErrorState title="Leads" error={error} />;
+  if (error || !data) return <ErrorState title="Leads" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
-  const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure)));
+  const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure))).filter(Boolean).sort();
   const immediateCount = data.companies.filter((company) => company.leadBucket.includes('immediate')).length;
   const fidcCount = data.companies.filter((company) => company.fitFidc).length;
   const dcmCount = data.companies.filter((company) => company.fitDcm).length;
   const monitorCount = data.companies.filter((company) => !company.leadBucket.includes('immediate') && !company.leadBucket.includes('high')).length;
-  const partialDetailCount = filtered.filter((company) => company.detailHealth === 'partial').length;
   const hasActiveFilters = query.length > 0 || priority !== 'all' || structure !== 'all' || focus !== 'all';
 
   const resetFilters = () => {
@@ -107,12 +113,12 @@ export function CompaniesPage() {
 
   const moveToPipeline = async (companyId: string, companyName: string) => {
     setMovingId(companyId);
-    setFeedback('');
+    setFeedback(null);
     try {
       await api.movePipelineStage(session, companyId, 'Qualified');
-      setFeedback(`${companyName} foi enviada para o pipeline como Qualificada.`);
+      setFeedback({ tone: 'success', message: `${companyName} foi enviada para o pipeline como Qualificada.` });
     } catch (moveError) {
-      setFeedback(moveError instanceof Error ? moveError.message : 'Falha ao enviar empresa para o pipeline.');
+      setFeedback({ tone: 'error', message: moveError instanceof Error ? moveError.message : 'Falha ao enviar empresa para o pipeline.' });
     } finally {
       setMovingId(null);
     }
@@ -144,7 +150,13 @@ export function CompaniesPage() {
 
       <section className="lead-focus-tabs" aria-label="Segmentos de decisão">
         {focusOptions.map((item) => (
-          <button key={item.id} type="button" className={focus === item.id ? 'active' : ''} onClick={() => setFocus(item.id)}>
+          <button
+            key={item.id}
+            type="button"
+            className={focus === item.id ? 'active' : ''}
+            aria-pressed={focus === item.id}
+            onClick={() => setFocus(item.id)}
+          >
             <span>{item.label}</span>
             <strong>{item.count}</strong>
             <small>{item.helper}</small>
@@ -152,10 +164,10 @@ export function CompaniesPage() {
         ))}
       </section>
 
-      <section className="lead-control-bar">
+      <section className="lead-control-bar" aria-label="Filtros da fila de leads">
         <label className="lead-search-field">
           <span>Buscar</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, segmento, sinal ou padrão" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, segmento, sinal ou padrão" type="search" />
         </label>
         <label>
           <span>Prioridade</span>
@@ -182,15 +194,19 @@ export function CompaniesPage() {
             <option value="confidence">Confiança da fonte</option>
           </select>
         </label>
-        <div className="lead-view-controls">
-          <button type="button" className={density === 'comfortable' ? 'active' : ''} onClick={() => setDensity('comfortable')} aria-label="Visualização confortável">▤</button>
-          <button type="button" className={density === 'compact' ? 'active' : ''} onClick={() => setDensity('compact')} aria-label="Visualização compacta">≡</button>
+        <div className="lead-view-controls" aria-label="Densidade da lista">
+          <button type="button" className={density === 'comfortable' ? 'active' : ''} aria-pressed={density === 'comfortable'} onClick={() => setDensity('comfortable')} aria-label="Visualização confortável">▤</button>
+          <button type="button" className={density === 'compact' ? 'active' : ''} aria-pressed={density === 'compact'} onClick={() => setDensity('compact')} aria-label="Visualização compacta">≡</button>
           <button type="button" className="secondary" onClick={resetFilters} disabled={!hasActiveFilters}>Limpar</button>
         </div>
       </section>
 
-      {feedback ? <div className="inline-notice"><span>{feedback}</span></div> : null}
-      {partialDetailCount ? <div className="inline-notice"><Pill tone="warning">dados parciais</Pill><span>{partialDetailCount} lead(s) usam fallback de detalhe sem bloquear a decisão.</span></div> : null}
+      {feedback ? (
+        <div className={`inline-notice inline-notice-${feedback.tone}`} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
+          <span>{feedback.message}</span>
+        </div>
+      ) : null}
+      {!data.abmAvailable ? <div className="inline-notice"><Pill tone="warning">camada comercial parcial</Pill><span>O ranking segue disponível, mas champion, momentum e prazos comerciais não puderam ser atualizados.</span></div> : null}
 
       <section className={`lead-decision-list ${density === 'compact' ? 'compact' : ''}`} aria-label="Lista de leads priorizados">
         {filtered.length ? filtered.map((company, index) => (
@@ -226,7 +242,7 @@ export function CompaniesPage() {
                 <section>
                   <span>Próxima ação</span>
                   <strong>{company.nextStep}</strong>
-                  <p>Champion {readable(company.championStatus)} · último contato {company.lastTouchpoint}</p>
+                  <p>Champion {readable(company.championStatus)} · prazo comercial {company.nextStepDueAt}</p>
                 </section>
               </div>
             </div>
