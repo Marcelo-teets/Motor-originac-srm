@@ -14,11 +14,29 @@ const files = await Promise.all([
   read('frontend/src/pages/CompaniesPage.tsx'),
   read('frontend/src/pages/PipelinePage.tsx'),
   read('frontend/src/pages/SearchProfilesPage.tsx'),
+  read('frontend/src/pages/TaskCenterWithAiPage.tsx'),
+  read('frontend/src/pages/TaskCenterPage.tsx'),
+  read('frontend/src/components/TaskAiComposer.tsx'),
   read('frontend/src/main.tsx'),
   read('frontend/src/config/nav.ts'),
 ]);
 
-const [app, layout, ui, api, auth, readiness, companies, pipeline, searchProfiles, main, nav] = files;
+const [
+  app,
+  layout,
+  ui,
+  api,
+  auth,
+  readiness,
+  companies,
+  pipeline,
+  searchProfiles,
+  taskCenterWorkspace,
+  taskCenter,
+  taskAiComposer,
+  main,
+  nav,
+] = files;
 
 test('frontend uses route isolation, lazy modules and an explicit 404', () => {
   assert.match(app, /AppErrorBoundary/);
@@ -64,4 +82,23 @@ test('core workflows expose retry, progress and non-duplicating writes', () => {
   assert.match(ui, /role="progressbar"/);
   assert.match(ui, /aria-live="assertive"/);
   assert.match(main, /hardening\.css/);
+});
+
+test('task center is a single execution workspace with guarded Microsoft actions', () => {
+  assert.match(taskCenterWorkspace, /role="tablist"/);
+  assert.match(taskCenterWorkspace, /<TaskCenterPage embedded \/>/);
+  assert.match(taskCenterWorkspace, /<TaskAiComposer embedded \/>/);
+  assert.match(taskCenter, /confirmDisconnect/);
+  assert.match(taskCenter, /query\.delete\('microsoft'\)/);
+  assert.match(taskCenter, /aria-pressed=\{taskFilter === value\}/);
+  assert.match(taskCenter, /if \(busyAction\) return/);
+});
+
+test('AI task plans remain editable and require explicit human creation', () => {
+  assert.match(taskAiComposer, /updateTask/);
+  assert.match(taskAiComposer, /removeTask/);
+  assert.match(taskAiComposer, /Aprovar e criar pendentes/);
+  assert.match(taskAiComposer, /approvalRequired/);
+  assert.match(taskAiComposer, /createdIds\.includes/);
+  assert.match(main, /task-center-v2\.css/);
 });
