@@ -43,8 +43,8 @@ jobs:
       - name: Validate Vercel prebuilt workflow contract
         run: npm run test:vercel-production-workflow
 
-      - name: Validate Vercel WHATWG URL runtime bridge
-        run: npm run test:vercel-url-runtime
+      - name: Validate Vercel runtime stability contract
+        run: npm run test:vercel-runtime-stability
 
       - name: Validate CAPTCHA retirement controller
         run: npm run test:auth-captcha-retirement
