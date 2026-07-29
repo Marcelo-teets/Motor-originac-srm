@@ -35,15 +35,17 @@ export function Layout() {
     .sort((a, b) => b.to.length - a.to.length)
     .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? visibleNavItems[0];
 
-  const primaryItems = primaryPaths
+  const primaryItems = useMemo(() => primaryPaths
     .map((path) => visibleNavItems.find((item) => item.to === path))
-    .filter((item): item is (typeof visibleNavItems)[number] => Boolean(item));
-  const intelligenceItems = visibleNavItems.filter((item) => (
+    .filter((item): item is (typeof visibleNavItems)[number] => Boolean(item)), [visibleNavItems]);
+  const intelligenceItems = useMemo(() => visibleNavItems.filter((item) => (
     !primaryPaths.includes(item.to)
     && item.to !== '/profile'
     && item.group !== 'Operação & governança'
-  ));
-  const operationsItems = visibleNavItems.filter((item) => item.group === 'Operação & governança' && item.to !== '/profile');
+  )), [visibleNavItems]);
+  const operationsItems = useMemo(() => visibleNavItems.filter((item) => (
+    item.group === 'Operação & governança' && item.to !== '/profile'
+  )), [visibleNavItems]);
 
   const shortcutLabel = useMemo(() => (/Mac|iPhone|iPad/i.test(navigator.userAgent) ? '⌘ K' : 'Ctrl K'), []);
   const environment = useMemo(() => {
@@ -74,10 +76,13 @@ export function Layout() {
   useEffect(() => {
     const intelligenceActive = intelligenceItems.some((item) => location.pathname.startsWith(item.to));
     const operationsActive = operationsItems.some((item) => location.pathname.startsWith(item.to));
-    setExpandedGroups((current) => ({
-      intelligence: current.intelligence || intelligenceActive,
-      operations: current.operations || operationsActive,
-    }));
+    setExpandedGroups((current) => {
+      const next = {
+        intelligence: current.intelligence || intelligenceActive,
+        operations: current.operations || operationsActive,
+      };
+      return next.intelligence === current.intelligence && next.operations === current.operations ? current : next;
+    });
   }, [intelligenceItems, location.pathname, operationsItems]);
 
   useEffect(() => {
