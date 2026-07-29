@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
 import { CommandPalette } from './CommandPalette';
 
 const primaryPaths = ['/', '/search-profiles', '/companies', '/pipeline'];
-const intelligencePaths = ['/market-map', '/watch-lists', '/dcm-daily', '/outcome-operations', '/knowledge-vault', '/knowledge-search', '/knowledge-learning', '/origination-os'];
-const operationsPaths = ['/monitoring', '/capture-inbox', '/identity-review', '/credit-review', '/sources', '/agents', '/historical-archive', '/users'];
 
 const workflowSteps = [
   { to: '/', number: '01', label: 'Hoje', description: 'Decidir a agenda de originação' },
@@ -15,23 +13,72 @@ const workflowSteps = [
   { to: '/pipeline', number: '04', label: 'Executar', description: 'Avançar, registrar e acompanhar' },
 ];
 
+const isWorkflowPath = (pathname: string) => (
+  pathname === '/'
+  || pathname === '/search-profiles'
+  || pathname === '/companies'
+  || pathname.startsWith('/companies/')
+  || pathname === '/pipeline'
+);
+
 export function Layout() {
   const { logout, session, profile, isGodMode } = useAuth();
   const location = useLocation();
+  const sidebarRef = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1020px)').matches);
+  const [expandedGroups, setExpandedGroups] = useState({ intelligence: false, operations: false });
+
   const visibleNavItems = useMemo(() => navItems.filter((item) => !item.godOnly || isGodMode), [isGodMode]);
   const activeItem = [...visibleNavItems]
-    .reverse()
+    .sort((a, b) => b.to.length - a.to.length)
     .find((item) => (item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to))) ?? visibleNavItems[0];
 
   const primaryItems = primaryPaths
     .map((path) => visibleNavItems.find((item) => item.to === path))
     .filter((item): item is (typeof visibleNavItems)[number] => Boolean(item));
-  const intelligenceItems = visibleNavItems.filter((item) => intelligencePaths.includes(item.to));
-  const operationsItems = visibleNavItems.filter((item) => operationsPaths.includes(item.to));
+  const intelligenceItems = visibleNavItems.filter((item) => (
+    !primaryPaths.includes(item.to)
+    && item.to !== '/profile'
+    && item.group !== 'Operação & governança'
+  ));
+  const operationsItems = visibleNavItems.filter((item) => item.group === 'Operação & governança' && item.to !== '/profile');
+
+  const shortcutLabel = useMemo(() => (/Mac|iPhone|iPad/i.test(navigator.userAgent) ? '⌘ K' : 'Ctrl K'), []);
+  const environment = useMemo(() => {
+    const hostname = window.location.hostname;
+    if (hostname === 'motor-originac-srm.vercel.app') return { label: 'Produção', tone: 'production' };
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return { label: 'Desenvolvimento', tone: 'development' };
+    return { label: 'Preview', tone: 'preview' };
+  }, []);
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1020px)');
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('menu-locked', isMobile && menuOpen);
+    if (isMobile && menuOpen) {
+      window.setTimeout(() => sidebarRef.current?.querySelector<HTMLElement>('a, button')?.focus(), 0);
+    }
+    return () => document.body.classList.remove('menu-locked');
+  }, [isMobile, menuOpen]);
+
+  useEffect(() => {
+    const intelligenceActive = intelligenceItems.some((item) => location.pathname.startsWith(item.to));
+    const operationsActive = operationsItems.some((item) => location.pathname.startsWith(item.to));
+    setExpandedGroups((current) => ({
+      intelligence: current.intelligence || intelligenceActive,
+      operations: current.operations || operationsActive,
+    }));
+  }, [intelligenceItems, location.pathname, operationsItems]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -45,10 +92,14 @@ export function Layout() {
         event.preventDefault();
         setCommandOpen(true);
       }
+      if (event.key === 'Escape' && menuOpen) {
+        event.preventDefault();
+        setMenuOpen(false);
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [menuOpen]);
 
   const renderNavItem = (item: (typeof visibleNavItems)[number]) => (
     <NavLink
@@ -70,6 +121,7 @@ export function Layout() {
 
   return (
     <div className="shell shell-v4">
+      <a href="#main-content" className="skip-link">Ir para o conteúdo</a>
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
 
       <button
@@ -79,12 +131,19 @@ export function Layout() {
         aria-controls="main-sidebar"
         onClick={() => setMenuOpen((current) => !current)}
       >
-        {menuOpen ? 'Fechar menu' : 'Abrir menu'}
+        {menuOpen ? 'Fechar menu' : 'Menu'}
       </button>
 
       {menuOpen ? <button type="button" className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
 
-      <aside id="main-sidebar" className={`sidebar sidebar-v3 sidebar-v4 ${menuOpen ? 'sidebar-open' : ''}`}>
+      <aside
+        ref={sidebarRef}
+        id="main-sidebar"
+        className={`sidebar sidebar-v3 sidebar-v4 ${menuOpen ? 'sidebar-open' : ''}`}
+        aria-label="Navegação principal"
+        aria-hidden={isMobile && !menuOpen ? true : undefined}
+        inert={isMobile && !menuOpen ? true : undefined}
+      >
         <Link to="/" className="sidebar-brand sidebar-brand-v3 sidebar-brand-link">
           <div className="brand-mark" aria-hidden="true">M</div>
           <div>
@@ -96,34 +155,42 @@ export function Layout() {
         <button type="button" className="global-search-trigger" onClick={() => setCommandOpen(true)}>
           <span aria-hidden="true">⌕</span>
           <span>Buscar no Motor</span>
-          <kbd>⌘ K</kbd>
+          <kbd>{shortcutLabel}</kbd>
         </button>
 
-        <div className="sidebar-context">
+        <div className={`sidebar-context environment-${environment.tone}`} title={`Ambiente atual: ${environment.label}`}>
           <span className="context-dot" aria-hidden="true" />
-          <span>Produção · dados reais</span>
+          <span>{environment.label}</span>
         </div>
 
         <div className="sidebar-section sidebar-section-v3">
           <div className="sidebar-group">
             <span className="sidebar-label">Telas principais</span>
-            <nav>{primaryItems.map(renderNavItem)}</nav>
+            <nav aria-label="Fluxo principal">{primaryItems.map(renderNavItem)}</nav>
           </div>
 
-          <details className="sidebar-disclosure" open={intelligenceItems.some((item) => location.pathname.startsWith(item.to)) || undefined}>
+          <details
+            className="sidebar-disclosure"
+            open={expandedGroups.intelligence}
+            onToggle={(event) => setExpandedGroups((current) => ({ ...current, intelligence: event.currentTarget.open }))}
+          >
             <summary>
-              <span>Inteligência e cobertura</span>
+              <span>Inteligência e execução</span>
               <span aria-hidden="true">+</span>
             </summary>
-            <nav>{intelligenceItems.map(renderNavItem)}</nav>
+            <nav aria-label="Inteligência e execução">{intelligenceItems.map(renderNavItem)}</nav>
           </details>
 
-          <details className="sidebar-disclosure" open={operationsItems.some((item) => location.pathname.startsWith(item.to)) || undefined}>
+          <details
+            className="sidebar-disclosure"
+            open={expandedGroups.operations}
+            onToggle={(event) => setExpandedGroups((current) => ({ ...current, operations: event.currentTarget.open }))}
+          >
             <summary>
               <span>Operação e governança</span>
               <span aria-hidden="true">+</span>
             </summary>
-            <nav>{operationsItems.map(renderNavItem)}</nav>
+            <nav aria-label="Operação e governança">{operationsItems.map(renderNavItem)}</nav>
           </details>
         </div>
 
@@ -139,7 +206,7 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="content content-v3 content-v4">
+      <main id="main-content" className="content content-v3 content-v4" tabIndex={-1}>
         <header className="topbar topbar-v3 topbar-v4">
           <div className="topbar-title">
             <p className="eyebrow">Motor SRM / {activeItem.group}</p>
@@ -148,26 +215,28 @@ export function Layout() {
           </div>
           <div className="topbar-meta topbar-actions">
             <button type="button" className="secondary compact-button topbar-search" onClick={() => setCommandOpen(true)}>
-              Buscar <kbd>⌘ K</kbd>
+              Buscar <kbd>{shortcutLabel}</kbd>
             </button>
             <Link to="/companies" className="button compact-button">Abrir fila</Link>
           </div>
         </header>
 
-        <nav className="workflow-rail" aria-label="Fluxo principal de originação">
-          {workflowSteps.map((step) => {
-            const active = step.to === '/' ? location.pathname === '/' : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
-            return (
-              <Link key={step.number} to={step.to} className={active ? 'active' : ''}>
-                <span>{step.number}</span>
-                <span>
-                  <strong>{step.label}</strong>
-                  <small>{step.description}</small>
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
+        {isWorkflowPath(location.pathname) ? (
+          <nav className="workflow-rail" aria-label="Fluxo principal de originação">
+            {workflowSteps.map((step) => {
+              const active = step.to === '/' ? location.pathname === '/' : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
+              return (
+                <Link key={step.number} to={step.to} className={active ? 'active' : ''} aria-current={active ? 'step' : undefined}>
+                  <span>{step.number}</span>
+                  <span>
+                    <strong>{step.label}</strong>
+                    <small>{step.description}</small>
+                  </span>
+                </Link>
+              );
+            })}
+          </nav>
+        ) : null}
 
         <Outlet />
       </main>
