@@ -1,3 +1,4 @@
+import { fetchWithPolicy } from './http';
 import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 
@@ -58,15 +59,16 @@ export type MicrosoftWorkspace = {
 
 type Envelope<T> = { status: 'real' | 'partial' | 'mock'; generatedAt: string; data: T; error?: string };
 
-const request = async <T>(operation: string, session: SessionData | null, init?: RequestInit) => {
-  const response = await fetch(buildApiUrl(`/integrations/microsoft/${operation}`), {
+const request = async <T>(operation: string, session: SessionData | null, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body) headers.set('Content-Type', 'application/json');
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+
+  const response = await fetchWithPolicy(buildApiUrl(`/integrations/microsoft/${operation}`), {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
+    headers,
+  }, { timeoutMs: operation === 'sync' || operation === 'bootstrap' ? 28_000 : 20_000, retries: 1 });
   const raw = await response.text();
   let payload: Envelope<T>;
   try {
