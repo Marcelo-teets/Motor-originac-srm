@@ -54,7 +54,11 @@ const refreshIfNeeded = async (current: SessionData, force = false) => {
     if (current.expires_at <= Date.now()) throw new Error('Sua sessão expirou. Entre novamente.');
     return current;
   }
-  return supabaseAuth.refreshSession(current.refresh_token);
+  const refreshed = await supabaseAuth.refreshSession(current.refresh_token);
+  return {
+    ...refreshed,
+    refresh_token: refreshed.refresh_token ?? current.refresh_token,
+  };
 };
 
 export function AuthProvider({ children }: PropsWithChildren) {
