@@ -2,6 +2,9 @@
   "name": "motor-originac-srm",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": "22.x"
+  },
   "workspaces": [
     "frontend",
     "backend"
@@ -31,7 +34,7 @@
     "test:vercel-function-budget": "node scripts/vercel-function-budget.test.mjs",
     "test:vercel-production-control": "node scripts/vercel-production-control.test.mjs",
     "test:vercel-production-workflow": "node scripts/vercel-production-workflow.test.mjs",
-    "test:vercel-url-runtime": "npx tsx --test serverless/express-url-bridge.test.ts",
+    "test:vercel-runtime-stability": "node --test scripts/vercel-runtime-stability-contract.test.mjs",
     "ops:materialize-company-decision": "npx tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
