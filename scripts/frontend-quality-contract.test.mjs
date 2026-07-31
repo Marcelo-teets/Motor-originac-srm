@@ -54,6 +54,16 @@ test('navigation is derived from the canonical catalog and exposes the task cent
   assert.doesNotMatch(layout, /const operationsPaths/);
 });
 
+test('sidebar disclosures snapshot the DOM state before scheduling React updates', () => {
+  assert.match(layout, /const isOpen = event\.currentTarget\.open;/);
+  assert.match(layout, /syncDisclosureState\('intelligence', isOpen\)/);
+  assert.match(layout, /syncDisclosureState\('operations', isOpen\)/);
+  assert.doesNotMatch(
+    layout,
+    /setExpandedGroups\(\(current\)[\s\S]{0,180}event\.currentTarget\.open/,
+  );
+});
+
 test('critical frontend requests are bounded and readiness calls are deduplicated', () => {
   assert.match(api, /fetchWithPolicy/);
   assert.match(api, /timeoutMs: 25_000/);

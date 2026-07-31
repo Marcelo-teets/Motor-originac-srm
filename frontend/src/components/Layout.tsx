@@ -106,6 +106,14 @@ export function Layout() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [menuOpen]);
 
+  const syncDisclosureState = (group: 'intelligence' | 'operations', isOpen: boolean) => {
+    setExpandedGroups((current) => (
+      current[group] === isOpen
+        ? current
+        : { ...current, [group]: isOpen }
+    ));
+  };
+
   const renderNavItem = (item: (typeof visibleNavItems)[number]) => (
     <NavLink
       key={item.to}
@@ -177,7 +185,10 @@ export function Layout() {
           <details
             className="sidebar-disclosure"
             open={expandedGroups.intelligence}
-            onToggle={(event) => setExpandedGroups((current) => ({ ...current, intelligence: event.currentTarget.open }))}
+            onToggle={(event) => {
+              const isOpen = event.currentTarget.open;
+              syncDisclosureState('intelligence', isOpen);
+            }}
           >
             <summary>
               <span>Inteligência e execução</span>
@@ -189,7 +200,10 @@ export function Layout() {
           <details
             className="sidebar-disclosure"
             open={expandedGroups.operations}
-            onToggle={(event) => setExpandedGroups((current) => ({ ...current, operations: event.currentTarget.open }))}
+            onToggle={(event) => {
+              const isOpen = event.currentTarget.open;
+              syncDisclosureState('operations', isOpen);
+            }}
           >
             <summary>
               <span>Operação e governança</span>
