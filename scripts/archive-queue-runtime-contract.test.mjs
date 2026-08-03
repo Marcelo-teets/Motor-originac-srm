@@ -2,19 +2,28 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const migration = await readFile(
-  new URL('../db/migrations/20260803144000_archive_queue_runtime_hardening.sql', import.meta.url),
-  'utf8',
-);
+const [migration, cursorIndexMigration] = await Promise.all([
+  readFile(
+    new URL('../db/migrations/20260803144000_archive_queue_runtime_hardening.sql', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../db/migrations/20260803180500_archive_cursor_index_fix.sql', import.meta.url),
+    'utf8',
+  ),
+]);
 
 const queueFunction = migration.slice(
   migration.indexOf('create or replace function private.queue_due_historical_excel_archives()'),
 );
 
-test('archive queue has dataset-aware partial indexes and active-run indexes', () => {
+test('archive queue has partial indexes for due-date checks, cursor pagination and active runs', () => {
   assert.match(migration, /idx_capital_market_events_archive_dataset_due/);
   assert.match(migration, /\(dataset_code, observed_at, record_key\)/);
-  assert.match(migration, /where raw_payload <> '\{\}'::jsonb\s+or normalized_payload <> '\{\}'::jsonb/);
+  assert.match(cursorIndexMigration, /idx_capital_market_events_archive_dataset_cursor/);
+  assert.match(cursorIndexMigration, /\(dataset_code, record_key\)/);
+  assert.match(cursorIndexMigration, /include \(observed_at\)/i);
+  assert.match(cursorIndexMigration, /where raw_payload <> '\{\}'::jsonb\s+or normalized_payload <> '\{\}'::jsonb/);
   assert.match(migration, /idx_data_archive_runs_active_updated/);
   assert.match(migration, /idx_data_archive_tokens_active_run/);
 });
