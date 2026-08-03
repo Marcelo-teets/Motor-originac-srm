@@ -21,9 +21,18 @@ const [
 const packageJson = JSON.parse(packageSource);
 const vercelJson = JSON.parse(vercelSource);
 
-test('Vercel production is pinned to the stable Node 22 runtime while CI remains on Node 24', () => {
+test('Vercel production and CI are aligned on the stable Node 22 runtime', () => {
   assert.equal(packageJson.engines?.node, '22.x');
-  assert.match(ciSource, /node-version:\s*24/);
+  assert.match(ciSource, /node-version:\s*22/);
+  assert.doesNotMatch(ciSource, /node-version:\s*24/);
+});
+
+test('CI uses current Node 24-native GitHub Actions without write access', () => {
+  assert.match(ciSource, /actions\/checkout@v6/);
+  assert.match(ciSource, /actions\/setup-node@v6/);
+  assert.match(ciSource, /actions\/upload-artifact@v7/);
+  assert.match(ciSource, /permissions:\s*\n\s*contents:\s*read/);
+  assert.doesNotMatch(ciSource, /contents:\s*write/);
 });
 
 test('capture diagnostics bound every Supabase table probe below the function timeout', () => {
