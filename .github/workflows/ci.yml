@@ -25,6 +25,18 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Refresh dependency lock for audited upgrades
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Upload refreshed dependency lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
       - name: Install dependencies
         run: npm ci
 
