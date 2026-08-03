@@ -3,11 +3,20 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-const [packageSource, ciSource, apiSource, vercelSource] = await Promise.all([
+const [
+  packageSource,
+  ciSource,
+  apiSource,
+  vercelSource,
+  runtimeConfigSource,
+  companyDecisionReadinessSource,
+] = await Promise.all([
   read('package.json'),
   read('.github/workflows/ci.yml'),
   read('api/index.ts'),
   read('vercel.json'),
+  read('frontend/src/lib/runtimeConfig.ts'),
+  read('serverless/company-decision-readiness.ts'),
 ]);
 const packageJson = JSON.parse(packageSource);
 const vercelJson = JSON.parse(vercelSource);
@@ -28,4 +37,23 @@ test('runtime does not silence deprecations or retain the ineffective Express UR
   assert.doesNotMatch(apiSource, /installExpressUrlBridge/);
   assert.doesNotMatch(packageSource, /test:vercel-url-runtime/);
   assert.doesNotMatch(ciSource, /WHATWG URL runtime bridge/);
+});
+
+test('production frontend keeps API requests on the canonical same origin', () => {
+  assert.match(runtimeConfigSource, /if \(env\.PROD\) return PRODUCTION_API_BASE_URL;/);
+  const productionGuardIndex = runtimeConfigSource.indexOf('if (env.PROD) return PRODUCTION_API_BASE_URL;');
+  const configuredUrlIndex = runtimeConfigSource.indexOf('return normalizeBaseUrl(configuredApiBaseUrl);');
+  assert.ok(productionGuardIndex >= 0 && configuredUrlIndex > productionGuardIndex);
+});
+
+test('Company Master route accepts CORS preflight before enforcing GET and bearer auth', () => {
+  assert.match(companyDecisionReadinessSource, /method === 'OPTIONS'/);
+  assert.match(companyDecisionReadinessSource, /writeNoContent\(req, res\)/);
+  assert.match(companyDecisionReadinessSource, /'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept'/);
+  assert.match(companyDecisionReadinessSource, /'Access-Control-Allow-Methods': 'GET, OPTIONS'/);
+  assert.match(companyDecisionReadinessSource, /if \(method !== 'GET'\)/);
+  assert.ok(
+    companyDecisionReadinessSource.indexOf("if (method === 'OPTIONS')")
+      < companyDecisionReadinessSource.indexOf("if (method !== 'GET')"),
+  );
 });
