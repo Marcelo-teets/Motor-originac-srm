@@ -22,9 +22,9 @@
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-public-env": "node --test scripts/sync-public-auth-env-to-vercel.test.mjs",
     "test:auth-production-smoke": "node --test scripts/smoke-auth-production.test.mjs",
-    "test:company-credit-review": "npx tsx --test backend/src/lib/companyCreditReview.test.ts backend/src/lib/approvedCreditReviewQualification.test.ts",
+    "test:company-credit-review": "tsx --test backend/src/lib/companyCreditReview.test.ts backend/src/lib/approvedCreditReviewQualification.test.ts",
     "test:agentetome-production": "node --test scripts/agentetome-production-contract.test.mjs",
-    "test:fidcs-source": "npx tsx --test backend/src/lib/fidcsComBr.test.ts",
+    "test:fidcs-source": "tsx --test backend/src/lib/fidcsComBr.test.ts",
     "test:knowledge-learning-service-role": "node --test scripts/knowledge-learning-service-role-contract.test.mjs",
     "test:knowledge-learning-oidc": "node --test scripts/knowledge-learning-oidc-contract.test.mjs",
     "test:knowledge-learning-queue": "node --test scripts/knowledge-learning-queue-governance.test.mjs",
@@ -38,9 +38,12 @@
     "test:vercel-production-workflow": "node scripts/vercel-production-workflow.test.mjs",
     "test:vercel-runtime-stability": "node --test scripts/vercel-runtime-stability-contract.test.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "ops:materialize-company-decision": "npx tsx scripts/materialize-company-decision.ts",
+    "ops:materialize-company-decision": "tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
     "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless"
+  },
+  "devDependencies": {
+    "tsx": "4.19.3"
   }
 }
