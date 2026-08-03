@@ -65,3 +65,11 @@ test('production rollout separates code blockers from external blockers without 
   assert.equal(rolloutMarker.acceptance.externalBlockers, 1);
   assert.equal(typeof rolloutMarker.acceptance.externalBlocker, 'string');
 });
+
+test('production rollout uses the same Node runtime and current GitHub Actions as CI', () => {
+  assert.match(rolloutWorkflow, /actions\/checkout@v6/);
+  assert.match(rolloutWorkflow, /actions\/setup-node@v6/);
+  assert.match(rolloutWorkflow, /node-version:\s*22/);
+  assert.doesNotMatch(rolloutWorkflow, /node-version:\s*24/);
+  assert.match(rolloutWorkflow, /permissions:\s*\n\s*contents:\s*read/);
+});
