@@ -6,7 +6,9 @@ import { useAuth } from '../lib/auth';
 import type { AbmWeeklyWarRoom, DataState, PipelineRow, PipelineSnapshot, PipelineStage } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
-const PIPELINE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
+const ACTIVE_STAGES: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated'];
+const CLOSED_STAGES: PipelineStage[] = ['ClosedWon', 'ClosedLost', 'Recycled'];
+const PIPELINE_STAGES: PipelineStage[] = [...ACTIVE_STAGES, ...CLOSED_STAGES];
 
 type PipelineWorkspaceRow = PipelineRow & {
   company?: {
@@ -41,7 +43,7 @@ const emptyAbm = (): AbmWeeklyWarRoom => ({
 
 const emptyPipeline = (): DataState<PipelineSnapshot> => ({
   source: 'partial',
-  note: 'Pipeline indisponível; exibindo fallback operacional para não bloquear a rotina de cobertura.',
+  note: 'Pipeline indisponível; exibindo fallback operacional.',
   data: { stages: [], recentActivities: [] },
 });
 
@@ -56,6 +58,7 @@ export function PipelinePage() {
   const { session } = useAuth();
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'board' | 'attention'>('board');
+  const [showClosed, setShowClosed] = useState(false);
   const [movingCompanyId, setMovingCompanyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -75,15 +78,10 @@ export function PipelinePage() {
 
     return {
       ...snapshot,
-      rows: rows.map((row) => ({
-        ...row,
-        company: companyMap.get(row.companyId),
-      })) as PipelineWorkspaceRow[],
+      rows: rows.map((row) => ({ ...row, company: companyMap.get(row.companyId) })) as PipelineWorkspaceRow[],
       abm,
       health: {
-        snapshotOk: snapshotResult.status === 'fulfilled',
         rowsOk: rowsResult.status === 'fulfilled',
-        companiesOk: companiesResult.status === 'fulfilled',
         abmOk: abmResult.status === 'fulfilled',
       },
     };
@@ -93,28 +91,19 @@ export function PipelinePage() {
     if (!data) return [];
     const normalized = query.trim().toLowerCase();
     if (!normalized) return data.rows;
-    return data.rows.filter((row) => [
-      row.company?.name,
-      row.company?.segment,
-      row.company?.suggestedStructure,
-      row.nextAction,
-      row.owner,
-    ].join(' ').toLowerCase().includes(normalized));
+    return data.rows.filter((row) => [row.company?.name, row.company?.segment, row.company?.suggestedStructure, row.nextAction, row.owner]
+      .join(' ').toLowerCase().includes(normalized));
   }, [data, query]);
 
-  const board = useMemo(() => new Map(PIPELINE_STAGES.map((stage) => [
-    stage,
-    filteredRows.filter((row) => row.stage === stage),
-  ])), [filteredRows]);
+  const board = useMemo(() => new Map(PIPELINE_STAGES.map((stage) => [stage, filteredRows.filter((row) => row.stage === stage)])), [filteredRows]);
 
-  if (loading) return <LoadingState title="Pipeline" subtitle="Montando o quadro comercial, alertas e próximas ações." />;
+  if (loading) return <LoadingState title="Pipeline" subtitle="Organizando oportunidades e próximos passos." />;
   if (error || !data) return <ErrorState title="Pipeline" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
-  const openStages = PIPELINE_STAGES.filter((stage) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(stage));
-  const activeDeals = filteredRows.filter((row) => openStages.includes(row.stage)).length;
+  const activeDeals = filteredRows.filter((row) => ACTIVE_STAGES.includes(row.stage)).length;
   const advancedDeals = filteredRows.filter((row) => ['Structuring', 'Mandated'].includes(row.stage)).length;
-  const missingNextAction = filteredRows.filter((row) => !row.nextAction?.trim() || row.nextAction === 'Definir próximo passo').length;
   const attentionCount = data.abm.cooling_accounts.length + data.abm.without_champion.length + data.abm.overdue_next_steps.length + data.abm.critical_open_objections.length;
+  const visibleStages = showClosed ? PIPELINE_STAGES : ACTIVE_STAGES;
 
   const moveCompany = async (row: PipelineWorkspaceRow, targetStage: PipelineStage) => {
     if (row.stage === targetStage || movingCompanyId) return;
@@ -142,135 +131,75 @@ export function PipelinePage() {
   ];
 
   return (
-    <div className="page pipeline-workspace-page">
+    <div className="page simple-page simple-pipeline-page">
       <PageIntro
         eyebrow="Execução comercial"
-        title="Pipeline de originação"
-        description="Um quadro de trabalho para avançar contas, enxergar gargalos e garantir que cada oportunidade tenha uma próxima ação clara."
-        actions={(
-          <div className="pill-row">
-            <Link to="/companies" className="button secondary">Adicionar a partir dos leads</Link>
-            <Link to="/dcm-daily" className="button">Preparar abordagens</Link>
-          </div>
-        )}
+        title="Oportunidades em andamento"
+        description="Veja onde cada conta está, o que impede o avanço e qual é o próximo passo. Etapas encerradas ficam ocultas por padrão."
+        actions={<Link to="/companies" className="button secondary">Adicionar a partir dos leads</Link>}
       />
 
       <DataStatusBanner source={data.source} note={data.note} />
 
-      <section className="pipeline-metric-strip" aria-label="Resumo do pipeline">
-        <div><span>Deals ativos</span><strong>{activeDeals}</strong><small>entre identificação e mandato</small></div>
+      <section className="simple-metrics simple-pipeline-metrics" aria-label="Resumo do pipeline">
+        <div><span>Deals ativos</span><strong>{activeDeals}</strong><small>da identificação ao mandato</small></div>
         <div><span>Em estruturação</span><strong>{advancedDeals}</strong><small>estruturação ou mandato</small></div>
-        <div><span>Precisam de atenção</span><strong>{attentionCount}</strong><small>alertas comerciais abertos</small></div>
-        <div><span>Sem próxima ação</span><strong>{missingNextAction}</strong><small>risco de estagnação</small></div>
+        <button type="button" onClick={() => setView('attention')}><span>Precisam de atenção</span><strong>{attentionCount}</strong><small>bloqueios comerciais</small></button>
       </section>
 
-      <section className="pipeline-toolbar">
+      <section className="simple-pipeline-toolbar">
         <div className="segmented-control" aria-label="Visão do pipeline">
           <button type="button" aria-pressed={view === 'board'} className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>Quadro</button>
-          <button type="button" aria-pressed={view === 'attention'} className={view === 'attention' ? 'active' : ''} onClick={() => setView('attention')}>Fila de atenção <span>{attentionCount}</span></button>
+          <button type="button" aria-pressed={view === 'attention'} className={view === 'attention' ? 'active' : ''} onClick={() => setView('attention')}>Atenção <span>{attentionCount}</span></button>
         </div>
         <label>
-          <span>Buscar no pipeline</span>
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, estrutura, responsável ou ação" />
+          <span>Buscar</span>
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, estrutura ou responsável" />
         </label>
+        <button type="button" className="secondary" aria-pressed={showClosed} onClick={() => setShowClosed((current) => !current)}>
+          {showClosed ? 'Ocultar encerrados' : 'Ver encerrados'}
+        </button>
         <div className="pipeline-health-pills">
-          <Pill tone={data.health.rowsOk ? 'success' : 'warning'}>{data.health.rowsOk ? 'CRM real' : 'CRM parcial'}</Pill>
-          <Pill tone={data.health.abmOk ? 'success' : 'warning'}>{data.health.abmOk ? 'ABM real' : 'ABM parcial'}</Pill>
+          <Pill tone={data.health.rowsOk ? 'success' : 'warning'}>{data.health.rowsOk ? 'CRM atualizado' : 'CRM parcial'}</Pill>
+          <Pill tone={data.health.abmOk ? 'success' : 'warning'}>{data.health.abmOk ? 'Alertas atualizados' : 'Alertas parciais'}</Pill>
         </div>
       </section>
 
       {feedback ? <div className={`inline-notice inline-notice-${feedback.tone}`} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite"><span>{feedback.message}</span></div> : null}
 
       {view === 'board' ? (
-        <section className="pipeline-board" aria-label="Kanban do pipeline">
-          {PIPELINE_STAGES.map((stage) => {
+        <section className="simple-pipeline-board" aria-label="Quadro do pipeline">
+          {visibleStages.map((stage) => {
             const rows = board.get(stage) ?? [];
             return (
-              <section key={stage} className={`pipeline-column pipeline-column-${stage.toLowerCase()}`} aria-labelledby={`pipeline-stage-${stage}`}>
-                <header>
-                  <div>
-                    <span className="pipeline-stage-dot" aria-hidden="true" />
-                    <strong id={`pipeline-stage-${stage}`}>{stageLabels[stage]}</strong>
-                  </div>
-                  <Pill tone={stageTone(stage)}>{rows.length}</Pill>
-                </header>
-
-                <div className="pipeline-column-body">
+              <section key={stage} className={`simple-pipeline-column simple-pipeline-column-${stage.toLowerCase()}`} aria-labelledby={`pipeline-stage-${stage}`}>
+                <header><div><span className="pipeline-stage-dot" aria-hidden="true" /><strong id={`pipeline-stage-${stage}`}>{stageLabels[stage]}</strong></div><Pill tone={stageTone(stage)}>{rows.length}</Pill></header>
+                <div>
                   {rows.length ? rows.map((row) => (
-                    <article key={row.id} className="pipeline-deal-card" aria-busy={movingCompanyId === row.companyId}>
-                      <div className="pipeline-deal-heading">
-                        <Link to={`/companies/${row.companyId}`}>{row.company?.name ?? row.companyId}</Link>
-                        <small>{row.owner}</small>
-                      </div>
-                      <div className="pipeline-deal-meta">
-                        <span>{row.company?.suggestedStructure ?? 'Estrutura em definição'}</span>
-                        {row.company?.leadScore !== undefined ? <strong>{row.company.leadScore}</strong> : null}
-                      </div>
+                    <article key={row.id} className="simple-pipeline-card" aria-busy={movingCompanyId === row.companyId}>
+                      <header><Link to={`/companies/${row.companyId}`}>{row.company?.name ?? row.companyId}</Link><strong>{row.company?.leadScore ?? '—'}</strong></header>
+                      <span>{row.company?.suggestedStructure ?? 'Estrutura em definição'}</span>
                       <p>{row.nextAction || 'Definir próximo passo comercial'}</p>
-                      <label>
-                        <span>Mover para</span>
-                        <select
-                          value={row.stage}
-                          disabled={movingCompanyId !== null}
-                          onChange={(event) => void moveCompany(row, event.target.value as PipelineStage)}
-                        >
-                          {PIPELINE_STAGES.map((option) => <option key={option} value={option}>{stageLabels[option]}</option>)}
-                        </select>
-                      </label>
+                      <footer>
+                        <small>{row.owner}</small>
+                        <label><span>Mover para</span><select value={row.stage} disabled={movingCompanyId !== null} onChange={(event) => void moveCompany(row, event.target.value as PipelineStage)}>{PIPELINE_STAGES.map((option) => <option key={option} value={option}>{stageLabels[option]}</option>)}</select></label>
+                      </footer>
                     </article>
-                  )) : (
-                    <div className="pipeline-column-empty">
-                      <span>Nenhuma empresa</span>
-                      <small>Os cards aparecem aqui quando o estágio é atualizado.</small>
-                    </div>
-                  )}
+                  )) : <div className="simple-column-empty">Nenhuma empresa</div>}
                 </div>
               </section>
             );
           })}
         </section>
       ) : (
-        <section className="attention-workspace">
-          <div className="attention-list">
-            {attentionItems.length ? attentionItems.map((item, index) => (
-              <article key={`${item.companyId}-${item.type}-${index}`}>
-                <div>
-                  <Pill tone={item.tone}>{item.type}</Pill>
-                  <Link to={`/companies/${item.companyId}`}>{item.company}</Link>
-                  <p>{item.detail}</p>
-                </div>
-                <Link to={`/companies/${item.companyId}`} className="button secondary compact-button">Resolver na conta</Link>
-              </article>
-            )) : (
-              <EmptyState title="Nenhum alerta crítico" description="As contas estão com champion, próximos passos e momentum sob controle." />
-            )}
-          </div>
-
-          <aside className="pipeline-activity-panel">
-            <div className="pipeline-panel-heading">
-              <div>
-                <p className="eyebrow">Atividade recente</p>
-                <h3>O que mudou no pipeline</h3>
-              </div>
-              <Pill tone="info">{data.data.recentActivities.length}</Pill>
-            </div>
-            {data.data.recentActivities.length ? (
-              <div className="pipeline-activity-list">
-                {data.data.recentActivities.slice(0, 12).map((activity) => (
-                  <article key={`${activity.company}-${activity.title}-${activity.when}`}>
-                    <span className="activity-dot" aria-hidden="true" />
-                    <div>
-                      <strong>{activity.company}</strong>
-                      <p>{activity.title}</p>
-                      <small>{activity.owner} · {activity.when} · {activity.status}</small>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="Sem atividades recentes" description="Registre uma atividade na conta para formar a memória operacional." />
-            )}
-          </aside>
+        <section className="simple-attention-list">
+          {attentionItems.length ? attentionItems.map((item, index) => (
+            <article key={`${item.companyId}-${item.type}-${index}`}>
+              <Pill tone={item.tone}>{item.type}</Pill>
+              <div><Link to={`/companies/${item.companyId}`}>{item.company}</Link><p>{item.detail}</p></div>
+              <Link to={`/companies/${item.companyId}`} className="button secondary compact-button">Resolver</Link>
+            </article>
+          )) : <EmptyState title="Nenhum alerta crítico" description="As oportunidades estão com próximos passos e responsáveis sob controle." />}
         </section>
       )}
     </div>
