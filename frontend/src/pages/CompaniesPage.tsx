@@ -12,17 +12,11 @@ function priorityTone(bucket: string): 'success' | 'warning' | 'info' {
   return 'info';
 }
 
-function momentumTone(momentum: string): 'success' | 'warning' | 'info' {
-  if (momentum === 'cooling') return 'warning';
-  if (momentum === 'accelerating') return 'success';
-  return 'info';
-}
-
 function readable(value: string) {
   return value.replace(/_/g, ' ');
 }
 
-type LeadFocus = 'all' | 'immediate' | 'fidc' | 'dcm' | 'monitor';
+type LeadFocus = 'all' | 'immediate' | 'fidc' | 'dcm';
 type LeadSort = 'lead' | 'timing' | 'qualification' | 'confidence';
 type Feedback = { tone: 'success' | 'error'; message: string } | null;
 
@@ -33,7 +27,7 @@ export function CompaniesPage() {
   const [structure, setStructure] = useState('all');
   const [focus, setFocus] = useState<LeadFocus>('all');
   const [sortBy, setSortBy] = useState<LeadSort>('lead');
-  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -52,7 +46,6 @@ export function CompaniesPage() {
         return {
           ...company,
           lastSignal: company.thesis ?? company.topPatterns[0] ?? 'Sem sinal recente consolidado',
-          commercialPriority: war?.priority_band ?? 'monitor',
           momentum: war?.momentum_status ?? 'stable',
           nextStep: company.nextAction ?? 'Definir próximo passo',
           nextStepDueAt: overdueMap.get(company.id) ?? 'não informado',
@@ -81,8 +74,7 @@ export function CompaniesPage() {
       const matchesFocus = focus === 'all'
         || (focus === 'immediate' && company.leadBucket.includes('immediate'))
         || (focus === 'fidc' && company.fitFidc)
-        || (focus === 'dcm' && company.fitDcm)
-        || (focus === 'monitor' && !company.leadBucket.includes('immediate') && !company.leadBucket.includes('high'));
+        || (focus === 'dcm' && company.fitDcm);
       return matchesQuery && matchesPriority && matchesStructure && matchesFocus;
     });
 
@@ -94,14 +86,13 @@ export function CompaniesPage() {
     });
   }, [data, focus, priority, query, sortBy, structure]);
 
-  if (loading) return <LoadingState title="Leads" subtitle="Carregando ranking, sinais e camada comercial das empresas." />;
+  if (loading) return <LoadingState title="Leads" subtitle="Organizando as oportunidades por prioridade." />;
   if (error || !data) return <ErrorState title="Leads" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   const uniqueStructures = Array.from(new Set(data.companies.map((company) => company.suggestedStructure))).filter(Boolean).sort();
   const immediateCount = data.companies.filter((company) => company.leadBucket.includes('immediate')).length;
   const fidcCount = data.companies.filter((company) => company.fitFidc).length;
   const dcmCount = data.companies.filter((company) => company.fitDcm).length;
-  const monitorCount = data.companies.filter((company) => !company.leadBucket.includes('immediate') && !company.leadBucket.includes('high')).length;
   const hasActiveFilters = query.length > 0 || priority !== 'all' || structure !== 'all' || focus !== 'all';
 
   const resetFilters = () => {
@@ -109,6 +100,7 @@ export function CompaniesPage() {
     setPriority('all');
     setStructure('all');
     setFocus('all');
+    setSortBy('lead');
   };
 
   const moveToPipeline = async (companyId: string, companyName: string) => {
@@ -124,137 +116,124 @@ export function CompaniesPage() {
     }
   };
 
-  const focusOptions: Array<{ id: LeadFocus; label: string; count: number; helper: string }> = [
-    { id: 'all', label: 'Todos', count: data.companies.length, helper: 'universo priorizado' },
-    { id: 'immediate', label: 'Abordar agora', count: immediateCount, helper: 'timing imediato' },
-    { id: 'fidc', label: 'Tese FIDC', count: fidcCount, helper: 'recebíveis e funding' },
-    { id: 'dcm', label: 'Tese DCM', count: dcmCount, helper: 'dívida corporativa' },
-    { id: 'monitor', label: 'Monitorar', count: monitorCount, helper: 'aguardar novos sinais' },
+  const focusOptions: Array<{ id: LeadFocus; label: string; count: number }> = [
+    { id: 'all', label: 'Todos', count: data.companies.length },
+    { id: 'immediate', label: 'Abordar agora', count: immediateCount },
+    { id: 'fidc', label: 'Tese FIDC', count: fidcCount },
+    { id: 'dcm', label: 'Tese DCM', count: dcmCount },
   ];
 
   return (
-    <div className="page leads-decision-page">
+    <div className="page simple-page simple-leads-page">
       <PageIntro
-        eyebrow="Radar de oportunidades"
-        title="Fila de decisão"
-        description="Escolha onde concentrar o time. A fila combina score, timing, tese financeira, evidência e prontidão comercial."
-        actions={(
-          <div className="pill-row">
-            <Pill tone="success">{filtered.length} na visão</Pill>
-            <Link to="/pipeline" className="button">Abrir pipeline</Link>
-          </div>
-        )}
+        eyebrow="Decisão de originação"
+        title="Quem devemos abordar"
+        description="Cada card mostra somente o necessário para decidir: por que agora, estrutura provável e próxima ação."
+        actions={<Link to="/pipeline" className="button">Abrir pipeline</Link>}
       />
 
       <DataStatusBanner source={data.companiesState.source} note={data.companiesState.note} />
 
-      <section className="lead-focus-tabs" aria-label="Segmentos de decisão">
+      <section className="simple-focus-tabs" aria-label="Visões rápidas da fila">
         {focusOptions.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={focus === item.id ? 'active' : ''}
-            aria-pressed={focus === item.id}
-            onClick={() => setFocus(item.id)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.count}</strong>
-            <small>{item.helper}</small>
+          <button key={item.id} type="button" className={focus === item.id ? 'active' : ''} aria-pressed={focus === item.id} onClick={() => setFocus(item.id)}>
+            <span>{item.label}</span><strong>{item.count}</strong>
           </button>
         ))}
       </section>
 
-      <section className="lead-control-bar" aria-label="Filtros da fila de leads">
-        <label className="lead-search-field">
-          <span>Buscar</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Empresa, segmento, sinal ou padrão" type="search" />
-        </label>
-        <label>
-          <span>Prioridade</span>
-          <select value={priority} onChange={(event) => setPriority(event.target.value)}>
-            <option value="all">Todas</option>
-            <option value="immediate_priority">Imediata</option>
-            <option value="high_priority">Alta</option>
-            <option value="monitor_closely">Monitorar</option>
-          </select>
-        </label>
-        <label>
-          <span>Estrutura</span>
-          <select value={structure} onChange={(event) => setStructure(event.target.value)}>
-            <option value="all">Todas</option>
-            {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+      <section className="simple-lead-toolbar" aria-label="Busca e filtros">
+        <label className="simple-search-field">
+          <span>Buscar empresa</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nome, segmento ou sinal" type="search" />
         </label>
         <label>
           <span>Ordenar por</span>
           <select value={sortBy} onChange={(event) => setSortBy(event.target.value as LeadSort)}>
-            <option value="lead">Lead score</option>
+            <option value="lead">Melhor oportunidade</option>
             <option value="timing">Timing</option>
-            <option value="qualification">Qualification</option>
-            <option value="confidence">Confiança da fonte</option>
+            <option value="qualification">Qualificação</option>
+            <option value="confidence">Confiança dos dados</option>
           </select>
         </label>
-        <div className="lead-view-controls" aria-label="Densidade da lista">
-          <button type="button" className={density === 'comfortable' ? 'active' : ''} aria-pressed={density === 'comfortable'} onClick={() => setDensity('comfortable')} aria-label="Visualização confortável">▤</button>
-          <button type="button" className={density === 'compact' ? 'active' : ''} aria-pressed={density === 'compact'} onClick={() => setDensity('compact')} aria-label="Visualização compacta">≡</button>
-          <button type="button" className="secondary" onClick={resetFilters} disabled={!hasActiveFilters}>Limpar</button>
-        </div>
+        <button type="button" className="secondary" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((current) => !current)}>
+          {showAdvanced ? 'Ocultar filtros' : 'Mais filtros'}
+        </button>
+        <button type="button" className="secondary" onClick={resetFilters} disabled={!hasActiveFilters}>Limpar</button>
       </section>
+
+      {showAdvanced ? (
+        <section className="simple-advanced-filters" aria-label="Filtros avançados">
+          <label>
+            <span>Prioridade</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+              <option value="all">Todas</option>
+              <option value="immediate_priority">Imediata</option>
+              <option value="high_priority">Alta</option>
+              <option value="monitor_closely">Monitorar</option>
+            </select>
+          </label>
+          <label>
+            <span>Estrutura</span>
+            <select value={structure} onChange={(event) => setStructure(event.target.value)}>
+              <option value="all">Todas</option>
+              {uniqueStructures.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </section>
+      ) : null}
 
       {feedback ? (
         <div className={`inline-notice inline-notice-${feedback.tone}`} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">
           <span>{feedback.message}</span>
         </div>
       ) : null}
-      {!data.abmAvailable ? <div className="inline-notice"><Pill tone="warning">camada comercial parcial</Pill><span>O ranking segue disponível, mas champion, momentum e prazos comerciais não puderam ser atualizados.</span></div> : null}
+      {!data.abmAvailable ? <div className="inline-notice"><Pill tone="warning">Dados comerciais parciais</Pill><span>Champion, momentum e prazos podem estar desatualizados.</span></div> : null}
 
-      <section className={`lead-decision-list ${density === 'compact' ? 'compact' : ''}`} aria-label="Lista de leads priorizados">
+      <div className="simple-result-count" aria-live="polite"><strong>{filtered.length}</strong> empresa(s) nesta visão</div>
+
+      <section className="simple-lead-list" aria-label="Leads priorizados">
         {filtered.length ? filtered.map((company, index) => (
-          <article key={company.id} className="lead-decision-card">
-            <div className="lead-decision-rank">
+          <article key={company.id} className="simple-lead-card">
+            <div className="simple-lead-rank">
               <span>{String(index + 1).padStart(2, '0')}</span>
               <WatchListStar companyId={company.id} companyName={company.name} />
             </div>
 
-            <div className="lead-decision-main">
-              <div className="lead-decision-title">
+            <div className="simple-lead-content">
+              <header>
                 <div>
                   <Link to={`/companies/${company.id}`}>{company.name}</Link>
                   <span>{company.segment} · {company.subsegment}</span>
                 </div>
-                <div className="pill-row">
-                  <Pill tone={priorityTone(company.leadBucket)}>{readable(company.leadBucket)}</Pill>
-                  <Pill tone={momentumTone(company.momentum)}>{readable(company.momentum)}</Pill>
+                <Pill tone={priorityTone(company.leadBucket)}>{readable(company.leadBucket)}</Pill>
+              </header>
+
+              <div className="simple-decision-grid">
+                <section><span>Por que agora</span><strong>{company.topPatterns[0] ?? 'Sem padrão dominante'}</strong><p>{company.lastSignal}</p></section>
+                <section><span>Estrutura provável</span><strong>{company.suggestedStructure}</strong><p>{company.fitFidc ? 'Fit FIDC' : 'FIDC não confirmado'} · {company.fitDcm ? 'Fit DCM' : 'DCM não confirmado'}</p></section>
+                <section><span>Próxima ação</span><strong>{company.nextStep}</strong><p>Prazo: {company.nextStepDueAt}</p></section>
+              </div>
+
+              <details className="simple-lead-evidence">
+                <summary>Ver evidências e qualidade dos dados</summary>
+                <div>
+                  <span>Qualificação <strong>{company.qualificationScore}</strong></span>
+                  <span>Timing <strong>{company.urgency}</strong></span>
+                  <span>Confiança <strong>{company.sourceConfidence}</strong></span>
+                  <span>Evidências <strong>{company.evidenceCount}</strong></span>
+                  <span>Champion <strong>{readable(company.championStatus)}</strong></span>
+                  <span>Momentum <strong>{readable(company.momentum)}</strong></span>
                 </div>
-              </div>
-
-              <div className="lead-decision-thesis">
-                <section>
-                  <span>Por que agora</span>
-                  <strong>{company.topPatterns[0] ?? 'Sem padrão dominante'}</strong>
-                  <p>{company.lastSignal}</p>
-                </section>
-                <section>
-                  <span>Estrutura provável</span>
-                  <strong>{company.suggestedStructure}</strong>
-                  <p>{company.fitFidc ? 'Fit FIDC' : 'FIDC não confirmado'} · {company.fitDcm ? 'Fit DCM' : 'DCM não confirmado'}</p>
-                </section>
-                <section>
-                  <span>Próxima ação</span>
-                  <strong>{company.nextStep}</strong>
-                  <p>Champion {readable(company.championStatus)} · prazo comercial {company.nextStepDueAt}</p>
-                </section>
-              </div>
+              </details>
             </div>
 
-            <div className="lead-decision-evidence">
-              <div><span>Lead</span><ScoreBadge value={company.leadScore} kind="lead" /></div>
-              <div><span>Qualificação</span><strong>{company.qualificationScore}</strong></div>
-              <div><span>Timing</span><strong>{company.urgency}</strong></div>
-              <div><span>Evidências</span><strong>{company.evidenceCount}</strong></div>
-            </div>
+            <aside className="simple-lead-score">
+              <span>Lead score</span>
+              <ScoreBadge value={company.leadScore} kind="lead" />
+            </aside>
 
-            <div className="lead-decision-actions">
+            <div className="simple-lead-actions">
               <Link to={`/companies/${company.id}`} className="button">Abrir decisão</Link>
               <button type="button" className="secondary" disabled={movingId === company.id} onClick={() => void moveToPipeline(company.id, company.name)}>
                 {movingId === company.id ? 'Enviando...' : 'Enviar ao pipeline'}
@@ -263,11 +242,7 @@ export function CompaniesPage() {
           </article>
         )) : (
           <Card title="Nenhum lead encontrado" subtitle="A visão atual não retornou empresas">
-            <EmptyState
-              title="Nenhuma empresa encontrada com os filtros atuais."
-              description="Limpe a busca ou selecione outra tese para recuperar a fila de decisão."
-              action={<button type="button" onClick={resetFilters}>Limpar filtros</button>}
-            />
+            <EmptyState title="Nenhuma empresa com estes filtros" description="Limpe a busca ou escolha outra visão." action={<button type="button" onClick={resetFilters}>Limpar filtros</button>} />
           </Card>
         )}
       </section>

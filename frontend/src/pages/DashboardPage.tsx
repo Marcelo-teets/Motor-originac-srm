@@ -1,8 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CapitalMarketHealthPanel } from '../components/CapitalMarketHealthPanel';
-import { Card, DataStatusBanner, ErrorState, LoadingState, PageIntro, Pill, ProgressBar, ScoreBadge } from '../components/UI';
-import { VercelOpsPanel } from '../components/VercelOpsPanel';
-import { WatchListWidget } from '../components/WatchListWidget';
+import { Card, DataStatusBanner, ErrorState, LoadingState, PageIntro, Pill, ScoreBadge } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AbmWeeklyWarRoom } from '../lib/types';
@@ -14,8 +11,8 @@ function priorityTone(bucket: string): 'success' | 'warning' | 'info' {
   return 'info';
 }
 
-function formatBucket(bucket: string) {
-  return bucket.replace(/_/g, ' ');
+function readable(value: string) {
+  return value.replace(/_/g, ' ');
 }
 
 const emptyAbm = (): AbmWeeklyWarRoom => ({
@@ -45,8 +42,8 @@ export function DashboardPage() {
     [session?.access_token],
   );
 
-  if (loading) return <LoadingState title="Dashboard" subtitle="Carregando visão executiva do backend oficial." />;
-  if (error || !data) return <ErrorState title="Dashboard" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
+  if (loading) return <LoadingState title="Hoje" subtitle="Organizando as prioridades do dia." />;
+  if (error || !data) return <ErrorState title="Hoje" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   const { dashboardState, companiesState, abmWeekly, abmAvailable } = data;
   const dashboard = dashboardState.data;
@@ -55,220 +52,149 @@ export function DashboardPage() {
     const company = companies.find((item) => item.id === lead.companyId);
     return {
       ...lead,
-      mainPattern: company?.topPatterns[0] ?? 'Pattern ainda em consolidação',
-      nextAction: company?.nextAction ?? 'Revisar tese e preparar approach',
+      mainPattern: company?.topPatterns[0] ?? 'Tese ainda em consolidação',
+      nextAction: company?.nextAction ?? 'Revisar tese e preparar abordagem',
     };
   });
 
   const bestNextLead = topLeads[0];
   const immediateLeads = topLeads.filter((lead) => lead.bucket.includes('immediate')).length;
-  const highPriorityLeads = topLeads.filter((lead) => lead.bucket.includes('high') || lead.leadScore >= 80).length;
-  const strongTriggerLeads = topLeads.filter((lead) => lead.triggerStrength >= 70).length;
-  const averageLeadScore = topLeads.length > 0 ? Math.round(topLeads.reduce((sum, lead) => sum + lead.leadScore, 0) / topLeads.length) : 0;
-  const maxPipeline = Math.max(...dashboard.pipeline.map((entry) => entry.count), 1);
-  const activePipeline = dashboard.pipeline.filter((entry) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(entry.stage)).reduce((sum, entry) => sum + entry.count, 0);
-  const commercialBlockers = abmWeekly.cooling_accounts.length + abmWeekly.without_champion.length + abmWeekly.overdue_next_steps.length + abmWeekly.critical_open_objections.length;
-
-  const decisionCards = [
-    { label: 'Abordar agora', value: String(immediateLeads), helper: 'prioridade imediata', tone: 'success' as const },
-    { label: 'Alta prioridade', value: String(highPriorityLeads), helper: 'score ou bucket alto', tone: 'warning' as const },
-    { label: 'Triggers fortes', value: String(strongTriggerLeads), helper: 'mudança relevante recente', tone: 'info' as const },
-    { label: 'Score médio', value: String(averageLeadScore), helper: 'base priorizada', tone: 'default' as const },
-  ];
+  const activePipeline = dashboard.pipeline
+    .filter((entry) => !['ClosedWon', 'ClosedLost', 'Recycled'].includes(entry.stage))
+    .reduce((sum, entry) => sum + entry.count, 0);
+  const commercialBlockers = abmWeekly.cooling_accounts.length
+    + abmWeekly.without_champion.length
+    + abmWeekly.overdue_next_steps.length
+    + abmWeekly.critical_open_objections.length;
 
   const dailyActions = [
     {
-      number: '01',
-      title: immediateLeads > 0 ? `Revisar ${immediateLeads} lead(s) para abordagem` : 'Revisar o ranking de leads',
-      description: 'Validar timing, estrutura sugerida e a próxima ação antes de iniciar contato.',
+      title: immediateLeads > 0 ? `${immediateLeads} lead(s) pronto(s) para decisão` : 'Revisar a fila de leads',
+      description: 'Confirme o timing, a estrutura e a próxima ação antes do contato.',
       to: '/companies',
+      label: 'Abrir leads',
       tone: immediateLeads > 0 ? 'success' as const : 'info' as const,
-      label: 'Abrir fila',
     },
     {
-      number: '02',
-      title: commercialBlockers > 0 ? `Resolver ${commercialBlockers} bloqueio(s) comercial(is)` : 'Pipeline sem bloqueios críticos',
-      description: 'Contas esfriando, sem champion, com ação vencida ou objeção crítica precisam de tratamento.',
+      title: commercialBlockers > 0 ? `${commercialBlockers} bloqueio(s) comercial(is)` : 'Nenhum bloqueio crítico',
+      description: 'Resolva contas esfriando, ações vencidas, ausência de champion ou objeções.',
       to: '/pipeline',
-      tone: commercialBlockers > 0 ? 'warning' as const : 'success' as const,
       label: 'Abrir pipeline',
+      tone: commercialBlockers > 0 ? 'warning' as const : 'success' as const,
     },
     {
-      number: '03',
-      title: `Processar ${dashboard.monitoring.triggers24h} trigger(s) das últimas 24h`,
-      description: 'Novos sinais podem alterar timing, score e prioridade das empresas monitoradas.',
+      title: `${dashboard.monitoring.triggers24h} novo(s) sinal(is) nas últimas 24h`,
+      description: 'Revise apenas os sinais que podem alterar prioridade, timing ou tese.',
       to: '/monitoring',
-      tone: dashboard.monitoring.triggers24h > 0 ? 'info' as const : 'default' as const,
       label: 'Revisar sinais',
+      tone: dashboard.monitoring.triggers24h > 0 ? 'info' as const : 'success' as const,
     },
   ];
 
   return (
-    <div className="page dashboard-page-v4">
+    <div className="page today-page simple-page">
       <PageIntro
-        eyebrow="Cockpit diário"
-        title="O que precisa acontecer hoje"
-        description="A rotina do Motor começa pela decisão: quem merece atenção, qual hipótese financeira sustenta a abordagem e qual ação move a oportunidade."
-        actions={(
-          <div className="pill-row">
-            <Link to="/companies" className="button">Abrir fila de decisão</Link>
-            <Link to="/search-profiles" className="button secondary">Criar nova busca</Link>
-          </div>
-        )}
+        eyebrow="Operação diária"
+        title="O que merece sua atenção hoje"
+        description="Comece pela melhor oportunidade, resolva os bloqueios e avance o próximo passo. O restante fica disponível quando necessário."
+        actions={<Link to="/companies" className="button">Ver todos os leads</Link>}
       />
 
       <DataStatusBanner source={dashboardState.source} note={dashboardState.note} />
-      {!abmAvailable ? <div className="inline-notice"><Pill tone="warning">ABM parcial</Pill><span>O cockpit principal está operacional, mas bloqueios e momentum comerciais não puderam ser atualizados.</span></div> : null}
+      {!abmAvailable ? (
+        <div className="inline-notice">
+          <Pill tone="warning">Dados comerciais parciais</Pill>
+          <span>O ranking está disponível, mas alguns bloqueios não puderam ser atualizados.</span>
+        </div>
+      ) : null}
 
-      <section className="daily-action-deck" aria-label="Plano de trabalho do dia">
-        {dailyActions.map((action) => (
-          <article key={action.number}>
-            <div className="daily-action-number">{action.number}</div>
+      {bestNextLead ? (
+        <section className="simple-next-action" aria-labelledby="next-action-title">
+          <div>
+            <p className="eyebrow">Próxima melhor ação</p>
+            <h2 id="next-action-title">{bestNextLead.companyName}</h2>
+            <p>{bestNextLead.nextAction}</p>
+            <dl>
+              <div><dt>Por que agora</dt><dd>{bestNextLead.mainPattern}</dd></div>
+              <div><dt>Estrutura provável</dt><dd>{bestNextLead.suggestedStructure}</dd></div>
+            </dl>
+          </div>
+          <div className="simple-next-score">
+            <span>Lead score</span>
+            <strong>{bestNextLead.leadScore}</strong>
+            <Pill tone={priorityTone(bestNextLead.bucket)}>{readable(bestNextLead.bucket)}</Pill>
+          </div>
+          <Link to={`/companies/${bestNextLead.companyId}`} className="button">Abrir decisão</Link>
+        </section>
+      ) : (
+        <Card title="Nenhuma prioridade disponível" subtitle="O ranking ainda não retornou leads para hoje">
+          <Link to="/search-profiles" className="button">Pesquisar empresas</Link>
+        </Card>
+      )}
+
+      <section className="simple-metrics" aria-label="Resumo do dia">
+        <Link to="/companies"><span>Abordar agora</span><strong>{immediateLeads}</strong><small>leads com timing imediato</small></Link>
+        <Link to="/pipeline"><span>Pipeline ativo</span><strong>{activePipeline}</strong><small>oportunidades em andamento</small></Link>
+        <Link to="/pipeline"><span>Bloqueios</span><strong>{commercialBlockers}</strong><small>itens que exigem ação</small></Link>
+      </section>
+
+      <section className="simple-work-list" aria-labelledby="work-list-title">
+        <header>
+          <div>
+            <p className="eyebrow">Plano do dia</p>
+            <h2 id="work-list-title">Três ações para avançar</h2>
+          </div>
+        </header>
+        {dailyActions.map((action, index) => (
+          <article key={action.to}>
+            <span className="simple-step-number">{String(index + 1).padStart(2, '0')}</span>
             <div>
-              <div className="daily-action-heading">
-                <strong>{action.title}</strong>
-                <Pill tone={action.tone}>ação do dia</Pill>
-              </div>
+              <strong>{action.title}</strong>
               <p>{action.description}</p>
             </div>
+            <Pill tone={action.tone}>prioridade</Pill>
             <Link to={action.to} className="button secondary compact-button">{action.label}</Link>
           </article>
         ))}
       </section>
 
-      <section className="decision-strip decision-strip-v3" aria-label="Resumo de decisão">
-        {decisionCards.map((item) => (
-          <div key={item.label} className="decision-card decision-card-v3">
-            <div className="decision-card-heading">
-              <span>{item.label}</span>
-              <Pill tone={item.tone}>{item.helper}</Pill>
-            </div>
-            <strong>{item.value}</strong>
-          </div>
-        ))}
-      </section>
+      <Card
+        title="Próximos leads"
+        subtitle="A fila curta para decidir depois da prioridade principal"
+        actions={<Link to="/companies" className="text-link">Ver fila completa</Link>}
+        className="simple-priority-card"
+      >
+        <div className="simple-priority-list">
+          {topLeads.slice(0, 5).map((lead, index) => (
+            <Link key={lead.companyId} to={`/companies/${lead.companyId}`}>
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <span><strong>{lead.companyName}</strong><small>{lead.mainPattern}</small></span>
+              <span>{lead.suggestedStructure}</span>
+              <ScoreBadge value={lead.leadScore} kind="lead" />
+              <span aria-hidden="true">→</span>
+            </Link>
+          ))}
+        </div>
+      </Card>
 
-      {bestNextLead ? (
-        <section className="next-action-hero">
-          <div className="next-action-copy">
-            <p className="eyebrow">Próxima melhor ação</p>
-            <h2>{bestNextLead.companyName}</h2>
-            <p>{bestNextLead.nextAction}</p>
-            <div className="next-action-evidence">
-              <span><strong>Por que agora:</strong> {bestNextLead.mainPattern}</span>
-              <span><strong>Estrutura:</strong> {bestNextLead.suggestedStructure}</span>
-            </div>
-          </div>
-          <div className="next-action-score">
-            <span>Lead score</span>
-            <strong>{bestNextLead.leadScore}</strong>
-            <Pill tone={priorityTone(bestNextLead.bucket)}>{formatBucket(bestNextLead.bucket)}</Pill>
-          </div>
-          <Link to={`/companies/${bestNextLead.companyId}`} className="button next-action-button">Abrir decisão</Link>
-        </section>
-      ) : null}
-
-      <section className="origination-funnel" aria-label="Fluxo de originação">
-        <Link to="/search-profiles">
-          <span>01</span><strong>Descoberta</strong><small>{companies.length} empresas na base</small>
-        </Link>
-        <i aria-hidden="true">→</i>
-        <Link to="/companies">
-          <span>02</span><strong>Priorização</strong><small>{topLeads.length} leads ranqueados</small>
-        </Link>
-        <i aria-hidden="true">→</i>
-        <Link to="/pipeline">
-          <span>03</span><strong>Execução</strong><small>{activePipeline} deals ativos</small>
-        </Link>
-        <i aria-hidden="true">→</i>
-        <Link to="/outcome-operations">
-          <span>04</span><strong>Aprendizado</strong><small>outcomes e reciclagem</small>
-        </Link>
-      </section>
-
-      <section className="dashboard-command-grid">
-        <Card
-          title="Fila prioritária"
-          subtitle="As cinco contas com maior probabilidade de gerar ação útil agora"
-          actions={<Link to="/companies" className="text-link">Ver todos</Link>}
-          className="priority-queue-card"
-        >
-          <div className="priority-lead-list">
-            {topLeads.slice(0, 5).map((lead, index) => (
-              <Link key={lead.companyId} to={`/companies/${lead.companyId}`} className="priority-lead-row">
-                <span className="priority-rank">{String(index + 1).padStart(2, '0')}</span>
-                <span className="priority-company">
-                  <strong>{lead.companyName}</strong>
-                  <small>{lead.mainPattern}</small>
-                </span>
-                <span className="priority-structure">{lead.suggestedStructure}</span>
-                <ScoreBadge value={lead.leadScore} kind="lead" />
-                <Pill tone={priorityTone(lead.bucket)}>{formatBucket(lead.bucket)}</Pill>
-                <span className="priority-arrow" aria-hidden="true">→</span>
-              </Link>
-            ))}
-          </div>
-        </Card>
-
-        <div className="dashboard-side-stack">
-          <Card title="Pulso comercial" subtitle="Pendências que travam avanço no funil">
-            <div className="pulse-list">
-              <Link to="/dcm-daily"><span>Top contas da semana</span><strong>{abmWeekly.top_accounts.length}</strong></Link>
-              <Link to="/pipeline"><span>Contas esfriando</span><strong>{abmWeekly.cooling_accounts.length}</strong></Link>
-              <Link to="/pipeline"><span>Sem champion</span><strong>{abmWeekly.without_champion.length}</strong></Link>
-              <Link to="/pipeline"><span>Ações vencidas</span><strong>{abmWeekly.overdue_next_steps.length}</strong></Link>
-            </div>
-          </Card>
-
-          <Card title="Cobertura de dados" subtitle="Sinais e monitoramento que sustentam a priorização">
-            <div className="coverage-grid">
+      <details className="simple-secondary-details">
+        <summary>Ver inteligência complementar</summary>
+        <div className="simple-secondary-grid">
+          <Card title="Cobertura de dados" subtitle="Saúde mínima da captura que sustenta as decisões">
+            <div className="simple-key-values">
               <div><span>Fontes ativas</span><strong>{dashboard.monitoring.activeSources}</strong></div>
               <div><span>Outputs 24h</span><strong>{dashboard.monitoring.outputs24h}</strong></div>
               <div><span>Triggers 24h</span><strong>{dashboard.monitoring.triggers24h}</strong></div>
             </div>
             <Link to="/monitoring" className="button secondary full-width-button">Abrir monitoramento</Link>
           </Card>
-        </div>
-      </section>
-
-      <section className="dashboard-secondary-grid">
-        <WatchListWidget />
-
-        <Card title="Pipeline por estágio" subtitle="Onde a carteira está concentrada agora">
-          <div className="bars">
-            {dashboard.pipeline.slice(0, 6).map((item) => (
-              <div key={item.stage}>
-                <div className="row-between"><span>{item.stage}</span><strong>{item.count}</strong></div>
-                <ProgressBar value={item.count} max={maxPipeline} tone="info" label={`${item.stage}: ${item.count} oportunidades`} />
-              </div>
-            ))}
-          </div>
-          <Link to="/pipeline" className="button secondary full-width-button top-gap">Gerenciar pipeline</Link>
-        </Card>
-
-        <Card title="Padrões dominantes" subtitle="Hipóteses financeiras mais recorrentes na base">
-          <div className="pattern-summary-list">
-            {dashboard.patterns.slice(0, 5).map((item) => (
-              <div key={item.pattern}>
-                <span>{item.pattern}</span>
-                <strong>{item.companies}</strong>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </section>
-
-      <details className="diagnostics-disclosure">
-        <summary>Diagnóstico técnico e saúde de mercado</summary>
-        <div className="diagnostics-grid">
-          <VercelOpsPanel
-            source={dashboardState.source}
-            note={dashboardState.note}
-            activeSources={dashboard.monitoring.activeSources}
-            outputs24h={dashboard.monitoring.outputs24h}
-            triggers24h={dashboard.monitoring.triggers24h}
-          />
-          <CapitalMarketHealthPanel />
+          <Card title="Padrões dominantes" subtitle="Hipóteses financeiras mais recorrentes">
+            <div className="simple-pattern-list">
+              {dashboard.patterns.slice(0, 5).map((item) => (
+                <div key={item.pattern}><span>{item.pattern}</span><strong>{item.companies}</strong></div>
+              ))}
+            </div>
+          </Card>
         </div>
       </details>
     </div>
