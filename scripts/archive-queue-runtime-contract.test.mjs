@@ -4,11 +4,11 @@ import test from 'node:test';
 
 const [migration, cursorIndexMigration] = await Promise.all([
   readFile(
-    new URL('../db/migrations/20260803144000_archive_queue_runtime_hardening.sql', import.meta.url),
+    new URL('../db/migrations/20260803175840_archive_queue_runtime_hardening.sql', import.meta.url),
     'utf8',
   ),
   readFile(
-    new URL('../db/migrations/20260803180500_archive_cursor_index_fix.sql', import.meta.url),
+    new URL('../db/migrations/20260803180401_archive_export_cursor_index.sql', import.meta.url),
     'utf8',
   ),
 ]);
