@@ -9,12 +9,12 @@ function normalizeBaseUrl(value: string): string {
 }
 
 function resolveApiBaseUrl(): string {
-  const normalizedConfiguredUrl = normalizeBaseUrl(configuredApiBaseUrl);
-  if (normalizedConfiguredUrl) return normalizedConfiguredUrl;
-
+  // Produção usa sempre a API consolidada do mesmo domínio. Isso evita que
+  // variáveis antigas da Vercel apontem o navegador para outro hostname,
+  // disparem preflight CORS e bloqueiem o Company Master quality gate.
   if (env.PROD) return PRODUCTION_API_BASE_URL;
 
-  return '';
+  return normalizeBaseUrl(configuredApiBaseUrl);
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
