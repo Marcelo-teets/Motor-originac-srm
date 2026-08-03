@@ -4,22 +4,14 @@ import { navItems } from '../config/nav';
 import { useAuth } from '../lib/auth';
 import { CommandPalette } from './CommandPalette';
 
-const primaryPaths = ['/', '/search-profiles', '/companies', '/pipeline'];
+const primaryPaths = ['/', '/companies', '/pipeline', '/search-profiles'];
 
-const workflowSteps = [
-  { to: '/', number: '01', label: 'Hoje', description: 'Decidir a agenda de originação' },
-  { to: '/search-profiles', number: '02', label: 'Descobrir', description: 'Criar universos e capturar empresas' },
-  { to: '/companies', number: '03', label: 'Priorizar & analisar', description: 'Validar tese, estrutura e timing' },
-  { to: '/pipeline', number: '04', label: 'Executar', description: 'Avançar, registrar e acompanhar' },
-];
-
-const isWorkflowPath = (pathname: string) => (
-  pathname === '/'
-  || pathname === '/search-profiles'
-  || pathname === '/companies'
-  || pathname.startsWith('/companies/')
-  || pathname === '/pipeline'
-);
+const primaryActions: Record<string, { to: string; label: string }> = {
+  '/': { to: '/companies', label: 'Ver leads' },
+  '/companies': { to: '/pipeline', label: 'Abrir pipeline' },
+  '/pipeline': { to: '/dcm-daily', label: 'Preparar abordagem' },
+  '/search-profiles': { to: '/capture-inbox', label: 'Revisar capturas' },
+};
 
 export function Layout() {
   const { logout, session, profile, isGodMode } = useAuth();
@@ -129,11 +121,15 @@ export function Layout() {
     </NavLink>
   );
 
+  const routeKey = primaryPaths.find((path) => (
+    path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`)
+  ));
+  const primaryAction = routeKey ? primaryActions[routeKey] : { to: '/companies', label: 'Voltar aos leads' };
   const userName = profile?.full_name || session?.user.email || 'Usuário autenticado';
   const userInitial = (profile?.full_name ?? profile?.email ?? 'U').slice(0, 1).toUpperCase();
 
   return (
-    <div className="shell shell-v4">
+    <div className="shell shell-v5">
       <a href="#main-content" className="skip-link">Ir para o conteúdo</a>
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
 
@@ -144,7 +140,7 @@ export function Layout() {
         aria-controls="main-sidebar"
         onClick={() => setMenuOpen((current) => !current)}
       >
-        {menuOpen ? 'Fechar menu' : 'Menu'}
+        {menuOpen ? 'Fechar' : 'Menu'}
       </button>
 
       {menuOpen ? <button type="button" className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /> : null}
@@ -152,12 +148,12 @@ export function Layout() {
       <aside
         ref={sidebarRef}
         id="main-sidebar"
-        className={`sidebar sidebar-v3 sidebar-v4 ${menuOpen ? 'sidebar-open' : ''}`}
+        className={`sidebar sidebar-v5 ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Navegação principal"
         aria-hidden={isMobile && !menuOpen ? true : undefined}
         inert={isMobile && !menuOpen ? true : undefined}
       >
-        <Link to="/" className="sidebar-brand sidebar-brand-v3 sidebar-brand-link">
+        <Link to="/" className="sidebar-brand sidebar-brand-link">
           <div className="brand-mark" aria-hidden="true">M</div>
           <div>
             <p className="eyebrow">Origination Intelligence</p>
@@ -167,7 +163,7 @@ export function Layout() {
 
         <button type="button" className="global-search-trigger" onClick={() => setCommandOpen(true)}>
           <span aria-hidden="true">⌕</span>
-          <span>Buscar no Motor</span>
+          <span>Buscar empresa ou módulo</span>
           <kbd>{shortcutLabel}</kbd>
         </button>
 
@@ -176,10 +172,10 @@ export function Layout() {
           <span>{environment.label}</span>
         </div>
 
-        <div className="sidebar-section sidebar-section-v3">
-          <div className="sidebar-group">
-            <span className="sidebar-label">Telas principais</span>
-            <nav aria-label="Fluxo principal">{primaryItems.map(renderNavItem)}</nav>
+        <div className="sidebar-section sidebar-section-v5">
+          <div className="sidebar-group primary-navigation">
+            <span className="sidebar-label">Operação diária</span>
+            <nav aria-label="Operação diária">{primaryItems.map(renderNavItem)}</nav>
           </div>
 
           <details
@@ -191,10 +187,10 @@ export function Layout() {
             }}
           >
             <summary>
-              <span>Inteligência e execução</span>
+              <span>Ferramentas de apoio</span>
               <span aria-hidden="true">+</span>
             </summary>
-            <nav aria-label="Inteligência e execução">{intelligenceItems.map(renderNavItem)}</nav>
+            <nav aria-label="Ferramentas de apoio">{intelligenceItems.map(renderNavItem)}</nav>
           </details>
 
           <details
@@ -206,14 +202,14 @@ export function Layout() {
             }}
           >
             <summary>
-              <span>Operação e governança</span>
+              <span>Administração</span>
               <span aria-hidden="true">+</span>
             </summary>
-            <nav aria-label="Operação e governança">{operationsItems.map(renderNavItem)}</nav>
+            <nav aria-label="Administração">{operationsItems.map(renderNavItem)}</nav>
           </details>
         </div>
 
-        <div className="sidebar-footer sidebar-footer-v3">
+        <div className="sidebar-footer sidebar-footer-v5">
           <Link to="/profile" className="sidebar-user-card">
             <span className="user-avatar-mini">{userInitial}</span>
             <span>
@@ -225,37 +221,20 @@ export function Layout() {
         </div>
       </aside>
 
-      <main id="main-content" className="content content-v3 content-v4" tabIndex={-1}>
-        <header className="topbar topbar-v3 topbar-v4">
+      <main id="main-content" className="content content-v5" tabIndex={-1}>
+        <header className="topbar topbar-v5">
           <div className="topbar-title">
-            <p className="eyebrow">Motor SRM / {activeItem.group}</p>
+            <p className="eyebrow">{activeItem.group}</p>
             <strong>{activeItem.label}</strong>
             <span>{activeItem.description}</span>
           </div>
-          <div className="topbar-meta topbar-actions">
+          <div className="topbar-actions">
             <button type="button" className="secondary compact-button topbar-search" onClick={() => setCommandOpen(true)}>
               Buscar <kbd>{shortcutLabel}</kbd>
             </button>
-            <Link to="/companies" className="button compact-button">Abrir fila</Link>
+            <Link to={primaryAction.to} className="button compact-button">{primaryAction.label}</Link>
           </div>
         </header>
-
-        {isWorkflowPath(location.pathname) ? (
-          <nav className="workflow-rail" aria-label="Fluxo principal de originação">
-            {workflowSteps.map((step) => {
-              const active = step.to === '/' ? location.pathname === '/' : location.pathname === step.to || location.pathname.startsWith(`${step.to}/`);
-              return (
-                <Link key={step.number} to={step.to} className={active ? 'active' : ''} aria-current={active ? 'step' : undefined}>
-                  <span>{step.number}</span>
-                  <span>
-                    <strong>{step.label}</strong>
-                    <small>{step.description}</small>
-                  </span>
-                </Link>
-              );
-            })}
-          </nav>
-        ) : null}
 
         <Outlet />
       </main>
