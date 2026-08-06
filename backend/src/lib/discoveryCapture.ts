@@ -80,10 +80,33 @@ const stripHtml = (value: string) =>
 
 const decodeCdata = (value: string) => value.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
 
+const headlineAction = /\b(lança|lancou|lançou|anuncia|anunciou|capta|captou|levanta|levantou|recebe|recebeu|cresce|cresceu|compra|comprou|vende|vendeu|estrutura|estruturam|estruturou|mira|prepara|busca|amplia|acelera|expande|fecha|raises|raised|secures|secured|launches|announces|acquires|acquired)\b/i;
+const genericHeadlineSubjects = new Set([
+  'empresas',
+  'empresa',
+  'gestoras',
+  'gestora',
+  'fintechs',
+  'fintech',
+  'startups',
+  'startup',
+  'mercado',
+  'setor',
+  'fundos',
+  'fundo',
+  'fidcs',
+  'fidc',
+]);
+
 const pickCompanyNameFromTitle = (title: string) => {
-  const firstPass = title.split(' - ')[0]?.trim() ?? title;
-  const secondPass = firstPass.split(' | ')[0]?.trim() ?? firstPass;
-  return secondPass;
+  const publisherRemoved = title.split(' - ')[0]?.trim() ?? title;
+  const pipeRemoved = publisherRemoved.split(' | ')[0]?.trim() ?? publisherRemoved;
+  const actionMatch = headlineAction.exec(pipeRemoved);
+  const candidate = (actionMatch?.index ? pipeRemoved.slice(0, actionMatch.index) : pipeRemoved).trim().replace(/[,:;–—-]+$/, '').trim();
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return '';
+  if (genericHeadlineSubjects.has(normalizeText(candidate))) return '';
+  return candidate;
 };
 
 export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
@@ -130,10 +153,15 @@ const runNewsDiscovery = async (profile: SearchProfile): Promise<DiscoverySource
     .slice(0, 25);
 };
 
+const quickSearchNeedsPortfolioUniverse = (query: string) => /\b(portf[oó]lio|portfolio|venture|vc|investida|investidas|startup|startups|tech-backed)\b/i.test(query);
+
 export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoverySourceHit[]> {
+  const userQuery = quickSearchQuery(profile);
+  const includePortfolioUniverse = !userQuery || quickSearchNeedsPortfolioUniverse(userQuery);
+
   const [newsResult, portfolioResult] = await Promise.allSettled([
     runNewsDiscovery(profile),
-    discoverVcPortfolioCompanies(),
+    includePortfolioUniverse ? discoverVcPortfolioCompanies() : Promise.resolve([] as DiscoverySourceHit[]),
   ]);
 
   const newsHits = newsResult.status === 'fulfilled' ? newsResult.value : [];
@@ -141,7 +169,7 @@ export async function runSearchProfileDiscovery(profile: SearchProfile): Promise
 
   if (newsResult.status === 'rejected' && portfolioHits.length === 0) {
     const reason = newsResult.reason instanceof Error ? newsResult.reason.message : 'Falha desconhecida no Google News RSS.';
-    throw new Error(`Discovery indisponível: ${reason} Nenhum fallback de portfólio VC respondeu com candidatos.`);
+    throw new Error(`Discovery indisponível: ${reason} Nenhuma fonte alternativa respondeu com candidatos relevantes.`);
   }
 
   return [...newsHits, ...portfolioHits.slice(0, 30)];
