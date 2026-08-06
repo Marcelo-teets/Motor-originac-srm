@@ -13,6 +13,7 @@ import './styles/ux-v4.css';
 import './styles/task-center-v2.css';
 import './styles/hardening.css';
 import './styles/simple-mode.css';
+import './styles/quick-search.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Elemento raiz da aplicação não foi encontrado.');
