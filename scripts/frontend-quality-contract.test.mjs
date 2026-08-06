@@ -20,6 +20,7 @@ const files = await Promise.all([
   read('frontend/src/components/TaskAiComposer.tsx'),
   read('frontend/src/main.tsx'),
   read('frontend/src/config/nav.ts'),
+  read('backend/src/lib/discoveryCapture.ts'),
 ]);
 
 const [
@@ -38,6 +39,7 @@ const [
   taskAiComposer,
   main,
   nav,
+  discoveryCapture,
 ] = files;
 
 test('frontend uses route isolation, lazy modules and an explicit 404', () => {
@@ -106,6 +108,12 @@ test('search defaults to one-step natural-language discovery and keeps advanced 
   assert.match(quickSearch, /to="\/capture-inbox"/);
   assert.match(main, /quick-search\.css/);
   assert.match(nav, /Descreva o que procura/);
+});
+
+test('quick-search intent reaches the real discovery query', () => {
+  assert.match(discoveryCapture, /profile\.profilePayload\?\.userQuery/);
+  assert.match(discoveryCapture, /if \(userQuery\)/);
+  assert.match(discoveryCapture, /alreadyMentionsBrazil/);
 });
 
 test('Today dashboard remains visible even when the decision gate is closed', () => {
