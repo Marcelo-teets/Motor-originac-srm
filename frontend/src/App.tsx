@@ -58,7 +58,7 @@ export default function App() {
               </RequireAuth>
             )}
           >
-            <Route index element={portfolioGate(<DashboardPage />)} />
+            <Route index element={<DashboardPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="change-password" element={<ChangePasswordPage />} />
             <Route path="users" element={<RequireGodMode><UsersPage /></RequireGodMode>} />
