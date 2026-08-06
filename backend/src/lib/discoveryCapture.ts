@@ -116,30 +116,33 @@ export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
 
 const runNewsDiscovery = async (profile: SearchProfile): Promise<DiscoverySourceHit[]> => {
   const url = googleNewsSearchUrl(profile);
+  const response = await fetch(url, {
+    headers: {
+      accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!response.ok) return [];
-    const xml = await response.text();
-    return parseGoogleNewsRss(xml)
-      .map((item) => ({ ...item, sourceUrl: item.sourceUrl || url }))
-      .slice(0, 25);
-  } catch {
-    return [];
-  }
+  if (!response.ok) throw new Error(`Google News RSS indisponível (${response.status}).`);
+  const xml = await response.text();
+  return parseGoogleNewsRss(xml)
+    .map((item) => ({ ...item, sourceUrl: item.sourceUrl || url }))
+    .slice(0, 25);
 };
 
 export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoverySourceHit[]> {
-  const [newsHits, portfolioHits] = await Promise.all([
+  const [newsResult, portfolioResult] = await Promise.allSettled([
     runNewsDiscovery(profile),
-    discoverVcPortfolioCompanies().catch(() => [] as DiscoverySourceHit[]),
+    discoverVcPortfolioCompanies(),
   ]);
+
+  const newsHits = newsResult.status === 'fulfilled' ? newsResult.value : [];
+  const portfolioHits = portfolioResult.status === 'fulfilled' ? portfolioResult.value : [];
+
+  if (newsResult.status === 'rejected' && portfolioHits.length === 0) {
+    const reason = newsResult.reason instanceof Error ? newsResult.reason.message : 'Falha desconhecida no Google News RSS.';
+    throw new Error(`Discovery indisponível: ${reason} Nenhum fallback de portfólio VC respondeu com candidatos.`);
+  }
 
   return [...newsHits, ...portfolioHits.slice(0, 30)];
 }
