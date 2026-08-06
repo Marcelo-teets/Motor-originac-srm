@@ -161,8 +161,8 @@ export function QuickSearchPage() {
     minimumConfidence: '0.70',
     timeWindow: '90 dias',
   });
+  const [manualOverrides, setManualOverrides] = useState<Partial<SearchProfileDraft>>({});
   const [running, setRunning] = useState(false);
-  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
   const [lastProfileId, setLastProfileId] = useState('');
@@ -170,10 +170,17 @@ export function QuickSearchPage() {
   const { data, loading, error, reload } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const interpretedDraft = useMemo(() => interpretQuery(query, draft), [query, draft]);
+  const effectiveDraft = useMemo(() => ({ ...interpretedDraft, ...manualOverrides }), [interpretedDraft, manualOverrides]);
+
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setManualOverrides({});
+  };
 
   const applyIntent = (intent: SearchIntent) => {
     setQuery(intent.example);
     setDraft((current) => ({ ...current, ...intent.patch }));
+    setManualOverrides({});
     setFeedback(null);
   };
 
@@ -182,7 +189,7 @@ export function QuickSearchPage() {
     setRunning(true);
     setFeedback(null);
     try {
-      const payload = profilePayload(interpretedDraft, query);
+      const payload = profilePayload(effectiveDraft, query);
       const saved = await api.saveSearchProfile(session, payload);
       const result = await api.runSearchProfile(session, saved.id);
       setCandidates(result.candidates);
@@ -198,21 +205,6 @@ export function QuickSearchPage() {
       setFeedback({ tone: 'error', message: runError instanceof Error ? runError.message : 'Falha ao executar a busca.' });
     } finally {
       setRunning(false);
-    }
-  };
-
-  const handlePromote = async (candidateId: string) => {
-    if (promotingId) return;
-    setPromotingId(candidateId);
-    setFeedback(null);
-    try {
-      await api.promoteSearchCandidate(session, candidateId);
-      if (lastProfileId) setCandidates(await api.getSearchProfileCandidates(session, lastProfileId));
-      setFeedback({ tone: 'success', message: 'Empresa promovida para Leads.' });
-    } catch (promoteError) {
-      setFeedback({ tone: 'error', message: promoteError instanceof Error ? promoteError.message : 'Falha ao promover a empresa.' });
-    } finally {
-      setPromotingId(null);
     }
   };
 
@@ -236,7 +228,7 @@ export function QuickSearchPage() {
             <span>Descreva em linguagem normal</span>
             <textarea
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => changeQuery(event.target.value)}
               placeholder="Ex.: fintechs de consignado que estão crescendo e podem precisar de FIDC"
               rows={3}
               autoFocus
@@ -257,19 +249,19 @@ export function QuickSearchPage() {
             <div>
               <label>
                 <span>Segmento</span>
-                <select value={interpretedDraft.segment} onChange={(event) => setDraft((current) => ({ ...current, segment: event.target.value }))}>
+                <select value={effectiveDraft.segment} onChange={(event) => setManualOverrides((current) => ({ ...current, segment: event.target.value }))}>
                   {searchProfilePresets.segments.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
               <label>
                 <span>Estrutura provável</span>
-                <select value={interpretedDraft.targetStructure} onChange={(event) => setDraft((current) => ({ ...current, targetStructure: event.target.value }))}>
+                <select value={effectiveDraft.targetStructure} onChange={(event) => setManualOverrides((current) => ({ ...current, targetStructure: event.target.value }))}>
                   {searchProfilePresets.targetStructures.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
               <label>
                 <span>Janela</span>
-                <select value={interpretedDraft.timeWindow} onChange={(event) => setDraft((current) => ({ ...current, timeWindow: event.target.value }))}>
+                <select value={effectiveDraft.timeWindow} onChange={(event) => setManualOverrides((current) => ({ ...current, timeWindow: event.target.value }))}>
                   {searchProfilePresets.timeWindows.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
@@ -289,12 +281,12 @@ export function QuickSearchPage() {
 
         <aside className="quick-search-interpretation">
           <p className="eyebrow">O motor entendeu</p>
-          <h2>{interpretedDraft.segment}</h2>
+          <h2>{effectiveDraft.segment}</h2>
           <dl>
-            <div><dt>Tese</dt><dd>{interpretedDraft.creditProduct}</dd></div>
-            <div><dt>Recebíveis</dt><dd>{interpretedDraft.receivables}</dd></div>
-            <div><dt>Estrutura</dt><dd>{interpretedDraft.targetStructure}</dd></div>
-            <div><dt>Janela</dt><dd>{interpretedDraft.timeWindow}</dd></div>
+            <div><dt>Tese</dt><dd>{effectiveDraft.creditProduct}</dd></div>
+            <div><dt>Recebíveis</dt><dd>{effectiveDraft.receivables}</dd></div>
+            <div><dt>Estrutura</dt><dd>{effectiveDraft.targetStructure}</dd></div>
+            <div><dt>Janela</dt><dd>{effectiveDraft.timeWindow}</dd></div>
           </dl>
           <p>Você pode simplesmente buscar. Os parâmetros avançados continuam disponíveis apenas quando forem realmente necessários.</p>
         </aside>
@@ -313,40 +305,37 @@ export function QuickSearchPage() {
             <div>
               <p className="eyebrow">Resultado da busca</p>
               <h2>{lastProfileName}</h2>
-              <p>Revise a evidência. Só promova para Leads quando a empresa realmente fizer sentido para originação.</p>
+              <p>Veja rapidamente a evidência encontrada. A validação de identidade e a promoção para Leads continuam protegidas pela revisão humana.</p>
             </div>
-            <button type="button" className="secondary" onClick={() => { setCandidates([]); setLastProfileId(''); setLastProfileName(''); setFeedback(null); }}>
-              Nova busca
-            </button>
+            <div className="pill-row">
+              <Link className="button secondary" to="/capture-inbox">Abrir revisão</Link>
+              <button type="button" className="secondary" onClick={() => { setCandidates([]); setLastProfileId(''); setLastProfileName(''); setFeedback(null); }}>
+                Nova busca
+              </button>
+            </div>
           </div>
 
           {candidates.length ? (
             <div className="candidate-review-list">
-              {candidates.map((candidate) => {
-                const promoted = candidate.status === 'promoted';
-                const promoting = promotingId === candidate.id;
-                return (
-                  <article key={candidate.id}>
-                    <div className="candidate-confidence-ring" role="img" aria-label={`Confiança de ${Math.round(candidate.confidence * 100)}%`} style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
-                      <strong>{Math.round(candidate.confidence * 100)}%</strong>
+              {candidates.map((candidate) => (
+                <article key={candidate.id}>
+                  <div className="candidate-confidence-ring" role="img" aria-label={`Confiança de ${Math.round(candidate.confidence * 100)}%`} style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
+                    <strong>{Math.round(candidate.confidence * 100)}%</strong>
+                  </div>
+                  <div className="candidate-review-main">
+                    <div>
+                      <strong>{candidate.companyName}</strong>
+                      <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
                     </div>
-                    <div className="candidate-review-main">
-                      <div>
-                        <strong>{candidate.companyName}</strong>
-                        <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
-                      </div>
-                      <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
-                      <small>Fonte: {candidate.sourceRef}</small>
-                    </div>
-                    <div className="candidate-review-status">
-                      <Pill tone={promoted ? 'success' : 'warning'}>{promoted ? 'lead' : 'candidata'}</Pill>
-                      <button type="button" className={promoted ? 'secondary' : ''} disabled={promoted || promotingId !== null} onClick={() => void handlePromote(candidate.id)}>
-                        {promoted ? 'Já está em Leads' : promoting ? 'Promovendo...' : 'Promover para Leads'}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
+                    <small>Fonte: {candidate.sourceRef}</small>
+                  </div>
+                  <div className="candidate-review-status">
+                    <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status === 'promoted' ? 'lead' : 'revisar'}</Pill>
+                    <Link className="button secondary" to="/capture-inbox">Revisar candidata</Link>
+                  </div>
+                </article>
+              ))}
             </div>
           ) : (
             <EmptyState
