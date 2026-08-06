@@ -31,7 +31,19 @@ export const normalizeDomain = (value?: string) => {
 export const normalizeCompanyName = (value: string) =>
   normalizeText(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
+const quickSearchQuery = (profile: SearchProfile) => {
+  const value = profile.profilePayload?.userQuery;
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim();
+};
+
 export const buildDiscoveryQuery = (profile: SearchProfile) => {
+  const userQuery = quickSearchQuery(profile);
+  if (userQuery) {
+    const alreadyMentionsBrazil = /\b(brasil|brazil)\b/i.test(userQuery);
+    return `${userQuery}${alreadyMentionsBrazil ? '' : ' Brasil'}`.trim();
+  }
+
   const parts = [
     profile.segment,
     profile.subsegment,
