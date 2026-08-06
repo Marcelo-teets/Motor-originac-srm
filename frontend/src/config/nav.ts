@@ -34,8 +34,8 @@ export const navItems = [
   {
     to: '/search-profiles',
     label: 'Pesquisar',
-    shortLabel: 'Encontrar novas empresas',
-    description: 'Crie perfis de busca e transforme candidatas qualificadas em novos leads.',
+    shortLabel: 'Descreva o que procura',
+    description: 'Busque novas empresas em linguagem normal. O motor cuida dos critérios técnicos e devolve candidatas para revisão.',
     group: 'Radar',
   },
   {
