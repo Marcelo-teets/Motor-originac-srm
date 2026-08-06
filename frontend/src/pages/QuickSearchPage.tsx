@@ -135,6 +135,7 @@ const intensityToNumber = (value: string) => {
 };
 
 const profilePayload = (draft: SearchProfileDraft, query: string) => ({
+  id: crypto.randomUUID(),
   name: `Busca rápida · ${query.trim().slice(0, 72) || `${draft.segment} · ${draft.targetStructure}`}`,
   segment: draft.segment,
   subsegment: draft.subsegment,
