@@ -14,6 +14,7 @@ const files = await Promise.all([
   read('frontend/src/pages/CompaniesPage.tsx'),
   read('frontend/src/pages/PipelinePage.tsx'),
   read('frontend/src/pages/SearchProfilesPage.tsx'),
+  read('frontend/src/pages/QuickSearchPage.tsx'),
   read('frontend/src/pages/TaskCenterWithAiPage.tsx'),
   read('frontend/src/pages/TaskCenterPage.tsx'),
   read('frontend/src/components/TaskAiComposer.tsx'),
@@ -31,6 +32,7 @@ const [
   companies,
   pipeline,
   searchProfiles,
+  quickSearch,
   taskCenterWorkspace,
   taskCenter,
   taskAiComposer,
@@ -92,6 +94,25 @@ test('core workflows expose retry, progress and non-duplicating writes', () => {
   assert.match(ui, /role="progressbar"/);
   assert.match(ui, /aria-live="assertive"/);
   assert.match(main, /hardening\.css/);
+});
+
+test('search defaults to one-step natural-language discovery and keeps advanced mode available', () => {
+  assert.match(app, /path="search-profiles" element=\{<QuickSearchPage \/>\}/);
+  assert.match(app, /path="search-profiles\/advanced" element=\{<SearchProfilesPage \/>\}/);
+  assert.match(quickSearch, /O que você quer encontrar\?/);
+  assert.match(quickSearch, /Buscar empresas/);
+  assert.match(quickSearch, /mode: 'quick-search'/);
+  assert.match(quickSearch, /confiança mínima de 70%/);
+  assert.match(quickSearch, /to="\/capture-inbox"/);
+  assert.match(main, /quick-search\.css/);
+  assert.match(nav, /Descreva o que procura/);
+});
+
+test('Today dashboard remains visible even when the decision gate is closed', () => {
+  assert.match(app, /<Route index element=\{<DashboardPage \/>\} \/>/);
+  assert.doesNotMatch(app, /<Route index element=\{portfolioGate\(<DashboardPage \/>\)\} \/>/);
+  assert.match(app, /path="companies" element=\{portfolioGate\(<CompaniesPage \/>\)\}/);
+  assert.match(app, /path="pipeline" element=\{portfolioGate\(<PipelinePage \/>\)\}/);
 });
 
 test('task center is a single execution workspace with guarded Microsoft actions', () => {
