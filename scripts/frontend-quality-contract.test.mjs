@@ -90,8 +90,8 @@ test('session renewal preserves token rotation and synchronizes browser contexts
 test('core workflows expose retry, progress and non-duplicating writes', () => {
   assert.match(pipeline, /aria-pressed=\{view === 'board'\}/);
   assert.match(pipeline, /movingCompanyId !== null/);
-  assert.match(searchProfiles, /promotingId/);
   assert.match(searchProfiles, /runningProfileId/);
+  assert.match(searchProfiles, /crypto\.randomUUID\(\)/);
   assert.match(searchProfiles, /<ErrorState/);
   assert.match(ui, /role="progressbar"/);
   assert.match(ui, /aria-live="assertive"/);
@@ -104,16 +104,23 @@ test('search defaults to one-step natural-language discovery and keeps advanced 
   assert.match(quickSearch, /O que você quer encontrar\?/);
   assert.match(quickSearch, /Buscar empresas/);
   assert.match(quickSearch, /mode: 'quick-search'/);
-  assert.match(quickSearch, /confiança mínima de 70%/);
+  assert.match(quickSearch, /crypto\.randomUUID\(\)/);
+  assert.match(quickSearch, /candidatesFound/);
+  assert.match(quickSearch, /candidatesInserted/);
+  assert.match(quickSearch, /Nenhuma candidata nova/);
   assert.match(quickSearch, /to="\/capture-inbox"/);
   assert.match(main, /quick-search\.css/);
   assert.match(nav, /Descreva o que procura/);
 });
 
-test('quick-search intent reaches the real discovery query', () => {
+test('quick-search intent reaches real discovery without generic portfolio noise', () => {
   assert.match(discoveryCapture, /profile\.profilePayload\?\.userQuery/);
   assert.match(discoveryCapture, /if \(userQuery\)/);
   assert.match(discoveryCapture, /alreadyMentionsBrazil/);
+  assert.match(discoveryCapture, /quickSearchNeedsPortfolioUniverse/);
+  assert.match(discoveryCapture, /headlineAction/);
+  assert.match(discoveryCapture, /genericHeadlineSubjects/);
+  assert.match(discoveryCapture, /Promise\.allSettled/);
 });
 
 test('Today dashboard remains visible even when the decision gate is closed', () => {
