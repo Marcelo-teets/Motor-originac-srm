@@ -29,6 +29,7 @@ const OriginationOsPage = lazy(() => import('./pages/OriginationOsPage').then((m
 const OutcomeOperationsPage = lazy(() => import('./pages/OutcomeOperationsPage').then((module) => ({ default: module.OutcomeOperationsPage })));
 const PipelinePage = lazy(() => import('./pages/PipelinePage').then((module) => ({ default: module.PipelinePage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const QuickSearchPage = lazy(() => import('./pages/QuickSearchPage').then((module) => ({ default: module.QuickSearchPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
 const SearchProfilesPage = lazy(() => import('./pages/SearchProfilesPage').then((module) => ({ default: module.SearchProfilesPage })));
 const SourcesPage = lazy(() => import('./pages/SourcesPage').then((module) => ({ default: module.SourcesPage })));
@@ -62,7 +63,8 @@ export default function App() {
             <Route path="change-password" element={<ChangePasswordPage />} />
             <Route path="users" element={<RequireGodMode><UsersPage /></RequireGodMode>} />
             <Route path="historical-archive" element={<RequireGodMode><HistoricalArchivePage /></RequireGodMode>} />
-            <Route path="search-profiles" element={<SearchProfilesPage />} />
+            <Route path="search-profiles" element={<QuickSearchPage />} />
+            <Route path="search-profiles/advanced" element={<SearchProfilesPage />} />
             <Route path="companies" element={portfolioGate(<CompaniesPage />)} />
             <Route path="companies/:id" element={<CompanyDecisionReadinessBoundary scope="company"><CompanyDetailKnowledgePage /></CompanyDecisionReadinessBoundary>} />
             <Route path="market-map" element={<FidcMarketMapPage />} />
