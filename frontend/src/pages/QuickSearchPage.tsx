@@ -9,6 +9,7 @@ import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 type Feedback = { tone: 'success' | 'error' | 'warning'; message: string } | null;
+type RunSummary = { found: number; inserted: number };
 
 type SearchIntent = {
   id: string;
@@ -167,6 +168,7 @@ export function QuickSearchPage() {
   const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
   const [lastProfileId, setLastProfileId] = useState('');
   const [lastProfileName, setLastProfileName] = useState('');
+  const [lastRunSummary, setLastRunSummary] = useState<RunSummary>({ found: 0, inserted: 0 });
   const { data, loading, error, reload } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const interpretedDraft = useMemo(() => interpretQuery(query, draft), [query, draft]);
@@ -192,24 +194,43 @@ export function QuickSearchPage() {
       const payload = profilePayload(effectiveDraft, query);
       const saved = await api.saveSearchProfile(session, payload);
       const result = await api.runSearchProfile(session, saved.id);
-      const runState = result.run as unknown as { runStatus?: string; notes?: string };
+      const runState = result.run as unknown as {
+        runStatus?: string;
+        notes?: string;
+        candidatesFound?: number;
+        candidatesInserted?: number;
+      };
       if (runState.runStatus === 'failed') {
         throw new Error(runState.notes || 'A busca falhou antes de concluir a captura nas fontes.');
       }
+
+      const found = Number(runState.candidatesFound ?? result.candidates.length);
+      const inserted = Number(runState.candidatesInserted ?? result.candidates.length);
       setCandidates(result.candidates);
       setLastProfileId(saved.id);
       setLastProfileName(saved.name);
-      setFeedback({
-        tone: result.candidates.length ? 'success' : 'warning',
-        message: result.candidates.length
-          ? `${result.candidates.length} empresa(s) encontrada(s). Revise os sinais abaixo.`
-          : 'A busca terminou sem candidatos. Tente ampliar a descrição ou usar outro atalho.',
-      });
+      setLastRunSummary({ found, inserted });
+
+      if (found === 0) {
+        setFeedback({ tone: 'warning', message: 'A busca funcionou, mas não encontrou correspondências. Amplie a descrição ou tente outro atalho.' });
+      } else if (inserted === 0) {
+        setFeedback({ tone: 'warning', message: `A busca encontrou ${found} correspondência(s), mas nenhuma é nova. Elas já estavam mapeadas na base ou na fila de revisão.` });
+      } else {
+        setFeedback({ tone: 'success', message: `${found} correspondência(s) encontradas; ${inserted} nova(s) adicionada(s) para revisão.` });
+      }
     } catch (runError) {
       setFeedback({ tone: 'error', message: runError instanceof Error ? runError.message : 'Falha ao executar a busca.' });
     } finally {
       setRunning(false);
     }
+  };
+
+  const resetSearch = () => {
+    setCandidates([]);
+    setLastProfileId('');
+    setLastProfileName('');
+    setLastRunSummary({ found: 0, inserted: 0 });
+    setFeedback(null);
   };
 
   if (loading) return <LoadingState title="Pesquisar" subtitle="Preparando o motor de descoberta." />;
@@ -275,7 +296,7 @@ export function QuickSearchPage() {
           <div className="quick-search-actions">
             <div>
               <span>Sem configurar filtros técnicos</span>
-              <small>Brasil · sinais fortes · confiança mínima de 70% · defaults do motor aplicados automaticamente.</small>
+              <small>Brasil · sinais fortes · confiança mínima de 70% · defaults do perfil aplicados automaticamente.</small>
             </div>
             <button type="button" onClick={() => void handleRun()} disabled={running}>
               {running ? 'Buscando empresas...' : 'Buscar empresas'}
@@ -309,13 +330,11 @@ export function QuickSearchPage() {
             <div>
               <p className="eyebrow">Resultado da busca</p>
               <h2>{lastProfileName}</h2>
-              <p>Veja rapidamente a evidência encontrada. A validação de identidade e a promoção para Leads continuam protegidas pela revisão humana.</p>
+              <p>{lastRunSummary.found} encontrada(s) · {lastRunSummary.inserted} nova(s). Identidade e promoção para Leads continuam protegidas pela revisão humana.</p>
             </div>
             <div className="pill-row">
               <Link className="button secondary" to="/capture-inbox">Abrir revisão</Link>
-              <button type="button" className="secondary" onClick={() => { setCandidates([]); setLastProfileId(''); setLastProfileName(''); setFeedback(null); }}>
-                Nova busca
-              </button>
+              <button type="button" className="secondary" onClick={resetSearch}>Nova busca</button>
             </div>
           </div>
 
@@ -341,11 +360,17 @@ export function QuickSearchPage() {
                 </article>
               ))}
             </div>
+          ) : lastRunSummary.found > 0 ? (
+            <EmptyState
+              title="Nenhuma candidata nova"
+              description={`${lastRunSummary.found} correspondência(s) foram localizadas, mas já estavam mapeadas. Abra a revisão para trabalhar a fila existente ou refine a busca para encontrar novas empresas.`}
+              action={<Link className="button" to="/capture-inbox">Ver fila existente</Link>}
+            />
           ) : (
             <EmptyState
-              title="Nenhuma empresa encontrada"
-              description="Tente uma descrição mais ampla ou use um dos atalhos acima. Os critérios avançados continuam disponíveis sem poluir o fluxo principal."
-              action={<button type="button" onClick={() => { setLastProfileId(''); setFeedback(null); }}>Refinar busca</button>}
+              title="Nenhuma correspondência encontrada"
+              description="A busca foi concluída sem correspondências relevantes. Tente uma descrição mais ampla ou use um dos atalhos acima."
+              action={<button type="button" onClick={resetSearch}>Refinar busca</button>}
             />
           )}
         </section>
