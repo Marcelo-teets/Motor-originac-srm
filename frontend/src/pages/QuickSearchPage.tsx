@@ -192,6 +192,10 @@ export function QuickSearchPage() {
       const payload = profilePayload(effectiveDraft, query);
       const saved = await api.saveSearchProfile(session, payload);
       const result = await api.runSearchProfile(session, saved.id);
+      const runState = result.run as unknown as { runStatus?: string; notes?: string };
+      if (runState.runStatus === 'failed') {
+        throw new Error(runState.notes || 'A busca falhou antes de concluir a captura nas fontes.');
+      }
       setCandidates(result.candidates);
       setLastProfileId(saved.id);
       setLastProfileName(saved.name);
