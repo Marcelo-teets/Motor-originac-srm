@@ -69,8 +69,8 @@ export type SearchProfileCaptureSummary = {
   run: SearchProfileRunRecord;
   candidates: SearchResultCandidateRecord[];
   dedupedAgainstExisting: number;
-  existingCandidates: number;
-  newCandidates: number;
+  existingCandidates?: number;
+  newCandidates?: number;
 };
 
 const nowIso = () => new Date().toISOString();
