@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DataStatusBanner, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../components/UI';
+import { DataStatusBanner, EmptyState, PageIntro, Pill } from '../components/UI';
 import { defaultSearchProfileDraft, searchProfilePresets } from '../mocks/data';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -9,7 +9,7 @@ import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 type Feedback = { tone: 'success' | 'error' | 'warning'; message: string } | null;
-type RunSummary = { found: number; inserted: number };
+type RunSummary = { found: number; inserted: number; sources: number };
 
 type SearchIntent = {
   id: string;
@@ -82,6 +82,19 @@ const intents: SearchIntent[] = [
   },
 ];
 
+const createQuickSearchBaseDraft = (): SearchProfileDraft => ({
+  ...defaultSearchProfileDraft,
+  segment: 'Fintech',
+  subsegment: 'Crédito PME',
+  companyType: 'Plataforma',
+  creditProduct: 'Crédito PME',
+  receivables: 'Duplicatas',
+  targetStructure: 'FIDC',
+  signalIntensity: 'Alta',
+  minimumConfidence: '0.70',
+  timeWindow: '90 dias',
+});
+
 const normalize = (value: string) => value
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -134,8 +147,8 @@ const intensityToNumber = (value: string) => {
   return 60;
 };
 
-const profilePayload = (draft: SearchProfileDraft, query: string) => ({
-  id: crypto.randomUUID(),
+const profilePayload = (id: string, draft: SearchProfileDraft, query: string) => ({
+  id,
   name: `Busca rápida · ${query.trim().slice(0, 72) || `${draft.segment} · ${draft.targetStructure}`}`,
   segment: draft.segment,
   subsegment: draft.subsegment,
@@ -156,33 +169,37 @@ const profilePayload = (draft: SearchProfileDraft, query: string) => ({
 
 export function QuickSearchPage() {
   const { session } = useAuth();
+  const activeProfileIdRef = useRef(crypto.randomUUID());
   const [query, setQuery] = useState('');
-  const [draft, setDraft] = useState<SearchProfileDraft>({
-    ...defaultSearchProfileDraft,
-    signalIntensity: 'Alta',
-    minimumConfidence: '0.70',
-    timeWindow: '90 dias',
-  });
+  const [intentPatch, setIntentPatch] = useState<Partial<SearchProfileDraft>>({});
   const [manualOverrides, setManualOverrides] = useState<Partial<SearchProfileDraft>>({});
   const [running, setRunning] = useState(false);
+  const [searchPhase, setSearchPhase] = useState('');
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
   const [lastProfileId, setLastProfileId] = useState('');
   const [lastProfileName, setLastProfileName] = useState('');
-  const [lastRunSummary, setLastRunSummary] = useState<RunSummary>({ found: 0, inserted: 0 });
-  const { data, loading, error, reload } = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
+  const [lastRunSummary, setLastRunSummary] = useState<RunSummary>({ found: 0, inserted: 0, sources: 0 });
+  const profileStatus = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
-  const interpretedDraft = useMemo(() => interpretQuery(query, draft), [query, draft]);
-  const effectiveDraft = useMemo(() => ({ ...interpretedDraft, ...manualOverrides }), [interpretedDraft, manualOverrides]);
+  const interpretedDraft = useMemo(
+    () => interpretQuery(query, createQuickSearchBaseDraft()),
+    [query],
+  );
+  const effectiveDraft = useMemo(
+    () => ({ ...interpretedDraft, ...intentPatch, ...manualOverrides }),
+    [interpretedDraft, intentPatch, manualOverrides],
+  );
 
   const changeQuery = (value: string) => {
     setQuery(value);
+    setIntentPatch({});
     setManualOverrides({});
   };
 
   const applyIntent = (intent: SearchIntent) => {
     setQuery(intent.example);
-    setDraft((current) => ({ ...current, ...intent.patch }));
+    setIntentPatch(intent.patch);
     setManualOverrides({});
     setFeedback(null);
   };
@@ -190,14 +207,18 @@ export function QuickSearchPage() {
   const handleRun = async () => {
     if (running) return;
     setRunning(true);
+    setSearchPhase('Preparando busca...');
     setFeedback(null);
     try {
-      const payload = profilePayload(effectiveDraft, query);
+      const payload = profilePayload(activeProfileIdRef.current, effectiveDraft, query);
       const saved = await api.saveSearchProfile(session, payload);
+      setSearchPhase('Consultando fontes em paralelo...');
       const result = await api.runSearchProfile(session, saved.id);
+      setSearchPhase('Consolidando e removendo duplicatas...');
       const runState = result.run as unknown as {
         runStatus?: string;
         notes?: string;
+        sourceCount?: number;
         candidatesFound?: number;
         candidatesInserted?: number;
       };
@@ -207,46 +228,52 @@ export function QuickSearchPage() {
 
       const found = Number(runState.candidatesFound ?? result.candidates.length);
       const inserted = Number(runState.candidatesInserted ?? result.candidates.length);
+      const sources = Number(runState.sourceCount ?? 0);
       setCandidates(result.candidates);
       setLastProfileId(saved.id);
       setLastProfileName(saved.name);
-      setLastRunSummary({ found, inserted });
+      setLastRunSummary({ found, inserted, sources });
 
       if (found === 0) {
-        setFeedback({ tone: 'warning', message: 'A busca funcionou, mas não encontrou correspondências. Amplie a descrição ou tente outro atalho.' });
+        setFeedback({ tone: 'warning', message: `A busca consultou ${sources || 'as'} lentes de descoberta, mas não encontrou correspondências. Tente uma descrição um pouco mais ampla.` });
       } else if (inserted === 0) {
         setFeedback({ tone: 'warning', message: `A busca encontrou ${found} correspondência(s), mas nenhuma é nova. Elas já estavam mapeadas na base ou na fila de revisão.` });
       } else {
-        setFeedback({ tone: 'success', message: `${found} correspondência(s) encontradas; ${inserted} nova(s) adicionada(s) para revisão.` });
+        setFeedback({ tone: 'success', message: `${found} correspondência(s) encontradas em ${sources || 1} lente(s); ${inserted} nova(s) adicionada(s) para revisão.` });
       }
     } catch (runError) {
       setFeedback({ tone: 'error', message: runError instanceof Error ? runError.message : 'Falha ao executar a busca.' });
     } finally {
+      setSearchPhase('');
       setRunning(false);
     }
   };
 
   const resetSearch = () => {
+    activeProfileIdRef.current = crypto.randomUUID();
     setCandidates([]);
     setLastProfileId('');
     setLastProfileName('');
-    setLastRunSummary({ found: 0, inserted: 0 });
+    setLastRunSummary({ found: 0, inserted: 0, sources: 0 });
     setFeedback(null);
   };
-
-  if (loading) return <LoadingState title="Pesquisar" subtitle="Preparando o motor de descoberta." />;
-  if (error || !data) return <ErrorState title="Pesquisar" error={error} action={<button type="button" onClick={reload}>Tentar novamente</button>} />;
 
   return (
     <div className="page simple-page quick-search-page">
       <PageIntro
         eyebrow="Descoberta de oportunidades"
         title="O que você quer encontrar?"
-        description="Descreva a empresa ou oportunidade que procura. O motor transforma isso em critérios de busca, consulta as fontes e devolve candidatas para revisão."
+        description="Descreva a empresa ou oportunidade que procura. O motor abre a tese em diferentes lentes de busca, consulta as fontes em paralelo e devolve candidatas para revisão."
         actions={<Link className="button secondary" to="/search-profiles/advanced">Busca avançada</Link>}
       />
 
-      <DataStatusBanner source={data.source} note={data.note} />
+      {profileStatus.data ? <DataStatusBanner source={profileStatus.data.source} note={profileStatus.data.note} /> : null}
+      {profileStatus.error ? (
+        <div className="inline-notice" role="status">
+          <Pill tone="warning">parcial</Pill>
+          <span>O catálogo de buscas anteriores não respondeu, mas a busca nova continua disponível.</span>
+        </div>
+      ) : null}
 
       <section className="quick-search-shell" aria-label="Busca simples de empresas">
         <div className="quick-search-main">
@@ -296,11 +323,11 @@ export function QuickSearchPage() {
 
           <div className="quick-search-actions">
             <div>
-              <span>Sem configurar filtros técnicos</span>
-              <small>Brasil · sinais fortes · confiança mínima de 70% · defaults do perfil aplicados automaticamente.</small>
+              <span>{running ? searchPhase : 'Busca ampla, qualificação depois'}</span>
+              <small>{running ? 'As lentes rodam simultaneamente para não transformar amplitude em espera.' : 'Brasil · até 5 lentes paralelas · dedupe automático · revisão humana antes de virar Lead.'}</small>
             </div>
             <button type="button" onClick={() => void handleRun()} disabled={running}>
-              {running ? 'Buscando empresas...' : 'Buscar empresas'}
+              {running ? searchPhase || 'Buscando empresas...' : 'Buscar empresas'}
             </button>
           </div>
         </div>
@@ -314,7 +341,7 @@ export function QuickSearchPage() {
             <div><dt>Estrutura</dt><dd>{effectiveDraft.targetStructure}</dd></div>
             <div><dt>Janela</dt><dd>{effectiveDraft.timeWindow}</dd></div>
           </dl>
-          <p>Você pode simplesmente buscar. Os parâmetros avançados continuam disponíveis apenas quando forem realmente necessários.</p>
+          <p>A descoberta agora abre a sua frase em universo, crédito, funding e estrutura. A qualificação financeira continua depois, sem restringir cedo demais quem pode aparecer.</p>
         </aside>
       </section>
 
@@ -331,7 +358,7 @@ export function QuickSearchPage() {
             <div>
               <p className="eyebrow">Resultado da busca</p>
               <h2>{lastProfileName}</h2>
-              <p>{lastRunSummary.found} encontrada(s) · {lastRunSummary.inserted} nova(s). Identidade e promoção para Leads continuam protegidas pela revisão humana.</p>
+              <p>{lastRunSummary.found} encontrada(s) · {lastRunSummary.inserted} nova(s) · {lastRunSummary.sources} lente(s) respondendo. Identidade e promoção para Leads continuam protegidas pela revisão humana.</p>
             </div>
             <div className="pill-row">
               <Link className="button secondary" to="/capture-inbox">Abrir revisão</Link>
