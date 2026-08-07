@@ -42,6 +42,14 @@ const normalize = (value: unknown) => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
+const domainFromUrl = (value: unknown) => {
+  try {
+    return new URL(String(value ?? '')).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return '';
+  }
+};
+
 const meaningfulTokens = (profile: SearchProfile) => {
   const query = typeof profile.profilePayload?.userQuery === 'string'
     ? profile.profilePayload.userQuery
@@ -50,7 +58,8 @@ const meaningfulTokens = (profile: SearchProfile) => {
     'empresas', 'empresa', 'com', 'para', 'que', 'podem', 'pode', 'ter', 'fit',
     'potencial', 'sinais', 'brasil', 'brasileiras', 'brasileira', 'precisar',
     'precisando', 'necessidade', 'prontas', 'pronta', 'agora', 'recente',
-    'funding', 'capital', 'credito', 'crédito', 'fidc', 'fidcs', 'dcm',
+    'funding', 'capital', 'credito', 'fidc', 'fidcs', 'dcm', 'debenture',
+    'debentures', 'estrutura', 'estruturas', 'prontidao', 'pressao',
   ]);
   return normalize(query)
     .split(/[^a-z0-9]+/)
@@ -63,28 +72,38 @@ const sourcePriority = (name: string, category: string) => {
   if (/finsiders|fintech|startup/.test(haystack)) return 0;
   if (/brazil journal|neofeed|valor|bloomberg/.test(haystack)) return 1;
   if (/infomoney|exame/.test(haystack)) return 2;
-  return 3;
+  if (/distrito|endeavor/.test(haystack)) return 3;
+  return 4;
 };
 
 const mapCatalogSource = (row: any): DiscoveryCatalogSource | null => {
   const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
   const provider = normalize(metadata.provider);
-  const domain = normalize(metadata.domain).replace(/^www\./, '');
+  const metadataDomain = normalize(metadata.domain).replace(/^www\./, '');
+  const domain = metadataDomain || domainFromUrl(row?.url);
   const sourceType = normalize(row?.source_type);
   const category = String(row?.category ?? '');
   const status = normalize(row?.status);
   const health = normalize(row?.health);
   const code = String(metadata.code ?? '').trim();
-  const isSearchableNews = sourceType === 'rss'
-    && provider === 'google-news-rss'
-    && Boolean(domain)
-    && Boolean(code)
-    && health === 'healthy'
-    && (status === 'real' || status === 'active')
-    && /news|media|not[ií]cia|business|fintech|startup/i.test(category);
+  const name = String(row?.name ?? code).trim();
+  const normalizedName = normalize(name);
 
-  if (!isSearchableNews) return null;
-  return { code, name: String(row?.name ?? code), domain, category };
+  const isHealthyRuntime = Boolean(code)
+    && Boolean(domain)
+    && health === 'healthy'
+    && (status === 'real' || status === 'active');
+
+  const isGoogleNewsBackedRss = sourceType === 'rss'
+    && provider === 'google-news-rss'
+    && /news|media|business|fintech|startup/i.test(category);
+
+  const isSpecificPublicWebUniverse = sourceType === 'web'
+    && /news|vc_portfolio|company_site/i.test(category)
+    && /fintechs brasil|distrito|endeavor brasil/.test(normalizedName);
+
+  if (!isHealthyRuntime || (!isGoogleNewsBackedRss && !isSpecificPublicWebUniverse)) return null;
+  return { code, name, domain, category };
 };
 
 const allowRegulatoryVehicleUniverse = (profile: SearchProfile) => {
@@ -99,9 +118,11 @@ const scoreUniverseCandidate = (profile: SearchProfile, row: DiscoveryUniverseCa
   if (sourceRef.startsWith('capital_market_event:') && !allowRegulatoryVehicleUniverse(profile)) return -Infinity;
 
   const profileSegment = normalize(profile.segment);
+  const profileSubsegment = normalize(profile.subsegment);
   const profileTarget = normalize(profile.targetStructure);
   const profileProduct = normalize(profile.creditProduct);
   const rowSegment = normalize(row.segment);
+  const rowSubsegment = normalize(row.subsegment);
   const rowTarget = normalize(row.targetStructure);
   const rowProduct = normalize(row.creditProduct);
   const haystack = normalize([
@@ -116,6 +137,7 @@ const scoreUniverseCandidate = (profile: SearchProfile, row: DiscoveryUniverseCa
 
   let score = 0;
   if (profileSegment && profileSegment !== 'unknown' && (rowSegment.includes(profileSegment) || profileSegment.includes(rowSegment))) score += 3;
+  if (profileSubsegment && profileSubsegment !== 'unknown' && (rowSubsegment.includes(profileSubsegment) || profileSubsegment.includes(rowSubsegment))) score += 1.5;
   if (profileTarget && profileTarget !== 'unknown' && (rowTarget.includes(profileTarget) || profileTarget.includes(rowTarget))) score += 2.5;
   if (profileProduct && profileProduct !== 'unknown' && (rowProduct.includes(profileProduct) || profileProduct.includes(rowProduct))) score += 2;
 
@@ -123,7 +145,7 @@ const scoreUniverseCandidate = (profile: SearchProfile, row: DiscoveryUniverseCa
   score += Math.min(4.2, tokens.filter((token) => haystack.includes(token)).length * 0.7);
 
   if (/vc-portfolio:/.test(sourceRef) && /fintech|embedded|health|agro|tech|startup|marketplace/.test(profileSegment)) score += 1.5;
-  if (sourceRef === 'google-news-rss') score += 0.5;
+  if (sourceRef === 'google-news-rss' || sourceRef.startsWith('src_')) score += 0.5;
   if (row.confidence >= 0.7) score += 0.4;
 
   return score;
@@ -161,7 +183,7 @@ export async function loadDiscoveryCatalogContext(profile: SearchProfile): Promi
 
   const [sourceResult, candidateResult] = await Promise.allSettled([
     client.select('source_catalog', {
-      select: 'name,source_type,category,status,health,metadata',
+      select: 'name,url,source_type,category,status,health,metadata',
       limit: 150,
     }),
     client.select('discovered_company_candidates', {
@@ -176,7 +198,7 @@ export async function loadDiscoveryCatalogContext(profile: SearchProfile): Promi
       .map(mapCatalogSource)
       .filter((item): item is DiscoveryCatalogSource => Boolean(item))
       .sort((a, b) => sourcePriority(a.name, a.category) - sourcePriority(b.name, b.category) || a.name.localeCompare(b.name))
-      .slice(0, 8)
+      .slice(0, 10)
     : [];
 
   const universe = candidateResult.status === 'fulfilled'
