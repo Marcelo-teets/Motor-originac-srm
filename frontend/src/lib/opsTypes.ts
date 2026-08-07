@@ -6,15 +6,21 @@ type Owner = 'Origination' | 'Coverage' | 'Analytics' | 'Intelligence' | 'Credit
 
 export type SearchProfileCandidate = {
   id: string;
-  searchProfileId: string;
+  searchProfileId?: string;
   companyName: string;
   website?: string;
   segment: string;
   sourceRef: string;
   evidenceSummary: string;
   confidence: number;
-  status: 'captured' | 'promoted';
-  promoted: boolean;
+  status?: 'captured' | 'promoted';
+  candidateStatus?: 'captured' | 'deduped' | 'promoted' | 'discarded';
+  promoted?: boolean;
+  companyId?: string;
+  isNewCandidate?: boolean;
+  matchState?: 'new' | 'existing_candidate' | 'company_master';
+  currentSearchSourceRef?: string;
+  currentSearchEvidenceSummary?: string;
   capturedAt: string;
   promotedAt?: string;
 };
