@@ -14,11 +14,13 @@ const files = await Promise.all([
   read('frontend/src/pages/CompaniesPage.tsx'),
   read('frontend/src/pages/PipelinePage.tsx'),
   read('frontend/src/pages/SearchProfilesPage.tsx'),
+  read('frontend/src/pages/QuickSearchPage.tsx'),
   read('frontend/src/pages/TaskCenterWithAiPage.tsx'),
   read('frontend/src/pages/TaskCenterPage.tsx'),
   read('frontend/src/components/TaskAiComposer.tsx'),
   read('frontend/src/main.tsx'),
   read('frontend/src/config/nav.ts'),
+  read('backend/src/lib/discoveryCapture.ts'),
 ]);
 
 const [
@@ -31,11 +33,13 @@ const [
   companies,
   pipeline,
   searchProfiles,
+  quickSearch,
   taskCenterWorkspace,
   taskCenter,
   taskAiComposer,
   main,
   nav,
+  discoveryCapture,
 ] = files;
 
 test('frontend uses route isolation, lazy modules and an explicit 404', () => {
@@ -86,12 +90,44 @@ test('session renewal preserves token rotation and synchronizes browser contexts
 test('core workflows expose retry, progress and non-duplicating writes', () => {
   assert.match(pipeline, /aria-pressed=\{view === 'board'\}/);
   assert.match(pipeline, /movingCompanyId !== null/);
-  assert.match(searchProfiles, /promotingId/);
   assert.match(searchProfiles, /runningProfileId/);
+  assert.match(searchProfiles, /crypto\.randomUUID\(\)/);
   assert.match(searchProfiles, /<ErrorState/);
   assert.match(ui, /role="progressbar"/);
   assert.match(ui, /aria-live="assertive"/);
   assert.match(main, /hardening\.css/);
+});
+
+test('search defaults to one-step natural-language discovery and keeps advanced mode available', () => {
+  assert.match(app, /path="search-profiles" element=\{<QuickSearchPage \/>\}/);
+  assert.match(app, /path="search-profiles\/advanced" element=\{<SearchProfilesPage \/>\}/);
+  assert.match(quickSearch, /O que você quer encontrar\?/);
+  assert.match(quickSearch, /Buscar empresas/);
+  assert.match(quickSearch, /mode: 'quick-search'/);
+  assert.match(quickSearch, /crypto\.randomUUID\(\)/);
+  assert.match(quickSearch, /candidatesFound/);
+  assert.match(quickSearch, /candidatesInserted/);
+  assert.match(quickSearch, /Nenhuma candidata nova/);
+  assert.match(quickSearch, /to="\/capture-inbox"/);
+  assert.match(main, /quick-search\.css/);
+  assert.match(nav, /Descreva o que procura/);
+});
+
+test('quick-search intent reaches real discovery without generic portfolio noise', () => {
+  assert.match(discoveryCapture, /profile\.profilePayload\?\.userQuery/);
+  assert.match(discoveryCapture, /if \(userQuery\)/);
+  assert.match(discoveryCapture, /alreadyMentionsBrazil/);
+  assert.match(discoveryCapture, /quickSearchNeedsPortfolioUniverse/);
+  assert.match(discoveryCapture, /headlineAction/);
+  assert.match(discoveryCapture, /genericHeadlineSubjects/);
+  assert.match(discoveryCapture, /Promise\.allSettled/);
+});
+
+test('Today dashboard remains visible even when the decision gate is closed', () => {
+  assert.match(app, /<Route index element=\{<DashboardPage \/>\} \/>/);
+  assert.doesNotMatch(app, /<Route index element=\{portfolioGate\(<DashboardPage \/>\)\} \/>/);
+  assert.match(app, /path="companies" element=\{portfolioGate\(<CompaniesPage \/>\)\}/);
+  assert.match(app, /path="pipeline" element=\{portfolioGate\(<PipelinePage \/>\)\}/);
 });
 
 test('task center is a single execution workspace with guarded Microsoft actions', () => {

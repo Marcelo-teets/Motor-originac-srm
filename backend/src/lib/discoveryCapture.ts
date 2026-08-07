@@ -31,7 +31,19 @@ export const normalizeDomain = (value?: string) => {
 export const normalizeCompanyName = (value: string) =>
   normalizeText(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
+const quickSearchQuery = (profile: SearchProfile) => {
+  const value = profile.profilePayload?.userQuery;
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim();
+};
+
 export const buildDiscoveryQuery = (profile: SearchProfile) => {
+  const userQuery = quickSearchQuery(profile);
+  if (userQuery) {
+    const alreadyMentionsBrazil = /\b(brasil|brazil)\b/i.test(userQuery);
+    return `${userQuery}${alreadyMentionsBrazil ? '' : ' Brasil'}`.trim();
+  }
+
   const parts = [
     profile.segment,
     profile.subsegment,
@@ -68,10 +80,33 @@ const stripHtml = (value: string) =>
 
 const decodeCdata = (value: string) => value.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
 
+const headlineAction = /\b(lança|lancou|lançou|anuncia|anunciou|capta|captou|levanta|levantou|recebe|recebeu|cresce|cresceu|compra|comprou|vende|vendeu|estrutura|estruturam|estruturou|mira|prepara|busca|amplia|acelera|expande|fecha|raises|raised|secures|secured|launches|announces|acquires|acquired)\b/i;
+const genericHeadlineSubjects = new Set([
+  'empresas',
+  'empresa',
+  'gestoras',
+  'gestora',
+  'fintechs',
+  'fintech',
+  'startups',
+  'startup',
+  'mercado',
+  'setor',
+  'fundos',
+  'fundo',
+  'fidcs',
+  'fidc',
+]);
+
 const pickCompanyNameFromTitle = (title: string) => {
-  const firstPass = title.split(' - ')[0]?.trim() ?? title;
-  const secondPass = firstPass.split(' | ')[0]?.trim() ?? firstPass;
-  return secondPass;
+  const publisherRemoved = title.split(' - ')[0]?.trim() ?? title;
+  const pipeRemoved = publisherRemoved.split(' | ')[0]?.trim() ?? publisherRemoved;
+  const actionMatch = headlineAction.exec(pipeRemoved);
+  const candidate = (actionMatch?.index ? pipeRemoved.slice(0, actionMatch.index) : pipeRemoved).trim().replace(/[,:;–—-]+$/, '').trim();
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return '';
+  if (genericHeadlineSubjects.has(normalizeText(candidate))) return '';
+  return candidate;
 };
 
 export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
@@ -104,30 +139,38 @@ export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
 
 const runNewsDiscovery = async (profile: SearchProfile): Promise<DiscoverySourceHit[]> => {
   const url = googleNewsSearchUrl(profile);
+  const response = await fetch(url, {
+    headers: {
+      accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!response.ok) return [];
-    const xml = await response.text();
-    return parseGoogleNewsRss(xml)
-      .map((item) => ({ ...item, sourceUrl: item.sourceUrl || url }))
-      .slice(0, 25);
-  } catch {
-    return [];
-  }
+  if (!response.ok) throw new Error(`Google News RSS indisponível (${response.status}).`);
+  const xml = await response.text();
+  return parseGoogleNewsRss(xml)
+    .map((item) => ({ ...item, sourceUrl: item.sourceUrl || url }))
+    .slice(0, 25);
 };
 
+const quickSearchNeedsPortfolioUniverse = (query: string) => /\b(portf[oó]lio|portfolio|venture|vc|investida|investidas|startup|startups|tech-backed)\b/i.test(query);
+
 export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoverySourceHit[]> {
-  const [newsHits, portfolioHits] = await Promise.all([
+  const userQuery = quickSearchQuery(profile);
+  const includePortfolioUniverse = !userQuery || quickSearchNeedsPortfolioUniverse(userQuery);
+
+  const [newsResult, portfolioResult] = await Promise.allSettled([
     runNewsDiscovery(profile),
-    discoverVcPortfolioCompanies().catch(() => [] as DiscoverySourceHit[]),
+    includePortfolioUniverse ? discoverVcPortfolioCompanies() : Promise.resolve([] as DiscoverySourceHit[]),
   ]);
+
+  const newsHits = newsResult.status === 'fulfilled' ? newsResult.value : [];
+  const portfolioHits = portfolioResult.status === 'fulfilled' ? portfolioResult.value : [];
+
+  if (newsResult.status === 'rejected' && portfolioHits.length === 0) {
+    const reason = newsResult.reason instanceof Error ? newsResult.reason.message : 'Falha desconhecida no Google News RSS.';
+    throw new Error(`Discovery indisponível: ${reason} Nenhuma fonte alternativa respondeu com candidatos relevantes.`);
+  }
 
   return [...newsHits, ...portfolioHits.slice(0, 30)];
 }
