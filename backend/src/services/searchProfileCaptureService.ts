@@ -37,6 +37,13 @@ export type DiscoveredCandidateRecord = DiscoveredCandidateDraft & {
   updatedAt: string;
 };
 
+export type SearchResultCandidateRecord = DiscoveredCandidateRecord & {
+  isNewCandidate: boolean;
+  matchState: 'new' | 'existing_candidate' | 'company_master';
+  currentSearchSourceRef: string;
+  currentSearchEvidenceSummary: string;
+};
+
 export type SearchProfileCaptureAdapter = {
   getSearchProfile(searchProfileId: string): Promise<SearchProfile | null>;
   listExistingCompanies(): Promise<ExistingCompanyMatchCandidate[]>;
@@ -60,8 +67,10 @@ export type SearchProfileCaptureHooks = {
 
 export type SearchProfileCaptureSummary = {
   run: SearchProfileRunRecord;
-  candidates: DiscoveredCandidateRecord[];
+  candidates: SearchResultCandidateRecord[];
   dedupedAgainstExisting: number;
+  existingCandidates: number;
+  newCandidates: number;
 };
 
 const nowIso = () => new Date().toISOString();
@@ -126,6 +135,33 @@ export class SearchProfileCaptureService {
       });
 
       const insertedCandidates = await this.adapter.insertDiscoveredCandidates(candidatesToInsert);
+      const insertedByKey = new Map(insertedCandidates.map((candidate) => [candidate.dedupeKey, candidate]));
+      const responseAt = nowIso();
+      const visibleCandidates: SearchResultCandidateRecord[] = candidatesToInsert.map((candidate, index) => {
+        const inserted = insertedByKey.get(candidate.dedupeKey);
+        if (inserted) {
+          return {
+            ...inserted,
+            isNewCandidate: true,
+            matchState: candidate.companyId ? 'company_master' : 'new',
+            currentSearchSourceRef: candidate.sourceRef,
+            currentSearchEvidenceSummary: candidate.evidenceSummary,
+          };
+        }
+
+        return {
+          ...candidate,
+          id: `search-result-${run.id}-${index + 1}`,
+          capturedAt: startedAt,
+          createdAt: startedAt,
+          updatedAt: responseAt,
+          isNewCandidate: false,
+          matchState: candidate.companyId ? 'company_master' : 'existing_candidate',
+          currentSearchSourceRef: candidate.sourceRef,
+          currentSearchEvidenceSummary: candidate.evidenceSummary,
+        };
+      });
+
       const completed = await this.adapter.updateSearchProfileRun(run.id, {
         runStatus: 'completed',
         sourceCount: fulfilledLanes,
@@ -133,15 +169,17 @@ export class SearchProfileCaptureService {
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
         notes: hits.length
-          ? `Capture executed successfully across ${fulfilledLanes} discovery lane(s).`
+          ? `Capture executed successfully across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s).`
           : `No candidates found after ${fulfilledLanes} discovery lane(s).`,
         finishedAt: nowIso(),
       });
 
       return {
         run: completed,
-        candidates: insertedCandidates,
+        candidates: visibleCandidates,
         dedupedAgainstExisting,
+        existingCandidates: Math.max(0, visibleCandidates.length - insertedCandidates.length),
+        newCandidates: insertedCandidates.length,
       };
     } catch (error) {
       const failed = await this.adapter.updateSearchProfileRun(run.id, {
@@ -154,6 +192,8 @@ export class SearchProfileCaptureService {
         run: failed,
         candidates: [],
         dedupedAgainstExisting: 0,
+        existingCandidates: 0,
+        newCandidates: 0,
       };
     }
   }
