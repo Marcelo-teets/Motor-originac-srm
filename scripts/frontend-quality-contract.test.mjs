@@ -21,6 +21,7 @@ const files = await Promise.all([
   read('frontend/src/main.tsx'),
   read('frontend/src/config/nav.ts'),
   read('backend/src/lib/discoveryCapture.ts'),
+  read('backend/src/services/searchProfileCaptureService.ts'),
 ]);
 
 const [
@@ -40,6 +41,7 @@ const [
   main,
   nav,
   discoveryCapture,
+  searchProfileCaptureService,
 ] = files;
 
 test('frontend uses route isolation, lazy modules and an explicit 404', () => {
@@ -104,23 +106,32 @@ test('search defaults to one-step natural-language discovery and keeps advanced 
   assert.match(quickSearch, /O que você quer encontrar\?/);
   assert.match(quickSearch, /Buscar empresas/);
   assert.match(quickSearch, /mode: 'quick-search'/);
-  assert.match(quickSearch, /crypto\.randomUUID\(\)/);
+  assert.match(quickSearch, /useRef\(crypto\.randomUUID\(\)\)/);
+  assert.match(quickSearch, /activeProfileIdRef\.current = crypto\.randomUUID\(\)/);
   assert.match(quickSearch, /candidatesFound/);
   assert.match(quickSearch, /candidatesInserted/);
+  assert.match(quickSearch, /sourceCount/);
+  assert.match(quickSearch, /Consultando fontes em paralelo/);
+  assert.doesNotMatch(quickSearch, /if \(loading\) return <LoadingState/);
   assert.match(quickSearch, /Nenhuma candidata nova/);
   assert.match(quickSearch, /to="\/capture-inbox"/);
   assert.match(main, /quick-search\.css/);
   assert.match(nav, /Descreva o que procura/);
 });
 
-test('quick-search intent reaches real discovery without generic portfolio noise', () => {
+test('quick-search fans out discovery for recall without removing human review', () => {
   assert.match(discoveryCapture, /profile\.profilePayload\?\.userQuery/);
-  assert.match(discoveryCapture, /if \(userQuery\)/);
-  assert.match(discoveryCapture, /alreadyMentionsBrazil/);
-  assert.match(discoveryCapture, /quickSearchNeedsPortfolioUniverse/);
-  assert.match(discoveryCapture, /headlineAction/);
-  assert.match(discoveryCapture, /genericHeadlineSubjects/);
+  assert.match(discoveryCapture, /buildDiscoveryQueries/);
+  assert.match(discoveryCapture, /MAX_DISCOVERY_RESULTS = 60/);
+  assert.match(discoveryCapture, /runNewsDiscoveryLane/);
   assert.match(discoveryCapture, /Promise\.allSettled/);
+  assert.match(discoveryCapture, /discoveryLane/);
+  assert.match(discoveryCapture, /corroboratedDiscoveryHits/);
+  assert.match(discoveryCapture, /quickSearchNeedsPortfolioUniverse/);
+  assert.match(discoveryCapture, /genericThemePrefix/);
+  assert.match(discoveryCapture, /conclui\|concluiu/);
+  assert.match(searchProfileCaptureService, /sourceCount: fulfilledLanes/);
+  assert.match(searchProfileCaptureService, /discovery\.hits/);
 });
 
 test('Today dashboard remains visible even when the decision gate is closed', () => {

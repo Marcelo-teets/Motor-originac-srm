@@ -89,14 +89,17 @@ export class SearchProfileCaptureService {
         profileName: profile.name,
         segment: profile.segment,
         subsegment: profile.subsegment,
+        searchMode: profile.profilePayload?.mode ?? 'advanced',
       },
     });
 
     try {
-      const [hits, existingCompanies] = await Promise.all([
+      const [discovery, existingCompanies] = await Promise.all([
         runSearchProfileDiscovery(profile),
         this.adapter.listExistingCompanies(),
       ]);
+      const hits = discovery.hits;
+      const fulfilledLanes = discovery.lanes.filter((lane) => lane.status === 'fulfilled').length;
 
       let dedupedAgainstExisting = 0;
       const candidatesToInsert = hits.map((hit) => {
@@ -125,11 +128,13 @@ export class SearchProfileCaptureService {
       const insertedCandidates = await this.adapter.insertDiscoveredCandidates(candidatesToInsert);
       const completed = await this.adapter.updateSearchProfileRun(run.id, {
         runStatus: 'completed',
-        sourceCount: hits.length ? 1 : 0,
+        sourceCount: fulfilledLanes,
         candidatesFound: hits.length,
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
-        notes: hits.length ? 'Capture executed successfully.' : 'No candidates found for this profile.',
+        notes: hits.length
+          ? `Capture executed successfully across ${fulfilledLanes} discovery lane(s).`
+          : `No candidates found after ${fulfilledLanes} discovery lane(s).`,
         finishedAt: nowIso(),
       });
 
