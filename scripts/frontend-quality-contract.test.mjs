@@ -21,6 +21,7 @@ const files = await Promise.all([
   read('frontend/src/main.tsx'),
   read('frontend/src/config/nav.ts'),
   read('backend/src/lib/discoveryCapture.ts'),
+  read('backend/src/lib/discoverySourceCatalog.ts'),
   read('backend/src/services/searchProfileCaptureService.ts'),
 ]);
 
@@ -41,6 +42,7 @@ const [
   main,
   nav,
   discoveryCapture,
+  discoverySourceCatalog,
   searchProfileCaptureService,
 ] = files;
 
@@ -111,27 +113,43 @@ test('search defaults to one-step natural-language discovery and keeps advanced 
   assert.match(quickSearch, /candidatesFound/);
   assert.match(quickSearch, /candidatesInserted/);
   assert.match(quickSearch, /sourceCount/);
-  assert.match(quickSearch, /Consultando fontes em paralelo/);
+  assert.match(quickSearch, /Consultando catálogo, web e universo observado/);
   assert.doesNotMatch(quickSearch, /if \(loading\) return <LoadingState/);
-  assert.match(quickSearch, /Nenhuma candidata nova/);
+  assert.match(quickSearch, /já mapeada/);
+  assert.match(quickSearch, /Company Master/);
+  assert.match(quickSearch, /currentSearchSourceRef/);
   assert.match(quickSearch, /to="\/capture-inbox"/);
   assert.match(main, /quick-search\.css/);
   assert.match(nav, /Descreva o que procura/);
 });
 
-test('quick-search fans out discovery for recall without removing human review', () => {
+test('quick-search uses source catalog, persisted universe and parallel discovery without removing human review', () => {
   assert.match(discoveryCapture, /profile\.profilePayload\?\.userQuery/);
   assert.match(discoveryCapture, /buildDiscoveryQueries/);
-  assert.match(discoveryCapture, /MAX_DISCOVERY_RESULTS = 60/);
-  assert.match(discoveryCapture, /runNewsDiscoveryLane/);
+  assert.match(discoveryCapture, /buildCatalogSourceLanes/);
+  assert.match(discoveryCapture, /MAX_DISCOVERY_RESULTS = 80/);
+  assert.match(discoveryCapture, /site:\$\{source\.domain\}/);
+  assert.match(discoveryCapture, /persistedUniverseHits/);
+  assert.match(discoveryCapture, /persisted-universe/);
+  assert.match(discoveryCapture, /loadDiscoveryCatalogContext/);
   assert.match(discoveryCapture, /Promise\.allSettled/);
-  assert.match(discoveryCapture, /discoveryLane/);
-  assert.match(discoveryCapture, /corroboratedDiscoveryHits/);
+  assert.match(discoveryCapture, /corroboratingSources/);
   assert.match(discoveryCapture, /quickSearchNeedsPortfolioUniverse/);
   assert.match(discoveryCapture, /genericThemePrefix/);
   assert.match(discoveryCapture, /conclui\|concluiu/);
+
+  assert.match(discoverySourceCatalog, /source_catalog/);
+  assert.match(discoverySourceCatalog, /discovered_company_candidates/);
+  assert.match(discoverySourceCatalog, /provider === 'google-news-rss'/);
+  assert.match(discoverySourceCatalog, /health === 'healthy'/);
+  assert.match(discoverySourceCatalog, /capital_market_event:/);
+
   assert.match(searchProfileCaptureService, /sourceCount: fulfilledLanes/);
-  assert.match(searchProfileCaptureService, /discovery\.hits/);
+  assert.match(searchProfileCaptureService, /visibleCandidates/);
+  assert.match(searchProfileCaptureService, /isNewCandidate: false/);
+  assert.match(searchProfileCaptureService, /matchState: candidate\.companyId \? 'company_master' : 'existing_candidate'/);
+  assert.match(searchProfileCaptureService, /newCandidates: insertedCandidates\.length/);
+  assert.match(searchProfileCaptureService, /assertCandidatePromotionReady/);
 });
 
 test('Today dashboard remains visible even when the decision gate is closed', () => {
