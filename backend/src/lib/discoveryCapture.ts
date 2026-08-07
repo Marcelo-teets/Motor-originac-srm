@@ -1,9 +1,11 @@
 import type { SearchProfile } from '../types/platform.js';
+import { loadDiscoveryCatalogContext, type DiscoveryCatalogSource, type DiscoveryUniverseCandidate } from './discoverySourceCatalog.js';
 import { discoverVcPortfolioCompanies } from './vcPortfolioDiscovery.js';
 
 export type DiscoverySourceHit = {
   companyName: string;
   website?: string;
+  cnpj?: string;
   sourceRef: string;
   sourceUrl?: string;
   evidenceSummary: string;
@@ -14,6 +16,9 @@ export type DiscoverySourceHit = {
 export type DiscoveryQueryLane = {
   id: string;
   query: string;
+  sourceRef?: string;
+  sourceName?: string;
+  sourceDomain?: string;
 };
 
 export type DiscoveryLaneDiagnostic = {
@@ -30,16 +35,17 @@ export type DiscoveryRunResult = {
   lanes: DiscoveryLaneDiagnostic[];
 };
 
-const MAX_DISCOVERY_RESULTS = 60;
+const MAX_DISCOVERY_RESULTS = 80;
 const MAX_NEWS_RESULTS_PER_LANE = 25;
+const MAX_CATALOG_SOURCE_LANES = 8;
+const MAX_PERSISTED_UNIVERSE_RESULTS = 35;
 const NEWS_TIMEOUT_MS = 4_500;
 
-const normalizeText = (value: string) =>
-  value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
+const normalizeText = (value: string) => value
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim();
 
 export const normalizeDomain = (value?: string) => {
   if (!value) return '';
@@ -107,28 +113,29 @@ const structureTerms = (targetStructure: string) => {
 const dedupeQueryLanes = (lanes: DiscoveryQueryLane[]) => {
   const seen = new Set<string>();
   return lanes.filter((lane) => {
-    const key = normalizeText(lane.query).replace(/\s+/g, ' ');
+    const key = normalizeText(`${lane.sourceRef ?? 'google-news-rss'} ${lane.query}`).replace(/\s+/g, ' ');
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 };
 
-export const buildDiscoveryQueries = (profile: SearchProfile): DiscoveryQueryLane[] => {
+const broadDiscoverySubject = (profile: SearchProfile) => {
   const userQuery = quickSearchQuery(profile);
   const segment = usefulPart(profile.segment);
   const companyType = usefulPart(profile.companyType);
-  const geography = usefulPart(profile.geography) || 'Brasil';
-
   const structuredSubject = [
     segment,
     usefulPart(profile.subsegment),
     usefulPart(profile.creditProduct),
     companyType,
   ].filter(Boolean).join(' ');
+  return stripOutcomeQualifiers(userQuery) || (userQuery ? segment : structuredSubject) || 'empresas crédito';
+};
 
-  const broadUserSubject = stripOutcomeQualifiers(userQuery);
-  const broadSubject = broadUserSubject || (userQuery ? segment : structuredSubject) || 'empresas crédito';
+export const buildDiscoveryQueries = (profile: SearchProfile): DiscoveryQueryLane[] => {
+  const geography = usefulPart(profile.geography) || 'Brasil';
+  const broadSubject = broadDiscoverySubject(profile);
   const exactQuery = buildDiscoveryQuery(profile);
 
   return dedupeQueryLanes([
@@ -138,6 +145,25 @@ export const buildDiscoveryQueries = (profile: SearchProfile): DiscoveryQueryLan
     { id: 'funding', query: `${broadSubject} captação dívida funding capital crescimento ${geography}` },
     { id: 'structure', query: `${broadSubject} ${structureTerms(profile.targetStructure)} ${geography}` },
   ]).slice(0, 5);
+};
+
+const buildCatalogSourceLanes = (profile: SearchProfile, sources: DiscoveryCatalogSource[]): DiscoveryQueryLane[] => {
+  const broadSubject = broadDiscoverySubject(profile);
+  const geography = usefulPart(profile.geography) || 'Brasil';
+  const targetTerms = structureTerms(profile.targetStructure)
+    .split(/\s+/)
+    .slice(0, 5)
+    .join(' ');
+
+  return sources.slice(0, MAX_CATALOG_SOURCE_LANES).map((source) => ({
+    id: `source:${source.code}`,
+    sourceRef: source.code,
+    sourceName: source.name,
+    sourceDomain: source.domain,
+    query: `${broadSubject} crédito recebíveis captação funding crescimento ${targetTerms} site:${source.domain} ${geography}`
+      .replace(/\s+/g, ' ')
+      .trim(),
+  }));
 };
 
 export const buildDiscoveryDedupeKey = (input: { companyName: string; website?: string; cnpj?: string }) => {
@@ -157,33 +183,21 @@ const googleNewsQueryUrl = (query: string) => {
   return `https://news.google.com/rss/search?q=${q}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
 };
 
-const stripHtml = (value: string) =>
-  value
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+const stripHtml = (value: string) => value
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'")
+  .replace(/&nbsp;/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 const decodeCdata = (value: string) => value.replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '').trim();
 
 const headlineAction = /\b(lança|lancou|lançou|anuncia|anunciou|capta|captou|levanta|levantou|recebe|recebeu|cresce|cresceu|compra|comprou|vende|vendeu|estrutura|estruturam|estruturou|mira|prepara|busca|amplia|acelera|expande|fecha|conclui|concluiu|obtém|obtem|obteve|garante|garantiu|cria|criou|planeja|planejou|contrata|contratou|raises|raised|secures|secured|launches|announces|acquires|acquired|closes|closed)\b/i;
 const genericHeadlineSubjects = new Set([
-  'empresas',
-  'empresa',
-  'gestoras',
-  'gestora',
-  'fintechs',
-  'fintech',
-  'startups',
-  'startup',
-  'mercado',
-  'setor',
-  'fundos',
-  'fundo',
-  'fidcs',
-  'fidc',
+  'empresas', 'empresa', 'gestoras', 'gestora', 'fintechs', 'fintech', 'startups', 'startup',
+  'mercado', 'setor', 'fundos', 'fundo', 'fidcs', 'fidc', 'bancos', 'banco', 'companhias', 'companhia',
 ]);
 const genericThemePrefix = /^(fidcs?|cr[eé]dito|mercado|setor|fintechs?|startups?|agroneg[oó]cio|dcm|deb[eê]ntures?|receb[ií]veis|funding)\b/i;
 const descriptorPrefix = /^(fintech|startup|empresa|plataforma|healthtech|agtech|insurtech|proptech|edtech)\b/i;
@@ -233,7 +247,6 @@ const pickCompanyNameFromTitle = (title: string) => {
 
 export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
   const chunks = xml.split(/<item>/i).slice(1);
-
   return chunks.map((chunk) => {
     const titleMatch = chunk.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? '';
     const linkMatch = chunk.match(/<link>([\s\S]*?)<\/link>/i)?.[1] ?? '';
@@ -250,11 +263,7 @@ export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
       sourceUrl,
       evidenceSummary: `${title}. ${description}`.trim(),
       confidence: 0.62,
-      rawPayload: {
-        title,
-        sourceUrl,
-        description,
-      },
+      rawPayload: { title, sourceUrl, description },
     } satisfies DiscoverySourceHit;
   }).filter((item) => item.companyName.length >= 3);
 };
@@ -262,9 +271,7 @@ export const parseGoogleNewsRss = (xml: string): DiscoverySourceHit[] => {
 const runNewsDiscoveryLane = async (lane: DiscoveryQueryLane): Promise<DiscoverySourceHit[]> => {
   const url = googleNewsQueryUrl(lane.query);
   const response = await fetch(url, {
-    headers: {
-      accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
-    },
+    headers: { accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1' },
     signal: AbortSignal.timeout(NEWS_TIMEOUT_MS),
   });
 
@@ -273,23 +280,50 @@ const runNewsDiscoveryLane = async (lane: DiscoveryQueryLane): Promise<Discovery
   return parseGoogleNewsRss(xml)
     .map((item) => ({
       ...item,
+      sourceRef: lane.sourceRef ?? item.sourceRef,
       sourceUrl: item.sourceUrl || url,
       rawPayload: {
         ...item.rawPayload,
         discoveryLane: lane.id,
         discoveryQuery: lane.query,
+        transportSourceRef: 'google-news-rss',
+        catalogSourceRef: lane.sourceRef ?? null,
+        catalogSourceName: lane.sourceName ?? null,
+        catalogSourceDomain: lane.sourceDomain ?? null,
       },
     }))
     .slice(0, MAX_NEWS_RESULTS_PER_LANE);
 };
 
 const quickSearchNeedsPortfolioUniverse = (query: string) => /\b(portf[oó]lio|portfolio|venture|vc|investida|investidas|startup|startups|tech-backed)\b/i.test(query);
+const profileNeedsPortfolioUniverse = (profile: SearchProfile) => /fintech|embedded|healthtech|agro|tech|startup|marketplace|plataforma|growth/i
+  .test(`${profile.segment} ${profile.subsegment} ${quickSearchQuery(profile)}`);
+
+const persistedUniverseHits = (universe: DiscoveryUniverseCandidate[]): DiscoverySourceHit[] => universe
+  .slice(0, MAX_PERSISTED_UNIVERSE_RESULTS)
+  .map((item) => ({
+    companyName: item.companyName,
+    website: item.website,
+    cnpj: item.cnpj,
+    sourceRef: item.sourceRef,
+    sourceUrl: item.sourceUrl,
+    evidenceSummary: item.evidenceSummary || `Empresa já observada pelo motor em ${item.sourceRef}.`,
+    confidence: Math.max(0.5, Math.min(0.82, item.confidence)),
+    rawPayload: {
+      ...item.rawPayload,
+      origin: 'persisted_discovery_universe',
+      existingCandidateId: item.id,
+      existingCandidateStatus: item.candidateStatus,
+      existingCandidateCreatedAt: item.createdAt ?? null,
+      discoveryLane: 'persisted-universe',
+    },
+  }));
 
 const mergeDiscoveryHits = (hits: DiscoverySourceHit[]) => {
   const merged = new Map<string, DiscoverySourceHit>();
 
   for (const hit of hits) {
-    const key = buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website });
+    const key = buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website, cnpj: hit.cnpj });
     const existing = merged.get(key);
     if (!existing) {
       const lane = typeof hit.rawPayload.discoveryLane === 'string' ? hit.rawPayload.discoveryLane : undefined;
@@ -299,6 +333,7 @@ const mergeDiscoveryHits = (hits: DiscoverySourceHit[]) => {
           ...hit.rawPayload,
           discoveryLanes: lane ? [lane] : [],
           corroboratedDiscoveryHits: 1,
+          corroboratingSources: [hit.sourceRef],
         },
       });
       continue;
@@ -309,33 +344,44 @@ const mergeDiscoveryHits = (hits: DiscoverySourceHit[]) => {
       : [];
     const lane = typeof hit.rawPayload.discoveryLane === 'string' ? hit.rawPayload.discoveryLane : undefined;
     const discoveryLanes = Array.from(new Set([...existingLanes, ...(lane ? [lane] : [])]));
+    const existingSources = Array.isArray(existing.rawPayload.corroboratingSources)
+      ? existing.rawPayload.corroboratingSources.filter((item): item is string => typeof item === 'string')
+      : [existing.sourceRef];
+    const corroboratingSources = Array.from(new Set([...existingSources, hit.sourceRef])).slice(0, 6);
     const corroboratedDiscoveryHits = Number(existing.rawPayload.corroboratedDiscoveryHits ?? 1) + 1;
     const corroboratingEvidence = Array.from(new Set([
       ...(Array.isArray(existing.rawPayload.corroboratingEvidence)
         ? existing.rawPayload.corroboratingEvidence.filter((item): item is string => typeof item === 'string')
         : []),
       hit.evidenceSummary,
-    ])).slice(0, 3);
+    ])).slice(0, 4);
 
+    const preferred = hit.confidence > existing.confidence ? hit : existing;
     merged.set(key, {
-      ...existing,
-      confidence: Math.min(0.78, Math.max(existing.confidence, hit.confidence) + 0.04),
+      ...preferred,
+      confidence: Math.min(0.86, Math.max(existing.confidence, hit.confidence) + (corroboratingSources.length > 1 ? 0.06 : 0.03)),
       rawPayload: {
-        ...existing.rawPayload,
+        ...preferred.rawPayload,
         discoveryLanes,
+        corroboratingSources,
         corroboratedDiscoveryHits,
         corroboratingEvidence,
       },
     });
   }
 
-  return Array.from(merged.values()).slice(0, MAX_DISCOVERY_RESULTS);
+  return Array.from(merged.values())
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, MAX_DISCOVERY_RESULTS);
 };
 
 export async function runSearchProfileDiscovery(profile: SearchProfile): Promise<DiscoveryRunResult> {
+  const context = await loadDiscoveryCatalogContext(profile);
   const userQuery = quickSearchQuery(profile);
-  const lanes = buildDiscoveryQueries(profile);
-  const includePortfolioUniverse = !userQuery || quickSearchNeedsPortfolioUniverse(userQuery);
+  const baseLanes = buildDiscoveryQueries(profile);
+  const catalogLanes = buildCatalogSourceLanes(profile, context.sources);
+  const lanes = dedupeQueryLanes([...baseLanes, ...catalogLanes]);
+  const includePortfolioUniverse = !userQuery || quickSearchNeedsPortfolioUniverse(userQuery) || profileNeedsPortfolioUniverse(profile);
   const portfolioPromise = includePortfolioUniverse
     ? discoverVcPortfolioCompanies()
     : Promise.resolve([] as DiscoverySourceHit[]);
@@ -350,16 +396,30 @@ export async function runSearchProfileDiscovery(profile: SearchProfile): Promise
   const diagnostics: DiscoveryLaneDiagnostic[] = lanes.map((lane, index) => {
     const result = newsResults[index];
     if (result?.status === 'fulfilled') {
-      return { id: lane.id, sourceRef: 'google-news-rss', query: lane.query, status: 'fulfilled', candidates: result.value.length };
+      return {
+        id: lane.id,
+        sourceRef: lane.sourceRef ?? 'google-news-rss',
+        query: lane.query,
+        status: 'fulfilled',
+        candidates: result.value.length,
+      };
     }
     const reason = result?.status === 'rejected' && result.reason instanceof Error
       ? result.reason.message
       : 'Falha desconhecida no Google News RSS.';
-    return { id: lane.id, sourceRef: 'google-news-rss', query: lane.query, status: 'rejected', candidates: 0, error: reason };
+    return {
+      id: lane.id,
+      sourceRef: lane.sourceRef ?? 'google-news-rss',
+      query: lane.query,
+      status: 'rejected',
+      candidates: 0,
+      error: reason,
+    };
   });
 
   const newsHits = newsResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
   const portfolioHits = portfolioResult.status === 'fulfilled' ? portfolioResult.value : [];
+  const internalHits = persistedUniverseHits(context.universe);
 
   if (includePortfolioUniverse) {
     diagnostics.push(portfolioResult.status === 'fulfilled'
@@ -373,14 +433,26 @@ export async function runSearchProfileDiscovery(profile: SearchProfile): Promise
       });
   }
 
+  diagnostics.push({
+    id: 'persisted-universe',
+    sourceRef: 'supabase-discovery-universe',
+    status: context.candidateUniverseLoaded ? 'fulfilled' : 'rejected',
+    candidates: internalHits.length,
+    ...(context.candidateUniverseLoaded ? {} : { error: 'Universo persistido de candidatas indisponível.' }),
+  });
+
   const fulfilledNewsLanes = newsResults.filter((result) => result.status === 'fulfilled').length;
-  if (fulfilledNewsLanes === 0 && portfolioHits.length === 0) {
+  if (fulfilledNewsLanes === 0 && portfolioHits.length === 0 && internalHits.length === 0) {
     const firstFailure = diagnostics.find((lane) => lane.status === 'rejected')?.error ?? 'Nenhuma fonte respondeu.';
     throw new Error(`Discovery indisponível: ${firstFailure}`);
   }
 
   return {
-    hits: mergeDiscoveryHits([...newsHits, ...portfolioHits.slice(0, 30)]),
+    hits: mergeDiscoveryHits([
+      ...newsHits,
+      ...portfolioHits.slice(0, 40),
+      ...internalHits,
+    ]),
     lanes: diagnostics,
   };
 }

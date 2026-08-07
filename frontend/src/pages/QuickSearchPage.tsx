@@ -9,7 +9,7 @@ import type { SearchProfileCandidate, SearchProfileDraft } from '../lib/types';
 import { useAsyncData } from '../lib/useAsyncData';
 
 type Feedback = { tone: 'success' | 'error' | 'warning'; message: string } | null;
-type RunSummary = { found: number; inserted: number; sources: number };
+type RunSummary = { found: number; inserted: number; existing: number; sources: number };
 
 type SearchIntent = {
   id: string;
@@ -167,6 +167,19 @@ const profilePayload = (id: string, draft: SearchProfileDraft, query: string) =>
   },
 });
 
+const resultBadge = (candidate: SearchProfileCandidate) => {
+  if (candidate.candidateStatus === 'promoted' || candidate.status === 'promoted') {
+    return { label: 'lead', tone: 'success' as const };
+  }
+  if (candidate.matchState === 'company_master') {
+    return { label: 'Company Master', tone: 'success' as const };
+  }
+  if (candidate.isNewCandidate || candidate.matchState === 'new') {
+    return { label: 'nova', tone: 'success' as const };
+  }
+  return { label: 'já mapeada', tone: 'warning' as const };
+};
+
 export function QuickSearchPage() {
   const { session } = useAuth();
   const activeProfileIdRef = useRef(crypto.randomUUID());
@@ -179,7 +192,7 @@ export function QuickSearchPage() {
   const [candidates, setCandidates] = useState<SearchProfileCandidate[]>([]);
   const [lastProfileId, setLastProfileId] = useState('');
   const [lastProfileName, setLastProfileName] = useState('');
-  const [lastRunSummary, setLastRunSummary] = useState<RunSummary>({ found: 0, inserted: 0, sources: 0 });
+  const [lastRunSummary, setLastRunSummary] = useState<RunSummary>({ found: 0, inserted: 0, existing: 0, sources: 0 });
   const profileStatus = useAsyncData(() => api.getSearchProfiles(session), [session?.access_token]);
 
   const interpretedDraft = useMemo(
@@ -212,9 +225,9 @@ export function QuickSearchPage() {
     try {
       const payload = profilePayload(activeProfileIdRef.current, effectiveDraft, query);
       const saved = await api.saveSearchProfile(session, payload);
-      setSearchPhase('Consultando fontes em paralelo...');
+      setSearchPhase('Consultando catálogo, web e universo observado...');
       const result = await api.runSearchProfile(session, saved.id);
-      setSearchPhase('Consolidando e removendo duplicatas...');
+      setSearchPhase('Consolidando evidências e removendo duplicatas...');
       const runState = result.run as unknown as {
         runStatus?: string;
         notes?: string;
@@ -227,19 +240,21 @@ export function QuickSearchPage() {
       }
 
       const found = Number(runState.candidatesFound ?? result.candidates.length);
-      const inserted = Number(runState.candidatesInserted ?? result.candidates.length);
+      const inserted = Number(runState.candidatesInserted ?? 0);
+      const existing = Math.max(0, found - inserted);
       const sources = Number(runState.sourceCount ?? 0);
       setCandidates(result.candidates);
       setLastProfileId(saved.id);
       setLastProfileName(saved.name);
-      setLastRunSummary({ found, inserted, sources });
+      setLastRunSummary({ found, inserted, existing, sources });
 
       if (found === 0) {
-        setFeedback({ tone: 'warning', message: `A busca consultou ${sources || 'as'} lentes de descoberta, mas não encontrou correspondências. Tente uma descrição um pouco mais ampla.` });
-      } else if (inserted === 0) {
-        setFeedback({ tone: 'warning', message: `A busca encontrou ${found} correspondência(s), mas nenhuma é nova. Elas já estavam mapeadas na base ou na fila de revisão.` });
+        setFeedback({ tone: 'warning', message: `A busca consultou ${sources || 'as'} fontes/lentes disponíveis, mas não encontrou correspondências. Tente uma descrição mais ampla.` });
       } else {
-        setFeedback({ tone: 'success', message: `${found} correspondência(s) encontradas em ${sources || 1} lente(s); ${inserted} nova(s) adicionada(s) para revisão.` });
+        setFeedback({
+          tone: 'success',
+          message: `${found} correspondência(s): ${inserted} nova(s) e ${existing} já mapeada(s), consolidadas a partir de ${sources || 1} fonte(s)/lente(s).`,
+        });
       }
     } catch (runError) {
       setFeedback({ tone: 'error', message: runError instanceof Error ? runError.message : 'Falha ao executar a busca.' });
@@ -254,7 +269,7 @@ export function QuickSearchPage() {
     setCandidates([]);
     setLastProfileId('');
     setLastProfileName('');
-    setLastRunSummary({ found: 0, inserted: 0, sources: 0 });
+    setLastRunSummary({ found: 0, inserted: 0, existing: 0, sources: 0 });
     setFeedback(null);
   };
 
@@ -263,7 +278,7 @@ export function QuickSearchPage() {
       <PageIntro
         eyebrow="Descoberta de oportunidades"
         title="O que você quer encontrar?"
-        description="Descreva a empresa ou oportunidade que procura. O motor abre a tese em diferentes lentes de busca, consulta as fontes em paralelo e devolve candidatas para revisão."
+        description="Descreva a tese em linguagem normal. O motor consulta o catálogo real de fontes, reaproveita o universo já observado e abre novas buscas em paralelo antes de consolidar as empresas mais relevantes."
         actions={<Link className="button secondary" to="/search-profiles/advanced">Busca avançada</Link>}
       />
 
@@ -323,8 +338,8 @@ export function QuickSearchPage() {
 
           <div className="quick-search-actions">
             <div>
-              <span>{running ? searchPhase : 'Busca ampla, qualificação depois'}</span>
-              <small>{running ? 'As lentes rodam simultaneamente para não transformar amplitude em espera.' : 'Brasil · até 5 lentes paralelas · dedupe automático · revisão humana antes de virar Lead.'}</small>
+              <span>{running ? searchPhase : 'Descobrir amplo, qualificar depois'}</span>
+              <small>{running ? 'As consultas rodam em paralelo e a base existente entra como universo de descoberta.' : 'Catálogo real + mídia nichada + portfólios + universo persistido · dedupe · revisão humana antes de virar Lead.'}</small>
             </div>
             <button type="button" onClick={() => void handleRun()} disabled={running}>
               {running ? searchPhase || 'Buscando empresas...' : 'Buscar empresas'}
@@ -341,7 +356,7 @@ export function QuickSearchPage() {
             <div><dt>Estrutura</dt><dd>{effectiveDraft.targetStructure}</dd></div>
             <div><dt>Janela</dt><dd>{effectiveDraft.timeWindow}</dd></div>
           </dl>
-          <p>A descoberta agora abre a sua frase em universo, crédito, funding e estrutura. A qualificação financeira continua depois, sem restringir cedo demais quem pode aparecer.</p>
+          <p>A descoberta busca primeiro o universo: fontes nichadas e institucionais, web, portfólios e empresas já observadas. Score e qualificação financeira entram depois para ordenar, não para esconder empresas cedo demais.</p>
         </aside>
       </section>
 
@@ -358,7 +373,7 @@ export function QuickSearchPage() {
             <div>
               <p className="eyebrow">Resultado da busca</p>
               <h2>{lastProfileName}</h2>
-              <p>{lastRunSummary.found} encontrada(s) · {lastRunSummary.inserted} nova(s) · {lastRunSummary.sources} lente(s) respondendo. Identidade e promoção para Leads continuam protegidas pela revisão humana.</p>
+              <p>{lastRunSummary.found} encontrada(s) · {lastRunSummary.inserted} nova(s) · {lastRunSummary.existing} já mapeada(s) · {lastRunSummary.sources} fonte(s)/lente(s) respondendo. A revisão humana continua obrigatória antes de promover para Leads.</p>
             </div>
             <div className="pill-row">
               <Link className="button secondary" to="/capture-inbox">Abrir revisão</Link>
@@ -368,32 +383,35 @@ export function QuickSearchPage() {
 
           {candidates.length ? (
             <div className="candidate-review-list">
-              {candidates.map((candidate) => (
-                <article key={candidate.id}>
-                  <div className="candidate-confidence-ring" role="img" aria-label={`Confiança de ${Math.round(candidate.confidence * 100)}%`} style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
-                    <strong>{Math.round(candidate.confidence * 100)}%</strong>
-                  </div>
-                  <div className="candidate-review-main">
-                    <div>
-                      <strong>{candidate.companyName}</strong>
-                      <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+              {candidates.slice(0, 60).map((candidate) => {
+                const badge = resultBadge(candidate);
+                const sourceRef = candidate.currentSearchSourceRef ?? candidate.sourceRef;
+                const evidence = candidate.currentSearchEvidenceSummary ?? candidate.evidenceSummary;
+                return (
+                  <article key={candidate.id}>
+                    <div className="candidate-confidence-ring" role="img" aria-label={`Confiança de ${Math.round(candidate.confidence * 100)}%`} style={{ '--confidence': `${Math.round(candidate.confidence * 100)}%` } as CSSProperties}>
+                      <strong>{Math.round(candidate.confidence * 100)}%</strong>
                     </div>
-                    <p>{candidate.evidenceSummary || 'Evidência ainda não consolidada.'}</p>
-                    <small>Fonte: {candidate.sourceRef}</small>
-                  </div>
-                  <div className="candidate-review-status">
-                    <Pill tone={candidate.status === 'promoted' ? 'success' : 'warning'}>{candidate.status === 'promoted' ? 'lead' : 'revisar'}</Pill>
-                    <Link className="button secondary" to="/capture-inbox">Revisar candidata</Link>
-                  </div>
-                </article>
-              ))}
+                    <div className="candidate-review-main">
+                      <div>
+                        <strong>{candidate.companyName}</strong>
+                        <span>{candidate.segment} · {candidate.website ?? 'sem site'}</span>
+                      </div>
+                      <p>{evidence || 'Evidência ainda não consolidada.'}</p>
+                      <small>Fonte da correspondência: {sourceRef}</small>
+                    </div>
+                    <div className="candidate-review-status">
+                      <Pill tone={badge.tone}>{badge.label}</Pill>
+                      {candidate.matchState === 'company_master' && candidate.companyId ? (
+                        <Link className="button secondary" to={`/companies/${candidate.companyId}`}>Abrir empresa</Link>
+                      ) : (
+                        <Link className="button secondary" to="/capture-inbox">Revisar candidata</Link>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
-          ) : lastRunSummary.found > 0 ? (
-            <EmptyState
-              title="Nenhuma candidata nova"
-              description={`${lastRunSummary.found} correspondência(s) foram localizadas, mas já estavam mapeadas. Abra a revisão para trabalhar a fila existente ou refine a busca para encontrar novas empresas.`}
-              action={<Link className="button" to="/capture-inbox">Ver fila existente</Link>}
-            />
           ) : (
             <EmptyState
               title="Nenhuma correspondência encontrada"
@@ -401,6 +419,13 @@ export function QuickSearchPage() {
               action={<button type="button" onClick={resetSearch}>Refinar busca</button>}
             />
           )}
+
+          {candidates.length > 60 ? (
+            <div className="inline-notice" role="status">
+              <Pill tone="warning">amostra</Pill>
+              <span>Mostrando as 60 correspondências mais relevantes de {candidates.length}. A fila completa permanece disponível para revisão.</span>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </div>
