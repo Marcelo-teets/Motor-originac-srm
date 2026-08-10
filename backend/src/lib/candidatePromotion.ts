@@ -39,26 +39,30 @@ export const deterministicCompanyUuid = (candidate: Pick<DiscoveredCandidateDraf
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-export const discoveryHitToCandidateDraft = (profile: SearchProfile, hit: DiscoverySourceHit): DiscoveredCandidateDraft => ({
-  searchProfileId: profile.id,
-  companyName: hit.companyName,
-  legalName: hit.companyName,
-  website: hit.website,
-  normalizedDomain: normalizeDomain(hit.website),
-  geography: profile.geography || 'Brasil',
-  segment: profile.segment,
-  subsegment: profile.subsegment,
-  companyType: profile.companyType,
-  creditProduct: profile.creditProduct,
-  targetStructure: profile.targetStructure,
-  sourceRef: hit.sourceRef,
-  sourceUrl: hit.sourceUrl,
-  evidenceSummary: hit.evidenceSummary,
-  receivables: profile.receivables,
-  confidence: hit.confidence,
-  dedupeKey: buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website }),
-  rawPayload: hit.rawPayload,
-});
+export const discoveryHitToCandidateDraft = (profile: SearchProfile, hit: DiscoverySourceHit): DiscoveredCandidateDraft => {
+  const cnpj = normalizeCnpj(hit.cnpj) || undefined;
+  return {
+    searchProfileId: profile.id,
+    companyName: hit.companyName,
+    legalName: hit.companyName,
+    website: hit.website,
+    normalizedDomain: normalizeDomain(hit.website),
+    cnpj,
+    geography: profile.geography || 'Brasil',
+    segment: profile.segment,
+    subsegment: profile.subsegment,
+    companyType: profile.companyType,
+    creditProduct: profile.creditProduct,
+    targetStructure: profile.targetStructure,
+    sourceRef: hit.sourceRef,
+    sourceUrl: hit.sourceUrl,
+    evidenceSummary: hit.evidenceSummary,
+    receivables: profile.receivables,
+    confidence: hit.confidence,
+    dedupeKey: buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website, cnpj }),
+    rawPayload: hit.rawPayload,
+  };
+};
 
 export const candidateDraftToCompanySeed = (candidate: DiscoveredCandidateDraft): CompanySeed => {
   const origin = typeof candidate.rawPayload?.origin === 'string' ? candidate.rawPayload.origin : 'search_profile';

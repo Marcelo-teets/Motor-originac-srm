@@ -4,7 +4,11 @@ import { runScheduledSearchProfiles } from './searchProfileScheduledRunner.js';
 import type { SearchProfileRunRecord, SearchProfileCaptureSummary } from './searchProfileCaptureService.js';
 import type { SearchProfile } from '../types/platform.js';
 
-const profile = (id: string, status: 'active' | 'paused' = 'active'): SearchProfile => ({
+const profile = (
+  id: string,
+  status: 'active' | 'paused' = 'active',
+  profilePayload: Record<string, unknown> = {},
+): SearchProfile => ({
   id,
   name: `Profile ${id}`,
   segment: 'Fintech',
@@ -18,7 +22,7 @@ const profile = (id: string, status: 'active' | 'paused' = 'active'): SearchProf
   minimumConfidence: 0.7,
   timeWindowDays: 90,
   status,
-  profilePayload: {},
+  profilePayload,
 });
 
 const run = (overrides: Partial<SearchProfileRunRecord>): SearchProfileRunRecord => ({
@@ -57,8 +61,32 @@ test('runner executes active profiles and ignores paused ones', async () => {
   assert.equal(summary.totalProfiles, 2);
   assert.equal(summary.activeProfiles, 1);
   assert.equal(summary.inactiveProfiles, 1);
+  assert.equal(summary.scheduledProfiles, 1);
+  assert.equal(summary.manualOnlyProfiles, 0);
   assert.equal(summary.executed, 1);
   assert.equal(summary.results[0]!.candidatesInserted, 4);
+});
+
+test('runner keeps quick-search one-off profiles manual unless monitoring is explicitly enabled', async () => {
+  const captured: string[] = [];
+  const summary = await runScheduledSearchProfiles({
+    listSearchProfiles: async () => [
+      profile('manual', 'active', { mode: 'quick-search', createdFromUi: true }),
+      profile('explicit', 'active', { mode: 'quick-search', createdFromUi: true, scheduleEnabled: true }),
+      profile('master'),
+    ],
+    listRuns: async () => [],
+    runCapture: async (id) => {
+      captured.push(id);
+      return summaryFor(id);
+    },
+  });
+
+  assert.deepEqual(captured, ['explicit', 'master']);
+  assert.equal(summary.activeProfiles, 3);
+  assert.equal(summary.scheduledProfiles, 2);
+  assert.equal(summary.manualOnlyProfiles, 1);
+  assert.match(summary.note ?? '', /manual-only/);
 });
 
 test('runner surfaces a diagnostic note when profiles exist but none are active', async () => {
@@ -73,6 +101,7 @@ test('runner surfaces a diagnostic note when profiles exist but none are active'
   assert.equal(summary.totalProfiles, 1);
   assert.equal(summary.activeProfiles, 0);
   assert.equal(summary.inactiveProfiles, 1);
+  assert.equal(summary.scheduledProfiles, 0);
   assert.match(summary.note ?? '', /nenhum com status 'active'/);
 });
 
