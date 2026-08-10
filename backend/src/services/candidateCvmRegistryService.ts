@@ -15,10 +15,29 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const cleanCnpj = (value: unknown) => String(value ?? '').replace(/\D/g, '');
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const numeric = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const timestamp = (value: unknown) => {
+  const parsed = Date.parse(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const booleanValue = (value: unknown) => value === true || String(value ?? '').toLowerCase() === 'true';
+const normalizedNameKey = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type TargetRow = { id: string; cnpj: string | null };
+type CandidateRow = {
+  id: string;
+  cnpj: string | null;
+  company_id: string | null;
+  dedupe_key: string | null;
+  company_name: string | null;
+  candidate_status: string | null;
+  confidence: number | string | null;
+  captured_at: string | null;
+  created_at: string | null;
+  raw_payload?: Record<string, unknown> | null;
+};
+type CompanyRow = { id: string; cnpj: string | null };
 type CheckpointRow = {
   status: string;
   rows_scanned: number | string;
@@ -64,18 +83,79 @@ export class CandidateCvmRegistryService {
     this.now = dependencies.now ?? (() => new Date());
   }
 
+  private async loadReviewableTargets(): Promise<TargetRow[]> {
+    if (!this.client) return [];
+
+    // Do not read candidate_decision_queue_v2 here. That analytical view joins the
+    // large capital_market_events table to compute presentation fields that this
+    // enrichment job does not need. Building the routing subset directly keeps the
+    // scheduled connector deterministic while avoiding statement-timeout failures.
+    const [candidateRows, companyRows] = await Promise.all([
+      this.client.select('discovered_company_candidates', {
+        select: 'id,cnpj,company_id,dedupe_key,company_name,candidate_status,confidence,captured_at,created_at,raw_payload',
+        limit: 50_000,
+      }) as Promise<CandidateRow[]>,
+      this.client.select('companies', {
+        select: 'id,cnpj',
+        limit: 10_000,
+      }) as Promise<CompanyRow[]>,
+    ]);
+
+    const companyCnpjs = new Set(
+      companyRows.map((row) => cleanCnpj(row.cnpj)).filter((cnpj) => cnpj.length === 14),
+    );
+    const groups = new Map<string, CandidateRow[]>();
+
+    for (const row of candidateRows) {
+      const cnpj = cleanCnpj(row.cnpj);
+      const key = String(row.dedupe_key ?? '').trim() || cnpj || normalizedNameKey(row.company_name);
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+
+    const targets: TargetRow[] = [];
+    for (const rows of groups.values()) {
+      rows.sort((left, right) => {
+        const companyDelta = Number(Boolean(right.company_id)) - Number(Boolean(left.company_id));
+        if (companyDelta) return companyDelta;
+        const leftReady = booleanValue(left.raw_payload?.promotion_ready);
+        const rightReady = booleanValue(right.raw_payload?.promotion_ready);
+        const readyDelta = Number(rightReady) - Number(leftReady);
+        if (readyDelta) return readyDelta;
+        const confidenceDelta = numeric(right.confidence) - numeric(left.confidence);
+        if (confidenceDelta) return confidenceDelta;
+        const capturedDelta = timestamp(right.captured_at) - timestamp(left.captured_at);
+        if (capturedDelta) return capturedDelta;
+        return timestamp(right.created_at) - timestamp(left.created_at);
+      });
+
+      const row = rows[0];
+      if (!row) continue;
+      const cnpj = cleanCnpj(row.cnpj);
+      if (cnpj.length !== 14) continue;
+
+      const payload = row.raw_payload ?? {};
+      const candidateRole = String(
+        payload.candidate_role
+        ?? (payload.origin === 'vc_portfolio_page' ? 'portfolio_company' : 'needs_classification'),
+      );
+      const matchedCompany = Boolean(row.company_id) || companyCnpjs.has(cnpj);
+      const promoted = row.candidate_status === 'promoted' || matchedCompany;
+      const marketMap = candidateRole === 'market_vehicle' || candidateRole === 'financial_intermediary';
+      if (promoted || marketMap) continue;
+
+      const commercial = candidateRole === 'operating_issuer' && booleanValue(payload.commercial_queue);
+      const queueType = commercial ? 'commercial' : 'identity';
+      if (queueType === 'commercial' || queueType === 'identity') targets.push({ id: row.id, cnpj });
+    }
+
+    return targets.sort((left, right) => cleanCnpj(left.cnpj).localeCompare(cleanCnpj(right.cnpj)) || left.id.localeCompare(right.id));
+  }
+
   async run(options: CandidateCvmRegistryOptions = {}): Promise<CandidateCvmRegistryResult> {
     if (!this.client) throw new Error('Supabase client not configured for CVM candidate enrichment.');
     const triggerType = options.triggerType ?? 'manual';
     const resource = await this.discoverResource();
-    const targetRows = await this.client.select('candidate_decision_queue_v2', {
-      select: 'id,cnpj',
-      limit: 50_000,
-      filters: [
-        { column: 'canonical_rank', value: 1 },
-        { column: 'queue_type', operator: 'in', value: ['commercial', 'identity'] },
-      ],
-    }) as TargetRow[];
+    const targetRows = await this.loadReviewableTargets();
     const targets = targetRows
       .map((row) => ({ id: row.id, cnpj: cleanCnpj(row.cnpj) }))
       .filter((row) => row.cnpj.length === 14)

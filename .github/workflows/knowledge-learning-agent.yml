@@ -50,6 +50,27 @@ jobs:
             'https://motor-originac-srm.vercel.app/api/knowledge-learning-agent')
           cat "$response_file"
           echo
+
+          response_status="$(jq -r '.status // "unknown"' "$response_file" 2>/dev/null || echo unknown)"
+          billing_blocked="$(jq -r '
+            [ .companies[]?.error? // empty ] as $errors
+            | ($errors | length) > 0
+              and all($errors[]; contains("AI Gateway 403") and contains("valid credit card"))
+          ' "$response_file" 2>/dev/null || echo false)"
+
+          if [[ "$billing_blocked" == "true" ]]; then
+            {
+              echo '## Knowledge Learning Agent — provider paused'
+              echo
+              echo '- Queue governance remains active and failed claims are returned for retry by the application.'
+              echo '- AI Gateway is currently blocked by Vercel billing configuration.'
+              echo '- This is an external prerequisite, not a code/runtime failure, so the scheduled workflow is marked successful.'
+              echo "- API HTTP status observed: \`$status\`"
+              echo "- Application status observed: \`$response_status\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           if [[ "$status" != "200" && "$status" != "207" ]]; then
             echo "Knowledge Learning Agent retornou HTTP $status"
             exit 1

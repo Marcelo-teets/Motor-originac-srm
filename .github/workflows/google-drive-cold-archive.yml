@@ -60,7 +60,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Validate archive credentials
+      - name: Check archive configuration
+        id: config
         shell: bash
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -70,11 +71,30 @@ jobs:
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
+          missing=()
           for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET GOOGLE_DRIVE_REFRESH_TOKEN; do
-            test -n "${!name:-}" || { echo "$name is missing"; exit 1; }
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
 
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo '## Google Drive Cold Archive — paused'
+              echo
+              echo 'The archive worker is intentionally paused because required repository secrets are not configured.'
+              echo
+              echo 'Missing secrets:'
+              for name in "${missing[@]}"; do echo "- \`$name\`"; done
+              echo
+              echo 'No staging object was deleted and no archive metadata was mutated.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
       - name: Migrate verified archive parts
+        if: steps.config.outputs.configured == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

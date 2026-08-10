@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/cvm-fund-documents-schedule.yml
+      - scripts/check-supabase-storage-budget.mjs
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/cli/capitalMarkets.ts
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/cvm-fund-documents-schedule.yml
+      - scripts/check-supabase-storage-budget.mjs
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/cli/capitalMarkets.ts
@@ -39,7 +41,7 @@ on:
       max_rows:
         description: Limite de linhas
         required: true
-        default: "50000"
+        default: "20000"
         type: string
 
 permissions:
@@ -110,9 +112,73 @@ jobs:
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: Resolve document ingestion scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            DATASET="all"
+            REFERENCE=""
+            MAX_ROWS="250"
+            TRIGGER="manual"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            DATASET="${REQUESTED_DATASET:-cvm_fund_documents}"
+            REFERENCE="$REQUESTED_REFERENCE"
+            MAX_ROWS="${REQUESTED_MAX_ROWS:-20000}"
+            TRIGGER="manual"
+          elif [ "$SCHEDULE_EXPRESSION" = "5 10 * * *" ]; then
+            DATASET="cvm_fund_document_deliveries"
+            REFERENCE="current_and_previous_month"
+            MAX_ROWS="20000"
+            TRIGGER="schedule"
+          elif [ "$SCHEDULE_EXPRESSION" = "35 10 * * 1" ]; then
+            DATASET="cvm_fund_documents"
+            REFERENCE="$(date -u +%Y)"
+            MAX_ROWS="20000"
+            TRIGGER="schedule"
+          else
+            DATASET="cvm_fund_document_deliveries"
+            REFERENCE="$(date -u +%Y)"
+            MAX_ROWS="20000"
+            TRIGGER="schedule"
+          fi
+          echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
+          echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
+          echo "max_rows=$MAX_ROWS" >> "$GITHUB_OUTPUT"
+          echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
+          echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
+
+      - name: Check Supabase storage budget
+        id: storage
+        shell: bash
+        run: |
+          node scripts/check-supabase-storage-budget.mjs \
+            --requested-rows="${{ steps.scope.outputs.max_rows }}" \
+            --trigger="${{ steps.scope.outputs.trigger }}"
+
+      - name: Publish storage pause or cap summary
+        if: steps.storage.outputs.blocked == 'true' || steps.storage.outputs.capped == 'true'
+        shell: bash
+        run: |
+          {
+            echo '## CVM Fund Documents — storage budget'
+            echo
+            echo "- State: \`${{ steps.storage.outputs.state }}\`"
+            echo "- Database MB: \`${{ steps.storage.outputs.database_mb }}\`"
+            echo "- Requested rows: \`${{ steps.storage.outputs.requested_rows }}\`"
+            echo "- Allowed rows: \`${{ steps.storage.outputs.allowed_rows }}\`"
+            echo "- Effective rows: \`${{ steps.storage.outputs.effective_rows }}\`"
+            echo "- Blocked: \`${{ steps.storage.outputs.blocked }}\`"
+            echo '- When storage protection is active, scheduled ingestion is paused without producing a false workflow failure.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run scheduled document ingestion
+        if: steps.storage.outputs.blocked != 'true'
         working-directory: backend
         shell: bash
+        env:
+          EFFECTIVE_MAX_ROWS: ${{ steps.storage.outputs.effective_rows }}
         run: |
           set -euo pipefail
 
@@ -133,25 +199,24 @@ jobs:
           }
 
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            run_dataset cvm_fund_documents "" 250 manual
-            run_dataset cvm_fund_document_deliveries "" 250 manual
+            run_dataset cvm_fund_documents "" "$EFFECTIVE_MAX_ROWS" manual
+            run_dataset cvm_fund_document_deliveries "" "$EFFECTIVE_MAX_ROWS" manual
           elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cvm_fund_documents}"
             REFERENCE="$REQUESTED_REFERENCE"
-            MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
             if [ "$DATASET" = "all" ]; then
-              run_dataset cvm_fund_documents "$REFERENCE" "$MAX_ROWS" manual
-              run_dataset cvm_fund_document_deliveries "$REFERENCE" "$MAX_ROWS" manual
+              run_dataset cvm_fund_documents "$REFERENCE" "$EFFECTIVE_MAX_ROWS" manual
+              run_dataset cvm_fund_document_deliveries "$REFERENCE" "$EFFECTIVE_MAX_ROWS" manual
             else
-              run_dataset "$DATASET" "$REFERENCE" "$MAX_ROWS" manual
+              run_dataset "$DATASET" "$REFERENCE" "$EFFECTIVE_MAX_ROWS" manual
             fi
           elif [ "$SCHEDULE_EXPRESSION" = "5 10 * * *" ]; then
             CURRENT_MONTH="$(date -u +%Y-%m)"
             PREVIOUS_MONTH="$(date -u -d '1 month ago' +%Y-%m)"
-            run_dataset cvm_fund_document_deliveries "$CURRENT_MONTH" 25000 schedule
-            run_dataset cvm_fund_document_deliveries "$PREVIOUS_MONTH" 25000 schedule
+            run_dataset cvm_fund_document_deliveries "$CURRENT_MONTH" "$EFFECTIVE_MAX_ROWS" schedule
+            run_dataset cvm_fund_document_deliveries "$PREVIOUS_MONTH" "$EFFECTIVE_MAX_ROWS" schedule
           elif [ "$SCHEDULE_EXPRESSION" = "35 10 * * 1" ]; then
-            run_dataset cvm_fund_documents "$(date -u +%Y)" 50000 schedule
+            run_dataset cvm_fund_documents "$(date -u +%Y)" "$EFFECTIVE_MAX_ROWS" schedule
           else
-            run_dataset cvm_fund_document_deliveries "$(date -u +%Y)" 100000 schedule
+            run_dataset cvm_fund_document_deliveries "$(date -u +%Y)" "$EFFECTIVE_MAX_ROWS" schedule
           fi
