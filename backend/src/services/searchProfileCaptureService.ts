@@ -7,6 +7,7 @@ import type {
   CandidateIdentityReviewResult,
 } from '../lib/candidateIdentityReview.js';
 import { runSearchProfileDiscovery } from '../lib/discoveryCapture.js';
+import { normalizeDiscoveryEntityHits } from '../lib/discoveryEntityNormalization.js';
 import { findBestCompanyMatch, type ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
 
 export type SearchProfileRunRecord = {
@@ -107,7 +108,9 @@ export class SearchProfileCaptureService {
         runSearchProfileDiscovery(profile),
         this.adapter.listExistingCompanies(),
       ]);
-      const hits = discovery.hits;
+      const rawHits = discovery.hits;
+      const normalized = normalizeDiscoveryEntityHits(rawHits);
+      const hits = normalized.hits;
       const fulfilledLanes = discovery.lanes.filter((lane) => lane.status === 'fulfilled').length;
 
       let dedupedAgainstExisting = 0;
@@ -131,6 +134,22 @@ export class SearchProfileCaptureService {
           companyId: match?.companyId,
           promotedAt: undefined,
           ...candidate,
+          rawPayload: {
+            ...candidate.rawPayload,
+            entityResolution: match
+              ? {
+                version: 'v9',
+                autoMatched: true,
+                companyId: match.companyId,
+                method: match.matchMethod,
+                confidence: match.confidence,
+              }
+              : {
+                version: 'v9',
+                autoMatched: false,
+                reason: 'no_exact_identity_key',
+              },
+          },
         };
       });
 
@@ -162,6 +181,7 @@ export class SearchProfileCaptureService {
         };
       });
 
+      const qualityNote = `${rawHits.length} bruto(s), ${hits.length} entidade(s) válida(s), ${normalized.rejected} rejeitada(s), ${normalized.rewritten} normalizada(s), ${normalized.expanded} expansão(ões)`;
       const completed = await this.adapter.updateSearchProfileRun(run.id, {
         runStatus: 'completed',
         sourceCount: fulfilledLanes,
@@ -169,8 +189,8 @@ export class SearchProfileCaptureService {
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
         notes: hits.length
-          ? `Capture executed successfully across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s).`
-          : `No candidates found after ${fulfilledLanes} discovery lane(s).`,
+          ? `Capture V9 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
+          : `Capture V9 found no valid company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
         finishedAt: nowIso(),
       });
 
