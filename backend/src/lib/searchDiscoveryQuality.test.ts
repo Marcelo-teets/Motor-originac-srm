@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeDiscoveryEntityHits } from './discoveryEntityNormalization.js';
 import { filterDiscoveryHitsByProfileRelevance } from './discoveryRelevance.js';
+import {
+  attributePublisherFromCatalog,
+  extractPublisherNameFromHit,
+} from './discoveryPublisherAttribution.js';
 import { findBestCompanyMatch } from './companyDiscoveryMatching.js';
 import type { DiscoverySourceHit } from './discoveryCapture.js';
 import type { SearchProfile } from '../types/platform.js';
@@ -19,8 +23,8 @@ const profile = (
   targetStructure: string,
   userQuery: string,
 ): SearchProfile => ({
-  id: 'sp-v10',
-  name: 'Teste V10',
+  id: 'sp-v11',
+  name: 'Teste V11',
   segment: 'Fintech',
   subsegment: 'Crédito PME',
   companyType: 'Plataforma',
@@ -52,6 +56,7 @@ test('normalizes malformed headline subjects into reviewable company identities'
     hit('CredMei, de antecipação de recebíveis'),
     hit('a55 "pivota" e'),
     hit('Portobello "assenta" uma'),
+    hit('“Escolhida” da John Deere, goFlux'),
   ]);
 
   assert.deepEqual(
@@ -69,10 +74,13 @@ test('normalizes malformed headline subjects into reviewable company identities'
       'Solfácil',
       'Stone',
       'a55',
+      'goFlux',
     ].sort(),
   );
   assert.equal(result.rejected, 0);
-  assert.ok(result.rewritten >= 12);
+  assert.ok(result.rewritten >= 13);
+  const goFlux = result.hits.find((item) => item.companyName === 'goFlux');
+  assert.equal((goFlux?.rawPayload.entityNormalization as { version?: string })?.version, 'v11');
 });
 
 test('rejects editorial themes, public bodies and generic subjects that are not companies', () => {
@@ -128,6 +136,45 @@ test('promotes a real catalog source while preserving Google News as transport',
   assert.equal(normalized?.sourceRef, 'src_finsiders_rss');
   assert.equal(normalized?.rawPayload.transportSourceRef, 'google-news-rss');
   assert.equal(normalized?.rawPayload.sourceIdentityPromotedFromCorroboration, true);
+});
+
+test('publisher attribution maps Finsiders headline suffix to governed Source Catalog', () => {
+  const input = hit('a55', {
+    evidenceSummary: 'a55 busca avançar em antecipação de recebíveis - Finsiders Brasil.',
+    rawPayload: {
+      title: 'a55 busca avançar em antecipação de recebíveis - Finsiders Brasil',
+      transportSourceRef: 'google-news-rss',
+    },
+  });
+
+  assert.equal(extractPublisherNameFromHit(input), 'Finsiders Brasil');
+  const result = attributePublisherFromCatalog(input, [
+    { code: 'src_finsiders_rss', name: 'Finsiders RSS', domain: 'finsiders.com.br' },
+    { code: 'src_neofeed_rss', name: 'NeoFeed RSS', domain: 'neofeed.com.br' },
+  ]);
+
+  assert.equal(result.matched, true);
+  assert.equal(result.hit.sourceRef, 'src_finsiders_rss');
+  assert.equal(result.hit.rawPayload.transportSourceRef, 'google-news-rss');
+  assert.equal((result.hit.rawPayload.publisherAttribution as { version?: string })?.version, 'v11');
+  assert.equal((result.hit.rawPayload.publisherAttribution as { catalogSourceRef?: string })?.catalogSourceRef, 'src_finsiders_rss');
+});
+
+test('publisher attribution preserves unknown publishers without inventing a catalog source', () => {
+  const input = hit('goFlux', {
+    rawPayload: {
+      title: '“Escolhida” da John Deere, goFlux lança FIDC - AgFeed',
+      transportSourceRef: 'google-news-rss',
+    },
+  });
+  const result = attributePublisherFromCatalog(input, [
+    { code: 'src_finsiders_rss', name: 'Finsiders RSS', domain: 'finsiders.com.br' },
+  ]);
+
+  assert.equal(result.matched, false);
+  assert.equal(result.hit.sourceRef, 'google-news-rss');
+  assert.equal(result.hit.rawPayload.publisherName, 'AgFeed');
+  assert.equal((result.hit.rawPayload.publisherAttribution as { matched?: boolean })?.matched, false);
 });
 
 test('relevance gate keeps FIDC/receivables evidence and removes unrelated company news', () => {
