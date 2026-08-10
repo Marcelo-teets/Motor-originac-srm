@@ -67,7 +67,7 @@ const meaningfulTokens = (profile: SearchProfile) => {
     .slice(0, 12);
 };
 
-const sourcePriority = (name: string, category: string) => {
+const baseSourcePriority = (name: string, category: string) => {
   const haystack = normalize(`${name} ${category}`);
   if (/finsiders|fintech|startup/.test(haystack)) return 0;
   if (/brazil journal|neofeed|valor|bloomberg/.test(haystack)) return 1;
@@ -75,6 +75,43 @@ const sourcePriority = (name: string, category: string) => {
   if (/distrito|endeavor/.test(haystack)) return 3;
   return 4;
 };
+
+const profileSourceContext = (profile: SearchProfile) => normalize([
+  profile.segment,
+  profile.subsegment,
+  profile.companyType,
+  profile.creditProduct,
+  profile.targetStructure,
+  typeof profile.profilePayload?.userQuery === 'string' ? profile.profilePayload.userQuery : '',
+].join(' '));
+
+const sourceContextBoost = (profile: SearchProfile, source: DiscoveryCatalogSource) => {
+  const context = profileSourceContext(profile);
+  const sourceText = normalize(`${source.name} ${source.category} ${source.domain}`);
+
+  const agroIntent = /\b(agro|agtech|agronegocio|agric|rural|cra|safra|frete|transportadora|insumo)\b/.test(context);
+  if (agroIntent && /\bagfeed\b|agro business|agronegocio/.test(sourceText)) return -12;
+
+  const fintechIntent = /\b(fintech|embedded|consign|recebive|antecip|fidc|credito|lender|lending)\b/.test(context);
+  if (fintechIntent && /finsiders|fintech media|fintechs brasil/.test(sourceText)) return -8;
+
+  const startupIntent = /\b(startup|startups|venture|vc|tech-backed|scaleup|scale-up)\b/.test(context);
+  if (startupIntent && /startups br|startup media|distrito|endeavor/.test(sourceText)) return -7;
+
+  const capitalMarketsIntent = /\b(dcm|debent|emissao|emissoes|mercado de capitais|nota comercial|cri|cra)\b/.test(context);
+  if (capitalMarketsIntent && /brazil journal|neofeed|valor|bloomberg|infomoney|exame/.test(sourceText)) return -4;
+
+  return 0;
+};
+
+export const rankDiscoveryCatalogSources = (
+  profile: SearchProfile,
+  sources: DiscoveryCatalogSource[],
+) => [...sources].sort((a, b) => {
+  const scoreA = baseSourcePriority(a.name, a.category) + sourceContextBoost(profile, a);
+  const scoreB = baseSourcePriority(b.name, b.category) + sourceContextBoost(profile, b);
+  return scoreA - scoreB || a.name.localeCompare(b.name);
+});
 
 const mapCatalogSource = (row: any): DiscoveryCatalogSource | null => {
   const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
@@ -96,7 +133,7 @@ const mapCatalogSource = (row: any): DiscoveryCatalogSource | null => {
 
   const isGoogleNewsBackedRss = sourceType === 'rss'
     && provider === 'google-news-rss'
-    && /news|media|business|fintech|startup/i.test(category);
+    && /news|media|business|fintech|startup|agro/i.test(category);
 
   const isSpecificPublicWebUniverse = sourceType === 'web'
     && /news|vc_portfolio|company_site/i.test(category)
@@ -194,11 +231,12 @@ export async function loadDiscoveryCatalogContext(profile: SearchProfile): Promi
   ]);
 
   const sources = sourceResult.status === 'fulfilled'
-    ? (sourceResult.value ?? [])
-      .map(mapCatalogSource)
-      .filter((item): item is DiscoveryCatalogSource => Boolean(item))
-      .sort((a, b) => sourcePriority(a.name, a.category) - sourcePriority(b.name, b.category) || a.name.localeCompare(b.name))
-      .slice(0, 10)
+    ? rankDiscoveryCatalogSources(
+      profile,
+      (sourceResult.value ?? [])
+        .map(mapCatalogSource)
+        .filter((item): item is DiscoveryCatalogSource => Boolean(item)),
+    ).slice(0, 10)
     : [];
 
   const universe = candidateResult.status === 'fulfilled'
