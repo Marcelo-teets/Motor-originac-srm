@@ -2,14 +2,11 @@ import type { PlatformRepository } from '../repositories/platformRepository.js';
 import { getSupabaseClient } from '../lib/supabase.js';
 import type { CompanySeed, SearchProfile } from '../types/platform.js';
 import type { ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
+import { buildRediscoveryCandidateUpdate } from '../lib/candidateRediscoveryLineage.js';
 import type { DiscoveredCandidateRecord, SearchProfileCaptureAdapter, SearchProfileRunRecord } from './searchProfileCaptureService.js';
 
 type SupabaseLike = NonNullable<ReturnType<typeof getSupabaseClient>>;
 
-// Mapeia um candidato preparado para a linha do PostgREST. Coage undefined ->
-// null em todos os campos opcionais para que o insert em lote tenha chaves
-// homogêneas (PostgREST PGRST102 "All object keys must match" ocorre quando
-// JSON.stringify omite chaves undefined em parte dos objetos).
 export const discoveredCandidateToRow = (candidate: DiscoveredCandidateRecord) => ({
   id: candidate.id,
   search_profile_run_id: candidate.searchProfileRunId ?? null,
@@ -40,14 +37,6 @@ export const discoveredCandidateToRow = (candidate: DiscoveredCandidateRecord) =
   updated_at: candidate.updatedAt,
 });
 
-// Seleciona apenas os candidatos ainda não presentes, garantindo idempotência
-// de re-execução contra o índice único parcial
-// uq_discovered_company_candidates_dedupe_key (dedupe_key WHERE dedupe_key IS
-// NOT NULL). O runner redescobre as mesmas investidas de portfólio a cada
-// execução; sem este filtro o insert em lote colide (409) e derruba o batch
-// inteiro. Candidatos já capturados são preservados como estão (não
-// sobrescreve triagem humana); chaves nulas nunca colidem; duplicatas dentro
-// do próprio lote (mesma empresa em dois fundos) também são eliminadas.
 export const selectInsertableCandidates = <T extends { dedupeKey?: string | null }>(
   prepared: T[],
   existingKeys: ReadonlySet<string>,
@@ -260,28 +249,53 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       return prepared;
     }
 
-    // Idempotência de re-execução: consulta as dedupe_keys já persistidas e
-    // insere apenas o que é novo, evitando o 409 do índice único parcial.
     const dedupeKeys = Array.from(
       new Set(prepared.map((row) => row.dedupeKey).filter((key): key is string => typeof key === 'string' && key.length > 0)),
     );
 
     const existingKeys = new Set<string>();
+    const existingRows: any[] = [];
     if (dedupeKeys.length) {
-      const existingRows = await this.client.select('discovered_company_candidates', {
-        select: 'dedupe_key',
+      const rows = await this.client.select('discovered_company_candidates', {
+        select: 'id,dedupe_key,candidate_status,source_ref,raw_payload',
         filters: [{ column: 'dedupe_key', operator: 'in', value: dedupeKeys }],
       });
-      for (const row of existingRows ?? []) {
-        if (row?.dedupe_key) existingKeys.add(row.dedupe_key);
+      for (const row of rows ?? []) {
+        if (!row?.dedupe_key) continue;
+        existingKeys.add(row.dedupe_key);
+        existingRows.push(row);
       }
+    }
+
+    // Rediscovery is evidence, not a no-op. Preserve the original candidate
+    // row and human triage state, but persist the latest governed lineage so a
+    // dedupe hit can improve source quality without creating another entity.
+    const currentByKey = new Map(prepared.map((candidate) => [candidate.dedupeKey, candidate]));
+    const rediscoveryUpdates = existingRows
+      .map((existing) => {
+        const current = currentByKey.get(existing.dedupe_key);
+        if (!current) return null;
+        return buildRediscoveryCandidateUpdate(existing, current, now);
+      })
+      .filter((update): update is NonNullable<typeof update> => Boolean(update));
+
+    for (let index = 0; index < rediscoveryUpdates.length; index += 10) {
+      const batch = rediscoveryUpdates.slice(index, index + 10);
+      await Promise.all(batch.map((update) => this.client!.update(
+        'discovered_company_candidates',
+        {
+          ...(update.source_ref ? { source_ref: update.source_ref } : {}),
+          raw_payload: update.raw_payload,
+          updated_at: update.updated_at,
+        },
+        [{ column: 'id', operator: 'eq', value: update.id }],
+      )));
     }
 
     const toInsert = selectInsertableCandidates(prepared, existingKeys);
     if (!toInsert.length) return [];
 
     const rows = await this.client.insert('discovered_company_candidates', toInsert.map(discoveredCandidateToRow));
-
     return (rows ?? []).map(mapCandidateRow);
   }
 
