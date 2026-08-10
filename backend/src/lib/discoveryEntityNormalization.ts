@@ -17,32 +17,52 @@ const normalizeText = (value: string) => value
 
 const genericNames = new Set([
   'agencia de comunicacao',
+  'agradecimento',
+  'antecipacao de recebiveis',
+  'banco central',
   'conteudo patrocinado',
   'credito',
+  'credito privado',
+  'crescimento dos fidcs',
   'dcm',
   'embedded finance',
   'empresa',
+  'empresa de antecipacao de recebiveis',
+  'empresa de tecnologia',
   'empresas',
   'fidc',
   'fidcs',
   'fintech',
+  'fintech de recebiveis publicos',
   'fintechs',
+  'fomento mercantil',
   'mercado',
+  'noticias',
+  'o fidc na reforma tributaria',
   'open finance',
+  'pioneira em antecipacao de recebiveis',
+  'presidente do sinfac',
   'publicidade',
   'publieditorial',
+  'quatro das cinco maiores',
+  'renda fixa credito privado',
+  'securitizacao',
   'setor',
   'startup',
   'startups',
   'tendencias',
 ]);
 
-const danglingConnective = /\b(e|de|da|do|das|dos|para|com|em|por|a|o)\s*$/i;
-const actionTail = /\s+\b(faz|conclui|concluiu|capta|captou|levanta|levantou|anuncia|anunciou|recebe|recebeu|cresce|cresceu|compra|comprou|vende|vendeu|estrutura|estruturou|mira|prepara|busca|amplia|acelera|expande|fecha|fechou|obt[eé]m|obteve|garante|garantiu|cria|criou|planeja|planejou|contrata|contratou|lan[cç]a|lan[cç]ou)\b.*$/i;
+const danglingConnective = /\b(e|de|da|do|das|dos|para|com|em|por|a|o|uma|um)\s*$/i;
+const actionTail = /\s+\b(faz|conclui|concluiu|capta|captou|levanta|levantou|anuncia|anunciou|recebe|recebeu|cresce|cresceu|compra|comprou|vende|vendeu|estrutura|estruturou|mira|prepara|busca|amplia|acelera|expande|fecha|fechou|obt[eé]m|obteve|garante|garantiu|cria|criou|planeja|planejou|contrata|contratou|lan[cç]a|lan[cç]ou|abre|ganha)\b.*$/i;
 const appositionPrefix = /^([^,]+),\s*(?:dona|dono|controladora|controlador|ex-|antig[oa]|antes|anteriormente)\b.*$/i;
+const affiliationSuffix = /^([^,]+),\s*(?:da|do|das|dos|de)\s+.+$/i;
 const descriptorPrefix = /^(?:fintech|startup|empresa|plataforma|healthtech|agtech|insurtech|proptech|edtech)(?:\s+[^,]{1,55})?,\s*(.+)$/i;
-const genericThemeWithColon = /^(?:fidcs?|cr[eé]dito|mercado|setor|embedded finance|open finance|dcm|deb[eê]ntures?|receb[ií]veis)[^:]{0,60}:\s*(.+)$/i;
+const prefixedBrandDescriptor = /^[^,]{2,55},\s*(?:fintech|startup|empresa|plataforma)\s+(.+)$/i;
+const genericThemeWithColon = /^(?:fidcs?|cr[eé]dito|mercado|setor|embedded finance|open finance|dcm|deb[eê]ntures?|receb[ií]veis|antecipação de recebíveis|funding|renda fixa)[^:]{0,60}:\s*(.+)$/i;
 const partnershipSubject = /^(.{2,45}?)\s+e\s+(.{2,45}?)\s+(?:firmam|assinam|fecham|anunciam|lan[cç]am|fazem)\b.*$/i;
+const quotedHeadlineIdiom = /^([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .&+-]{0,38}?)\s+[“"']([^”"']+)[”"']/;
+const genericEntityPattern = /^(?:empresa|fintech|startup|plataforma|gigante|pioneira|presidente|governo|prefeitura|minist[eé]rio|mercado|setor|cr[eé]dito privado|securitiza[cç][aã]o|renda fixa|crescimento dos|quatro das|not[ií]cias?)\b/i;
 
 const isPlausibleCompanyName = (value: string) => {
   const name = value.replace(/\s+/g, ' ').trim().replace(/[,:;–—-]+$/g, '').trim();
@@ -55,23 +75,47 @@ const isPlausibleCompanyName = (value: string) => {
   if (!/[A-Za-zÀ-ÿ0-9]/.test(name)) return false;
   if (danglingConnective.test(name)) return false;
   if (/[|]/.test(name)) return false;
-  if (/^(como|entenda|especial|exclusivo|lista|ranking|saiba|veja|por que|porque)\b/i.test(name)) return false;
+  if (/^(como|entenda|especial|exclusivo|lista|ranking|saiba|veja|por que|porque|ap[oó]s)\b/i.test(name)) return false;
+  if (genericEntityPattern.test(name)) return false;
   return true;
 };
 
 const cleanSingleName = (rawName: string) => {
   let name = rawName.replace(/\s+/g, ' ').trim();
 
+  const quotedIdiom = name.match(quotedHeadlineIdiom);
+  if (quotedIdiom?.[1] && isPlausibleCompanyName(quotedIdiom[1])) {
+    name = quotedIdiom[1].trim();
+  }
+
   const apposition = name.match(appositionPrefix);
   if (apposition?.[1]) name = apposition[1].trim();
 
-  const descriptor = name.match(descriptorPrefix);
-  if (descriptor?.[1]) name = descriptor[1].trim();
+  const affiliation = name.match(affiliationSuffix);
+  if (affiliation?.[1] && isPlausibleCompanyName(affiliation[1])) name = affiliation[1].trim();
 
   const themed = name.match(genericThemeWithColon);
   if (themed?.[1]) name = themed[1].trim();
 
+  const prefixedBrand = name.match(prefixedBrandDescriptor);
+  if (prefixedBrand?.[1] && isPlausibleCompanyName(prefixedBrand[1])) name = prefixedBrand[1].trim();
+
+  const descriptor = name.match(descriptorPrefix);
+  if (descriptor?.[1] && isPlausibleCompanyName(descriptor[1])) name = descriptor[1].trim();
+
+  // Manchetes podem chegar já cortadas logo depois do verbo. Remover a cauda
+  // verbal antes da validação evita persistir identidades como
+  // "Mercado de Recebíveis conclui" ou "Asaas faz 2º FIDC e".
   name = name.replace(actionTail, '').replace(/[,:;–—-]+$/g, '').trim();
+
+  // Alguns publishers usam um descritor depois da vírgula em vez de uma
+  // apposição formal: "CredMei, de antecipação de recebíveis". Depois que a
+  // cauda foi limpa, preservar somente o primeiro nome quando ele é plausível.
+  if (name.includes(',')) {
+    const first = name.split(',')[0]?.trim() ?? '';
+    if (isPlausibleCompanyName(first)) name = first;
+  }
+
   return name;
 };
 
@@ -110,7 +154,7 @@ const annotate = (
   rawPayload: {
     ...hit.rawPayload,
     entityNormalization: {
-      version: 'v9',
+      version: 'v10',
       rule,
       originalCompanyName,
       normalizedCompanyName: companyName,
