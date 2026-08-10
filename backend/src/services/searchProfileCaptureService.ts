@@ -8,6 +8,7 @@ import type {
 } from '../lib/candidateIdentityReview.js';
 import { runSearchProfileDiscovery } from '../lib/discoveryCapture.js';
 import { normalizeDiscoveryEntityHits } from '../lib/discoveryEntityNormalization.js';
+import { filterDiscoveryHitsByProfileRelevance } from '../lib/discoveryRelevance.js';
 import { findBestCompanyMatch, type ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
 
 export type SearchProfileRunRecord = {
@@ -110,7 +111,8 @@ export class SearchProfileCaptureService {
       ]);
       const rawHits = discovery.hits;
       const normalized = normalizeDiscoveryEntityHits(rawHits);
-      const hits = normalized.hits;
+      const relevant = filterDiscoveryHitsByProfileRelevance(profile, normalized.hits);
+      const hits = relevant.hits;
       const fulfilledLanes = discovery.lanes.filter((lane) => lane.status === 'fulfilled').length;
 
       let dedupedAgainstExisting = 0;
@@ -138,14 +140,14 @@ export class SearchProfileCaptureService {
             ...candidate.rawPayload,
             entityResolution: match
               ? {
-                version: 'v9',
+                version: 'v10',
                 autoMatched: true,
                 companyId: match.companyId,
                 method: match.matchMethod,
                 confidence: match.confidence,
               }
               : {
-                version: 'v9',
+                version: 'v10',
                 autoMatched: false,
                 reason: 'no_exact_identity_key',
               },
@@ -181,7 +183,15 @@ export class SearchProfileCaptureService {
         };
       });
 
-      const qualityNote = `${rawHits.length} bruto(s), ${hits.length} entidade(s) válida(s), ${normalized.rejected} rejeitada(s), ${normalized.rewritten} normalizada(s), ${normalized.expanded} expansão(ões)`;
+      const qualityNote = [
+        `${rawHits.length} bruto(s)`,
+        `${normalized.hits.length} entidade(s) normalizada(s)`,
+        `${normalized.rejected} entidade(s) rejeitada(s)`,
+        `${relevant.rejected} irrelevante(s) para a tese`,
+        `${hits.length} candidata(s) final(is)`,
+        `${normalized.rewritten} nome(s) normalizado(s)`,
+        `${normalized.expanded} expansão(ões)`,
+      ].join(', ');
       const completed = await this.adapter.updateSearchProfileRun(run.id, {
         runStatus: 'completed',
         sourceCount: fulfilledLanes,
@@ -189,8 +199,8 @@ export class SearchProfileCaptureService {
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
         notes: hits.length
-          ? `Capture V9 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
-          : `Capture V9 found no valid company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
+          ? `Capture V10 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
+          : `Capture V10 found no relevant company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
         finishedAt: nowIso(),
       });
 
