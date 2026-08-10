@@ -203,8 +203,8 @@ export class SearchProfileCaptureService {
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
         notes: hits.length
-          ? `Capture V11 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
-          : `Capture V11 found no relevant company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
+          ? `Capture completed across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
+          : `Capture completed with no relevant company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
         finishedAt: nowIso(),
       });
 
