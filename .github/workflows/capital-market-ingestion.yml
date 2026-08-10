@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/capital-market-ingestion.yml
+      - scripts/check-supabase-storage-budget.mjs
       - api/capital-market-run.ts
       - vercel.json
       - backend/src/cli/capitalMarkets.ts
@@ -61,7 +62,7 @@ on:
       max_rows:
         description: Limite de linhas por dataset
         required: true
-        default: "50000"
+        default: "20000"
         type: string
 
 permissions:
@@ -110,6 +111,23 @@ jobs:
         run: |
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+
+      - name: Check storage budget for push canary
+        if: github.event_name == 'push'
+        id: storage_push
+        run: node scripts/check-supabase-storage-budget.mjs --requested-rows=250 --trigger=manual
+
+      - name: Publish paused push summary
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked == 'true'
+        run: |
+          {
+            echo '## Capital Market Ingestion — live persistence paused'
+            echo
+            echo "- Storage state: \`${{ steps.storage_push.outputs.state }}\`"
+            echo "- Database MB: \`${{ steps.storage_push.outputs.database_mb }}\`"
+            echo "- Allowed rows: \`${{ steps.storage_push.outputs.allowed_rows }}\`"
+            echo '- Typecheck and connector tests still run; live writes are skipped until hot/cold storage recovers capacity.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Probe Supabase REST access
         if: github.event_name != 'push'
@@ -165,7 +183,7 @@ jobs:
             src/services/cvmProductionIntelligence.test.ts
 
       - name: Persist recent CVM offers canary directly
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           for ATTEMPT in $(seq 1 12); do
@@ -187,7 +205,7 @@ jobs:
           exit 1
 
       - name: Prove CVM canary idempotency
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           cd backend
@@ -200,7 +218,7 @@ jobs:
             --require-idempotent
 
       - name: Bootstrap all CVM datasets after migration or explicit trigger
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${GITHUB_SHA}" || true)
@@ -209,10 +227,18 @@ jobs:
             exit 0
           fi
 
+          PREFLIGHT="$(node scripts/check-supabase-storage-budget.mjs --requested-rows=20000 --trigger=backfill)"
+          echo "$PREFLIGHT" | jq .
+          if [ "$(echo "$PREFLIGHT" | jq -r '.blocked')" = "true" ]; then
+            echo "Backfill paused by storage budget; no write attempted."
+            exit 0
+          fi
+          EFFECTIVE_ROWS="$(echo "$PREFLIGHT" | jq -r '.effectiveRows')"
+
           cd backend
           npm exec -- tsx src/cli/capitalMarkets.ts \
             --dataset all \
-            --max-rows 100000 \
+            --max-rows "$EFFECTIVE_ROWS" \
             --trigger backfill \
             --require-delivery
 
@@ -251,22 +277,22 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             DATASET="all"
             REFERENCE=""
-            MAX_ROWS="100000"
+            MAX_ROWS="20000"
             TRIGGER="backfill"
           elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cvm_offers}"
             REFERENCE="$REQUESTED_REFERENCE"
-            MAX_ROWS="${REQUESTED_MAX_ROWS:-50000}"
+            MAX_ROWS="${REQUESTED_MAX_ROWS:-20000}"
             TRIGGER="manual"
           elif [ "$SCHEDULE_EXPRESSION" = "20 9 * * *" ]; then
             DATASET="cvm_offers"
             REFERENCE=""
-            MAX_ROWS="50000"
+            MAX_ROWS="20000"
             TRIGGER="schedule"
           else
             DATASET="cvm_fund_registry,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_fii_monthly,cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp"
             REFERENCE=""
-            MAX_ROWS="100000"
+            MAX_ROWS="20000"
             TRIGGER="schedule"
           fi
           echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
@@ -275,11 +301,36 @@ jobs:
           echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
           echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
 
-      - name: Ingest and deliver CVM capital-market datasets directly
+      - name: Check storage budget for resolved ingestion
         if: github.event_name != 'push'
+        id: storage
         shell: bash
         run: |
-          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.scope.outputs.max_rows }}" --trigger "${{ steps.scope.outputs.trigger }}" --require-delivery)
+          node scripts/check-supabase-storage-budget.mjs \
+            --requested-rows="${{ steps.scope.outputs.max_rows }}" \
+            --trigger="${{ steps.scope.outputs.trigger }}"
+
+      - name: Publish storage pause or cap summary
+        if: github.event_name != 'push' && (steps.storage.outputs.blocked == 'true' || steps.storage.outputs.capped == 'true')
+        shell: bash
+        run: |
+          {
+            echo '## Capital Market Ingestion — storage budget'
+            echo
+            echo "- State: \`${{ steps.storage.outputs.state }}\`"
+            echo "- Database MB: \`${{ steps.storage.outputs.database_mb }}\`"
+            echo "- Requested rows: \`${{ steps.storage.outputs.requested_rows }}\`"
+            echo "- Allowed rows: \`${{ steps.storage.outputs.allowed_rows }}\`"
+            echo "- Effective rows: \`${{ steps.storage.outputs.effective_rows }}\`"
+            echo "- Blocked: \`${{ steps.storage.outputs.blocked }}\`"
+            echo '- A protected storage state is an operational pause, not a failed workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ingest and deliver CVM capital-market datasets directly
+        if: github.event_name != 'push' && steps.storage.outputs.blocked != 'true'
+        shell: bash
+        run: |
+          ARGS=(--dataset "${{ steps.scope.outputs.dataset }}" --max-rows "${{ steps.storage.outputs.effective_rows }}" --trigger "${{ steps.scope.outputs.trigger }}" --require-delivery)
           if [ -n "${{ steps.scope.outputs.reference }}" ]; then ARGS+=(--reference "${{ steps.scope.outputs.reference }}"); fi
           set +e
           (
@@ -318,7 +369,7 @@ jobs:
           exit "$EXIT_STATUS"
 
       - name: Verify persisted delivery without redownloading
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.storage.outputs.blocked != 'true'
         shell: bash
         run: |
           cd backend
