@@ -21,12 +21,12 @@ const evidenceText = (hit: DiscoverySourceHit) => normalize([
   typeof hit.rawPayload.description === 'string' ? hit.rawPayload.description : '',
 ].join(' '));
 
-const financeSignal = /\b(fidcs?|securitiz|recebive|antecip|credito|financi|funding|capta|captou|captacao|levanta|levantou|emprest|divida|debent|nota comercial|mercado de capitais|capital de giro|carteira de credito|carteira de recebiveis|origina(?:cao|dor|dora)?|duplicata|consignad|parcelamento|bnpl|lending|financing|warehouse)\b/i;
-const fidcSignal = /\b(fidcs?|securitiz|recebive|antecip|carteira|origina(?:cao|dor|dora)?|duplicata|credito|financi|capital de giro|consignad|parcelamento|bnpl)\b/i;
-const dcmSignal = /\b(debent|divida|emissao|emite|emitiu|capta|captou|captacao|funding|mercado de capitais|nota comercial|emprest|alongamento|passivo|bond)\b/i;
-const warehouseSignal = /\b(warehouse|funding|carteira|credito|recebive|antecip|origina(?:cao|dor|dora)?|capital de giro|financi)\b/i;
-const criSignal = /\b(cri|securitiz|recebiveis imobiliarios|credito imobiliario|imobiliari)\b/i;
-const craSignal = /\b(cra|securitiz|recebiveis do agro|recebiveis agricolas|agronegocio|credito rural|insumos rurais)\b/i;
+const financeSignal = /\b(fidcs?|securitiz\w*|recebive\w*|antecip\w*|credito\w*|financi\w*|funding|capta\w*|levanta\w*|emprest\w*|divida\w*|debent\w*|nota comercial|mercado de capitais|capital de giro|carteira de credito|carteira de recebiveis|origina\w*|duplicata\w*|consignad\w*|parcelamento|bnpl|lending|financing|warehouse)\b/i;
+const fidcSignal = /\b(fidcs?|securitiz\w*|recebive\w*|antecip\w*|carteira\w*|origina\w*|duplicata\w*|credito\w*|financi\w*|capital de giro|consignad\w*|parcelamento|bnpl)\b/i;
+const dcmSignal = /\b(debent\w*|divida\w*|emiss\w*|emite|emitiu|capta\w*|funding|mercado de capitais|nota comercial|emprest\w*|alongamento|passivo\w*|bond\w*)\b/i;
+const warehouseSignal = /\b(warehouse|funding|carteira\w*|credito\w*|recebive\w*|antecip\w*|origina\w*|capital de giro|financi\w*)\b/i;
+const criSignal = /\b(cri|securitiz\w*|recebiveis imobiliarios|credito imobiliario|imobiliari\w*)\b/i;
+const craSignal = /\b(cra|securitiz\w*|recebiveis do agro|recebiveis agricolas|agronegocio|credito rural|insumos rurais)\b/i;
 
 const explicitPortfolioIntent = /\b(portfolio|portf[oó]lio|venture|vc|investida|investidas|startup|startups|tech-backed)\b/i;
 
