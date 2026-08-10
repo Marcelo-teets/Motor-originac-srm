@@ -22,9 +22,10 @@ const normalizeText = (value: unknown) => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
+const ignoredPublisherTokens = new Set(['rss', 'news', 'business', 'br', 'brasil']);
 const canonicalPublisherName = (value: string) => normalizeText(value)
   .split(' ')
-  .filter((token) => !new Set(['rss', 'news', 'business', 'br', 'brasil']).has(token))
+  .filter((token) => !ignoredPublisherTokens.has(token))
   .join(' ')
   .trim();
 
@@ -52,9 +53,12 @@ const mapCatalogRow = (row: any): PublisherCatalogEntry | null => {
   const name = String(row?.name ?? '').trim();
   const status = normalizeText(row?.status);
   const health = normalizeText(row?.health);
+  const sourceType = normalizeText(row?.source_type);
+  const category = normalizeText(row?.category);
   const domain = String(metadata.domain ?? '').trim();
+  const editorial = sourceType === 'rss' || /news|media|noticia|fintech|startup/.test(category);
 
-  if (!code || !name || health !== 'healthy' || !['real', 'active'].includes(status)) return null;
+  if (!code || !name || !editorial || health !== 'healthy' || !['real', 'active'].includes(status)) return null;
   return { code, name, ...(domain ? { domain } : {}) };
 };
 
@@ -90,6 +94,11 @@ export const attributePublisherFromCatalog = (
 
   const originalSourceRef = hit.sourceRef;
   const shouldPromoteSource = originalSourceRef === 'google-news-rss' || originalSourceRef === 'supabase-discovery-universe';
+  const existingCorroboratingSources = Array.isArray(hit.rawPayload.corroboratingSources)
+    ? hit.rawPayload.corroboratingSources.filter((item): item is string => typeof item === 'string')
+    : [originalSourceRef];
+  const corroboratingSources = Array.from(new Set([...existingCorroboratingSources, match.code])).slice(0, 6);
+
   return {
     hit: {
       ...hit,
@@ -97,10 +106,11 @@ export const attributePublisherFromCatalog = (
       rawPayload: {
         ...hit.rawPayload,
         publisherName,
+        corroboratingSources,
         publisherAttribution: {
           version: 'v11',
           matched: true,
-          method: 'catalog_publisher_name_exact',
+          method: 'catalog_publisher_name_canonical_exact',
           catalogSourceRef: match.code,
           catalogSourceName: match.name,
           catalogSourceDomain: match.domain ?? null,
@@ -128,7 +138,7 @@ export async function attributeDiscoveryPublishers(
   let catalog: PublisherCatalogEntry[] = [];
   try {
     const rows = await client.select('source_catalog', {
-      select: 'name,status,health,metadata',
+      select: 'name,source_type,category,status,health,metadata',
       limit: 200,
     });
     catalog = (rows ?? [])
