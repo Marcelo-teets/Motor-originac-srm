@@ -14,15 +14,17 @@ export type CandidateMatchInput = {
 export type CandidateCompanyMatch = {
   companyId: string;
   confidence: number;
-  matchMethod: 'cnpj' | 'website' | 'name_similarity';
+  matchMethod: 'cnpj' | 'website' | 'exact_name';
 };
 
-const normalize = (value: string) =>
+const normalizeName = (value: string) =>
   value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
+
+const normalizeCnpj = (value?: string) => String(value ?? '').replace(/\D/g, '');
 
 const normalizeDomain = (value?: string) => {
   if (!value) return '';
@@ -34,23 +36,13 @@ const normalizeDomain = (value?: string) => {
     .toLowerCase();
 };
 
-const similarity = (a: string, b: string) => {
-  if (!a || !b) return 0;
-  const na = normalize(a);
-  const nb = normalize(b);
-  if (na === nb) return 1;
-  if (na.includes(nb) || nb.includes(na)) return 0.86;
-  const unique = [...new Set(na.split(''))];
-  const overlap = unique.filter((char) => nb.includes(char)).length;
-  return overlap / Math.max(na.length, nb.length, 1);
-};
-
 export const findBestCompanyMatch = (
   candidate: CandidateMatchInput,
   existingCompanies: ExistingCompanyMatchCandidate[],
 ): CandidateCompanyMatch | null => {
-  if (candidate.cnpj) {
-    const cnpjMatch = existingCompanies.find((item) => item.cnpj && item.cnpj === candidate.cnpj);
+  const candidateCnpj = normalizeCnpj(candidate.cnpj);
+  if (candidateCnpj.length === 14) {
+    const cnpjMatch = existingCompanies.find((item) => normalizeCnpj(item.cnpj) === candidateCnpj);
     if (cnpjMatch) {
       return {
         companyId: cnpjMatch.id,
@@ -66,22 +58,24 @@ export const findBestCompanyMatch = (
     if (websiteMatch) {
       return {
         companyId: websiteMatch.id,
-        confidence: 0.95,
+        confidence: 0.99,
         matchMethod: 'website',
       };
     }
   }
 
-  const ranked = existingCompanies
-    .map((item) => ({ companyId: item.id, score: similarity(item.name, candidate.companyName) }))
-    .sort((a, b) => b.score - a.score);
+  // Nome sem CNPJ/domínio só pode auto-vincular quando a identidade textual é
+  // exata após normalização. Similaridade fuzzy continua útil para revisão
+  // humana, mas não é prova suficiente para alterar Company Master ou dedupe.
+  const candidateName = normalizeName(candidate.companyName);
+  if (!candidateName) return null;
 
-  const best = ranked[0];
-  if (best && best.score >= 0.67) {
+  const exactNameMatch = existingCompanies.find((item) => normalizeName(item.name) === candidateName);
+  if (exactNameMatch) {
     return {
-      companyId: best.companyId,
-      confidence: Number(best.score.toFixed(4)),
-      matchMethod: 'name_similarity',
+      companyId: exactNameMatch.id,
+      confidence: 0.94,
+      matchMethod: 'exact_name',
     };
   }
 
