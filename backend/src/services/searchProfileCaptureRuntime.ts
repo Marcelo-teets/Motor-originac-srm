@@ -76,6 +76,38 @@ const mapCompanySeedToRow = (company: CompanySeed) => ({
   source_trace: company.sourceRecords,
 });
 
+const normalizeRunStatus = (value: unknown): SearchProfileRunRecord['runStatus'] => {
+  if (value === 'queued' || value === 'running' || value === 'failed') return value;
+  return 'completed';
+};
+
+const normalizeTriggerMode = (value: unknown): SearchProfileRunRecord['triggerMode'] => {
+  if (value === 'scheduled' || value === 'bootstrap') return value;
+  return 'manual';
+};
+
+/**
+ * PostgREST returns snake_case DB rows while the scheduler consumes the
+ * camelCase SearchProfileRunRecord contract. Keeping this mapping in one place
+ * is critical: cadence/lease guards compare runStatus, finishedAt and createdAt.
+ */
+export const mapSearchProfileRunRow = (row: any): SearchProfileRunRecord => ({
+  id: String(row.id),
+  searchProfileId: String(row.search_profile_id ?? row.searchProfileId ?? ''),
+  runStatus: normalizeRunStatus(row.run_status ?? row.runStatus),
+  triggerMode: normalizeTriggerMode(row.trigger_mode ?? row.triggerMode),
+  sourceCount: Number(row.source_count ?? row.sourceCount ?? 0),
+  candidatesFound: Number(row.candidates_found ?? row.candidatesFound ?? 0),
+  candidatesInserted: Number(row.candidates_inserted ?? row.candidatesInserted ?? 0),
+  candidatesPromoted: Number(row.candidates_promoted ?? row.candidatesPromoted ?? 0),
+  notes: row.notes ?? undefined,
+  metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+  startedAt: row.started_at ?? row.startedAt ?? undefined,
+  finishedAt: row.finished_at ?? row.finishedAt ?? undefined,
+  createdAt: String(row.created_at ?? row.createdAt ?? ''),
+  updatedAt: String(row.updated_at ?? row.updatedAt ?? row.created_at ?? row.createdAt ?? ''),
+});
+
 const normalizeCandidateStatus = (value: unknown): DiscoveredCandidateRecord['candidateStatus'] => {
   if (value === 'promoted') return 'promoted';
   if (value === 'deduped') return 'deduped';
@@ -184,12 +216,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       updated_at: run.updatedAt,
     }]);
 
-    return {
-      ...run,
-      id: row?.id ?? run.id,
-      createdAt: row?.created_at ?? run.createdAt,
-      updatedAt: row?.updated_at ?? run.updatedAt,
-    };
+    return row ? mapSearchProfileRunRow(row) : run;
   }
 
   async updateSearchProfileRun(runId: string, patch: Partial<SearchProfileRunRecord>): Promise<SearchProfileRunRecord> {
@@ -215,23 +242,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
     const rows = await this.client.update('search_profile_runs', payload, [{ column: 'id', operator: 'eq', value: runId }]);
     const row = rows?.[0];
     if (!row) throw new Error(`Run not found after update: ${runId}`);
-
-    return {
-      id: row.id,
-      searchProfileId: row.search_profile_id,
-      runStatus: row.run_status,
-      triggerMode: row.trigger_mode,
-      sourceCount: Number(row.source_count ?? 0),
-      candidatesFound: Number(row.candidates_found ?? 0),
-      candidatesInserted: Number(row.candidates_inserted ?? 0),
-      candidatesPromoted: Number(row.candidates_promoted ?? 0),
-      notes: row.notes ?? undefined,
-      metadata: row.metadata ?? {},
-      startedAt: row.started_at ?? undefined,
-      finishedAt: row.finished_at ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return mapSearchProfileRunRow(row);
   }
 
   async insertDiscoveredCandidates(candidates: Array<Omit<DiscoveredCandidateRecord, 'id' | 'capturedAt' | 'createdAt' | 'updatedAt'>>): Promise<DiscoveredCandidateRecord[]> {
@@ -267,9 +278,6 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       }
     }
 
-    // Rediscovery is evidence, not a no-op. Preserve the original candidate
-    // row and human triage state, but persist the latest governed lineage so a
-    // dedupe hit can improve source quality without creating another entity.
     const currentByKey = new Map(prepared.map((candidate) => [candidate.dedupeKey, candidate]));
     const rediscoveryUpdates = existingRows
       .map((existing) => {
@@ -347,7 +355,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
     }], 'company_id,discovered_candidate_id');
   }
 
-  async listRuns(searchProfileId?: string) {
+  async listRuns(searchProfileId?: string): Promise<SearchProfileRunRecord[]> {
     if (!this.client) {
       return searchProfileId ? this.runs.filter((item) => item.searchProfileId === searchProfileId) : this.runs;
     }
@@ -357,7 +365,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
       orderBy: { column: 'created_at', ascending: false },
       limit: 100,
     });
-    return rows ?? [];
+    return (rows ?? []).map(mapSearchProfileRunRow);
   }
 
   async listCandidates(searchProfileId?: string) {
