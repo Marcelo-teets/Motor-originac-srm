@@ -62,7 +62,7 @@ const prefixedBrandDescriptor = /^[^,]{2,55},\s*(?:fintech|startup|empresa|plata
 const genericThemeWithColon = /^(?:fidcs?|cr[eé]dito|mercado|setor|embedded finance|open finance|dcm|deb[eê]ntures?|receb[ií]veis|antecipação de recebíveis|funding|renda fixa)[^:]{0,60}:\s*(.+)$/i;
 const partnershipSubject = /^(.{2,45}?)\s+e\s+(.{2,45}?)\s+(?:firmam|assinam|fecham|anunciam|lan[cç]am|fazem)\b.*$/i;
 const quotedHeadlineIdiom = /^([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .&+-]{0,38}?)\s+[“"']([^”"']+)[”"']/;
-const genericEntityPattern = /^(?:empresa|fintech|startup|plataforma|gigante|pioneira|presidente|governo|prefeitura|minist[eé]rio|mercado|setor|cr[eé]dito privado|securitiza[cç][aã]o|renda fixa|crescimento dos|quatro das|not[ií]cias?)\b/i;
+const genericEntityPattern = /^(?:(?:empresa|fintech|startup|plataforma)\s+de\b|gigante\s+de\b|pioneira\s+em\b|presidente\b|governo\b|prefeitura\b|minist[eé]rio\b|setor\b|cr[eé]dito\s+privado\b|securitiza[cç][aã]o\b|renda\s+fixa\b|crescimento\s+dos\b|quatro\s+das\b|not[ií]cias?\b)/i;
 
 const isPlausibleCompanyName = (value: string) => {
   const name = value.replace(/\s+/g, ' ').trim().replace(/[,:;–—-]+$/g, '').trim();
