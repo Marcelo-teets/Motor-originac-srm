@@ -7,6 +7,7 @@ import type {
   CandidateIdentityReviewResult,
 } from '../lib/candidateIdentityReview.js';
 import { runSearchProfileDiscovery } from '../lib/discoveryCapture.js';
+import { attributeDiscoveryPublishers } from '../lib/discoveryPublisherAttribution.js';
 import { normalizeDiscoveryEntityHits } from '../lib/discoveryEntityNormalization.js';
 import { filterDiscoveryHitsByProfileRelevance } from '../lib/discoveryRelevance.js';
 import { findBestCompanyMatch, type ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
@@ -110,7 +111,8 @@ export class SearchProfileCaptureService {
         this.adapter.listExistingCompanies(),
       ]);
       const rawHits = discovery.hits;
-      const normalized = normalizeDiscoveryEntityHits(rawHits);
+      const publishers = await attributeDiscoveryPublishers(rawHits);
+      const normalized = normalizeDiscoveryEntityHits(publishers.hits);
       const relevant = filterDiscoveryHitsByProfileRelevance(profile, normalized.hits);
       const hits = relevant.hits;
       const fulfilledLanes = discovery.lanes.filter((lane) => lane.status === 'fulfilled').length;
@@ -140,14 +142,14 @@ export class SearchProfileCaptureService {
             ...candidate.rawPayload,
             entityResolution: match
               ? {
-                version: 'v10',
+                version: 'v11',
                 autoMatched: true,
                 companyId: match.companyId,
                 method: match.matchMethod,
                 confidence: match.confidence,
               }
               : {
-                version: 'v10',
+                version: 'v11',
                 autoMatched: false,
                 reason: 'no_exact_identity_key',
               },
@@ -185,6 +187,8 @@ export class SearchProfileCaptureService {
 
       const qualityNote = [
         `${rawHits.length} bruto(s)`,
+        `${publishers.attributed} publisher(s) governado(s) atribuído(s)`,
+        `${publishers.unresolved} publisher(s) preservado(s) sem catálogo`,
         `${normalized.hits.length} entidade(s) normalizada(s)`,
         `${normalized.rejected} entidade(s) rejeitada(s)`,
         `${relevant.rejected} irrelevante(s) para a tese`,
@@ -199,8 +203,8 @@ export class SearchProfileCaptureService {
         candidatesInserted: insertedCandidates.length,
         candidatesPromoted: 0,
         notes: hits.length
-          ? `Capture V10 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
-          : `Capture V10 found no relevant company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
+          ? `Capture V11 across ${fulfilledLanes} discovery lane(s); ${insertedCandidates.length} new candidate(s); ${qualityNote}.`
+          : `Capture V11 found no relevant company entities after ${fulfilledLanes} discovery lane(s); ${qualityNote}.`,
         finishedAt: nowIso(),
       });
 
@@ -234,8 +238,6 @@ export class SearchProfileCaptureService {
     if (result.companyId && this.hooks.refreshMonitoring) {
       await this.hooks.refreshMonitoring(result.companyId).catch(() => undefined);
     }
-    // Qualification, patterns, score and ranking remain pending until the
-    // separate credit-classification review supplies evidence for those fields.
     return { ...result, derivedDataRecomputeSkipped: true };
   }
 
@@ -248,8 +250,6 @@ export class SearchProfileCaptureService {
     const candidate = await this.adapter.getDiscoveredCandidate(candidateId);
     if (!candidate) throw new Error(`Candidate not found: ${candidateId}`);
 
-    // Promotion is now a finalization step for an already reviewed and linked
-    // real company. It never creates a Company Master row from a name-only hit.
     assertCandidatePromotionReady(candidate);
     const companyId = candidate.companyId!;
 
