@@ -59,6 +59,7 @@ jobs:
           total_failed=0
           last_status="not_started"
           final_response='{}'
+          degraded=false
 
           for iteration in $(seq 1 "$ITERATIONS"); do
             response_file="$(mktemp)"
@@ -84,7 +85,20 @@ jobs:
             total_failed=$((total_failed + failed))
 
             if (( http_code < 200 || http_code >= 300 )); then
+              retry_release_count="$(echo "$final_response" | jq '[.releases[]? | select(.status == "retry_scheduled")] | length')"
+              release_count="$(echo "$final_response" | jq '[.releases[]?] | length')"
+              if [[ "$last_status" == "provider_error" && "$release_count" -gt 0 && "$retry_release_count" -eq "$release_count" ]]; then
+                degraded=true
+                echo "Embedding provider temporarily unavailable; all claimed jobs were safely scheduled for retry."
+                break
+              fi
+
               echo "Worker returned HTTP $http_code" >&2
+              echo "status=$last_status" >> "$GITHUB_OUTPUT"
+              echo "claimed=$total_claimed" >> "$GITHUB_OUTPUT"
+              echo "completed=$total_completed" >> "$GITHUB_OUTPUT"
+              echo "failed=$total_failed" >> "$GITHUB_OUTPUT"
+              echo "degraded=$degraded" >> "$GITHUB_OUTPUT"
               exit 1
             fi
 
@@ -93,10 +107,12 @@ jobs:
             fi
           done
 
+          if [[ "$degraded" == "true" ]]; then last_status="provider_retry_scheduled"; fi
           echo "status=$last_status" >> "$GITHUB_OUTPUT"
           echo "claimed=$total_claimed" >> "$GITHUB_OUTPUT"
           echo "completed=$total_completed" >> "$GITHUB_OUTPUT"
           echo "failed=$total_failed" >> "$GITHUB_OUTPUT"
+          echo "degraded=$degraded" >> "$GITHUB_OUTPUT"
 
       - name: Publish run summary
         if: always()
@@ -108,7 +124,8 @@ jobs:
             echo "- Status: \`${{ steps.worker.outputs.status || 'failed_before_output' }}\`"
             echo "- Claimed: \`${{ steps.worker.outputs.claimed || '0' }}\`"
             echo "- Completed: \`${{ steps.worker.outputs.completed || '0' }}\`"
-            echo "- Failed: \`${{ steps.worker.outputs.failed || '0' }}\`"
+            echo "- Failed/retry-scheduled: \`${{ steps.worker.outputs.failed || '0' }}\`"
+            echo "- Degraded provider state: \`${{ steps.worker.outputs.degraded || 'false' }}\`"
             echo "- Daily limit: \`$DAILY_LIMIT\`"
             echo "- Batch size: \`$BATCH_SIZE\`"
             echo '- Secret location: `Vercel only`'
