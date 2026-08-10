@@ -39,6 +39,8 @@ export type ScheduledRunnerSummary = {
   totalProfiles: number;
   activeProfiles: number;
   inactiveProfiles: number;
+  scheduledProfiles: number;
+  manualOnlyProfiles: number;
   executed: number;
   skipped: number;
   failed: number;
@@ -56,6 +58,12 @@ const hoursSince = (iso: string | undefined, now: Date) => {
   return (now.getTime() - at) / (1000 * 60 * 60);
 };
 
+const isScheduledProfile = (profile: SearchProfile) => {
+  if (profile.status !== 'active') return false;
+  if (profile.profilePayload?.mode !== 'quick-search') return true;
+  return profile.profilePayload?.scheduleEnabled === true;
+};
+
 export async function runScheduledSearchProfiles(
   deps: ScheduledRunnerDeps,
   options: ScheduledRunnerOptions = {},
@@ -68,7 +76,9 @@ export async function runScheduledSearchProfiles(
   const startedAtMs = now.getTime();
 
   const allProfiles = await deps.listSearchProfiles();
-  const profiles = allProfiles.filter((profile) => profile.status === 'active');
+  const activeProfiles = allProfiles.filter((profile) => profile.status === 'active');
+  const profiles = activeProfiles.filter(isScheduledProfile);
+  const manualOnlyProfiles = activeProfiles.length - profiles.length;
   const results: ScheduledProfileResult[] = [];
 
   // Sequencial de propósito: evita tempestade de fetches paralelos por perfil
@@ -134,18 +144,24 @@ export async function runScheduledSearchProfiles(
     }
   }
 
-  const inactiveProfiles = allProfiles.length - profiles.length;
+  const inactiveProfiles = allProfiles.length - activeProfiles.length;
   const note = allProfiles.length === 0
     ? 'Nenhum search profile cadastrado.'
-    : profiles.length === 0
+    : activeProfiles.length === 0
       ? `${allProfiles.length} profile(s) cadastrado(s), mas nenhum com status 'active' — ative um profile para popular o Capture Inbox.`
-      : undefined;
+      : profiles.length === 0
+        ? `${manualOnlyProfiles} profile(s) ativo(s) configurado(s) como busca manual; nenhuma captura recorrente foi executada.`
+        : manualOnlyProfiles > 0
+          ? `${manualOnlyProfiles} Quick Search one-off preservada(s) como manual-only; apenas ${profiles.length} profile(s) recorrente(s) elegível(is).`
+          : undefined;
 
   return {
     triggeredAt: now.toISOString(),
     totalProfiles: allProfiles.length,
-    activeProfiles: profiles.length,
+    activeProfiles: activeProfiles.length,
     inactiveProfiles,
+    scheduledProfiles: profiles.length,
+    manualOnlyProfiles,
     executed: results.filter((item) => item.action === 'executed').length,
     skipped: results.filter((item) => item.action.startsWith('skipped') || item.action === 'deferred_time_budget').length,
     failed: results.filter((item) => item.action === 'failed').length,
