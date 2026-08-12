@@ -40,6 +40,7 @@ test('classifies explicit FIDC raise as a direct commercial funding trigger', ()
   assert.equal(result?.fundingInstrument, 'FIDC');
   assert.equal(result?.fundingAmount?.amount, 50_000_000);
   assert.equal(result?.automaticDecisionEligible, false);
+  assert.equal(result?.version, 3);
 });
 
 test('classifies explicit funding search with credit context as a direct trigger', () => {
@@ -95,6 +96,29 @@ test('routes third-party structuring activity to market intermediary', () => {
   assert.equal(result?.signalClass, 'market_intermediary_activity');
 });
 
+test('does not interpret a commercial agreement with receivables volume as company funding', () => {
+  const result = classifyCandidateCommercialSemantics(media(
+    'CERC',
+    'CERC fecha acordo com fintech Adiante e registra R$ 11 milhões em duplicatas eletrônicas, inspirada em nova regra do BC',
+  ));
+  assert.equal(result?.candidateRole, 'needs_classification');
+  assert.equal(result?.commercialQueue, false);
+  assert.equal(result?.signalClass, 'relevant_unclassified');
+  assert.equal(result?.explicitFundingNeed, false);
+  assert.equal(result?.fundingAmount?.amount, 11_000_000);
+});
+
+test('keeps an explicit financing closing as direct funding', () => {
+  const result = classifyCandidateCommercialSemantics(media(
+    'Stone',
+    'Stone fecha empréstimo de R$ 2 bilhões para financiar expansão da carteira de crédito',
+  ));
+  assert.equal(result?.candidateRole, 'operating_company');
+  assert.equal(result?.commercialQueue, true);
+  assert.equal(result?.signalClass, 'direct_funding_trigger');
+  assert.equal(result?.fundingInstrument, 'Emprestimo');
+});
+
 test('marks generic editorial subjects as non-entities', () => {
   const result = classifyCandidateCommercialSemantics(media(
     'Entrevista',
@@ -129,7 +153,9 @@ test('applyCandidateCommercialSemantics preserves evidence and never enables dec
   assert.equal(rawPayload.commercial_queue, true);
   assert.equal(rawPayload.identity_review_status, 'pending');
   assert.equal(rawPayload.promotion_ready, false);
+  assert.equal(rawPayload.commercial_semantics_version, 3);
   assert.equal('decision_eligible' in rawPayload, false);
   const semantics = rawPayload.commercial_semantics as Record<string, unknown>;
   assert.equal(semantics.automaticDecisionEligible, false);
+  assert.equal(semantics.version, 3);
 });
