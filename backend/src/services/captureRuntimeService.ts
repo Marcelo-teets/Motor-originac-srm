@@ -3,6 +3,7 @@ import { env } from '../lib/env.js';
 import { selectMonitoringCompanies } from '../lib/boundedCapture.js';
 import { isCompanyDecisionEligible } from '../lib/companyDecisionEligibility.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
+import { filterCaptureResultsForDecision } from '../modules/data-capture/captureDecisionGate.js';
 import { CapturePersistenceService } from './capturePersistenceService.js';
 import { CaptureDerivedSyncService } from './captureDerivedSyncService.js';
 
@@ -52,16 +53,24 @@ export class CaptureRuntimeService {
 
     const reason = options.reason ?? options.triggerType ?? 'manual';
     const persisted = await this.persistence.persist(captureResults, reason);
+    const decisionCaptureResults = filterCaptureResultsForDecision(captureResults, persisted.decisionGate);
 
-    // Monitoring and evidence capture continue for identity-approved companies,
-    // including records awaiting a Credit Review. Decision artifacts are stricter:
-    // qualification, patterns, scores, ranking inputs and pipeline may only be
-    // materialized after the Company Master explicitly marks the company eligible.
-    const decisionCompanies = targetCompanies.filter(isCompanyDecisionEligible);
+    // Evidence capture remains broad and auditable. Decision artifacts are intentionally
+    // narrower: both Company Master eligibility and the per-output treatment/quality gate
+    // must pass before qualification, patterns, scores, ranking inputs or pipeline can move.
+    const companiesWithEligibleEvidence = new Set(
+      decisionCaptureResults
+        .filter((result) => result.outputs.length > 0)
+        .map((result) => result.run.companyId)
+        .filter((companyId): companyId is string => Boolean(companyId)),
+    );
+    const decisionCompanies = targetCompanies.filter((company) =>
+      isCompanyDecisionEligible(company) && companiesWithEligibleEvidence.has(company.id));
+
     const derived = await this.derivedSync.sync({
       companies: decisionCompanies,
       patternCatalog,
-      captureResults,
+      captureResults: decisionCaptureResults,
       reason,
     });
 
@@ -78,8 +87,11 @@ export class CaptureRuntimeService {
       companiesEligibleForDerivedDecision: decisionCompanies.length,
       companiesSkippedFromDerivedDecision: Math.max(0, targetCompanies.length - decisionCompanies.length),
       outputsCollected: captureResults.reduce((sum, result) => sum + result.outputs.length, 0),
+      outputsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
       signalsCollected: captureResults.reduce((sum, result) => sum + result.signals.length, 0),
+      signalsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
       enrichmentsCollected: captureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
+      enrichmentsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
       documentsCollected: captureResults.reduce((sum, result) => sum + result.documents.length, 0),
       persisted,
       derived,
