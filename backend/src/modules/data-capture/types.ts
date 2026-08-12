@@ -13,6 +13,7 @@ export type CaptureRunRequest = {
 
 export type CanonicalSourceDocument = {
   id: string;
+  monitoringOutputId?: string;
   companyId?: string;
   sourceId: string;
   documentType: string;
@@ -28,6 +29,29 @@ export type CanonicalSourceDocument = {
   confidenceScore: number;
 };
 
+export type TreatmentEvidenceLevel = 'observed' | 'inferred';
+
+export type TreatmentResultRecord = {
+  outputId: string;
+  companyId: string;
+  sourceId: string;
+  treatmentVersion: string;
+  contentFingerprint: string;
+  relevanceScore: number;
+  qualityScore: number;
+  confidenceScore: number;
+  evidenceLevel: TreatmentEvidenceLevel;
+  signalFamilies: string[];
+  suggestedStructures: string[];
+  detectedKeywords: string[];
+  normalizedFacts: Record<string, unknown>;
+  qualityIssues: string[];
+  recommendedNextAction: string;
+  sourceUrl?: string;
+  intrinsicDecisionEligible: boolean;
+  lineage: Record<string, unknown>;
+};
+
 export type CaptureRunDiagnostics = {
   sourcesObserved: number;
   duplicatesDiscarded: number;
@@ -36,8 +60,11 @@ export type CaptureRunDiagnostics = {
   averageConfidence: number;
   treatment?: {
     treatmentVersion: string;
+    outputsTreated: number;
     highRelevanceOutputs: number;
+    decisionEligibleOutputs: number;
     treatmentGeneratedSignals: number;
+    averageQualityScore: number;
     suggestedStructures: string[];
     dominantSignalFamilies: string[];
   };
@@ -60,4 +87,5 @@ export type CaptureEngineResult = {
   outputs: MonitoringOutput[];
   signals: CompanySignal[];
   enrichments: EnrichmentRecord[];
+  treatmentResults: TreatmentResultRecord[];
 };
