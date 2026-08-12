@@ -4,6 +4,7 @@ const SOURCE_CODE = 'src_company_website';
 const CVM_DATASET_CODE = 'cvm_open_company_registry_candidates';
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+const TARGET_POOL_LIMIT = 250;
 const PROBE_TIMEOUT_MS = 6_000;
 const CONCURRENCY = 4;
 
@@ -18,6 +19,16 @@ const LEGAL_NAME_STOPWORDS = new Set([
   'participacoes', 'participacao', 'empreendimentos', 'servicos', 'brasil',
   'companhia', 'cia', 'holding', 'grupo', 'de', 'da', 'do', 'das', 'dos', 'e',
 ]);
+
+const asRecord = (value: unknown): Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+);
+
+const firstText = (...values: unknown[]) => String(
+  values.find((value) => typeof value === 'string' && value.trim()) ?? '',
+).trim();
 
 const normalizeText = (value: unknown) => String(value ?? '')
   .normalize('NFD')
@@ -77,9 +88,7 @@ export const significantNameTokens = (...values: unknown[]) => {
 };
 
 export const extractCandidateDomains = (data: Record<string, unknown> | null | undefined) => {
-  const raw = (data?.rawPayload && typeof data.rawPayload === 'object')
-    ? data.rawPayload as Record<string, unknown>
-    : {};
+  const raw = asRecord(data?.rawPayload);
   const candidates = [raw.email, raw.email_resp, data?.email, data?.emailResp]
     .flatMap((value) => String(value ?? '').split(/[;,\s]+/))
     .map((value) => value.match(/@([a-z0-9.-]+\.[a-z]{2,})$/i)?.[1] ?? '')
@@ -135,6 +144,30 @@ export const scoreWebsiteIdentity = (
   return { verified: false, confidence: Math.min(0.79, 0.45 + coverage * 0.25), matchType: 'insufficient', matchedTokens, domainAligned, cnpjMatched };
 };
 
+type RetryReason = 'no_domain_hint' | 'site_unreachable' | 'no_html_evidence' | 'insufficient_identity';
+
+const retryBaseHours = (reason: RetryReason) => {
+  if (reason === 'site_unreachable') return 24;
+  if (reason === 'no_html_evidence') return 72;
+  return 168;
+};
+
+export const websiteIdentityRetryAt = (attemptCount: number, reason: RetryReason, now: Date) => {
+  const exponent = Math.min(Math.max(attemptCount - 1, 0), 3);
+  const hours = Math.min(retryBaseHours(reason) * (2 ** exponent), 720);
+  return new Date(now.getTime() + hours * 60 * 60 * 1_000).toISOString();
+};
+
+export const isWebsiteIdentityRetryDue = (
+  rawPayload: Record<string, unknown> | null | undefined,
+  now: Date,
+) => {
+  const capture = asRecord(rawPayload?.website_identity_capture);
+  if (capture.status !== 'unresolved') return true;
+  const retryAt = Date.parse(String(capture.nextRetryAt ?? ''));
+  return !Number.isFinite(retryAt) || retryAt <= now.getTime();
+};
+
 type CandidateQueueRow = {
   id: string;
   company_name: string | null;
@@ -144,6 +177,8 @@ type CandidateQueueRow = {
   normalized_domain: string | null;
   candidate_status: string | null;
   priority_tier: string | null;
+  confidence?: number | string | null;
+  evidence_summary?: string | null;
   raw_payload?: Record<string, unknown> | null;
 };
 
@@ -161,10 +196,13 @@ export type CandidateWebsiteIdentityOptions = { limit?: number };
 export type CandidateWebsiteIdentityResult = {
   status: 'completed' | 'no_targets';
   targetCount: number;
+  deferredByBackoff: number;
   candidatesWithDomainHints: number;
   domainsProbed: number;
   websitesVerified: number;
   candidatesUpdated: number;
+  reviewPrefillsPrepared: number;
+  retryStatesUpdated: number;
   unresolved: number;
   errors: number;
 };
@@ -173,6 +211,36 @@ type Dependencies = {
   client?: SupabaseClient | null;
   fetchImpl?: typeof fetch;
   now?: () => Date;
+};
+
+const officialLegalName = (candidate: CandidateQueueRow, rows: OfficialEnrichmentRow[]) => {
+  for (const row of rows) {
+    const data = asRecord(row.data);
+    const raw = asRecord(data.rawPayload);
+    const value = firstText(raw.denom_social, data.companyName, candidate.legal_name, candidate.company_name);
+    if (value) return value;
+  }
+  return firstText(candidate.legal_name, candidate.company_name);
+};
+
+const buildReviewEvidenceSummary = (
+  candidate: CandidateQueueRow,
+  enrichment: OfficialEnrichmentRow | undefined,
+  finalUrl: string,
+  score: WebsiteIdentityScore,
+) => {
+  const data = asRecord(enrichment?.data);
+  const registrationSituation = firstText(data.registrationSituation, 'situação não informada');
+  const legalName = officialLegalName(candidate, enrichment ? [enrichment] : []);
+  const cnpj = digits(candidate.cnpj);
+  const method = score.matchType === 'cnpj'
+    ? 'CNPJ encontrado no próprio site'
+    : score.matchType === 'exact_name'
+      ? 'razão social exata e domínio compatível'
+      : 'nome societário e domínio compatíveis';
+  return `O cadastro oficial da CVM confirma ${legalName} (CNPJ ${cnpj}) com situação ${registrationSituation}. `
+    + `O website ${finalUrl} foi verificado por ${method}, com confiança ${(score.confidence * 100).toFixed(0)}%. `
+    + 'Esta evidência serve apenas para revisão humana de identidade; produto de crédito, recebíveis, funding e fit estrutural permanecem sem inferência automática.';
 };
 
 export class CandidateWebsiteIdentityService {
@@ -189,8 +257,10 @@ export class CandidateWebsiteIdentityService {
   async run(options: CandidateWebsiteIdentityOptions = {}): Promise<CandidateWebsiteIdentityResult> {
     if (!this.client) throw new Error('Supabase client not configured for candidate website identity capture.');
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
+    const now = this.now();
+    const poolLimit = Math.min(TARGET_POOL_LIMIT, Math.max(limit * 4, limit));
     const targets = await this.client.select('candidate_decision_queue_v4', {
-      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,priority_tier,raw_payload',
+      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,priority_tier,confidence,evidence_summary,raw_payload',
       filters: [
         { column: 'canonical_rank', value: 1 },
         { column: 'queue_type', value: 'commercial' },
@@ -200,14 +270,21 @@ export class CandidateWebsiteIdentityService {
         { column: 'is_cvm_open_company_current', value: true },
       ],
       orderBy: { column: 'priority_score', ascending: false },
-      limit,
+      limit: poolLimit,
     }) as CandidateQueueRow[];
 
-    const candidates = targets.filter((row) => !normalizeDomain(row.website) && !normalizeDomain(row.normalized_domain));
+    const withoutWebsite = targets.filter((row) => !normalizeDomain(row.website) && !normalizeDomain(row.normalized_domain));
+    const deferredByBackoff = withoutWebsite.filter((row) => !isWebsiteIdentityRetryDue(row.raw_payload, now)).length;
+    const candidates = withoutWebsite
+      .filter((row) => isWebsiteIdentityRetryDue(row.raw_payload, now))
+      .slice(0, limit);
+
     if (!candidates.length) {
       return {
-        status: 'no_targets', targetCount: 0, candidatesWithDomainHints: 0,
-        domainsProbed: 0, websitesVerified: 0, candidatesUpdated: 0, unresolved: 0, errors: 0,
+        status: 'no_targets', targetCount: 0, deferredByBackoff,
+        candidatesWithDomainHints: 0, domainsProbed: 0, websitesVerified: 0,
+        candidatesUpdated: 0, reviewPrefillsPrepared: 0, retryStatesUpdated: 0,
+        unresolved: 0, errors: 0,
       };
     }
 
@@ -233,7 +310,41 @@ export class CandidateWebsiteIdentityService {
     let domainsProbed = 0;
     let websitesVerified = 0;
     let candidatesUpdated = 0;
+    let reviewPrefillsPrepared = 0;
+    let retryStatesUpdated = 0;
     let errors = 0;
+
+    const persistUnresolved = async (
+      candidate: CandidateQueueRow,
+      reason: RetryReason,
+      domainHints: string[],
+      probes: number,
+    ) => {
+      const existingCapture = asRecord(candidate.raw_payload?.website_identity_capture);
+      const attemptCount = Math.max(0, Number(existingCapture.attemptCount) || 0) + 1;
+      const observedAt = now.toISOString();
+      const nextRetryAt = websiteIdentityRetryAt(attemptCount, reason, now);
+      await this.client!.update('discovered_company_candidates', {
+        raw_payload: {
+          ...(candidate.raw_payload ?? {}),
+          website_identity_capture: {
+            ...existingCapture,
+            status: 'unresolved',
+            sourceCode: SOURCE_CODE,
+            sourceId,
+            domainHintSource: CVM_DATASET_CODE,
+            domainHints,
+            probes,
+            attemptCount,
+            lastAttemptAt: observedAt,
+            nextRetryAt,
+            lastReason: reason,
+            humanApprovalRequired: true,
+          },
+        },
+        updated_at: observedAt,
+      }, [{ column: 'id', value: candidate.id }]);
+    };
 
     for (let offset = 0; offset < candidates.length; offset += CONCURRENCY) {
       const batch = candidates.slice(offset, offset + CONCURRENCY);
@@ -241,9 +352,14 @@ export class CandidateWebsiteIdentityService {
         try {
           const candidateEnrichments = byCandidate.get(candidate.id) ?? [];
           const domainHints = [...new Set(candidateEnrichments.flatMap((row) => extractCandidateDomains(row.data)))];
-          if (!domainHints.length) return { hints: false, probes: 0, verified: false, updated: false, error: false };
+          if (!domainHints.length) {
+            await persistUnresolved(candidate, 'no_domain_hint', [], 0);
+            return { hints: false, probes: 0, verified: false, updated: false, prefill: false, retry: true, error: false };
+          }
 
           let probes = 0;
+          let reachableResponse = false;
+          let htmlEvidenceSeen = false;
           for (const domain of domainHints) {
             const urls = [`https://${domain}`, `https://www.${domain}`];
             for (const url of urls) {
@@ -252,17 +368,19 @@ export class CandidateWebsiteIdentityService {
                 const response = await this.fetchImpl(url, {
                   headers: {
                     accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
-                    'user-agent': 'Motor-Origination-Identity-Capture/1.0',
+                    'user-agent': 'Motor-Origination-Identity-Capture/1.1',
                   },
                   redirect: 'follow',
                   signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
                 });
+                reachableResponse = true;
                 if (!response.ok || !String(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) continue;
+                htmlEvidenceSeen = true;
                 const html = (await response.text()).slice(0, 1_500_000);
                 const finalUrl = response.url || url;
                 const finalDomain = normalizeDomain(finalUrl) || domain;
                 const tradeName = candidateEnrichments
-                  .map((row) => String(row.data?.tradeName ?? '').trim())
+                  .map((row) => firstText(asRecord(row.data).tradeName))
                   .find(Boolean) ?? null;
                 const score = scoreWebsiteIdentity({
                   cnpj: candidate.cnpj,
@@ -272,12 +390,23 @@ export class CandidateWebsiteIdentityService {
                 }, finalDomain, html);
                 if (!score.verified) continue;
 
-                const observedAt = this.now().toISOString();
+                const observedAt = now.toISOString();
                 const officialSourceUrl = candidateEnrichments.find((row) => row.source_url)?.source_url ?? null;
+                const primaryEnrichment = candidateEnrichments[0];
+                const legalName = officialLegalName(candidate, candidateEnrichments);
+                const reviewEvidenceSummary = buildReviewEvidenceSummary(candidate, primaryEnrichment, finalUrl, score);
+                const existingCapture = asRecord(candidate.raw_payload?.website_identity_capture);
+                const attemptCount = Math.max(0, Number(existingCapture.attemptCount) || 0) + 1;
                 const rawPayload = {
                   ...(candidate.raw_payload ?? {}),
                   identity_evidence_url: finalUrl,
+                  review_legal_name: legalName,
+                  review_cnpj: digits(candidate.cnpj),
+                  review_website: finalUrl,
+                  review_evidence_summary: reviewEvidenceSummary,
+                  review_confidence: score.confidence,
                   website_identity_capture: {
+                    ...existingCapture,
                     status: 'verified',
                     sourceCode: SOURCE_CODE,
                     sourceId,
@@ -289,7 +418,12 @@ export class CandidateWebsiteIdentityService {
                     domainAligned: score.domainAligned,
                     matchedNameTokens: score.matchedTokens,
                     domainHintSource: CVM_DATASET_CODE,
+                    domainHints,
                     officialSourceUrl,
+                    attemptCount,
+                    lastAttemptAt: observedAt,
+                    nextRetryAt: null,
+                    lastReason: null,
                     observedAt,
                     humanApprovalRequired: true,
                   },
@@ -301,15 +435,22 @@ export class CandidateWebsiteIdentityService {
                   raw_payload: rawPayload,
                   updated_at: observedAt,
                 }, [{ column: 'id', value: candidate.id }]);
-                return { hints: true, probes, verified: true, updated: true, error: false };
+                return { hints: true, probes, verified: true, updated: true, prefill: true, retry: false, error: false };
               } catch {
-                // An unreachable candidate website remains unresolved; the batch continues.
+                // Unreachable variants are aggregated into a bounded retry state below.
               }
             }
           }
-          return { hints: true, probes, verified: false, updated: false, error: false };
+
+          const reason: RetryReason = !reachableResponse
+            ? 'site_unreachable'
+            : !htmlEvidenceSeen
+              ? 'no_html_evidence'
+              : 'insufficient_identity';
+          await persistUnresolved(candidate, reason, domainHints, probes);
+          return { hints: true, probes, verified: false, updated: false, prefill: false, retry: true, error: false };
         } catch {
-          return { hints: false, probes: 0, verified: false, updated: false, error: true };
+          return { hints: false, probes: 0, verified: false, updated: false, prefill: false, retry: false, error: true };
         }
       }));
 
@@ -318,6 +459,8 @@ export class CandidateWebsiteIdentityService {
         domainsProbed += result.probes;
         if (result.verified) websitesVerified += 1;
         if (result.updated) candidatesUpdated += 1;
+        if (result.prefill) reviewPrefillsPrepared += 1;
+        if (result.retry) retryStatesUpdated += 1;
         if (result.error) errors += 1;
       }
     }
@@ -325,10 +468,13 @@ export class CandidateWebsiteIdentityService {
     return {
       status: 'completed',
       targetCount: candidates.length,
+      deferredByBackoff,
       candidatesWithDomainHints,
       domainsProbed,
       websitesVerified,
       candidatesUpdated,
+      reviewPrefillsPrepared,
+      retryStatesUpdated,
       unresolved: candidates.length - candidatesUpdated,
       errors,
     };
