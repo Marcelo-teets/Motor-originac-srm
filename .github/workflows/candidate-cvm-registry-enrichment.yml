@@ -5,10 +5,13 @@ on:
     paths:
       - .github/workflows/candidate-cvm-registry-enrichment.yml
       - backend/src/cli/candidateCvmRegistry.ts
+      - backend/src/cli/candidateWebsiteIdentity.ts
       - backend/src/modules/public-data/cvmOpenCompanyRegistryConnector.ts
       - backend/src/modules/public-data/cvmOpenCompanyRegistryConnector.test.ts
       - backend/src/services/candidateCvmRegistryService.ts
       - backend/src/services/candidateCvmRegistryService.test.ts
+      - backend/src/services/candidateWebsiteIdentityService.ts
+      - backend/src/services/candidateWebsiteIdentityService.test.ts
       - db/migrations/122_candidate_cvm_company_registry.sql
       - db/migrations/123_candidate_decision_queue_cvm_coverage_v3.sql
   issues:
@@ -46,9 +49,13 @@ jobs:
       - run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Test CVM candidate enrichment
+      - name: Test candidate enrichment and identity capture
         working-directory: backend
-        run: npx tsx --test src/modules/public-data/cvmOpenCompanyRegistryConnector.test.ts src/services/candidateCvmRegistryService.test.ts
+        run: >-
+          npx tsx --test
+          src/modules/public-data/cvmOpenCompanyRegistryConnector.test.ts
+          src/services/candidateCvmRegistryService.test.ts
+          src/services/candidateWebsiteIdentityService.test.ts
 
   ingest:
     if: >-
@@ -89,6 +96,12 @@ jobs:
           if [ "${{ inputs.force || false }}" = "true" ]; then ARGS+=(--force); fi
           npx tsx src/cli/candidateCvmRegistry.ts "${ARGS[@]}" 2>&1 | tee candidate-cvm-registry.log
           exit ${PIPESTATUS[0]}
+      - name: Capture verified candidate websites
+        if: steps.enrichment.outcome == 'success'
+        working-directory: backend
+        shell: bash
+        run: |
+          npx tsx src/cli/candidateWebsiteIdentity.ts --limit 30 2>&1 | tee candidate-website-identity.log
       - name: Report owner canary
         if: always() && github.event_name == 'issues'
         shell: bash
@@ -96,8 +109,12 @@ jobs:
         run: |
           OUTCOME="${{ steps.enrichment.outcome }}"
           LOG_TAIL="No enrichment log was created."
+          WEBSITE_TAIL="Website identity capture was not executed."
           if [ -f candidate-cvm-registry.log ]; then
             LOG_TAIL=$(tail -n 100 candidate-cvm-registry.log | sed 's/`/\`/g')
+          fi
+          if [ -f candidate-website-identity.log ]; then
+            WEBSITE_TAIL=$(tail -n 100 candidate-website-identity.log | sed 's/`/\`/g')
           fi
           BODY=$(cat <<EOF
           Candidate CVM registry enrichment diagnostics:
@@ -105,10 +122,18 @@ jobs:
           - execution: **${OUTCOME}**
           - source: official CVM open-company registry
           - coverage: canonical commercial + identity candidates
+          - website identity source: first-party company websites from verified CVM email-domain hints
+          - automatic promotion: **disabled**
           - decision mutation: **disabled**
 
+          CVM enrichment:
           \`\`\`text
           ${LOG_TAIL}
+          \`\`\`
+
+          Candidate website identity capture:
+          \`\`\`text
+          ${WEBSITE_TAIL}
           \`\`\`
           EOF
           )
