@@ -119,18 +119,20 @@ const toCanonicalDocuments = (companyId: string, outputs: MonitoringOutput[]): C
   outputs.map((output) => {
     const payload = output.normalizedPayload as Record<string, unknown>;
     const canonicalUrl = normalizeUrl(String(payload?.sourceUrl ?? payload?.canonicalUrl ?? payload?.endpoint ?? ''));
+    const contentHash = `${output.companyId}_${output.sourceId}_${output.collectedAt}_${output.title}_${output.summary.slice(0, 60)}`;
 
     return {
       id: `doc_${output.id}`,
+      monitoringOutputId: output.id,
       companyId,
       sourceId: output.sourceId,
       documentType: 'monitoring_output',
       canonicalUrl,
       title: output.title,
       observedAt: output.collectedAt,
-      contentHash: `${output.companyId}_${output.sourceId}_${output.collectedAt}_${output.title}_${output.summary.slice(0, 60)}`,
+      contentHash,
       rawPayload: output.normalizedPayload,
-      normalizedPayload: { ...output.normalizedPayload, canonicalUrl },
+      normalizedPayload: { ...output.normalizedPayload, canonicalUrl, monitoringOutputId: output.id },
       extractionStatus: 'normalized',
       confidenceScore: output.confidenceScore,
     };
@@ -152,19 +154,24 @@ const extractThemes = (outputs: MonitoringOutput[]) => {
     .map(([theme]) => theme);
 };
 
-const buildCrossSignals = (company: CompanySeed, themes: string[], collectedAt: string): CompanySignal[] =>
+const buildCrossSignals = (company: CompanySeed, themes: string[], outputs: MonitoringOutput[], collectedAt: string): CompanySignal[] =>
   themes.map((theme) => ({
     id: crypto.randomUUID(),
     companyId: company.id,
     signalType: `cross_${theme}`,
     signalStrength: 84,
     confidenceScore: 0.86,
-    evidencePayload: { theme, corroboration: 'multi_source', createdAt: collectedAt },
+    evidencePayload: {
+      theme,
+      corroboration: 'multi_source',
+      outputIds: outputs.filter((output) => THEME_RULES.some((rule) => rule.theme === theme && rule.pattern.test(`${output.title} ${output.summary}`))).map((output) => output.id),
+      createdAt: collectedAt,
+    },
     observedVsInferred: 'inferred',
     createdAt: collectedAt,
   }));
 
-const buildCrossEnrichment = (company: CompanySeed, themes: string[], collectedAt: string): EnrichmentRecord[] => {
+const buildCrossEnrichment = (company: CompanySeed, themes: string[], outputs: MonitoringOutput[], collectedAt: string): EnrichmentRecord[] => {
   if (!themes.length) return [];
   return [{
     id: crypto.randomUUID(),
@@ -173,8 +180,9 @@ const buildCrossEnrichment = (company: CompanySeed, themes: string[], collectedA
     provider: 'data_capture_engine',
     payload: {
       themes,
+      outputIds: outputs.map((output) => output.id),
       summary: `Corroboração multi-fonte identificada para: ${themes.join(', ')}`,
-      confidenceModelVersion: 'v2.1',
+      confidenceModelVersion: 'v2.2',
       collectedAt,
     },
     observedVsInferred: 'inferred',
@@ -223,15 +231,16 @@ export class DataCaptureEngine {
 
       const treatment = treatCaptureOutputs(company, calibratedOutputs, collectedAt);
       const outputs = treatment.outputs.sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
-      const corroboratedThemes = extractThemes(outputs);
-      const crossSignals = buildCrossSignals(company, corroboratedThemes, collectedAt);
-      const crossEnrichments = buildCrossEnrichment(company, corroboratedThemes, collectedAt);
+      const decisionEligibleOutputIds = new Set(treatment.treatmentResults
+        .filter((item) => item.intrinsicDecisionEligible)
+        .map((item) => item.outputId));
+      const intelligenceEligibleOutputs = outputs.filter((output) => decisionEligibleOutputIds.has(output.id));
+      const corroboratedThemes = extractThemes(intelligenceEligibleOutputs);
+      const crossSignals = buildCrossSignals(company, corroboratedThemes, intelligenceEligibleOutputs, collectedAt);
+      const crossEnrichments = buildCrossEnrichment(company, corroboratedThemes, intelligenceEligibleOutputs, collectedAt);
       const allSignals = dedupeSignals([...filtered.signals, ...treatment.signals, ...crossSignals]);
       const allEnrichments = dedupeEnrichments([...filtered.enrichments, ...treatment.enrichments, ...crossEnrichments]);
 
-      // A successful connector call may legitimately return no documents for a
-      // company/source pair. Absence of evidence is not a runtime failure. Real
-      // exceptions are handled by the runtime boundary and persisted as failed.
       const runStatus = outputs.some((item) => item.connectorStatus !== 'real')
         ? 'partial'
         : 'completed';
@@ -262,6 +271,7 @@ export class DataCaptureEngine {
         outputs,
         signals: allSignals,
         enrichments: allEnrichments,
+        treatmentResults: treatment.treatmentResults,
       } satisfies CaptureEngineResult;
     }));
   }
