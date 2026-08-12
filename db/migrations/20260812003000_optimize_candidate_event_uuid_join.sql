@@ -12,7 +12,7 @@
 
 begin;
 
-do $$
+do $migration$
 declare
   current_definition text;
   optimized_definition text;
@@ -36,8 +36,8 @@ begin
 
   execute 'create or replace view public.candidate_decision_queue_v1 with (security_invoker=true) as '
     || optimized_definition;
-end
-$$;
+end;
+$migration$;
 
 comment on view public.candidate_decision_queue_v1 is
   'Candidate decision queue base view. latestEventId is cast safely on the candidate side so capital_market_events UUID PK lookups remain indexable.';
