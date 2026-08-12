@@ -52,6 +52,15 @@ export type TreatmentResultRecord = {
   lineage: Record<string, unknown>;
 };
 
+export type TreatmentDecisionGate = {
+  eligibleOutputIds: string[];
+  blockedOutputIds: string[];
+  outputQualityStatus: Record<string, string>;
+  outputBlockReason: Record<string, string>;
+  allowedCompanySourcePairs: string[];
+  blockedCompanySourcePairs: string[];
+};
+
 export type CaptureRunDiagnostics = {
   sourcesObserved: number;
   duplicatesDiscarded: number;
