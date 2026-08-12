@@ -4,6 +4,11 @@ import { parseDelimitedText } from './publicBulkDatasetConnector.js';
 const RESOURCE_URL = 'https://dados.cvm.gov.br/dados/CIA_ABERTA/CAD/DADOS/cad_cia_aberta.csv';
 const DATASET_URL = 'https://dados.cvm.gov.br/dataset/cia_aberta-cad';
 const USER_AGENT = 'OriginationIntelligencePlatform/1.0';
+const DEFAULT_FETCH_ATTEMPTS = 5;
+const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
+const DEFAULT_FETCH_BASE_DELAY_MS = 1_000;
+const MAX_FETCH_DELAY_MS = 8_000;
+const RETRYABLE_STATUS = new Set([408, 425, 429]);
 
 export type CvmOpenCompanyRegistryResource = {
   key: string;
@@ -38,6 +43,14 @@ export type CvmOpenCompanyRegistryStats = {
   recordsMatched: number;
 };
 
+type FetchRetryOptions = {
+  attempts?: number;
+  timeoutMs?: number;
+  baseDelayMs?: number;
+  fetchImpl?: typeof fetch;
+  sleepImpl?: (milliseconds: number) => Promise<void>;
+};
+
 const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const digits = (value: unknown) => clean(value).replace(/\D/g, '');
 const normalizeHeader = (value: string) => value
@@ -64,24 +77,81 @@ const parseDate = (value: unknown) => {
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
-const fetchWithRetry = async (url: string, init: RequestInit = {}, attempts = 3) => {
+const describeError = (error: unknown) => {
+  if (!(error instanceof Error)) return String(error);
+  const parts = [error.message];
+  let cause = error.cause;
+  const seen = new Set<unknown>();
+  while (cause && !seen.has(cause)) {
+    seen.add(cause);
+    if (cause instanceof Error) {
+      const code = 'code' in cause && typeof cause.code === 'string' ? ` [${cause.code}]` : '';
+      parts.push(`${cause.message}${code}`);
+      cause = cause.cause;
+    } else {
+      parts.push(String(cause));
+      break;
+    }
+  }
+  return [...new Set(parts.filter(Boolean))].join(' <- ');
+};
+
+const retryAfterMs = (response: Response) => {
+  const raw = response.headers.get('retry-after');
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1_000, MAX_FETCH_DELAY_MS);
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.min(Math.max(timestamp - Date.now(), 0), MAX_FETCH_DELAY_MS);
+};
+
+const isRetryableResponse = (response: Response) => (
+  RETRYABLE_STATUS.has(response.status) || response.status >= 500
+);
+
+export const fetchCvmRegistryWithRetry = async (
+  url: string,
+  init: RequestInit = {},
+  options: FetchRetryOptions = {},
+) => {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_FETCH_ATTEMPTS);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS);
+  const baseDelayMs = Math.max(0, options.baseDelayMs ?? DEFAULT_FETCH_BASE_DELAY_MS);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const sleepImpl = options.sleepImpl ?? sleep;
   let lastError: unknown;
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url, {
+      const response = await fetchImpl(url, {
         ...init,
         redirect: 'follow',
         headers: { 'User-Agent': USER_AGENT, ...(init.headers ?? {}) },
-        signal: init.signal ?? AbortSignal.timeout(90_000),
+        signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       });
-      if (response.ok || response.status < 500) return response;
-      lastError = new Error(`HTTP ${response.status}`);
+      if (response.ok || !isRetryableResponse(response)) return response;
+
+      lastError = new Error(`HTTP ${response.status} ${response.statusText || 'transient response'}`);
+      const delay = retryAfterMs(response)
+        ?? Math.min(baseDelayMs * (2 ** (attempt - 1)), MAX_FETCH_DELAY_MS);
+      await response.body?.cancel().catch(() => undefined);
+      if (attempt < attempts && delay > 0) await sleepImpl(delay);
+      continue;
     } catch (error) {
       lastError = error;
     }
-    if (attempt < attempts) await sleep(750 * attempt);
+
+    if (attempt < attempts) {
+      const delay = Math.min(baseDelayMs * (2 ** (attempt - 1)), MAX_FETCH_DELAY_MS);
+      if (delay > 0) await sleepImpl(delay);
+    }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+
+  throw new Error(
+    `CVM registry request failed after ${attempts} attempts: ${describeError(lastError)}`,
+    { cause: lastError instanceof Error ? lastError : undefined },
+  );
 };
 
 async function* decodeResponse(response: Response) {
@@ -102,7 +172,11 @@ const rowObject = (headers: string[], values: string[]) => Object.fromEntries(
 );
 
 export async function discoverCvmOpenCompanyRegistry(): Promise<CvmOpenCompanyRegistryResource> {
-  const response = await fetchWithRetry(RESOURCE_URL, { method: 'HEAD' }, 2).catch(() => null);
+  const response = await fetchCvmRegistryWithRetry(
+    RESOURCE_URL,
+    { method: 'HEAD' },
+    { attempts: 3, timeoutMs: 15_000 },
+  ).catch(() => null);
   return {
     key: 'cvm-open-company-registry-current',
     name: 'CVM Cadastro de Companhias Abertas',
@@ -118,7 +192,7 @@ export async function streamCvmOpenCompanyRegistry(input: {
   targetCnpjs: Set<string>;
   onRecord: (record: CvmOpenCompanyRegistryRecord) => Promise<void>;
 }): Promise<CvmOpenCompanyRegistryStats> {
-  const response = await fetchWithRetry(input.resource.url);
+  const response = await fetchCvmRegistryWithRetry(input.resource.url);
   if (!response.ok) throw new Error(`CVM registry download failed: ${response.status}`);
   let headers: string[] | null = null;
   let rowsScanned = 0;

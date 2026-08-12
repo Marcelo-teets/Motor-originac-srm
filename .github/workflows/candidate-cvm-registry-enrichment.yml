@@ -97,7 +97,7 @@ jobs:
           npx tsx src/cli/candidateCvmRegistry.ts "${ARGS[@]}" 2>&1 | tee candidate-cvm-registry.log
           exit ${PIPESTATUS[0]}
       - name: Capture verified candidate websites
-        if: steps.enrichment.outcome == 'success'
+        if: always() && steps.enrichment.outcome != 'skipped'
         working-directory: backend
         shell: bash
         run: |
@@ -122,7 +122,8 @@ jobs:
           - execution: **${OUTCOME}**
           - source: official CVM open-company registry
           - coverage: canonical commercial + identity candidates
-          - website identity source: first-party company websites from verified CVM email-domain hints
+          - website identity source: first-party company websites from persisted CVM enrichment and verified CVM email-domain hints
+          - website capture may continue from persisted official evidence if the current CVM network refresh fails
           - automatic promotion: **disabled**
           - decision mutation: **disabled**
 
