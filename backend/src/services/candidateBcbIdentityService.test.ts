@@ -92,6 +92,7 @@ test('service writes full BCB CNPJ and official enrichment while preserving huma
     client: client as never,
     fetchInstitutions: async () => ({
       sourceUrl: 'https://bcb.example/BcBase', referenceDate: '2026-08-11', pages: 2,
+      seatEnrichment: { status: 'available' as const, rowsMatched: 1, error: null },
       rows: [institution('UY3 SOCIEDADE DE CRÉDITO DIRETO S.A.', '39587424000150', 'www.uy3.com.br')],
     }),
     now: () => new Date('2026-08-12T04:30:00.000Z'),
@@ -143,7 +144,10 @@ test('service skips candidates already marked ambiguous by first-party evidence'
     client: client as never,
     fetchInstitutions: async () => {
       fetched = true;
-      return { sourceUrl: '', referenceDate: '2026-08-11', rows: [], pages: 0 };
+      return {
+        sourceUrl: '', referenceDate: '2026-08-11', rows: [], pages: 0,
+        seatEnrichment: { status: 'available' as const, rowsMatched: 0, error: null },
+      };
     },
   });
   const result = await service.run();
