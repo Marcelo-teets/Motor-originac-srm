@@ -1,6 +1,20 @@
 name: Search Profile Discovery
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/search-profile-discovery.yml
+      - backend/src/cli/candidateNewsSemantics.ts
+      - backend/src/services/candidateNewsSemanticsService.ts
+      - backend/src/services/candidateNewsSemanticsService.test.ts
+      - backend/src/lib/candidateCommercialSemantics.ts
+      - backend/src/lib/candidateCommercialSemantics.test.ts
+      - backend/src/lib/candidatePromotion.ts
+      - backend/src/lib/candidateRediscoveryLineage.ts
+      - backend/src/lib/candidateRediscoveryLineage.test.ts
+      - backend/src/lib/discoveryEntityNormalization.ts
+      - backend/src/lib/discoveryEntityNormalization.test.ts
+      - db/migrations/20260812011000_rss_operating_company_commercial_queue.sql
   push:
     branches:
       - main
@@ -10,14 +24,43 @@ on:
       - backend/src/services/searchProfileScheduledRunner.ts
       - backend/src/services/searchProfileCaptureService.ts
       - backend/src/services/searchProfileCaptureRuntime.ts
+      - backend/src/services/candidateNewsSemanticsService.ts
+      - backend/src/lib/candidateCommercialSemantics.ts
+      - backend/src/lib/candidatePromotion.ts
+      - backend/src/lib/candidateRediscoveryLineage.ts
       - backend/src/lib/discoveryCapture.ts
+      - backend/src/lib/discoveryEntityNormalization.ts
       - backend/src/lib/vcPortfolioDiscovery.ts
+      - db/migrations/20260812011000_rss_operating_company_commercial_queue.sql
   schedule:
     - cron: "30 8 * * *"
   workflow_dispatch: {}
 
 jobs:
+  validate_news_semantics:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Test RSS entity and commercial semantics
+        working-directory: backend
+        run: >-
+          npx tsx --test
+          src/lib/candidateCommercialSemantics.test.ts
+          src/lib/candidateRediscoveryLineage.test.ts
+          src/lib/discoveryEntityNormalization.test.ts
+          src/services/candidateNewsSemanticsService.test.ts
+
   run_discovery:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -45,3 +88,29 @@ jobs:
           fi
 
           echo "$BODY" | grep -q 'activeProfiles' || (echo "Discovery endpoint did not return the runner summary" && exit 1)
+
+  classify_news_candidates:
+    if: github.event_name != 'pull_request' && always() && needs.run_discovery.result != 'cancelled'
+    needs: run_discovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate production secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Classify governed media candidates
+        working-directory: backend
+        run: npx tsx src/cli/candidateNewsSemantics.ts --limit 250
