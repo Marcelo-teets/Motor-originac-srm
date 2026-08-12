@@ -5,8 +5,13 @@ on:
     paths:
       - .github/workflows/search-profile-discovery.yml
       - backend/src/cli/candidateNewsSemantics.ts
+      - backend/src/cli/candidateBcbIdentity.ts
       - backend/src/services/candidateNewsSemanticsService.ts
       - backend/src/services/candidateNewsSemanticsService.test.ts
+      - backend/src/services/candidateBcbIdentityService.ts
+      - backend/src/services/candidateBcbIdentityService.test.ts
+      - backend/src/modules/public-data/bcbRegulatedInstitutionsConnector.ts
+      - backend/src/modules/public-data/bcbRegulatedInstitutionsConnector.test.ts
       - backend/src/lib/candidateCommercialSemantics.ts
       - backend/src/lib/candidateCommercialSemantics.test.ts
       - backend/src/lib/candidatePromotion.ts
@@ -25,6 +30,8 @@ on:
       - backend/src/services/searchProfileCaptureService.ts
       - backend/src/services/searchProfileCaptureRuntime.ts
       - backend/src/services/candidateNewsSemanticsService.ts
+      - backend/src/services/candidateBcbIdentityService.ts
+      - backend/src/modules/public-data/bcbRegulatedInstitutionsConnector.ts
       - backend/src/lib/candidateCommercialSemantics.ts
       - backend/src/lib/candidatePromotion.ts
       - backend/src/lib/candidateRediscoveryLineage.ts
@@ -50,7 +57,7 @@ jobs:
       - run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Test RSS entity and commercial semantics
+      - name: Test RSS entity, commercial semantics and BCB identity
         working-directory: backend
         run: >-
           npx tsx --test
@@ -58,6 +65,8 @@ jobs:
           src/lib/candidateRediscoveryLineage.test.ts
           src/lib/discoveryEntityNormalization.test.ts
           src/services/candidateNewsSemanticsService.test.ts
+          src/modules/public-data/bcbRegulatedInstitutionsConnector.test.ts
+          src/services/candidateBcbIdentityService.test.ts
 
   run_discovery:
     if: github.event_name != 'pull_request'
@@ -93,7 +102,7 @@ jobs:
     if: github.event_name != 'pull_request' && always() && needs.run_discovery.result != 'cancelled'
     needs: run_discovery
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -114,3 +123,6 @@ jobs:
       - name: Classify governed media candidates
         working-directory: backend
         run: npx tsx src/cli/candidateNewsSemantics.ts --limit 250
+      - name: Resolve regulated candidate identities with BCB
+        working-directory: backend
+        run: npx tsx src/cli/candidateBcbIdentity.ts --limit 100
