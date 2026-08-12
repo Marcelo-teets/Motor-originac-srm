@@ -53,6 +53,9 @@ test('merges BCBase full CNPJ with SedesSociedades website fields', async () => 
   assert.equal(result.rows[0].supervisedType, 'Sociedade de Crédito Direto');
   assert.equal(result.rows[0].website, 'https://www.uy3.com.br/');
   assert.equal(result.pages, 2);
+  assert.equal(result.seatEnrichment.status, 'available');
+  assert.equal(result.seatEnrichment.rowsMatched, 1);
+  assert.equal(result.seatEnrichment.error, null);
 });
 
 test('falls back to a recent BCBase reference date when today has no snapshot', async () => {
@@ -89,4 +92,28 @@ test('retries transient BCBase failures before succeeding', async () => {
   assert.equal(result.rows.length, 1);
   assert.equal(entityCalls, 2);
   assert.deepEqual(sleeps, [500]);
+});
+
+test('keeps BCBase identity usable when SedesSociedades stays unavailable', async () => {
+  let seatCalls = 0;
+  const result = await fetchBcbRegulatedInstitutions({
+    attempts: 2,
+    now: () => new Date('2026-08-12T12:00:00.000Z'),
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.includes('/BcBase/')) return new Response(JSON.stringify({ value: [entityRow] }), { status: 200 });
+      seatCalls += 1;
+      return new Response('temporary outage', { status: 500 });
+    },
+    sleepImpl: async () => undefined,
+  });
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].cnpj, '39587424000150');
+  assert.equal(result.rows[0].legalName, 'UY3 SOCIEDADE DE CRÉDITO DIRETO S.A.');
+  assert.equal(result.rows[0].website, null);
+  assert.equal(result.seatEnrichment.status, 'degraded');
+  assert.equal(result.seatEnrichment.rowsMatched, 0);
+  assert.match(String(result.seatEnrichment.error), /HTTP 500/);
+  assert.equal(seatCalls, 2);
 });
