@@ -5,14 +5,14 @@
 
 begin;
 
-do $$
+do $migration$
 declare
   current_definition text;
   optimized_definition text;
-  old_queue_rule text := $$WHEN ((candidate_base.candidate_role = 'operating_issuer'::text) AND candidate_base.commercial_queue) THEN 'commercial'::text$$;
-  new_queue_rule text := $$WHEN ((candidate_base.candidate_role = ANY (ARRAY['operating_issuer'::text, 'operating_company'::text])) AND candidate_base.commercial_queue) THEN 'commercial'::text$$;
-  old_action_rule text := $$WHEN candidate_role = 'operating_issuer'::text THEN 'Abrir revisão de identidade e validar funding gap, estrutura e timing.'::text$$;
-  new_action_rule text := $$WHEN candidate_role = ANY (ARRAY['operating_issuer'::text, 'operating_company'::text]) THEN 'Abrir revisão de identidade e validar funding gap, estrutura e timing.'::text$$;
+  old_queue_rule text := $rule$WHEN ((candidate_base.candidate_role = 'operating_issuer'::text) AND candidate_base.commercial_queue) THEN 'commercial'::text$rule$;
+  new_queue_rule text := $rule$WHEN ((candidate_base.candidate_role = ANY (ARRAY['operating_issuer'::text, 'operating_company'::text])) AND candidate_base.commercial_queue) THEN 'commercial'::text$rule$;
+  old_action_rule text := $rule$WHEN candidate_role = 'operating_issuer'::text THEN 'Abrir revisão de identidade e validar funding gap, estrutura e timing.'::text$rule$;
+  new_action_rule text := $rule$WHEN candidate_role = ANY (ARRAY['operating_issuer'::text, 'operating_company'::text]) THEN 'Abrir revisão de identidade e validar funding gap, estrutura e timing.'::text$rule$;
 begin
   select pg_get_viewdef('public.candidate_decision_queue_v1'::regclass, true)
     into current_definition;
@@ -29,7 +29,7 @@ begin
   execute 'create or replace view public.candidate_decision_queue_v1 with (security_invoker=true) as '
     || optimized_definition;
 end
-$$;
+$migration$;
 
 comment on view public.candidate_decision_queue_v1 is
   'Candidate decision queue. operating_company candidates enter commercial routing only when commercial_queue=true from explicit, audited evidence; human identity and credit gates remain mandatory.';
