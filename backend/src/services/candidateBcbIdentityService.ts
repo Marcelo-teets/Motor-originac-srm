@@ -35,11 +35,21 @@ const tokens = (value: unknown) => normalize(value)
   .split(' ')
   .filter((token) => token.length >= 2 && !STOPWORDS.has(token));
 
-const domain = (value: unknown) => {
+const websiteUrl = (value: unknown) => {
   const raw = String(value ?? '').trim();
-  if (!raw) return '';
+  if (!raw) return null;
   try {
-    return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.replace(/^www\./, '').toLowerCase();
+    return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).toString();
+  } catch {
+    return null;
+  }
+};
+
+const domain = (value: unknown) => {
+  const normalized = websiteUrl(value);
+  if (!normalized) return '';
+  try {
+    return new URL(normalized).hostname.replace(/^www\./, '').toLowerCase();
   } catch {
     return '';
   }
@@ -192,7 +202,7 @@ export class CandidateBcbIdentityService {
         }
 
         const observedAt = this.now().toISOString();
-        const officialWebsite = match.institution.website;
+        const officialWebsite = websiteUrl(match.institution.website);
         const normalizedDomain = domain(officialWebsite);
         const existingRaw = candidate.raw_payload ?? {};
         const reviewEvidence = `O cadastro oficial de instituições em funcionamento do Banco Central confirma ${match.institution.legalName}, raiz de CNPJ ${match.institution.cnpjRoot}, segmento ${match.institution.segment ?? 'não informado'}${officialWebsite ? ` e website ${officialWebsite}` : ''}. A raiz de 8 dígitos não é tratada como CNPJ completo; a Receita Federal deve completar a identidade jurídica antes da aprovação humana.`;
