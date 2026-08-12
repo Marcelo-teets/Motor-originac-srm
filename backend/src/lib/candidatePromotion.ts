@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { CompanySeed, SearchProfile } from '../types/platform.js';
 import type { DiscoverySourceHit } from './discoveryCapture.js';
 import { buildDiscoveryDedupeKey, normalizeDomain, normalizeCompanyName } from './discoveryCapture.js';
+import { applyCandidateCommercialSemantics } from './candidateCommercialSemantics.js';
 
 export type DiscoveredCandidateDraft = {
   searchProfileId?: string;
@@ -41,6 +42,12 @@ export const deterministicCompanyUuid = (candidate: Pick<DiscoveredCandidateDraf
 
 export const discoveryHitToCandidateDraft = (profile: SearchProfile, hit: DiscoverySourceHit): DiscoveredCandidateDraft => {
   const cnpj = normalizeCnpj(hit.cnpj) || undefined;
+  const rawPayload = applyCandidateCommercialSemantics({
+    companyName: hit.companyName,
+    sourceRef: hit.sourceRef,
+    evidenceSummary: hit.evidenceSummary,
+    rawPayload: hit.rawPayload,
+  });
   return {
     searchProfileId: profile.id,
     companyName: hit.companyName,
@@ -60,7 +67,7 @@ export const discoveryHitToCandidateDraft = (profile: SearchProfile, hit: Discov
     receivables: profile.receivables,
     confidence: hit.confidence,
     dedupeKey: buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website, cnpj }),
-    rawPayload: hit.rawPayload,
+    rawPayload,
   };
 };
 

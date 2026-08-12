@@ -32,6 +32,13 @@ const asStringArray = (value: unknown) => Array.isArray(value)
   : [];
 
 const genericSourceRefs = new Set(['', 'unknown', 'google-news-rss', 'supabase-discovery-universe']);
+const semanticKeys = [
+  'candidate_role',
+  'commercial_queue',
+  'commercial_semantics_reason',
+  'commercial_semantics_version',
+  'commercial_semantics',
+] as const;
 
 export const buildRediscoveryCandidateUpdate = (
   existing: ExistingCandidateLineageRow,
@@ -71,6 +78,7 @@ export const buildRediscoveryCandidateUpdate = (
     publisherAttribution: current.rawPayload.publisherAttribution ?? null,
     entityNormalization: current.rawPayload.entityNormalization ?? null,
     relevanceGate: current.rawPayload.relevanceGate ?? null,
+    commercialSemantics: current.rawPayload.commercial_semantics ?? null,
   };
 
   const rawPayload: Record<string, unknown> = {
@@ -91,6 +99,9 @@ export const buildRediscoveryCandidateUpdate = (
   if (current.rawPayload.publisherName !== undefined) rawPayload.publisherName = current.rawPayload.publisherName;
   if (current.rawPayload.publisherAttribution !== undefined) rawPayload.publisherAttribution = current.rawPayload.publisherAttribution;
   if (current.rawPayload.transportSourceRef !== undefined) rawPayload.transportSourceRef = current.rawPayload.transportSourceRef;
+  for (const key of semanticKeys) {
+    if (current.rawPayload[key] !== undefined) rawPayload[key] = current.rawPayload[key];
+  }
 
   return {
     id: existing.id,
