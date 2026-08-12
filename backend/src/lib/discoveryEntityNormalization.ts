@@ -31,6 +31,9 @@ const genericNames = new Set([
   'empresa de antecipacao de recebiveis',
   'empresa de tecnologia',
   'empresas',
+  'entrevista',
+  'especial',
+  'exclusivo',
   'fidc',
   'fidcs',
   'fintech',
@@ -38,7 +41,10 @@ const genericNames = new Set([
   'fintechs',
   'fomento mercantil',
   'mercado',
+  'noticia',
   'noticias',
+  'opiniao',
+  'podcast',
   'o fidc na reforma tributaria',
   'open finance',
   'pioneira em antecipacao de recebiveis',
@@ -60,12 +66,13 @@ const actionTail = /\s+\b(faz|conclui|concluiu|capta|captou|levanta|levantou|anu
 const appositionPrefix = /^([^,]+),\s*(?:dona|dono|controladora|controlador|ex-|antig[oa]|antes|anteriormente)\b.*$/i;
 const affiliationSuffix = /^([^,]+),\s*(?:da|do|das|dos|de)\s+.+$/i;
 const descriptorPrefix = /^(?:fintech|startup|empresa|plataforma|healthtech|agtech|insurtech|proptech|edtech)(?:\s+[^,]{1,55})?,\s*(.+)$/i;
+const leadingDescriptorBrand = /^(?:fintech|startup|empresa|plataforma|healthtech|agtech|insurtech|proptech|edtech)\s+([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .&+_-]{1,44})$/i;
 const prefixedBrandDescriptor = /^[^,]{2,55},\s*(?:fintech|startup|empresa|plataforma)\s+(.+)$/i;
 const genericThemeWithColon = /^(?:fidcs?|cr[eé]dito|mercado|setor|embedded finance|open finance|dcm|deb[eê]ntures?|receb[ií]veis|antecipação de recebíveis|funding|renda fixa)[^:]{0,60}:\s*(.+)$/i;
 const partnershipSubject = /^(.{2,45}?)\s+e\s+(.{2,45}?)\s+(?:firmam|assinam|fecham|anunciam|lan[cç]am|fazem)\b.*$/i;
 const quotedHeadlineIdiom = /^([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .&+-]{0,38}?)\s+[“"']([^”"']+)[”"']/;
 const quotedEditorialLeadThenBrand = /^[“"'‘][^”"'’]{2,55}[”"'’][^,]{0,60},\s*([^,]{2,45})$/u;
-const genericEntityPattern = /^(?:(?:empresa|fintech|startup|plataforma)\s+de\b|gigante\s+de\b|pioneira\s+em\b|presidente\b|governo\b|prefeitura\b|minist[eé]rio\b|setor\b|cr[eé]dito\s+privado\b|securitiza[cç][aã]o\b|renda\s+fixa\b|crescimento\s+dos\b|quatro\s+das\b|not[ií]cias?\b)/i;
+const genericEntityPattern = /^(?:(?:empresa|fintech|startup|plataforma)\s+de\b|gigante\s+de\b|pioneira\s+em\b|presidente\b|governo\b|prefeitura\b|minist[eé]rio\b|setor\b|cr[eé]dito\s+privado\b|securitiza[cç][aã]o\b|renda\s+fixa\b|crescimento\s+dos\b|quatro\s+das\b|not[ií]cias?\b|entrevista\b|podcast\b|opini[aã]o\b)/i;
 
 const isPlausibleCompanyName = (value: string) => {
   const name = value.replace(/\s+/g, ' ').trim().replace(/[,:;–—-]+$/g, '').trim();
@@ -86,9 +93,6 @@ const isPlausibleCompanyName = (value: string) => {
 const cleanSingleName = (rawName: string) => {
   let name = rawName.replace(/\s+/g, ' ').trim();
 
-  // Headlines sometimes start with an editorial hook instead of the company:
-  // `“Escolhida” da John Deere, goFlux`. In this narrow shape the brand after
-  // the comma is the only entity candidate; the quoted lead itself is prose.
   const quotedLead = name.match(quotedEditorialLeadThenBrand);
   if (quotedLead?.[1] && isPlausibleCompanyName(quotedLead[1])) {
     name = quotedLead[1].trim();
@@ -113,6 +117,9 @@ const cleanSingleName = (rawName: string) => {
 
   const descriptor = name.match(descriptorPrefix);
   if (descriptor?.[1] && isPlausibleCompanyName(descriptor[1])) name = descriptor[1].trim();
+
+  const leadingDescriptor = name.match(leadingDescriptorBrand);
+  if (leadingDescriptor?.[1] && isPlausibleCompanyName(leadingDescriptor[1])) name = leadingDescriptor[1].trim();
 
   name = name.replace(actionTail, '').replace(/[,:;–—-]+$/g, '').trim();
 
