@@ -2,6 +2,7 @@ import { getSupabaseClient } from '../lib/supabase.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { computeLeadScore } from '../lib/scoring.js';
+import { CAPTURE_TREATMENT_VERSION } from '../modules/data-capture/captureTreatment.js';
 import type { CaptureEngineResult } from '../modules/data-capture/types.js';
 import type { CompanySeed, CompanySignal, MonitoringOutput, PatternCatalogEntry, PriorityBucket } from '../types/platform.js';
 
@@ -92,7 +93,7 @@ const normalizeCompanyWithCapture = (company: CompanySeed, result: CaptureEngine
 
 const qualificationRow = (qualification: ReturnType<typeof buildQualificationSnapshot>, nextAction: string, drivers: unknown[]) => ({
   company_id: qualification.companyId,
-  snapshot_version: 'capture_treatment_v1',
+  snapshot_version: CAPTURE_TREATMENT_VERSION,
   has_credit_product: qualification.has_credit_product,
   credit_is_core: qualification.credit_is_core_product,
   has_receivables: qualification.has_receivables,
@@ -239,7 +240,7 @@ export class CaptureDerivedSyncService {
         { scoreType: 'urgency', value: q.urgency_score, rationale: 'Urgência derivada dos sinais tratados e timing capturado.' },
       ].map((score) => ({
         company_id: q.companyId,
-        score_version: 'capture_treatment_v1',
+        score_version: CAPTURE_TREATMENT_VERSION,
         structural_need_score: q.qualification_score_structural,
         timing_score: q.qualification_score_timing,
         executability_score: q.qualification_score_execution,
