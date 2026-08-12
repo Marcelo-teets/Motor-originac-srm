@@ -115,19 +115,11 @@ const calibrateConfidence = (output: MonitoringOutput): number => {
   return clamp(output.confidenceScore + statusPenalty + completeness + sourceBonus + agePenalty(publishedAt));
 };
 
-const treatmentFingerprint = (output: MonitoringOutput) => {
-  const treatment = output.normalizedPayload?.treatment;
-  if (!treatment || typeof treatment !== 'object') return undefined;
-  const value = (treatment as Record<string, unknown>).contentFingerprint;
-  return typeof value === 'string' && value.trim() ? value : undefined;
-};
-
 const toCanonicalDocuments = (companyId: string, outputs: MonitoringOutput[]): CanonicalSourceDocument[] =>
   outputs.map((output) => {
     const payload = output.normalizedPayload as Record<string, unknown>;
     const canonicalUrl = normalizeUrl(String(payload?.sourceUrl ?? payload?.canonicalUrl ?? payload?.endpoint ?? ''));
-    const contentHash = treatmentFingerprint(output)
-      ?? `${output.companyId}_${output.sourceId}_${output.collectedAt}_${output.title}_${output.summary.slice(0, 60)}`;
+    const contentHash = `${output.companyId}_${output.sourceId}_${output.collectedAt}_${output.title}_${output.summary.slice(0, 60)}`;
 
     return {
       id: `doc_${output.id}`,
