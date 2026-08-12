@@ -1,6 +1,10 @@
+import { createHash } from 'node:crypto';
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput } from '../../types/platform.js';
+import type { TreatmentResultRecord } from './types.js';
 
-const TREATMENT_VERSION = 'capture_treatment_v1';
+export const CAPTURE_TREATMENT_VERSION = 'capture_treatment_v2';
+const SIGNAL_RELEVANCE_FLOOR = 55;
+const SIGNAL_QUALITY_FLOOR = 55;
 
 export type SignalFamily =
   | 'credit_product'
@@ -27,23 +31,13 @@ type TreatmentMatch = {
   keywords: string[];
 };
 
-type OutputTreatment = {
-  outputId: string;
-  title: string;
-  sourceId: string;
-  relevanceScore: number;
-  signalFamilies: SignalFamily[];
-  suggestedStructures: string[];
-  detectedKeywords: string[];
-  evidenceLevel: 'observed' | 'inferred';
-  recommendedNextAction: string;
-  sourceUrl?: string;
-};
-
 export type CaptureTreatmentDiagnostics = {
   treatmentVersion: string;
+  outputsTreated: number;
   highRelevanceOutputs: number;
+  decisionEligibleOutputs: number;
   treatmentGeneratedSignals: number;
+  averageQualityScore: number;
   suggestedStructures: string[];
   dominantSignalFamilies: SignalFamily[];
 };
@@ -74,7 +68,7 @@ const RULES: TreatmentRule[] = [
     signalType: 'funding_gap_signal',
     label: 'Possível funding gap',
     weight: 78,
-    keywords: ['funding', 'capital', 'caixa', 'capitalizacao', 'capta', 'dívida', 'divida', 'working capital', 'runway', 'liquidez'],
+    keywords: ['funding', 'capital', 'caixa', 'capitalizacao', 'capta', 'divida', 'working capital', 'runway', 'liquidez'],
     suggestedStructures: ['FIDC', 'Nota Comercial', 'Debênture'],
     evidenceLevel: 'inferred',
     nextAction: 'Validar necessidade de funding, prazo, ticket e custo atual de capital.',
@@ -84,7 +78,7 @@ const RULES: TreatmentRule[] = [
     signalType: 'fidc_fit_signal',
     label: 'Fit potencial para FIDC',
     weight: 88,
-    keywords: ['fidc', 'securitizacao', 'securitização', 'cessao', 'cessão', 'direitos creditorios', 'direitos creditórios', 'carteira de credito', 'carteira de crédito'],
+    keywords: ['fidc', 'securitizacao', 'cessao', 'direitos creditorios', 'carteira de credito'],
     suggestedStructures: ['FIDC'],
     evidenceLevel: 'observed',
     nextAction: 'Checar ativo-lastro, histórico de performance, elegibilidade e waterfall possível.',
@@ -94,7 +88,7 @@ const RULES: TreatmentRule[] = [
     signalType: 'dcm_fit_signal',
     label: 'Fit potencial para DCM',
     weight: 76,
-    keywords: ['debenture', 'debênture', 'nota comercial', 'cri', 'cra', 'mercado de capitais', 'emissao', 'emissão', 'alongamento'],
+    keywords: ['debenture', 'nota comercial', 'cri', 'cra', 'mercado de capitais', 'emissao', 'alongamento'],
     suggestedStructures: ['Nota Comercial', 'Debênture', 'CRA/CRI'],
     evidenceLevel: 'observed',
     nextAction: 'Validar estrutura de capital, garantias, covenants e apetite de investidores.',
@@ -104,7 +98,7 @@ const RULES: TreatmentRule[] = [
     signalType: 'growth_timing_trigger',
     label: 'Timing de crescimento',
     weight: 72,
-    keywords: ['expansao', 'expansão', 'crescimento', 'nova regiao', 'nova região', 'contratando', 'vagas', 'novo produto', 'parceria', 'aquisicao', 'aquisição'],
+    keywords: ['expansao', 'crescimento', 'nova regiao', 'contratando', 'vagas', 'novo produto', 'parceria', 'aquisicao'],
     suggestedStructures: ['FIDC', 'Nota Comercial'],
     evidenceLevel: 'inferred',
     nextAction: 'Entender se o crescimento está pressionando capital de giro ou funding escalável.',
@@ -114,7 +108,7 @@ const RULES: TreatmentRule[] = [
     signalType: 'risk_validation_signal',
     label: 'Risco a validar',
     weight: 64,
-    keywords: ['inadimplencia', 'inadimplência', 'provisao', 'provisão', 'chargeback', 'default', 'atraso', 'risco', 'reestruturacao', 'reestruturação'],
+    keywords: ['inadimplencia', 'provisao', 'chargeback', 'default', 'atraso', 'risco', 'reestruturacao'],
     suggestedStructures: ['Validação de crédito'],
     evidenceLevel: 'inferred',
     nextAction: 'Validar qualidade da carteira, vintage, concentração, perdas e mitigadores.',
@@ -125,10 +119,19 @@ const stripDiacritics = (value: string) => value.normalize('NFD').replace(/[\u03
 const normalize = (value: string) => stripDiacritics(value).toLowerCase().replace(/\s+/g, ' ').trim();
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const unique = <T>(values: T[]) => [...new Set(values)];
+const round = (value: number) => Math.round(value * 100) / 100;
+
+const deterministicUuid = (value: string) => {
+  const bytes = Buffer.from(createHash('sha256').update(value).digest('hex').slice(0, 32), 'hex');
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+};
 
 const asSourceConfidencePercent = (value: number) => {
   if (!Number.isFinite(value)) return 0;
-  return value <= 1 ? Math.round(value * 100) : Math.round(value);
+  return clamp(value <= 1 ? Math.round(value * 100) : Math.round(value), 0, 100);
 };
 
 const pickString = (...values: unknown[]) => {
@@ -145,24 +148,40 @@ const firstItemLink = (value: unknown) => {
   return pickString((first as Record<string, unknown>).link, (first as Record<string, unknown>).url);
 };
 
-const sourceUrlFromOutput = (output: MonitoringOutput) => pickString(
+const canonicalizeUrl = (value?: string) => {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid'].forEach((key) => url.searchParams.delete(key));
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch {
+    return value.trim();
+  }
+};
+
+const sourceUrlFromOutput = (output: MonitoringOutput) => canonicalizeUrl(pickString(
   output.normalizedPayload?.sourceUrl,
   output.normalizedPayload?.canonicalUrl,
   output.normalizedPayload?.endpoint,
   firstItemLink(output.normalizedPayload?.items),
-);
+));
 
 const payloadToSearchText = (payload: Record<string, unknown>) => {
   try {
-    return JSON.stringify(payload).slice(0, 2400);
+    return JSON.stringify(payload).slice(0, 4800);
   } catch {
     return '';
   }
 };
 
-const matchRules = (output: MonitoringOutput): TreatmentMatch[] => {
-  const text = normalize(`${output.title} ${output.summary} ${payloadToSearchText(output.normalizedPayload)}`);
+const searchableText = (output: MonitoringOutput) => normalize(
+  `${output.title} ${output.summary} ${payloadToSearchText(output.normalizedPayload)}`,
+);
 
+const matchRules = (output: MonitoringOutput): TreatmentMatch[] => {
+  const text = searchableText(output);
   return RULES.map((rule) => {
     const keywords = rule.keywords.filter((keyword) => text.includes(normalize(keyword)));
     return keywords.length ? { rule, keywords } : null;
@@ -176,46 +195,126 @@ const relevanceScoreFor = (output: MonitoringOutput, matches: TreatmentMatch[]) 
   const explicitBonus = matches.some((match) => match.rule.evidenceLevel === 'observed') ? 10 : 0;
   const multiSignalBonus = Math.min(16, Math.max(0, matches.length - 1) * 6);
   const maxRuleWeight = Math.max(...matches.map((match) => match.rule.weight));
-
   return clamp(Math.round(maxRuleWeight * 0.72 + sourceConfidence * 0.22 + explicitBonus + multiSignalBonus), 0, 100);
 };
 
-const preferredNextAction = (matches: TreatmentMatch[]) => {
-  const priority: SignalFamily[] = ['fidc_fit', 'receivables', 'credit_product', 'funding_need', 'dcm_fit', 'growth_timing', 'risk_validation'];
-  const best = priority
-    .map((family) => matches.find((match) => match.rule.family === family))
-    .find(Boolean);
-
-  return best?.rule.nextAction ?? 'Manter em monitoramento e aguardar novo sinal corroborado.';
+const evidenceAgeDays = (output: MonitoringOutput) => {
+  const timestamp = Date.parse(output.collectedAt);
+  if (Number.isNaN(timestamp)) return null;
+  return Math.max(0, (Date.now() - timestamp) / 86_400_000);
 };
 
-const toTreatment = (output: MonitoringOutput, matches: TreatmentMatch[]): OutputTreatment => {
-  const relevanceScore = relevanceScoreFor(output, matches);
+const qualityFor = (output: MonitoringOutput, sourceUrl?: string) => {
+  const issues: string[] = [];
+  const confidence = asSourceConfidencePercent(output.confidenceScore);
+  const summaryLength = output.summary.trim().length;
+  const titleLength = output.title.trim().length;
+  const ageDays = evidenceAgeDays(output);
+
+  if (output.connectorStatus !== 'real') issues.push('partial_connector');
+  if (!sourceUrl) issues.push('missing_source_url');
+  if (summaryLength < 50) issues.push('thin_content');
+  if (confidence < 55) issues.push('low_source_confidence');
+  if (ageDays !== null && ageDays > 120) issues.push('stale_evidence');
+
+  let score = confidence * 0.55;
+  score += output.connectorStatus === 'real' ? 20 : 5;
+  score += sourceUrl ? 10 : 0;
+  score += titleLength >= 8 ? 5 : 0;
+  score += summaryLength >= 120 ? 10 : summaryLength >= 50 ? 6 : 0;
+  if (ageDays !== null && ageDays > 120) score -= 12;
+  else if (ageDays !== null && ageDays > 45) score -= 5;
+
+  return { qualityScore: clamp(Math.round(score), 0, 100), qualityIssues: issues };
+};
+
+const extractNormalizedFacts = (output: MonitoringOutput, matches: TreatmentMatch[]) => {
+  const rawText = `${output.title} ${output.summary} ${payloadToSearchText(output.normalizedPayload)}`;
+  const moneyAmounts = unique(rawText.match(/R\$\s?[\d.,]+(?:\s?(?:mil|milh(?:a|ã)o|milh(?:o|õ)es|bilh(?:a|ã)o|bilh(?:o|õ)es))?/gi) ?? []).slice(0, 8);
+  const percentages = unique(rawText.match(/\b\d+(?:[.,]\d+)?\s?%/g) ?? []).slice(0, 8);
+  const cnpjMentions = unique(rawText.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g) ?? []).slice(0, 4);
+
   return {
-    outputId: output.id,
-    title: output.title,
-    sourceId: output.sourceId,
-    relevanceScore,
+    moneyAmounts,
+    percentages,
+    cnpjMentions,
     signalFamilies: unique(matches.map((match) => match.rule.family)),
-    suggestedStructures: unique(matches.flatMap((match) => match.rule.suggestedStructures)),
-    detectedKeywords: unique(matches.flatMap((match) => match.keywords)).slice(0, 12),
-    evidenceLevel: matches.some((match) => match.rule.evidenceLevel === 'observed') ? 'observed' : 'inferred',
-    recommendedNextAction: preferredNextAction(matches),
-    sourceUrl: sourceUrlFromOutput(output),
+    structureHints: unique(matches.flatMap((match) => match.rule.suggestedStructures)),
   };
 };
 
-const annotateOutput = (output: MonitoringOutput, treatment: OutputTreatment): MonitoringOutput => ({
+const contentFingerprintFor = (output: MonitoringOutput, sourceUrl?: string) => createHash('sha256')
+  .update([
+    output.companyId,
+    output.sourceId,
+    normalize(output.title),
+    normalize(output.summary),
+    sourceUrl ?? '',
+  ].join('|'))
+  .digest('hex');
+
+const preferredNextAction = (matches: TreatmentMatch[]) => {
+  const priority: SignalFamily[] = ['fidc_fit', 'receivables', 'credit_product', 'funding_need', 'dcm_fit', 'growth_timing', 'risk_validation'];
+  const best = priority.map((family) => matches.find((match) => match.rule.family === family)).find(Boolean);
+  return best?.rule.nextAction ?? 'Manter em monitoramento e aguardar novo sinal corroborado.';
+};
+
+const toTreatment = (output: MonitoringOutput, matches: TreatmentMatch[]): TreatmentResultRecord => {
+  const sourceUrl = sourceUrlFromOutput(output);
+  const relevanceScore = relevanceScoreFor(output, matches);
+  const { qualityScore, qualityIssues } = qualityFor(output, sourceUrl);
+  const confidenceScore = round(clamp((asSourceConfidencePercent(output.confidenceScore) * 0.6 + qualityScore * 0.4) / 100, 0, 1));
+  const evidenceLevel = matches.some((match) => match.rule.evidenceLevel === 'observed') ? 'observed' : 'inferred';
+  const contentFingerprint = contentFingerprintFor(output, sourceUrl);
+  const normalizedFacts = extractNormalizedFacts(output, matches);
+
+  return {
+    outputId: output.id,
+    companyId: output.companyId,
+    sourceId: output.sourceId,
+    treatmentVersion: CAPTURE_TREATMENT_VERSION,
+    contentFingerprint,
+    relevanceScore,
+    qualityScore,
+    confidenceScore,
+    signalFamilies: unique(matches.map((match) => match.rule.family)),
+    suggestedStructures: unique(matches.flatMap((match) => match.rule.suggestedStructures)),
+    detectedKeywords: unique(matches.flatMap((match) => match.keywords)).slice(0, 16),
+    evidenceLevel,
+    normalizedFacts,
+    qualityIssues,
+    recommendedNextAction: preferredNextAction(matches),
+    sourceUrl,
+    intrinsicDecisionEligible: relevanceScore >= SIGNAL_RELEVANCE_FLOOR && qualityScore >= SIGNAL_QUALITY_FLOOR,
+    lineage: {
+      monitoringOutputId: output.id,
+      companyId: output.companyId,
+      sourceId: output.sourceId,
+      sourceUrl: sourceUrl ?? null,
+      observedAt: output.collectedAt,
+      connectorStatus: output.connectorStatus,
+      sourceConfidence: asSourceConfidencePercent(output.confidenceScore),
+    },
+  };
+};
+
+const annotateOutput = (output: MonitoringOutput, treatment: TreatmentResultRecord): MonitoringOutput => ({
   ...output,
   normalizedPayload: {
     ...output.normalizedPayload,
     treatment: {
-      version: TREATMENT_VERSION,
+      version: treatment.treatmentVersion,
+      contentFingerprint: treatment.contentFingerprint,
       relevanceScore: treatment.relevanceScore,
+      qualityScore: treatment.qualityScore,
+      confidenceScore: treatment.confidenceScore,
       signalFamilies: treatment.signalFamilies,
       suggestedStructures: treatment.suggestedStructures,
       detectedKeywords: treatment.detectedKeywords,
       evidenceLevel: treatment.evidenceLevel,
+      normalizedFacts: treatment.normalizedFacts,
+      qualityIssues: treatment.qualityIssues,
+      intrinsicDecisionEligible: treatment.intrinsicDecisionEligible,
       recommendedNextAction: treatment.recommendedNextAction,
     },
   },
@@ -224,21 +323,22 @@ const annotateOutput = (output: MonitoringOutput, treatment: OutputTreatment): M
 const buildTreatmentSignals = (
   company: CompanySeed,
   output: MonitoringOutput,
-  treatment: OutputTreatment,
+  treatment: TreatmentResultRecord,
   matches: TreatmentMatch[],
   collectedAt: string,
 ): CompanySignal[] => {
-  if (treatment.relevanceScore < 55) return [];
+  if (!treatment.intrinsicDecisionEligible) return [];
 
   return matches.slice(0, 4).map((match) => ({
-    id: crypto.randomUUID(),
+    id: deterministicUuid(`${CAPTURE_TREATMENT_VERSION}|${treatment.contentFingerprint}|${match.rule.signalType}`),
     companyId: company.id,
     sourceId: output.sourceId,
     signalType: match.rule.signalType,
-    signalStrength: clamp(Math.round((treatment.relevanceScore + match.rule.weight) / 2), 0, 100),
-    confidenceScore: clamp((asSourceConfidencePercent(output.confidenceScore) + treatment.relevanceScore) / 200, 0.35, 0.96),
+    signalStrength: clamp(Math.round((treatment.relevanceScore + treatment.qualityScore + match.rule.weight) / 3), 0, 100),
+    confidenceScore: clamp(round((treatment.confidenceScore + asSourceConfidencePercent(output.confidenceScore) / 100) / 2), 0.35, 0.98),
     evidencePayload: {
-      treatmentVersion: TREATMENT_VERSION,
+      treatmentVersion: CAPTURE_TREATMENT_VERSION,
+      contentFingerprint: treatment.contentFingerprint,
       label: match.rule.label,
       note: `${match.rule.label}: ${output.title}`,
       summary: output.summary,
@@ -248,6 +348,8 @@ const buildTreatmentSignals = (
       family: match.rule.family,
       keywords: match.keywords,
       relevanceScore: treatment.relevanceScore,
+      qualityScore: treatment.qualityScore,
+      normalizedFacts: treatment.normalizedFacts,
       suggestedStructures: treatment.suggestedStructures,
       recommendedNextAction: treatment.recommendedNextAction,
       observedAt: output.collectedAt,
@@ -259,36 +361,39 @@ const buildTreatmentSignals = (
 
 const buildTreatmentEnrichment = (
   company: CompanySeed,
-  treatments: OutputTreatment[],
+  treatments: TreatmentResultRecord[],
   collectedAt: string,
 ): EnrichmentRecord[] => {
-  const relevantTreatments = treatments.filter((treatment) => treatment.relevanceScore >= 55);
-  if (!relevantTreatments.length) return [];
+  const eligible = treatments.filter((treatment) => treatment.intrinsicDecisionEligible);
+  if (!eligible.length) return [];
 
-  const suggestedStructures = unique(relevantTreatments.flatMap((treatment) => treatment.suggestedStructures));
-  const dominantSignalFamilies = unique(relevantTreatments.flatMap((treatment) => treatment.signalFamilies));
-  const nextActions = unique(relevantTreatments.map((treatment) => treatment.recommendedNextAction));
+  const suggestedStructures = unique(eligible.flatMap((treatment) => treatment.suggestedStructures));
+  const dominantSignalFamilies = unique(eligible.flatMap((treatment) => treatment.signalFamilies));
+  const nextActions = unique(eligible.map((treatment) => treatment.recommendedNextAction));
+  const fingerprintSet = eligible.map((item) => item.contentFingerprint).sort().join('|');
 
   return [{
-    id: crypto.randomUUID(),
+    id: deterministicUuid(`${CAPTURE_TREATMENT_VERSION}|${company.id}|${fingerprintSet}`),
     companyId: company.id,
-    enrichmentType: 'capture_treatment_profile',
-    provider: 'data_capture_engine',
+    enrichmentType: 'capture_treatment_profile_v2',
+    provider: 'data_treatment_enrichment_engine',
     payload: {
-      treatmentVersion: TREATMENT_VERSION,
-      highRelevanceOutputs: relevantTreatments.length,
-      averageRelevanceScore: Math.round(relevantTreatments.reduce((sum, item) => sum + item.relevanceScore, 0) / relevantTreatments.length),
+      treatmentVersion: CAPTURE_TREATMENT_VERSION,
+      highRelevanceOutputs: eligible.length,
+      averageRelevanceScore: Math.round(eligible.reduce((sum, item) => sum + item.relevanceScore, 0) / eligible.length),
+      averageQualityScore: Math.round(eligible.reduce((sum, item) => sum + item.qualityScore, 0) / eligible.length),
       dominantSignalFamilies,
       suggestedStructures,
       recommendedNextActions: nextActions,
-      outputs: relevantTreatments.map((treatment) => ({
+      outputs: eligible.map((treatment) => ({
         outputId: treatment.outputId,
-        title: treatment.title,
+        contentFingerprint: treatment.contentFingerprint,
         sourceId: treatment.sourceId,
         relevanceScore: treatment.relevanceScore,
+        qualityScore: treatment.qualityScore,
         signalFamilies: treatment.signalFamilies,
         suggestedStructures: treatment.suggestedStructures,
-        detectedKeywords: treatment.detectedKeywords,
+        normalizedFacts: treatment.normalizedFacts,
         sourceUrl: treatment.sourceUrl,
       })),
       createdAt: collectedAt,
@@ -306,6 +411,7 @@ export const treatCaptureOutputs = (
   outputs: MonitoringOutput[];
   signals: CompanySignal[];
   enrichments: EnrichmentRecord[];
+  treatmentResults: TreatmentResultRecord[];
   diagnostics: CaptureTreatmentDiagnostics;
 } => {
   const treated = outputs.map((output) => {
@@ -316,20 +422,27 @@ export const treatCaptureOutputs = (
     return { output: annotatedOutput, treatment, signals };
   });
 
-  const treatments = treated.map((item) => item.treatment);
+  const treatmentResults = treated.map((item) => item.treatment);
   const signals = treated.flatMap((item) => item.signals);
-  const enrichments = buildTreatmentEnrichment(company, treatments, collectedAt);
+  const enrichments = buildTreatmentEnrichment(company, treatmentResults, collectedAt);
+  const averageQualityScore = treatmentResults.length
+    ? Math.round(treatmentResults.reduce((sum, item) => sum + item.qualityScore, 0) / treatmentResults.length)
+    : 0;
 
   return {
     outputs: treated.map((item) => item.output),
     signals,
     enrichments,
+    treatmentResults,
     diagnostics: {
-      treatmentVersion: TREATMENT_VERSION,
-      highRelevanceOutputs: treatments.filter((treatment) => treatment.relevanceScore >= 55).length,
+      treatmentVersion: CAPTURE_TREATMENT_VERSION,
+      outputsTreated: treatmentResults.length,
+      highRelevanceOutputs: treatmentResults.filter((treatment) => treatment.relevanceScore >= SIGNAL_RELEVANCE_FLOOR).length,
+      decisionEligibleOutputs: treatmentResults.filter((treatment) => treatment.intrinsicDecisionEligible).length,
       treatmentGeneratedSignals: signals.length,
-      suggestedStructures: unique(treatments.flatMap((treatment) => treatment.suggestedStructures)),
-      dominantSignalFamilies: unique(treatments.flatMap((treatment) => treatment.signalFamilies)),
+      averageQualityScore,
+      suggestedStructures: unique(treatmentResults.flatMap((treatment) => treatment.suggestedStructures)),
+      dominantSignalFamilies: unique(treatmentResults.flatMap((treatment) => treatment.signalFamilies)) as SignalFamily[],
     },
   };
 };
