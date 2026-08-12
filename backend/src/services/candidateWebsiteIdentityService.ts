@@ -238,76 +238,80 @@ export class CandidateWebsiteIdentityService {
     for (let offset = 0; offset < candidates.length; offset += CONCURRENCY) {
       const batch = candidates.slice(offset, offset + CONCURRENCY);
       const results = await Promise.all(batch.map(async (candidate) => {
-        const candidateEnrichments = byCandidate.get(candidate.id) ?? [];
-        const domainHints = [...new Set(candidateEnrichments.flatMap((row) => extractCandidateDomains(row.data)))];
-        if (!domainHints.length) return { hints: false, probes: 0, verified: false, updated: false, error: false };
+        try {
+          const candidateEnrichments = byCandidate.get(candidate.id) ?? [];
+          const domainHints = [...new Set(candidateEnrichments.flatMap((row) => extractCandidateDomains(row.data)))];
+          if (!domainHints.length) return { hints: false, probes: 0, verified: false, updated: false, error: false };
 
-        let probes = 0;
-        for (const domain of domainHints) {
-          const urls = [`https://${domain}`, `https://www.${domain}`];
-          for (const url of urls) {
-            probes += 1;
-            try {
-              const response = await this.fetchImpl(url, {
-                headers: {
-                  accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
-                  'user-agent': 'Motor-Origination-Identity-Capture/1.0',
-                },
-                redirect: 'follow',
-                signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-              });
-              if (!response.ok || !String(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) continue;
-              const html = (await response.text()).slice(0, 1_500_000);
-              const finalUrl = response.url || url;
-              const finalDomain = normalizeDomain(finalUrl) || domain;
-              const tradeName = candidateEnrichments
-                .map((row) => String(row.data?.tradeName ?? '').trim())
-                .find(Boolean) ?? null;
-              const score = scoreWebsiteIdentity({
-                cnpj: candidate.cnpj,
-                companyName: candidate.company_name,
-                legalName: candidate.legal_name,
-                tradeName,
-              }, finalDomain, html);
-              if (!score.verified) continue;
+          let probes = 0;
+          for (const domain of domainHints) {
+            const urls = [`https://${domain}`, `https://www.${domain}`];
+            for (const url of urls) {
+              probes += 1;
+              try {
+                const response = await this.fetchImpl(url, {
+                  headers: {
+                    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
+                    'user-agent': 'Motor-Origination-Identity-Capture/1.0',
+                  },
+                  redirect: 'follow',
+                  signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+                });
+                if (!response.ok || !String(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) continue;
+                const html = (await response.text()).slice(0, 1_500_000);
+                const finalUrl = response.url || url;
+                const finalDomain = normalizeDomain(finalUrl) || domain;
+                const tradeName = candidateEnrichments
+                  .map((row) => String(row.data?.tradeName ?? '').trim())
+                  .find(Boolean) ?? null;
+                const score = scoreWebsiteIdentity({
+                  cnpj: candidate.cnpj,
+                  companyName: candidate.company_name,
+                  legalName: candidate.legal_name,
+                  tradeName,
+                }, finalDomain, html);
+                if (!score.verified) continue;
 
-              const observedAt = this.now().toISOString();
-              const officialSourceUrl = candidateEnrichments.find((row) => row.source_url)?.source_url ?? null;
-              const rawPayload = {
-                ...(candidate.raw_payload ?? {}),
-                identity_evidence_url: finalUrl,
-                website_identity_capture: {
-                  status: 'verified',
-                  sourceCode: SOURCE_CODE,
-                  sourceId,
+                const observedAt = this.now().toISOString();
+                const officialSourceUrl = candidateEnrichments.find((row) => row.source_url)?.source_url ?? null;
+                const rawPayload = {
+                  ...(candidate.raw_payload ?? {}),
+                  identity_evidence_url: finalUrl,
+                  website_identity_capture: {
+                    status: 'verified',
+                    sourceCode: SOURCE_CODE,
+                    sourceId,
+                    website: finalUrl,
+                    domain: finalDomain,
+                    confidence: score.confidence,
+                    matchType: score.matchType,
+                    cnpjMatched: score.cnpjMatched,
+                    domainAligned: score.domainAligned,
+                    matchedNameTokens: score.matchedTokens,
+                    domainHintSource: CVM_DATASET_CODE,
+                    officialSourceUrl,
+                    observedAt,
+                    humanApprovalRequired: true,
+                  },
+                };
+
+                await this.client!.update('discovered_company_candidates', {
                   website: finalUrl,
-                  domain: finalDomain,
-                  confidence: score.confidence,
-                  matchType: score.matchType,
-                  cnpjMatched: score.cnpjMatched,
-                  domainAligned: score.domainAligned,
-                  matchedNameTokens: score.matchedTokens,
-                  domainHintSource: CVM_DATASET_CODE,
-                  officialSourceUrl,
-                  observedAt,
-                  humanApprovalRequired: true,
-                },
-              };
-
-              await this.client!.update('discovered_company_candidates', {
-                website: finalUrl,
-                normalized_domain: finalDomain,
-                raw_payload: rawPayload,
-                updated_at: observedAt,
-              }, [{ column: 'id', value: candidate.id }]);
-              return { hints: true, probes, verified: true, updated: true, error: false };
-            } catch {
-              // A failed domain probe is evidence of an unresolved candidate, not a failed batch.
+                  normalized_domain: finalDomain,
+                  raw_payload: rawPayload,
+                  updated_at: observedAt,
+                }, [{ column: 'id', value: candidate.id }]);
+                return { hints: true, probes, verified: true, updated: true, error: false };
+              } catch {
+                // An unreachable candidate website remains unresolved; the batch continues.
+              }
             }
           }
+          return { hints: true, probes, verified: false, updated: false, error: false };
+        } catch {
+          return { hints: false, probes: 0, verified: false, updated: false, error: true };
         }
-        return { hints: true, probes, verified: false, updated: false, error: false };
-      }).catch(() => ({ hints: false, probes: 0, verified: false, updated: false, error: true }))));
+      }));
 
       for (const result of results) {
         if (result.hints) candidatesWithDomainHints += 1;
