@@ -188,7 +188,7 @@ export class CapturePersistenceService {
       normalized_payload: output.normalizedPayload,
       confidence_score: output.confidenceScore,
       connector_status: output.connectorStatus,
-      observed_vs_inferred: output.observedVsInferred,
+      observed_vs_inferred: 'observed',
     }));
 
     const outputIdByCompanyAndSource = new Map<string, string>();
