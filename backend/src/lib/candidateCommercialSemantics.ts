@@ -101,6 +101,7 @@ const DIRECT_FUNDING_ACTION = /\b(capta|captou|levanta|levantou|busca|obtem|obte
 const CREDIT_CONTEXT = /\b(credito|consignado|recebiveis|recebivel|antecipacao|fidc|financiamento|emprestimo|carteira|lending|securitizacao|duplicatas?)\b/i;
 const CREDIT_EXPANSION_ACTION = /\b(compra|comprou|adquire|adquiriu|entra|entrar|expande|expandir|expansao|amplia|ampliar|lanca|lancou|cria|criou|mira|planeja|prepara|acelera|cresce|cresceu|fortalece|fortaleceu)\b/i;
 const FUNDING_PLAN_CONTEXT = /\b(planos?|planeja|prepara|mira|estuda|considera|pretende|quer)\b/i;
+const PLANNED_INSTRUMENT_CONTEXT = /(?:\b(?:fidc|debentures?|nota comercial|warehouse|funding|financiamento|emprestimo|divida|securitizacao)\b.{0,45}\b(?:nos? planos?|planeja|prepara|mira|estuda|considera|pretende|quer)\b|\b(?:nos? planos?|planeja|prepara|mira|estuda|considera|pretende|quer)\b.{0,45}\b(?:fidc|debentures?|nota comercial|warehouse|funding|financiamento|emprestimo|divida|securitizacao)\b)/i;
 const INTERMEDIARY_ACTION = /\b(estrutura|estruturou|estruturação|estruturacao)\b/i;
 const INTERMEDIARY_FOR_THIRD_PARTY = /\bpara\s+(?:o\s+|a\s+)?(?:banco|fintech|empresa|cliente|originador|cedente|companhia|grupo)\b/i;
 
@@ -114,12 +115,14 @@ const parseLocalizedNumber = (value: string) => {
 };
 
 export const extractFundingAmount = (text: string): CandidateCommercialSemantics['fundingAmount'] => {
-  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const match = normalized.match(/\b(R\$|US\$)\s*([0-9]+(?:[.,][0-9]+)?)\s*(bilh(?:ao|oes)|bi|milh(?:ao|oes)|mi|mil)?\b/i);
+  const match = text.match(/\b(R\$|US\$)\s*([0-9]+(?:[.,][0-9]+)?)\s*(bilh(?:ão|ões|ao|oes)|bi|milh(?:ão|ões|ao|oes)|mi|mil)?\b/i);
   if (!match) return null;
   const base = parseLocalizedNumber(match[2] ?? '');
   if (!Number.isFinite(base)) return null;
-  const scaleRaw = String(match[3] ?? '').toLowerCase();
+  const scaleRaw = String(match[3] ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
   const scale = /bilh|^bi$/.test(scaleRaw)
     ? 1_000_000_000
     : /milh|^mi$/.test(scaleRaw)
@@ -205,6 +208,30 @@ export const classifyCandidateCommercialSemantics = (
     };
   }
 
+  const fundingPlan = Boolean(instrument)
+    && FUNDING_PLAN_CONTEXT.test(normalizedTitle)
+    && PLANNED_INSTRUMENT_CONTEXT.test(normalizedTitle)
+    && CREDIT_CONTEXT.test(normalizedTitle);
+
+  if (fundingPlan) {
+    return {
+      version: 2,
+      mediaCandidate: true,
+      candidateRole: 'operating_company',
+      commercialQueue: true,
+      signalClass: 'funding_plan_trigger',
+      reason: 'explicit_credit_funding_plan_without_completed_raise',
+      confidence: 0.86,
+      title,
+      discoveryLane,
+      fundingInstrument: instrument,
+      fundingAmount: amount,
+      explicitFundingNeed: true,
+      explicitCreditExpansion: true,
+      automaticDecisionEligible: false,
+    };
+  }
+
   const directFunding = DIRECT_FUNDING_ACTION.test(normalizedTitle)
     && Boolean(instrument || (amount && CREDIT_CONTEXT.test(normalizedTitle)));
 
@@ -223,29 +250,6 @@ export const classifyCandidateCommercialSemantics = (
       fundingAmount: amount,
       explicitFundingNeed: true,
       explicitCreditExpansion: CREDIT_CONTEXT.test(normalizedTitle),
-      automaticDecisionEligible: false,
-    };
-  }
-
-  const fundingPlan = Boolean(instrument)
-    && FUNDING_PLAN_CONTEXT.test(normalizedTitle)
-    && CREDIT_CONTEXT.test(normalizedTitle);
-
-  if (fundingPlan) {
-    return {
-      version: 2,
-      mediaCandidate: true,
-      candidateRole: 'operating_company',
-      commercialQueue: true,
-      signalClass: 'funding_plan_trigger',
-      reason: 'explicit_credit_funding_plan_without_completed_raise',
-      confidence: 0.86,
-      title,
-      discoveryLane,
-      fundingInstrument: instrument,
-      fundingAmount: amount,
-      explicitFundingNeed: true,
-      explicitCreditExpansion: true,
       automaticDecisionEligible: false,
     };
   }
