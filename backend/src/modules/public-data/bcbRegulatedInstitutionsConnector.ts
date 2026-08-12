@@ -44,6 +44,7 @@ const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim(
 const digits = (value: unknown) => clean(value).replace(/\D/g, '');
 const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 const retryable = (status: number) => status === 408 || status === 425 || status === 429 || status >= 500;
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 const normalizeWebsite = (value: unknown) => {
   const raw = clean(value);
@@ -90,7 +91,7 @@ const fetchPayload = async (url: string, options: FetchOptions = {}): Promise<Bc
     }
     if (attempt < attempts) await sleepImpl(Math.min(500 * 2 ** (attempt - 1), 4_000));
   }
-  throw new Error(`BCB regulated institutions request failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  throw new Error(`BCB regulated institutions request failed: ${errorMessage(lastError)}`);
 };
 
 const entityUrl = (referenceDate: string, skip: number) => {
@@ -197,18 +198,27 @@ const fetchSeatDetails = async (options: FetchOptions) => {
   const byRoot = new Map<string, SeatDetails>();
   let skip = 0;
   let pages = 0;
-  while (skip < MAX_ROWS) {
-    const payload = await fetchPayload(seatsUrl(skip), options);
-    const rawRows = payload?.value ?? [];
-    for (const row of rawRows) {
-      const mapped = mapSeatRow(row);
-      if (mapped && !byRoot.has(mapped.cnpjRoot)) byRoot.set(mapped.cnpjRoot, mapped.details);
+  try {
+    while (skip < MAX_ROWS) {
+      const payload = await fetchPayload(seatsUrl(skip), options);
+      const rawRows = payload?.value ?? [];
+      for (const row of rawRows) {
+        const mapped = mapSeatRow(row);
+        if (mapped && !byRoot.has(mapped.cnpjRoot)) byRoot.set(mapped.cnpjRoot, mapped.details);
+      }
+      pages += 1;
+      if (rawRows.length < DEFAULT_PAGE_SIZE) break;
+      skip += DEFAULT_PAGE_SIZE;
     }
-    pages += 1;
-    if (rawRows.length < DEFAULT_PAGE_SIZE) break;
-    skip += DEFAULT_PAGE_SIZE;
+    return { byRoot, pages, status: 'available' as const, error: null };
+  } catch (error) {
+    return {
+      byRoot,
+      pages,
+      status: 'degraded' as const,
+      error: errorMessage(error),
+    };
   }
-  return { byRoot, pages };
 };
 
 export const fetchBcbRegulatedInstitutions = async (options: FetchOptions = {}) => {
@@ -225,5 +235,10 @@ export const fetchBcbRegulatedInstitutions = async (options: FetchOptions = {}) 
     referenceDate: entities.referenceDate,
     rows,
     pages: entities.pages + seats.pages,
+    seatEnrichment: {
+      status: seats.status,
+      rowsMatched: seats.byRoot.size,
+      error: seats.error,
+    },
   };
 };
