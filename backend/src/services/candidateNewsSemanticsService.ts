@@ -7,7 +7,7 @@ import {
 
 const DEFAULT_LIMIT = 250;
 const MAX_LIMIT = 500;
-const SEMANTICS_VERSION = 2;
+const SEMANTICS_VERSION = 3;
 
 type CandidateRow = {
   id: string;
