@@ -20,14 +20,14 @@ O gargalo, portanto, está entre **descoberta/captura** e **resolução de ident
 ## Fluxo
 
 ```txt
-Search Profile Discovery / CVM enrichment
+Search Profile Discovery / CVM enrichment / dados já persistidos
 -> discovered_company_candidates
 -> Candidate Domain Intelligence
    -> pistas observadas em dados oficiais
    -> pistas de URL já capturadas
    -> fallback determinístico por nome
    -> proteção de host / SSRF básico
-   -> probe HTTP do primeiro domínio
+   -> probe HTTP do domínio candidato
    -> validação CNPJ + nome + alinhamento de domínio
 -> website + normalized_domain + evidence trace
 -> revisão humana de identidade
@@ -76,7 +76,7 @@ Para `name_guess`, o limiar é mais conservador: somente `cnpj` ou `exact_name` 
 - nenhuma alteração automática de `company_id`;
 - nenhuma promoção automática;
 - `humanApprovalRequired: true` em toda evidência verificada;
-- cooldown de 7 dias para candidato não resolvido, evitando consumo repetitivo.
+- backoff compartilhado com o verificador existente: base de 7 dias para ausência de pista/evidência insuficiente, com escalonamento nas reincidências.
 
 ## Persistência
 
@@ -95,32 +95,21 @@ Atualiza apenas:
 
 ### Candidato não resolvido
 
-Mantém website/domínio vazios e grava somente a trilha em `raw_payload.domain_intelligence`:
-
-```json
-{
-  "version": "domain_intelligence_v1",
-  "status": "unresolved",
-  "lastAttemptAt": "...",
-  "nextRetryAt": "...",
-  "strategiesUsed": ["observed_url", "name_guess"],
-  "candidateDomains": [],
-  "domainsProbed": 6,
-  "bestConfidence": 0.62,
-  "humanApprovalRequired": true
-}
-```
+Mantém website/domínio vazios e grava a trilha em `raw_payload.domain_intelligence` e o estado compartilhado de retry em `raw_payload.website_identity_capture`.
 
 ## Orquestração
 
 Workflow: `.github/workflows/candidate-domain-intelligence.yml`.
 
-O resolver executa automaticamente:
+O resolver executa:
 
-1. após conclusão com sucesso de `Search Profile Discovery`;
-2. após conclusão com sucesso de `Candidate CVM Registry Enrichment`;
+1. após a conclusão de `Search Profile Discovery`, usando o estado persistido mesmo se uma fonte externa do run estiver degradada;
+2. após a conclusão de `Candidate CVM Registry Enrichment`, sem depender do refresh online da CVM ter terminado com sucesso;
 3. diariamente às 09:00 UTC para backfill;
-4. manualmente via `workflow_dispatch` com `limit`, `tiers` e `force`.
+4. manualmente via `workflow_dispatch` com `limit`, `tiers` e `force`;
+5. como canário operacional de owner por issue com título exato `[candidate-domain-run] resolve`.
+
+A independência do estado final dos upstreams é intencional: Domain Intelligence trabalha sobre `discovered_company_candidates` e enriquecimentos **já persistidos**. Uma indisponibilidade temporária da CVM ou de outra fonte não deve bloquear resolução por nome, URLs observadas ou evidência histórica.
 
 A execução usa exclusivamente os secrets já padronizados do projeto:
 
@@ -135,7 +124,7 @@ No diretório `backend`:
 npx tsx src/cli/candidateDomainIntelligence.ts --limit 50 --tiers P1,P2,P3
 ```
 
-Ignorar cooldown:
+Ignorar backoff:
 
 ```bash
 npx tsx src/cli/candidateDomainIntelligence.ts --limit 50 --tiers P1,P2,P3 --force
@@ -154,7 +143,8 @@ A implementação é considerada funcional quando:
 1. typecheck do backend passa;
 2. testes do resolver e do verificador legado passam;
 3. workflow executa com secrets válidos;
-4. um candidato com evidência forte recebe website/domain e mantém o gate humano;
-5. um candidato sem evidência permanece sem website/domain e recebe cooldown auditável;
-6. nenhuma execução promove candidato ou altera elegibilidade de decisão automaticamente;
-7. após promoção humana, o domínio já resolvido alimenta o conector `src_company_website` e o fluxo normal de monitoring/enrichment.
+4. indisponibilidade de uma fonte upstream não bloqueia o resolver sobre dados persistidos;
+5. um candidato com evidência forte recebe website/domain e mantém o gate humano;
+6. um candidato sem evidência permanece sem website/domain e recebe backoff auditável;
+7. nenhuma execução promove candidato ou altera elegibilidade de decisão automaticamente;
+8. após promoção humana, o domínio já resolvido alimenta o conector `src_company_website` e o fluxo normal de monitoring/enrichment.
