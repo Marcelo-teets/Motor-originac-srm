@@ -16,6 +16,9 @@ on:
       - Candidate CVM Registry Enrichment
     types:
       - completed
+  issues:
+    types:
+      - opened
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
@@ -66,8 +69,12 @@ jobs:
 
   resolve:
     if: >-
-      github.event_name != 'pull_request' &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'cancelled') ||
+      (github.event_name == 'issues' &&
+       github.event.issue.user.login == 'Marcelo-teets' &&
+       github.event.issue.title == '[candidate-domain-run] resolve')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
