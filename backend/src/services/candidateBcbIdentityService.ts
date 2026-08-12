@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { getSupabaseClient } from '../lib/supabase.js';
 import {
   fetchBcbRegulatedInstitutions,
@@ -5,7 +6,7 @@ import {
 } from '../modules/public-data/bcbRegulatedInstitutionsConnector.js';
 
 const SOURCE_CODE = 'src_banco_central_do_brasil_dados_abertos';
-const DATASET_CODE = 'bcb_sedes_sociedades_candidates';
+const DATASET_CODE = 'bcb_bcbase_entities_candidates';
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 250;
 
@@ -30,6 +31,7 @@ const asRecord = (value: unknown): Record<string, unknown> => (
     ? value as Record<string, unknown>
     : {}
 );
+const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 const tokens = (value: unknown) => normalize(value)
   .split(' ')
@@ -62,6 +64,10 @@ const domainLabel = (value: unknown) => {
   return parts.at(-2) ?? '';
 };
 
+const activeInstitution = (institution: BcbRegulatedInstitution) => (
+  normalize(institution.legalStatus).includes('autorizada em atividade')
+);
+
 export type BcbIdentityMatch = {
   institution: BcbRegulatedInstitution;
   score: number;
@@ -71,7 +77,11 @@ export type BcbIdentityMatch = {
 
 export const scoreBcbIdentityMatch = (companyName: string, institution: BcbRegulatedInstitution): BcbIdentityMatch => {
   const candidateTokens = [...new Set(tokens(companyName))];
-  const legalTokens = new Set(tokens(institution.legalName));
+  const legalTokens = new Set([
+    ...tokens(institution.legalName),
+    ...tokens(institution.shortName),
+    ...tokens(institution.fantasyName),
+  ]);
   const matchedTokens = candidateTokens.filter((token) => legalTokens.has(token));
   if (!candidateTokens.length) return { institution, score: 0, candidateTokens, matchedTokens };
 
@@ -98,6 +108,7 @@ export const selectUniqueBcbIdentityMatch = (
   institutions: BcbRegulatedInstitution[],
 ): BcbIdentityMatch | null => {
   const ranked = institutions
+    .filter(activeInstitution)
     .map((institution) => scoreBcbIdentityMatch(companyName, institution))
     .filter((match) => match.score >= 0.5)
     .sort((a, b) => b.score - a.score);
@@ -136,7 +147,8 @@ export type CandidateBcbIdentityResult = {
   unresolved: number;
   ambiguousSkipped: number;
   websitesAdded: number;
-  rfbRootsPrepared: number;
+  fullCnpjsAdded: number;
+  officialEnrichmentsWritten: number;
   errors: number;
 };
 
@@ -181,7 +193,7 @@ export class CandidateBcbIdentityService {
     }).slice(0, limit);
 
     if (!targets.length) {
-      return { status: 'no_targets', targets: 0, institutionsLoaded: 0, matched: 0, unresolved: 0, ambiguousSkipped, websitesAdded: 0, rfbRootsPrepared: 0, errors: 0 };
+      return { status: 'no_targets', targets: 0, institutionsLoaded: 0, matched: 0, unresolved: 0, ambiguousSkipped, websitesAdded: 0, fullCnpjsAdded: 0, officialEnrichmentsWritten: 0, errors: 0 };
     }
 
     const dataset = await this.fetchInstitutions();
@@ -190,7 +202,8 @@ export class CandidateBcbIdentityService {
     let matched = 0;
     let unresolved = 0;
     let websitesAdded = 0;
-    let rfbRootsPrepared = 0;
+    let fullCnpjsAdded = 0;
+    let officialEnrichmentsWritten = 0;
     let errors = 0;
 
     for (const candidate of targets) {
@@ -205,10 +218,27 @@ export class CandidateBcbIdentityService {
         const officialWebsite = websiteUrl(match.institution.website);
         const normalizedDomain = domain(officialWebsite);
         const existingRaw = candidate.raw_payload ?? {};
-        const reviewEvidence = `O cadastro oficial de instituições em funcionamento do Banco Central confirma ${match.institution.legalName}, raiz de CNPJ ${match.institution.cnpjRoot}, segmento ${match.institution.segment ?? 'não informado'}${officialWebsite ? ` e website ${officialWebsite}` : ''}. A raiz de 8 dígitos não é tratada como CNPJ completo; a Receita Federal deve completar a identidade jurídica antes da aprovação humana.`;
+        const reviewEvidence = `O BCBase oficial do Banco Central confirma ${match.institution.legalName}, CNPJ ${match.institution.cnpj}, situação ${match.institution.legalStatus ?? 'não informada'} e tipo ${match.institution.supervisedType ?? match.institution.segment ?? 'não informado'}${officialWebsite ? `, com website ${officialWebsite}` : ''}. A evidência prepara a revisão humana de identidade e não habilita promoção, qualification ou decisão de crédito automaticamente.`;
+        const enrichmentData = {
+          cnpj: match.institution.cnpj,
+          cnpjRoot: match.institution.cnpjRoot,
+          legalName: match.institution.legalName,
+          shortName: match.institution.shortName,
+          fantasyName: match.institution.fantasyName,
+          supervisedType: match.institution.supervisedType,
+          legalStatus: match.institution.legalStatus,
+          legalNature: match.institution.legalNature,
+          segment: match.institution.segment,
+          website: officialWebsite,
+          email: match.institution.email,
+          city: match.institution.city,
+          state: match.institution.state,
+          referenceDate: dataset.referenceDate,
+        };
 
         await this.client.update('discovered_company_candidates', {
           legal_name: match.institution.legalName,
+          cnpj: match.institution.cnpj,
           ...(officialWebsite && !candidate.website ? { website: officialWebsite } : {}),
           ...(normalizedDomain && !candidate.normalized_domain ? { normalized_domain: normalizedDomain } : {}),
           raw_payload: {
@@ -216,19 +246,26 @@ export class CandidateBcbIdentityService {
             identity_review_status: String(existingRaw.identity_review_status ?? 'pending'),
             legal_name_verified: false,
             promotion_ready: false,
+            identity_evidence_url: dataset.sourceUrl,
             review_legal_name: match.institution.legalName,
+            review_cnpj: match.institution.cnpj,
             ...(officialWebsite ? { review_website: officialWebsite } : {}),
             review_confidence: match.score,
             review_evidence_summary: reviewEvidence,
             bcb_regulated_identity: {
-              version: 1,
+              version: 2,
               status: 'matched',
               datasetCode: DATASET_CODE,
               sourceCode: SOURCE_CODE,
               sourceId,
               sourceUrl: dataset.sourceUrl,
+              referenceDate: dataset.referenceDate,
+              cnpj: match.institution.cnpj,
               cnpjRoot: match.institution.cnpjRoot,
               legalName: match.institution.legalName,
+              supervisedType: match.institution.supervisedType,
+              legalStatus: match.institution.legalStatus,
+              legalNature: match.institution.legalNature,
               segment: match.institution.segment,
               email: match.institution.email,
               website: officialWebsite,
@@ -241,20 +278,28 @@ export class CandidateBcbIdentityService {
               automaticPromotion: false,
               automaticDecisionEligibility: false,
             },
-            rfb_candidate_identity_target: {
-              version: 1,
-              status: 'pending',
-              cnpjRoot: match.institution.cnpjRoot,
-              requestedAt: observedAt,
-              reason: 'complete_bcb_cnpj_root_to_full_cnpj',
-            },
           },
           updated_at: observedAt,
         }, [{ column: 'id', value: candidate.id }]);
 
+        await this.client.upsert('candidate_official_enrichments', [{
+          candidate_id: candidate.id,
+          source_id: sourceId,
+          dataset_code: DATASET_CODE,
+          source_record_key: match.institution.cnpj,
+          entity_cnpj: match.institution.cnpj,
+          enrichment_type: 'bcb_regulated_institution_registry',
+          effective_date: dataset.referenceDate,
+          source_url: dataset.sourceUrl,
+          content_hash: hash(enrichmentData),
+          data: enrichmentData,
+          observed_at: observedAt,
+        }], 'candidate_id,dataset_code,source_record_key');
+
         matched += 1;
+        fullCnpjsAdded += 1;
+        officialEnrichmentsWritten += 1;
         if (officialWebsite && !candidate.website) websitesAdded += 1;
-        rfbRootsPrepared += 1;
       } catch {
         errors += 1;
       }
@@ -268,7 +313,8 @@ export class CandidateBcbIdentityService {
       unresolved,
       ambiguousSkipped,
       websitesAdded,
-      rfbRootsPrepared,
+      fullCnpjsAdded,
+      officialEnrichmentsWritten,
       errors,
     };
   }
