@@ -1,0 +1,99 @@
+name: Candidate Domain Intelligence
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/candidate-domain-intelligence.yml
+      - backend/src/cli/candidateDomainIntelligence.ts
+      - backend/src/services/candidateDomainIntelligenceService.ts
+      - backend/src/services/candidateDomainIntelligenceService.test.ts
+      - backend/src/services/candidateWebsiteIdentityService.ts
+      - backend/src/services/candidateWebsiteIdentityService.test.ts
+      - docs/domain-intelligence-engine.md
+  workflow_run:
+    workflows:
+      - Search Profile Discovery
+      - Candidate CVM Registry Enrichment
+    types:
+      - completed
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Quantidade máxima de candidatos por execução
+        required: true
+        default: "50"
+        type: string
+      tiers:
+        description: Faixas de prioridade separadas por vírgula
+        required: true
+        default: P1,P2,P3
+        type: string
+      force:
+        description: Ignorar cooldown e tentar novamente
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-domain-intelligence
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck backend
+        run: npm -C backend run typecheck
+      - name: Test domain and website identity engines
+        working-directory: backend
+        run: >-
+          npx tsx --test
+          src/services/candidateDomainIntelligenceService.test.ts
+          src/services/candidateWebsiteIdentityService.test.ts
+
+  resolve:
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
+      DOMAIN_TIERS: ${{ inputs.tiers || 'P1,P2,P3' }}
+      DOMAIN_FORCE: ${{ inputs.force || false }}
+    steps:
+      - name: Checkout production main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate production secrets
+        run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Resolve and verify candidate domains
+        working-directory: backend
+        shell: bash
+        run: |
+          ARGS=(--limit "$DOMAIN_LIMIT" --tiers "$DOMAIN_TIERS")
+          if [ "$DOMAIN_FORCE" = "true" ]; then ARGS+=(--force); fi
+          npx tsx src/cli/candidateDomainIntelligence.ts "${ARGS[@]}" | tee candidate-domain-intelligence.log
