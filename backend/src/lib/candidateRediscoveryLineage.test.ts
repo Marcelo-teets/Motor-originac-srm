@@ -114,6 +114,46 @@ test('rediscovery increments its audit counter while preserving the original pay
   assert.equal((update?.raw_payload.rediscovery as { firstSeenAt?: string })?.firstSeenAt, '2026-08-01T00:00:00Z');
 });
 
+test('rediscovery refreshes commercial semantics without changing promotion or decision state', () => {
+  const update = buildRediscoveryCandidateUpdate(
+    {
+      id: 'candidate-open-co',
+      dedupe_key: 'name:open_co',
+      candidate_status: 'captured',
+      source_ref: 'src_finsiders_rss',
+      raw_payload: {
+        promotion_ready: false,
+        identity_review_status: 'pending',
+      },
+    },
+    {
+      dedupeKey: 'name:open_co',
+      sourceRef: 'src_finsiders_rss',
+      evidenceSummary: 'Open Co capta FIDC de R$ 50 milhões',
+      rawPayload: {
+        candidate_role: 'operating_company',
+        commercial_queue: true,
+        commercial_semantics_reason: 'explicit_funding_action_with_credit_instrument',
+        commercial_semantics_version: 2,
+        commercial_semantics: {
+          version: 2,
+          signalClass: 'direct_funding_trigger',
+          automaticDecisionEligible: false,
+        },
+      },
+    },
+    '2026-08-12T03:30:00.000Z',
+  );
+
+  assert.ok(update);
+  assert.equal(update?.raw_payload.candidate_role, 'operating_company');
+  assert.equal(update?.raw_payload.commercial_queue, true);
+  assert.equal(update?.raw_payload.commercial_semantics_version, 2);
+  assert.equal(update?.raw_payload.promotion_ready, false);
+  assert.equal(update?.raw_payload.identity_review_status, 'pending');
+  assert.equal('decision_eligible' in (update?.raw_payload ?? {}), false);
+});
+
 test('discarded candidates are suppression records and are never refreshed or revived', () => {
   const update = buildRediscoveryCandidateUpdate(
     {
