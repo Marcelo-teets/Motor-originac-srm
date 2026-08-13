@@ -28,23 +28,29 @@ on:
       - db/migrations/127_cvm_production_intelligence_delivery_views.sql
       - db/migrations/128_cvm_explicit_candidate_delivery.sql
       - db/migrations/129_cvm_atomic_batch_persistence.sql
+      - db/migrations/130_debentures_snd_source_catalog.sql
+      - db/migrations/131_debentures_snd_signal_treatment.sql
+      - db/migrations/132_debentures_snd_candidate_delivery.sql
+      - db/migrations/133_debentures_snd_delivery_whitelist.sql
   pull_request:
     types: [opened, synchronize, reopened]
   issues:
     types: [opened]
   schedule:
     - cron: "20 9 * * *"
+    - cron: "0 14 * * *"
     - cron: "40 10 * * 1"
   workflow_dispatch:
     inputs:
       dataset:
-        description: Dataset CVM ou all
+        description: Dataset de mercado de capitais ou all
         required: true
         default: cvm_offers
         type: choice
         options:
           - all
           - cvm_offers
+          - debentures_snd
           - cvm_fund_registry
           - cvm_fidc_monthly
           - cvm_cri_monthly
@@ -112,10 +118,10 @@ jobs:
           test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
 
-      - name: Check storage budget for push canary
+      - name: Check storage budget for push canaries
         if: github.event_name == 'push'
         id: storage_push
-        run: node scripts/check-supabase-storage-budget.mjs --requested-rows=250 --trigger=manual
+        run: node scripts/check-supabase-storage-budget.mjs --requested-rows=500 --trigger=manual
 
       - name: Publish paused push summary
         if: github.event_name == 'push' && steps.storage_push.outputs.blocked == 'true'
@@ -187,7 +193,7 @@ jobs:
         shell: bash
         run: |
           for ATTEMPT in $(seq 1 12); do
-            echo "Direct ingestion attempt ${ATTEMPT}/12"
+            echo "Direct CVM ingestion attempt ${ATTEMPT}/12"
             if (
               cd backend
               npm exec -- tsx src/cli/capitalMarkets.ts \
@@ -201,8 +207,20 @@ jobs:
             fi
             sleep 15
           done
-          echo "Direct capital-market canary did not persist and deliver source records."
+          echo "Direct CVM canary did not persist and deliver source records."
           exit 1
+
+      - name: Persist Debentures SND canary directly
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        shell: bash
+        run: |
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset debentures_snd \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records \
+            --require-delivery
 
       - name: Prove CVM canary idempotency
         if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
@@ -217,13 +235,26 @@ jobs:
             --require-delivery \
             --require-idempotent
 
-      - name: Bootstrap all CVM datasets after migration or explicit trigger
+      - name: Prove SND canary idempotency
+        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        shell: bash
+        run: |
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts \
+            --dataset debentures_snd \
+            --max-rows 250 \
+            --trigger manual \
+            --require-records \
+            --require-delivery \
+            --require-idempotent
+
+      - name: Bootstrap all capital-market datasets after migration or explicit trigger
         if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${GITHUB_SHA}" || true)
-          if ! printf '%s\n' "$CHANGED_FILES" | grep -Eq '^(db/migrations/(092|125|126|127|128|129)_.*\.sql|backend/src/services/\.cvm-trigger)$'; then
-            echo "No CVM migration or explicit bootstrap trigger in this push; full bootstrap skipped."
+          if ! printf '%s\n' "$CHANGED_FILES" | grep -Eq '^(db/migrations/(092|125|126|127|128|129|130|131|132|133)_.*\.sql|backend/src/services/\.cvm-trigger)$'; then
+            echo "No capital-market migration or explicit bootstrap trigger in this push; full bootstrap skipped."
             exit 0
           fi
 
@@ -289,6 +320,11 @@ jobs:
             REFERENCE=""
             MAX_ROWS="20000"
             TRIGGER="schedule"
+          elif [ "$SCHEDULE_EXPRESSION" = "0 14 * * *" ]; then
+            DATASET="debentures_snd"
+            REFERENCE=""
+            MAX_ROWS="10000"
+            TRIGGER="schedule"
           else
             DATASET="cvm_fund_registry,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_fii_monthly,cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp"
             REFERENCE=""
@@ -326,7 +362,7 @@ jobs:
             echo '- A protected storage state is an operational pause, not a failed workflow.'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Ingest and deliver CVM capital-market datasets directly
+      - name: Ingest and deliver capital-market datasets directly
         if: github.event_name != 'push' && steps.storage.outputs.blocked != 'true'
         shell: bash
         run: |
@@ -357,7 +393,7 @@ jobs:
           cat /tmp/cvm-ingestion.log
           if [ "$EXIT_STATUS" -ne 0 ]; then
             {
-              echo "## CVM ingestion failed"
+              echo "## Capital-market ingestion failed"
               echo
               echo "Exit status: ${EXIT_STATUS}"
               echo
@@ -377,11 +413,11 @@ jobs:
             --dataset "${{ steps.scope.outputs.dataset }}" \
             --require-delivery
 
-      - name: Upload sanitized CVM diagnostics
+      - name: Upload sanitized capital-market diagnostics
         if: always() && github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: cvm-ingestion-diagnostics-${{ github.run_id }}
+          name: capital-market-ingestion-diagnostics-${{ github.run_id }}
           path: |
             /tmp/cvm-ingestion.log
             /tmp/supabase-probe.json
