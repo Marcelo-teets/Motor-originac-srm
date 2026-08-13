@@ -12,7 +12,8 @@ export type CvmDatasetCode =
   | 'cvm_fund_document_deliveries'
   | 'cvm_company_fre'
   | 'cvm_company_itr'
-  | 'cvm_company_dfp';
+  | 'cvm_company_dfp'
+  | 'debentures_snd';
 
 export type CapitalMarketEntityRole =
   | 'issuer'
@@ -183,6 +184,10 @@ export const CVM_DATASETS: Record<CvmDatasetCode, CvmDatasetDefinition> = {
     code: 'cvm_company_dfp', sourceCode: 'src_cvm_company_dfp', packageId: 'cia_aberta-doc-dfp', eventType: 'company_annual_financial_snapshot',
     instrumentFallback: 'COMPANHIA ABERTA', resourcePattern: /(dfp[_ -]?cia[_ -]?aberta|demonstracoes?.*financeiras.*padronizadas.*cias?.*abertas?).*(csv|zip)$/i, resourceLimit: 1,
   },
+  debentures_snd: {
+    code: 'debentures_snd', sourceCode: 'src_debentures_snd', packageId: 'snd-public-debentures', eventType: 'debenture_registry_snapshot',
+    instrumentFallback: 'DEBENTURE', resourcePattern: /debentures_snd_public_registered\.csv$/i, resourceLimit: 1,
+  },
 };
 
 export const normalizeKey = (value: string) => value
@@ -271,10 +276,26 @@ export const selectDatasetResources = (
   return selected;
 };
 
+const debenturesSndResource = (): CvmResource => {
+  const endpoint = new URL(
+    '/exploreosnd/consultaadados/emissoesdedebentures/caracteristicas_e.asp',
+    'https://www.debentures.com.br',
+  );
+  endpoint.searchParams.set('op_exc', 'False');
+  endpoint.searchParams.set('tip_deb', 'publicas');
+  return {
+    id: 'snd-public-registered-debentures',
+    name: 'debentures_snd_public_registered.csv',
+    url: endpoint.toString(),
+    format: 'csv',
+  };
+};
+
 export const discoverCvmResources = async (
   datasetCode: CvmDatasetCode,
   reference?: string,
 ): Promise<CvmResource[]> => {
+  if (datasetCode === 'debentures_snd') return [debenturesSndResource()];
   const definition = CVM_DATASETS[datasetCode];
   const endpoint = `https://dados.cvm.gov.br/api/3/action/package_show?id=${encodeURIComponent(definition.packageId)}`;
   const response = await fetchCvmWithRetry(endpoint, {
