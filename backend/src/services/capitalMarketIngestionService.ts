@@ -3,11 +3,11 @@ import { getSupabaseClient } from '../lib/supabase.js';
 import {
   CVM_DATASETS,
   discoverCvmResources,
-  fetchCvmResourceRecords,
   type CvmDatasetCode,
   type CvmResource,
   type NormalizedCapitalMarketRecord,
 } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
+import { fetchCapitalMarketResourceRecords } from '../modules/capital-markets/capitalMarketResourceAdapter.js';
 
 const INITIAL_BATCH_SIZE = 100;
 const DEFAULT_MAX_ROWS = 5_000;
@@ -300,7 +300,7 @@ export class CapitalMarketIngestionService {
         const remaining = options.maxRows - summary.recordsSeen;
         if (remaining <= 0) break;
         try {
-          const records = await fetchCvmResourceRecords({
+          const records = await fetchCapitalMarketResourceRecords({
             datasetCode,
             resource,
             maxRows: index === candidates.length - 1 ? remaining : Math.min(remaining, budget),
