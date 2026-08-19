@@ -7,10 +7,12 @@ on:
     paths:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
+      - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/services/capture*Service.ts
       - backend/src/lib/boundedCapture.ts
+      - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
       - backend/src/lib/captureAudit.ts
       - db/migrations/**
@@ -20,11 +22,13 @@ on:
     paths:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
+      - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/modules/data-capture/**
       - backend/src/services/capture*Service.ts
       - backend/src/lib/boundedCapture.ts
+      - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
       - backend/src/lib/captureAudit.ts
       - backend/src/lib/connectors.ts
@@ -66,6 +70,8 @@ jobs:
       - name: Test cadence selection
         working-directory: backend
         run: npm exec -- tsx --test src/lib/boundedCaptureSchedule.test.ts
+      - name: Test bounded external fetch guard
+        run: node --test scripts/bounded-external-fetch-contract.test.mjs
 
   run_capture:
     if: github.event_name != 'pull_request'
