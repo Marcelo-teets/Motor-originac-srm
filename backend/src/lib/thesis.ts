@@ -20,6 +20,10 @@ const money = (value?: number) => value && value > 0
   ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value)
   : undefined;
 
+const originationBriefNote = (company: CompanySeed) => company.signals
+  ?.find((signal) => signal.type === 'origination_brief' && signal.note.trim())
+  ?.note.trim();
+
 export const buildThesisOutput = (company: CompanySeed, qualification: QualificationSnapshot, patterns: CompanyPattern[]): ThesisOutput => {
   const strongestPatterns = patterns.slice(0, 3).map((pattern) => pattern.patternName).join(' + ');
   const publicEvidence = asPublicEvidence(qualification);
@@ -35,11 +39,18 @@ export const buildThesisOutput = (company: CompanySeed, qualification: Qualifica
   const diligence = publicEvidence.dueDiligenceActions?.slice(0, 2).join(' ') ?? '';
   const publicStructure = publicEvidence.recommendedStructures?.[0];
   const structureType = publicStructure ?? qualification.suggested_structure_type;
+  const briefNote = originationBriefNote(company);
+
+  const fallbackSummary = `${company.tradeName} combina ${company.creditProduct.toLowerCase()} com ${company.receivables.join(', ').toLowerCase()}, exibindo gap de capital compatível com ${structureType}. Padrões mais relevantes: ${strongestPatterns || 'sem padrões adicionais'}.${opportunityText}${riskText}${whyNow ? ` Por que agora: ${whyNow}` : ''}`;
 
   return {
-    summary: `${company.tradeName} combina ${company.creditProduct.toLowerCase()} com ${company.receivables.join(', ').toLowerCase()}, exibindo gap de capital compatível com ${structureType}. Padrões mais relevantes: ${strongestPatterns || 'sem padrões adicionais'}.${opportunityText}${riskText}${whyNow ? ` Por que agora: ${whyNow}` : ''}`,
+    summary: briefNote
+      ? `${briefNote}${riskText}${opportunityText}`
+      : fallbackSummary,
     structureType,
-    marketMapSummary: `Trilha recomendada: ${qualification.fit_fidc ? 'warehouse/cessão para FIDC' : 'nota comercial ou debênture privada'}, condicionada à validação de lastro, estrutura atual e executabilidade.${diligence ? ` Diligência prioritária: ${diligence}` : ''}`,
-    confidenceScore: Number(Math.min(0.97, qualification.confidence_score + patterns.length * 0.01 + (publicEvidence.publicSignalCount ? 0.02 : 0)).toFixed(2)),
+    marketMapSummary: briefNote
+      ? `Origination Intelligence integrada ao Market Map. Estrutura-base: ${structureType}. Validar lastro/ativos, funding atual, capacidade incremental, contraparte decisora e condições de execução antes da abordagem.${diligence ? ` Diligência prioritária: ${diligence}` : ''}`
+      : `Trilha recomendada: ${qualification.fit_fidc ? 'warehouse/cessão para FIDC' : 'nota comercial ou debênture privada'}, condicionada à validação de lastro, estrutura atual e executabilidade.${diligence ? ` Diligência prioritária: ${diligence}` : ''}`,
+    confidenceScore: Number(Math.min(0.97, qualification.confidence_score + patterns.length * 0.01 + (publicEvidence.publicSignalCount ? 0.02 : 0) + (briefNote ? 0.02 : 0)).toFixed(2)),
   };
 };
