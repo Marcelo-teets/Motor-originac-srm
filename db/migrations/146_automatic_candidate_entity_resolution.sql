@@ -61,7 +61,7 @@ begin
 
     -- CNPJ is the strongest canonical key when present.
     if v_cnpj is not null then
-      select count(*),min(c.id)
+      select count(*),(array_agg(c.id order by c.id))[1]
       into v_cnpj_count,v_cnpj_company
       from public.companies c
       where regexp_replace(coalesce(c.cnpj,''),'\D','','g')=v_cnpj
@@ -71,7 +71,7 @@ begin
     end if;
 
     -- Domain is the next deterministic key. Multiple live companies on one domain are ambiguous.
-    select count(*),min(c.id)
+    select count(*),(array_agg(c.id order by c.id))[1]
     into v_domain_count,v_domain_company
     from public.companies c
     where lower(regexp_replace(coalesce(c.domain,''),'^www\.','','i'))=v_domain
