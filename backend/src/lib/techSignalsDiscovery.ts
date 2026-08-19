@@ -169,7 +169,7 @@ export const syncTechSignalsDiscoveryCandidates = async (params: {
   const [companyRows, candidateRows] = await Promise.all([
     client.select('companies', { select: 'id,trade_name,legal_name', limit: 5000 }),
     client.select('discovered_company_candidates', {
-      select: 'id,dedupe_key,raw_payload,candidate_status,updated_at',
+      select: 'id,dedupe_key,confidence,raw_payload,candidate_status,updated_at',
       filters: [{ column: 'source_ref', value: 'src_tech_signals_latam' }],
       limit: 2000,
     }),
