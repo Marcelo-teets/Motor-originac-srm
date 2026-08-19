@@ -35,6 +35,11 @@ export const selectCaptureSources = (sources: SourceCatalogEntry[], cadence: Cap
   const statusEligible = status === 'real' || status === 'partial' || status === 'active';
   if (!statusEligible || source.health !== 'healthy') return false;
 
+  // Catalog entries may remain useful for analyst/manual research while an automated runtime
+  // is intentionally not implemented. Never schedule those entries just because a legacy
+  // schedulePolicy is still present.
+  if (source.metadata?.implementedRuntime === false) return false;
+
   const policy = schedulePolicy(source);
   if (!policy) return cadence === 'all';
   if (policy.enabled === false || policy.runner !== 'bounded_capture') return false;

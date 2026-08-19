@@ -16,6 +16,13 @@ test('caps each external fetch below the overall 24s capture budget', () => {
   assert.match(fetchGuard, /AbortSignal\.any/);
 });
 
+test('does not apply the external-source deadline to Supabase persistence', () => {
+  assert.match(fetchGuard, /isPersistenceRequest/);
+  assert.match(fetchGuard, /hostname\.endsWith\('\.supabase\.co'\)/);
+  assert.match(fetchGuard, /configuredSupabaseOrigins/);
+  assert.match(fetchGuard, /!timeoutMs \|\| isPersistenceRequest\(input\)/);
+});
+
 test('bounded capture runner wraps the existing global deadline with the fetch guard', () => {
   assert.match(runner, /withBoundedExternalFetch/);
   assert.match(runner, /withCaptureDeadline\(runtime\.run/);

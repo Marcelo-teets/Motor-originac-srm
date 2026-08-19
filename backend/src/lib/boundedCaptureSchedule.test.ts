@@ -10,6 +10,7 @@ const source = (input: {
   runner?: string;
   cadence?: string;
   enabled?: boolean;
+  implementedRuntime?: boolean;
 }) => ({
   id: input.id,
   name: input.id,
@@ -18,6 +19,7 @@ const source = (input: {
   status: input.status ?? 'real',
   health: input.health ?? 'healthy',
   metadata: {
+    ...(input.implementedRuntime === undefined ? {} : { implementedRuntime: input.implementedRuntime }),
     schedulePolicy: {
       runner: input.runner ?? 'bounded_capture',
       cadence: input.cadence ?? 'daily',
@@ -46,4 +48,13 @@ test('keeps partial and active healthy sources eligible for scheduled recovery',
   ], 'weekly');
 
   assert.deepEqual(selected.map((item) => item.id), ['partial', 'active']);
+});
+
+test('never schedules a source explicitly marked as runtime-not-implemented', () => {
+  const selected = selectCaptureSources([
+    source({ id: 'implemented', status: 'partial', cadence: 'daily', implementedRuntime: true }),
+    source({ id: 'manual-only', status: 'partial', cadence: 'daily', implementedRuntime: false }),
+  ], 'daily');
+
+  assert.deepEqual(selected.map((item) => item.id), ['implemented']);
 });
