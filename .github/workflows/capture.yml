@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
+      - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
@@ -22,6 +24,8 @@ on:
     paths:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
+      - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
@@ -47,14 +51,18 @@ on:
         type: choice
         options: [all, frequent, daily, weekly, monthly]
 
+permissions:
+  contents: read
+
 concurrency:
   group: bounded-capture-${{ github.event.schedule || inputs.cadence || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   validate_fanout:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,11 +70,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Validate bounded fanout shell
+      - name: Validate direct fanout shell
         shell: bash
         run: bash -n scripts/capture/bounded-capture-fanout.sh
-      - name: Typecheck schedule policy
+      - name: Typecheck backend
         run: npm -C backend run typecheck
+      - name: Validate direct runner import graph
+        run: npx tsx -e "import('./scripts/capture/run-bounded-capture-batch.ts').then(() => console.log('direct capture runner import ok'))"
+      - name: Test direct runner contract
+        run: node --test scripts/direct-capture-runner-contract.test.mjs
       - name: Test cadence selection
         working-directory: backend
         run: npm exec -- tsx --test src/lib/boundedCaptureSchedule.test.ts
@@ -76,31 +88,47 @@ jobs:
   run_capture:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
-      CAPTURE_TOKEN: ${{ secrets.CRON_SECRET }}
-      TARGETS_URL: https://motor-originac-srm.vercel.app/api/bounded-capture-targets
-      CAPTURE_URL: https://motor-originac-srm.vercel.app/api/bounded-capture-run
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      USE_SUPABASE: "true"
       MAX_PARALLELISM: "3"
-      CAPTURE_RELEASE: "persistence-safe-v3"
+      CAPTURE_RELEASE: "github-actions-direct-v1"
       SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
       REQUESTED_CADENCE: ${{ inputs.cadence || '' }}
 
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve cadence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate persistence credentials
         shell: bash
         run: |
+          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Resolve capture scope
+        shell: bash
+        run: |
+          MAX_TARGETS=""
           case "$SCHEDULE_EXPRESSION" in
             "0 2,8,14,20 * * *") CADENCE=frequent ;;
             "15 9 * * *") CADENCE=daily ;;
             "30 10 * * 1") CADENCE=weekly ;;
             "45 11 1 * *") CADENCE=monthly ;;
-            *) CADENCE="${REQUESTED_CADENCE:-all}" ;;
+            *)
+              CADENCE="${REQUESTED_CADENCE:-all}"
+              if [ "$GITHUB_EVENT_NAME" = "push" ]; then MAX_TARGETS="50"; fi
+              ;;
           esac
           echo "CAPTURE_CADENCE=$CADENCE" >> "$GITHUB_ENV"
+          if [ -n "$MAX_TARGETS" ]; then echo "MAX_CAPTURE_TARGETS=$MAX_TARGETS" >> "$GITHUB_ENV"; fi
           echo "Resolved cadence: $CADENCE"
           echo "Capture release: $CAPTURE_RELEASE"
-      - name: Run bounded company-source fanout
+          echo "Target cap: ${MAX_TARGETS:-unbounded}"
+      - name: Run direct company-source capture
         shell: bash
         run: bash scripts/capture/bounded-capture-fanout.sh
