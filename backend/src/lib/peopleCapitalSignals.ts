@@ -292,6 +292,17 @@ const signalsFromJobs = (jobs: JobOpeningObservation[], sourceUrl: string): Peop
   return output;
 };
 
+const validatedCareersPage = (html: string, jobs: JobOpeningObservation[]) => {
+  if (jobs.length > 0) return true;
+  const titleOrHeading = sanitizePeopleCapitalText([
+    html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '',
+    ...[...html.matchAll(/<h[1-2][^>]*>([\s\S]*?)<\/h[1-2]>/gi)].slice(0, 4).map((match) => match[1] ?? ''),
+  ].join(' '));
+  const pageText = sanitizePeopleCapitalText(html).slice(0, 12_000);
+  return /careers?|carreiras?|trabalhe conosco|work with us|join (?:our )?team|vagas abertas|open positions/i.test(titleOrHeading)
+    || /no open positions|no current openings|nenhuma vaga aberta|nao temos vagas|não temos vagas/i.test(pageText);
+};
+
 export const captureCompanyCareers = async (params: {
   companyName: string;
   website: string;
@@ -311,9 +322,11 @@ export const captureCompanyCareers = async (params: {
         signal: AbortSignal.timeout(12_000),
       });
       if (!response.ok) return;
-      successfulFetches += 1;
       const html = await response.text();
-      pages.push({ url: response.url || url, jobs: extractJobOpenings(html, response.url || url) });
+      const capturedJobs = extractJobOpenings(html, response.url || url);
+      if (!validatedCareersPage(html, capturedJobs)) return;
+      successfulFetches += 1;
+      pages.push({ url: response.url || url, jobs: capturedJobs });
     } catch {
       // A company may use only one of these paths. Individual failures are non-fatal.
     }
@@ -477,53 +490,49 @@ const capitalSignalsFromContext = (context: string, sourceUrl: string): PeopleCa
   const fidcEvent = /\bfidc\b|fundos? de investimento em direitos creditorios/.test(value)
     && /raised|captou|capta[cç][aã]o|financing|funding|through|via|vehicle|veiculo/.test(value);
 
-  if (fidcEvent) signals.push({
-    type: 'fidc_funding_event',
-    strength: 97,
-    confidenceScore: 0.9,
-    evidenceText,
-    sourceUrl,
-  });
+  if (fidcEvent) signals.push({ type: 'fidc_funding_event', strength: 97, confidenceScore: 0.9, evidenceText, sourceUrl });
 
   if (!fidcEvent && /debt round|debt financing|combining equity and debt|credit facility|structured debt|raised [^.!?]{0,120} debt|secured [^.!?]{0,120} financing/.test(value)) {
-    signals.push({
-      type: 'structured_debt_funding',
-      strength: 92,
-      confidenceScore: 0.86,
-      evidenceText,
-      sourceUrl,
-    });
+    signals.push({ type: 'structured_debt_funding', strength: 92, confidenceScore: 0.86, evidenceText, sourceUrl });
   }
 
-  if (/\bbndes\b|\bfinep\b/.test(value) && /financing|funding|financiamento|credito/.test(value)) signals.push({
-    type: 'public_financing_signal',
-    strength: 88,
-    confidenceScore: 0.9,
-    evidenceText,
-    sourceUrl,
-  });
+  if (/\bbndes\b|\bfinep\b/.test(value) && /financing|funding|financiamento|credito/.test(value)) {
+    signals.push({ type: 'public_financing_signal', strength: 88, confidenceScore: 0.9, evidenceText, sourceUrl });
+  }
 
-  if (/originations?|originacoes|origina[cç][aã]o/.test(value) && /rose|grew|increased|cresceu|aumentou/.test(value)) signals.push({
-    type: 'credit_origination_acceleration',
-    strength: 89,
-    confidenceScore: 0.86,
-    evidenceText,
-    sourceUrl,
-  });
+  if (/originations?|originacoes|origina[cç][aã]o/.test(value) && /rose|grew|increased|cresceu|aumentou/.test(value)) {
+    signals.push({ type: 'credit_origination_acceleration', strength: 89, confidenceScore: 0.86, evidenceText, sourceUrl });
+  }
 
   return signals;
 };
 
 const companyContext = (text: string, aliases: string[]) => {
+  const normalizedAliases = aliases.map(normalize).filter((alias) => alias.length >= 3);
+  const blocks = [...text.matchAll(/<(p|li|article)[^>]*>([\s\S]*?)<\/\1>/gi)]
+    .map((match) => sanitizePeopleCapitalText(match[2] ?? ''))
+    .filter((block) => block.length >= 20);
+  const candidates = blocks.filter((block) => {
+    const normalizedBlock = normalize(block);
+    return normalizedAliases.some((alias) => normalizedBlock.includes(alias));
+  });
+  if (candidates.length) {
+    const signalPattern = /headcount|employees|raised|funding|series|seed|fidc|financing|revenue|originations?|customers?|arr|assets under management/i;
+    return candidates.sort((a, b) => {
+      const aScore = (signalPattern.test(a) ? 10_000 : 0) + a.length;
+      const bScore = (signalPattern.test(b) ? 10_000 : 0) + b.length;
+      return bScore - aScore;
+    })[0] ?? null;
+  }
+
   const clean = sanitizePeopleCapitalText(text);
   const normalized = normalize(clean);
-  const normalizedAliases = aliases.map(normalize).filter((alias) => alias.length >= 3);
   const alias = normalizedAliases.find((candidate) => normalized.includes(candidate));
   if (!alias) return null;
   const index = normalized.indexOf(alias);
   const ratio = normalized.length ? index / normalized.length : 0;
   const approximateIndex = Math.floor(clean.length * ratio);
-  return clean.slice(Math.max(0, approximateIndex - 600), Math.min(clean.length, approximateIndex + 3200));
+  return clean.slice(Math.max(0, approximateIndex - 250), Math.min(clean.length, approximateIndex + 1500));
 };
 
 export const captureTechSignalsLatam = async (params: {
