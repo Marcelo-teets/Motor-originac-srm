@@ -4,26 +4,13 @@ import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(new URL('../db/migrations/141_universal_origination_reasoning_v2.sql', import.meta.url), 'utf8');
 const calibration = readFileSync(new URL('../db/migrations/142_universal_origination_reasoning_calibration.sql', import.meta.url), 'utf8');
+const conflicts = readFileSync(new URL('../db/migrations/143_universal_origination_reasoning_conflict_resolution.sql', import.meta.url), 'utf8');
 
 test('universal reasoning maps the major origination signal families', () => {
   for (const token of [
-    'funding_gap_signal',
-    'dcm_fit_signal',
-    'fidc_fit_signal',
-    'receivables',
-    'credit_product',
-    'capital_mismatch',
-    'market_signal',
-    'technical_product',
-    'risk_validation_signal',
-    'vc_portfolio',
-    'media_funding_event',
-    'macro',
-    'fidc_maturity',
-    'capital_market_refinancing_window',
-    'regulatory_event',
-    'headcount',
-    'hiring',
+    'funding_gap_signal','dcm_fit_signal','fidc_fit_signal','receivables','credit_product','capital_mismatch',
+    'market_signal','technical_product','risk_validation_signal','vc_portfolio','media_funding_event','macro',
+    'fidc_maturity','capital_market_refinancing_window','regulatory_event','headcount','hiring',
   ]) {
     assert.match(migration, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -41,18 +28,8 @@ test('reasoning is grounded in signals, Factor Map and Qualification', () => {
 
 test('reasoning has the required decision chain and provenance semantics', () => {
   for (const token of [
-    'financialImplication',
-    'patternHint',
-    'structureHint',
-    'validationQuestion',
-    'nextAction',
-    'guardrail',
-    'observed',
-    'inferred',
-    'contextual',
-    'reasoningDimensions',
-    'missingEvidence',
-    'risksToValidate',
+    'financialImplication','patternHint','structureHint','validationQuestion','nextAction','guardrail',
+    'observed','inferred','contextual','reasoningDimensions','missingEvidence','risksToValidate',
   ]) assert.match(migration, new RegExp(token));
 });
 
@@ -99,5 +76,21 @@ test('calibration keeps generic risk validation contextual and Factor Map curren
   assert.match(calibration, /distinct on \(f\.company_id,f\.factor_id\)/);
   assert.match(calibration, /interval '365 days'/);
   assert.match(calibration, /Hipótese analítica do Factor Map/);
-  assert.match(calibration, /from top_rows/);
+});
+
+test('conflict resolver prefers stronger company-level qualification over weaker inference', () => {
+  assert.match(conflicts, /company_origination_reasoning_conflicts_v2/);
+  assert.match(conflicts, /funding_gap_vs_mature_capital_stack/);
+  assert.match(conflicts, /funding_gap_level/);
+  assert.match(conflicts, /capital_structure_quality/);
+  assert.match(conflicts, /não como déficit corporativo/);
+  assert.match(conflicts, /Qualification company-level.*prevalecem sobre fator inferido/);
+  assert.match(conflicts, /reasoningConflicts/);
+});
+
+test('diligence questions are deduplicated and ranked before entering the brief', () => {
+  assert.match(conflicts, /company_origination_reasoning_questions_v2/);
+  assert.match(conflicts, /group by e\.company_id,e\.validation_question/);
+  assert.match(conflicts, /row_number\(\) over\(partition by r\.company_id/);
+  assert.match(conflicts, /where rn<=6/);
 });
