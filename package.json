@@ -35,7 +35,7 @@
     "test:vercel-function-budget": "node scripts/vercel-function-budget.test.mjs",
     "test:vercel-production-control": "node --test scripts/vercel-production-control.test.mjs",
     "test:vercel-production-workflow": "node scripts/vercel-production-workflow.test.mjs",
-    "test:vercel-runtime-stability": "node --test scripts/vercel-runtime-stability-contract.test.mjs",
+    "test:vercel-runtime-stability": "node --test scripts/vercel-runtime-stability-contract.test.mjs scripts/bounded-external-fetch-contract.test.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "ops:materialize-company-decision": "tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
