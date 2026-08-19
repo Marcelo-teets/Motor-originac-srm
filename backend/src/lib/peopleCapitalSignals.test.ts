@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  captureCompanyCareers,
   captureTechSignalsLatam,
   classifyRoleFamily,
   extractJobOpenings,
@@ -42,7 +43,49 @@ test('extracts structured JobPosting records with DCM relevance', () => {
   assert.equal(jobs[0]?.location, 'São Paulo, SP, BR');
 });
 
-test('turns Tech Signals LatAm #15 semantics into headcount history and the full investor syndicate', async () => {
+test('does not accept a generic homepage 200 as an authoritative empty careers page', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(`
+    <html><head><title>Example Company</title></head>
+    <body><h1>Welcome to Example Company</h1><a href="/careers">Careers</a></body></html>
+  `, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+
+  try {
+    const capture = await captureCompanyCareers({
+      companyName: 'Example Company',
+      website: 'https://example.com',
+      collectedAt: '2026-08-19T12:00:00.000Z',
+    });
+    assert.equal(capture.connectorStatus, 'partial');
+    assert.equal(capture.matched, false);
+    assert.equal(capture.jobs.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('accepts an explicit careers page with no openings as a real zero-job observation', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(`
+    <html><head><title>Careers — Example Company</title></head>
+    <body><h1>Join our team</h1><p>We have no open positions right now.</p></body></html>
+  `, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+
+  try {
+    const capture = await captureCompanyCareers({
+      companyName: 'Example Company',
+      website: 'https://example.com',
+      collectedAt: '2026-08-19T12:00:00.000Z',
+    });
+    assert.equal(capture.connectorStatus, 'real');
+    assert.equal(capture.matched, true);
+    assert.equal(capture.jobs.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('turns Tech Signals LatAm #15 semantics into isolated headcount, capital and investor observations', async () => {
   const originalFetch = globalThis.fetch;
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
     <rss><channel><item>
@@ -54,6 +97,10 @@ test('turns Tech Signals LatAm #15 semantics into headcount history and the full
         <p>Segura, a São Paulo-based AI platform, saw a 23% increase in headcount over the past quarter, reaching a total of 48 employees.</p>
         <h2>Funding Rounds</h2>
         <p>Yuno, a Brazil-based payments-infrastructure startup, raised US$45 million in a Series B round led by Global PayTech Ventures. Andreessen Horowitz, Tiger Global, Kaszek, Monashees, QuantumLight Capital, Endeavor Catalyst, Rasmal Ventures, Further Ventures and GrowthX Capital also participated.</p>
+        <h2>Debt Rounds</h2>
+        <p>Kesh, a São Paulo-based fintech and HRtech platform, raised R$550 million in a Seed round combining equity and debt financing. Leste led the investment alongside BR Angels and Across Capital.</p>
+        <p>Ume, a Belo Horizonte-based digital-credit fintech, raised R$500 million through FIDCs. Itaú, Bradesco, XP (Augme), Milenio, Verde and Credit Saison participated in the oversubscribed operation.</p>
+        <p>FAZ Cred, a São Paulo-based payroll lender, raised US$16 million through a new FIDC. The vehicle targets the health and education sectors, with Patrimonial serving as principal investor.</p>
       ]]></content:encoded>
     </item></channel></rss>`;
 
@@ -91,6 +138,34 @@ test('turns Tech Signals LatAm #15 semantics into headcount history and the full
     assert.equal(yuno.investors[0]?.roundStage, 'Series B');
     assert.equal(yuno.investors[0]?.roundAmount, 45_000_000);
     assert.equal(yuno.investors[0]?.roundCurrency, 'USD');
+    assert.equal(yuno.investors.some((investor) => investor.investorName === 'Itaú'), false);
+    assert.equal(yuno.investors.some((investor) => investor.investorName === 'Patrimonial'), false);
+
+    const kesh = await captureTechSignalsLatam({
+      companyName: 'Kesh',
+      feedUrl: 'https://example.com/feed',
+      collectedAt: '2026-08-19T12:00:00.000Z',
+    });
+    assert.ok(kesh.signals.some((signal) => signal.type === 'structured_debt_funding'));
+    assert.ok(kesh.investors.some((investor) => investor.investorName === 'Leste' && investor.isLead));
+
+    const ume = await captureTechSignalsLatam({
+      companyName: 'Ume',
+      feedUrl: 'https://example.com/feed',
+      collectedAt: '2026-08-19T12:00:00.000Z',
+    });
+    assert.ok(ume.signals.some((signal) => signal.type === 'fidc_funding_event'));
+    assert.ok(ume.investors.some((investor) => investor.investorName === 'Itaú'));
+    assert.ok(ume.investors.some((investor) => investor.investorName === 'Bradesco'));
+    assert.ok(ume.investors.some((investor) => investor.investorName === 'Credit Saison'));
+
+    const fazCred = await captureTechSignalsLatam({
+      companyName: 'FAZ Cred',
+      feedUrl: 'https://example.com/feed',
+      collectedAt: '2026-08-19T12:00:00.000Z',
+    });
+    assert.ok(fazCred.signals.some((signal) => signal.type === 'fidc_funding_event'));
+    assert.ok(fazCred.investors.some((investor) => investor.investorName === 'Patrimonial' && investor.isLead));
   } finally {
     globalThis.fetch = originalFetch;
   }
