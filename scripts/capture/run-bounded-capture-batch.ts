@@ -1,4 +1,5 @@
 import { appendFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { createPlatformRepository } from '../../backend/src/repositories/platformRepository.js';
 import { CaptureRuntimeService } from '../../backend/src/services/captureRuntimeService.js';
 import {
@@ -84,7 +85,7 @@ const renderSummary = (cadence: CaptureCadence, allTargets: number, selectedTarg
   return { text: lines.join('\n'), completed, partial, failed };
 };
 
-const main = async () => {
+export const runDirectCaptureBatch = async () => {
   requireProductionPersistence();
   const cadence = asCadence(process.env.CAPTURE_CADENCE);
   const parallelism = asPositiveInteger(process.env.MAX_PARALLELISM, 3, 8);
@@ -223,7 +224,14 @@ const main = async () => {
   }
 };
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exitCode = 1;
-});
+const isDirectExecution = Boolean(
+  process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href,
+);
+
+if (isDirectExecution) {
+  runDirectCaptureBatch().catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
