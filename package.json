@@ -2,13 +2,8 @@
   "name": "motor-originac-srm",
   "private": true,
   "version": "0.1.0",
-  "engines": {
-    "node": "22.x"
-  },
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
+  "engines": { "node": "22.x" },
+  "workspaces": ["frontend", "backend"],
   "scripts": {
     "dev": "npm -C backend run dev",
     "dev:frontend": "npm -C frontend run dev",
@@ -20,7 +15,7 @@
     "test:frontend-quality": "node --test scripts/frontend-quality-contract.test.mjs",
     "test:search-discovery-quality": "tsx --test backend/src/lib/searchDiscoveryQuality.test.ts backend/src/lib/candidateRediscoveryLineage.test.ts backend/src/lib/discoverySourceRouting.test.ts backend/src/services/searchProfileRunMapping.test.ts backend/src/services/searchProfileScheduledRunner.test.ts",
     "test:people-capital": "tsx --test backend/src/lib/peopleCapitalSignals.test.ts backend/src/lib/techSignalsDiscovery.test.ts backend/src/lib/originationBriefThesis.test.ts && node --test scripts/origination-brief-migration-contract.test.mjs scripts/universal-origination-reasoning-contract.test.mjs",
-    "test:mvp-closure-runtime": "node --test scripts/mvp-closure-runtime-contract.test.mjs",
+    "test:mvp-closure-runtime": "node --test scripts/mvp-closure-runtime-contract.test.mjs scripts/regulated-issuer-calibration-contract.test.mjs",
     "test:auth-captcha-retirement": "node --test scripts/retire-captcha-production.test.mjs",
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-public-env": "node --test scripts/sync-public-auth-env-to-vercel.test.mjs",
@@ -47,7 +42,5 @@
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
     "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless"
   },
-  "devDependencies": {
-    "tsx": "4.19.3"
-  }
+  "devDependencies": { "tsx": "4.19.3" }
 }
