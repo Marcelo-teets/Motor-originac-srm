@@ -1,5 +1,7 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
 import { ingestFreeOfficialCompanySources } from './connectors/freeOfficialDataSources.js';
+import { captureCompanyCareers, captureTechSignalsLatam, type PeopleCapitalCapture } from './peopleCapitalSignals.js';
+import { persistPeopleCapitalCaptures, type PeopleCapitalCaptureEnvelope } from './peopleCapitalPersistence.js';
 
 const sanitizeText = (value: string) => value
   .replace(/<[^>]+>/g, ' ')
@@ -38,6 +40,8 @@ const SEEDED_SOURCE_CODES = new Map<string, string>([
   ['common crawl company history', 'src_common_crawl_company_history'],
   ['datajud public api', 'src_datajud_public_api'],
   ['comexstat open data', 'src_comexstat_open_data'],
+  ['company careers pages', 'src_company_careers'],
+  ['tech signals latam', 'src_tech_signals_latam'],
 ]);
 
 const websiteDomain = (website: string) => {
@@ -62,6 +66,8 @@ export const inferSourceCode = (source: SourceCatalogEntry) => {
     : '';
   const blob = `${name} ${category} ${tags}`;
 
+  if (blob.includes('company careers') || blob.includes('carreiras') || blob.includes('jobs')) return 'src_company_careers';
+  if (blob.includes('tech signals latam')) return 'src_tech_signals_latam';
   if (blob.includes('company websites') || blob.includes('site_empresa') || blob.includes('company_site')) return 'src_company_website';
   if (blob.includes('receita') || blob.includes('cnpj')) return 'src_brasilapi_cnpj';
   if (blob.includes('cvm') || blob.includes('fidc')) return 'src_cvm_rss';
@@ -133,6 +139,7 @@ const isRssRuntimeSource = (source: RuntimeSource) => source.sourceType === 'rss
 
 const parametricRssSourcesFor = (sources: RuntimeSource[], company: CompanySeed) => sources
   .filter(isRssRuntimeSource)
+  .filter((source) => source.runtimeCode !== 'src_tech_signals_latam')
   .map((source) => {
     const template = typeof source.metadata?.queryTemplate === 'string' ? source.metadata.queryTemplate : '';
     if (!template) return null;
@@ -257,6 +264,37 @@ const buildSignal = (
   };
 };
 
+const buildPeopleCapitalSignal = (
+  company: CompanySeed,
+  source: RuntimeSource,
+  capture: PeopleCapitalCapture,
+  signal: PeopleCapitalCapture['signals'][number],
+): CompanySignal => ({
+  id: crypto.randomUUID(),
+  companyId: company.id,
+  sourceId: source.id,
+  signalType: signal.type,
+  signalStrength: signal.strength,
+  confidenceScore: signal.confidenceScore,
+  evidencePayload: {
+    note: signal.evidenceText,
+    source: source.id,
+    sourceCode: source.runtimeCode,
+    sourceName: source.name,
+    sourceUrl: signal.sourceUrl,
+    timestamp: capture.collectedAt,
+    confidenceScore: signal.confidenceScore,
+    peopleCapital: {
+      openJobs: capture.jobs.length,
+      headcount: capture.headcount,
+      investorRelationships: capture.investors.length,
+      metadata: capture.metadata,
+    },
+  },
+  observedVsInferred: 'observed',
+  createdAt: capture.collectedAt,
+});
+
 const buildOutput = (
   company: CompanySeed,
   source: RuntimeSource,
@@ -321,6 +359,35 @@ const buildBrasilApiEnrichment = (
   };
 };
 
+const buildPeopleCapitalEnrichment = (
+  company: CompanySeed,
+  source: RuntimeSource,
+  capture: PeopleCapitalCapture,
+): EnrichmentRecord => ({
+  id: crypto.randomUUID(),
+  companyId: company.id,
+  enrichmentType: 'people_capital_intelligence',
+  provider: source.runtimeCode,
+  payload: {
+    sourceConfidence: capture.connectorStatus === 'real' ? 0.82 : 0.5,
+    sourceNotes: [
+      `${source.name}: ${capture.jobs.length} vagas estruturadas; ${capture.headcount ? `headcount ${capture.headcount.total}` : 'headcount não observado'}; ${capture.investors.length} relações de investidores.`,
+    ],
+    peopleCapital: {
+      sourceId: source.id,
+      sourceCode: source.runtimeCode,
+      sourceUrl: capture.sourceUrl,
+      collectedAt: capture.collectedAt,
+      openJobs: capture.jobs,
+      headcount: capture.headcount,
+      investors: capture.investors,
+      metadata: capture.metadata,
+    },
+  },
+  observedVsInferred: 'observed',
+  createdAt: capture.collectedAt,
+});
+
 export async function ingestCompanyMonitoring(company: CompanySeed, sources: SourceCatalogEntry[]) {
   const collectedAt = nowIso();
   const runtimeSources = buildRuntimeSources(sources);
@@ -329,6 +396,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
   const cvmSource = firstSource(runtimeSources, 'src_cvm_rss');
   const valorSource = firstSource(runtimeSources, 'src_valor_rss');
   const googleNewsSource = firstSource(runtimeSources, 'src_google_news_rss');
+  const careersSource = firstSource(runtimeSources, 'src_company_careers');
+  const techSignalsSource = firstSource(runtimeSources, 'src_tech_signals_latam');
 
   const rssSources = dedupeRssSources([
     googleNewsSource ? { source: googleNewsSource, url: googleNewsRssUrl(company.tradeName) } : null,
@@ -337,12 +406,24 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
     ...parametricRssSourcesFor(runtimeSources, company),
   ].filter((item): item is { source: RuntimeSource; url: string } => Boolean(item)));
 
-  const [website, brasilApi, freeOfficial, ...rssResults] = await Promise.all([
+  const [website, brasilApi, freeOfficial, careersCapture, techSignalsCapture, ...rssResults] = await Promise.all([
     websiteSource ? monitorCompanyWebsite(company.website) : Promise.resolve(null),
     brasilApiSource ? fetchBrasilApiCompany(company.cnpj) : Promise.resolve(null),
     ingestFreeOfficialCompanySources(company, runtimeSources, collectedAt),
+    careersSource ? captureCompanyCareers({ companyName: company.tradeName, website: company.website, collectedAt }) : Promise.resolve(null),
+    techSignalsSource ? captureTechSignalsLatam({
+      companyName: company.tradeName,
+      legalName: company.legalName,
+      feedUrl: sourceUrlFor(techSignalsSource, 'https://pedrobmesquita.substack.com/feed'),
+      collectedAt,
+    }) : Promise.resolve(null),
     ...rssSources.map((source) => fetchRssFeed(source.url)),
   ]);
+
+  const peopleCapitalCaptures: PeopleCapitalCaptureEnvelope[] = [
+    ...(careersSource && careersCapture ? [{ sourceId: careersSource.id, sourceCode: careersSource.runtimeCode, capture: careersCapture }] : []),
+    ...(techSignalsSource && techSignalsCapture?.matched ? [{ sourceId: techSignalsSource.id, sourceCode: techSignalsSource.runtimeCode, capture: techSignalsCapture }] : []),
+  ];
 
   const outputs: MonitoringOutput[] = [
     ...(website && websiteSource ? [buildOutput(
@@ -390,6 +471,26 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
         },
       );
     }),
+    ...(careersSource && careersCapture ? [buildOutput(
+      company,
+      careersSource,
+      `People & Capital · vagas · ${company.tradeName}`,
+      `${careersCapture.jobs.length} vagas abertas; ${careersCapture.jobs.filter((job) => job.dcmRelevanceScore >= 60).length} ligadas a crédito/risco/funding/DCM.`,
+      careersCapture.collectedAt,
+      careersCapture.connectorStatus,
+      careersCapture.connectorStatus === 'real' ? 0.86 : 0.48,
+      { jobs: careersCapture.jobs, signals: careersCapture.signals, metadata: careersCapture.metadata, sourceUrl: careersCapture.sourceUrl },
+    )] : []),
+    ...(techSignalsSource && techSignalsCapture?.matched ? [buildOutput(
+      company,
+      techSignalsSource,
+      `Tech Signals LatAm · ${company.tradeName}`,
+      `${techSignalsCapture.headcount ? `Headcount ${techSignalsCapture.headcount.total} (${techSignalsCapture.headcount.growthPct ?? 0}% no período)` : 'Sem headcount estruturado'}; ${techSignalsCapture.investors.length} relações de investidores.`,
+      techSignalsCapture.collectedAt,
+      techSignalsCapture.connectorStatus,
+      techSignalsCapture.connectorStatus === 'real' ? 0.82 : 0.48,
+      { headcount: techSignalsCapture.headcount, investors: techSignalsCapture.investors, signals: techSignalsCapture.signals, metadata: techSignalsCapture.metadata, sourceUrl: techSignalsCapture.sourceUrl },
+    )] : []),
     ...freeOfficial.outputs,
   ];
 
@@ -423,6 +524,8 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
       rss.status,
       item.link || rss.sourceUrl,
     ))),
+    ...(careersSource && careersCapture ? careersCapture.signals.map((signal) => buildPeopleCapitalSignal(company, careersSource, careersCapture, signal)) : []),
+    ...(techSignalsSource && techSignalsCapture?.matched ? techSignalsCapture.signals.map((signal) => buildPeopleCapitalSignal(company, techSignalsSource, techSignalsCapture, signal)) : []),
     ...freeOfficial.signals,
   ];
 
@@ -430,8 +533,18 @@ export async function ingestCompanyMonitoring(company: CompanySeed, sources: Sou
     ...(brasilApi && brasilApiSource
       ? [buildBrasilApiEnrichment(company, brasilApiSource, brasilApi.data as Record<string, any>, collectedAt, brasilApi.endpoint)]
       : []),
+    ...(careersSource && careersCapture ? [buildPeopleCapitalEnrichment(company, careersSource, careersCapture)] : []),
+    ...(techSignalsSource && techSignalsCapture?.matched ? [buildPeopleCapitalEnrichment(company, techSignalsSource, techSignalsCapture)] : []),
     ...freeOfficial.enrichments,
   ];
 
-  return { outputs, signals, enrichments };
+  const peopleCapitalPersistence = await persistPeopleCapitalCaptures({ companyId: company.id, captures: peopleCapitalCaptures });
+  if (peopleCapitalPersistence.error) {
+    console.warn('[people-capital] persistence degraded', {
+      companyId: company.id,
+      error: peopleCapitalPersistence.error,
+    });
+  }
+
+  return { outputs, signals, enrichments, peopleCapitalPersistence };
 }
