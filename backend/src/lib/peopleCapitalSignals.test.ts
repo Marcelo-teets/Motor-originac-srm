@@ -42,18 +42,18 @@ test('extracts structured JobPosting records with DCM relevance', () => {
   assert.equal(jobs[0]?.location, 'São Paulo, SP, BR');
 });
 
-test('turns newsletter headcount and funding text into temporal and relationship observations', async () => {
+test('turns Tech Signals LatAm #15 semantics into headcount history and the full investor syndicate', async () => {
   const originalFetch = globalThis.fetch;
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
     <rss><channel><item>
       <title>Tech Signals LatAm #15</title>
       <link>https://example.com/p/tech-signals-15</link>
-      <pubDate>Wed, 19 Aug 2026 12:00:00 GMT</pubDate>
+      <pubDate>Wed, 19 Aug 2026 11:03:01 GMT</pubDate>
       <content:encoded><![CDATA[
         <h2>Team Expansion</h2>
-        <p>Segura saw a ~20% headcount growth over the past month, reaching a total of 120 employees.</p>
+        <p>Segura, a São Paulo-based AI platform, saw a 23% increase in headcount over the past quarter, reaching a total of 48 employees.</p>
         <h2>Funding Rounds</h2>
-        <p>Yuno raised US$45M in a Series B led by Valor Capital with participation from Monashees and Kaszek.</p>
+        <p>Yuno, a Brazil-based payments-infrastructure startup, raised US$45 million in a Series B round led by Global PayTech Ventures. Andreessen Horowitz, Tiger Global, Kaszek, Monashees, QuantumLight Capital, Endeavor Catalyst, Rasmal Ventures, Further Ventures and GrowthX Capital also participated.</p>
       ]]></content:encoded>
     </item></channel></rss>`;
 
@@ -69,10 +69,10 @@ test('turns newsletter headcount and funding text into temporal and relationship
       collectedAt: '2026-08-19T12:00:00.000Z',
     });
     assert.equal(segura.matched, true);
-    assert.equal(segura.headcount?.total, 120);
-    assert.equal(segura.headcount?.growthPct, 20);
-    assert.equal(segura.headcount?.inferredPreviousTotal, 100);
-    assert.equal(segura.headcount?.periodLabel, 'month');
+    assert.equal(segura.headcount?.total, 48);
+    assert.equal(segura.headcount?.growthPct, 23);
+    assert.equal(segura.headcount?.inferredPreviousTotal, 39);
+    assert.equal(segura.headcount?.periodLabel, 'quarter');
     assert.ok(segura.signals.some((signal) => signal.type === 'headcount_acceleration'));
 
     const yuno = await captureTechSignalsLatam({
@@ -81,9 +81,13 @@ test('turns newsletter headcount and funding text into temporal and relationship
       collectedAt: '2026-08-19T12:00:00.000Z',
     });
     assert.equal(yuno.matched, true);
-    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Valor Capital' && investor.isLead));
-    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Monashees'));
+    assert.equal(yuno.investors.length, 10);
+    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Global PayTech Ventures' && investor.isLead));
+    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Andreessen Horowitz'));
+    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Tiger Global'));
     assert.ok(yuno.investors.some((investor) => investor.investorName === 'Kaszek'));
+    assert.ok(yuno.investors.some((investor) => investor.investorName === 'Monashees'));
+    assert.ok(yuno.investors.some((investor) => investor.investorName === 'GrowthX Capital'));
     assert.equal(yuno.investors[0]?.roundStage, 'Series B');
     assert.equal(yuno.investors[0]?.roundAmount, 45_000_000);
     assert.equal(yuno.investors[0]?.roundCurrency, 'USD');
