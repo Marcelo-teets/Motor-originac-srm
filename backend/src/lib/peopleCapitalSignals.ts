@@ -82,6 +82,20 @@ const normalize = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim();
 
+const parseDecimal = (raw: string) => {
+  const value = raw.trim().replace(/\s+/g, '');
+  if (!value) return Number.NaN;
+  if (/^-?\d{1,3}(?:[.,]\d{3})+$/.test(value)) return Number(value.replace(/[.,]/g, ''));
+  if (/^-?\d+[.,]\d+$/.test(value)) return Number(value.replace(',', '.'));
+  return Number(value.replace(/[^\d.-]/g, ''));
+};
+
+const normalizeOptionalDate = (value: string) => {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+};
+
 export const stableTextKey = (value: string) => {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -188,7 +202,7 @@ const jobFromJsonLd = (job: Record<string, unknown>, baseUrl: string): JobOpenin
     location,
     employmentType: asString(job.employmentType) || null,
     sourceUrl,
-    openedAt: asString(job.datePosted) || null,
+    openedAt: normalizeOptionalDate(asString(job.datePosted)),
     dcmRelevanceScore: scores.dcm,
     creditRelevanceScore: scores.credit,
     confidenceScore: 0.9,
@@ -357,7 +371,7 @@ const parseHeadcount = (context: string, sourceUrl: string, observedAt: string):
   const match = patterns.map((pattern) => text.match(pattern)).find(Boolean);
   if (!match) return null;
   const growthPct = Number(String(match[1]).replace(',', '.'));
-  const total = Number(String(match[2]).replace(/\./g, '').replace(',', '.'));
+  const total = parseDecimal(String(match[2]));
   if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(growthPct) || growthPct < -100 || growthPct > 1000) return null;
   const inferredPreviousTotal = growthPct > -100 ? Math.max(0, Math.round(total / (1 + growthPct / 100))) : null;
   return {
@@ -373,7 +387,7 @@ const parseHeadcount = (context: string, sourceUrl: string, observedAt: string):
 };
 
 const parseAmount = (currencyRaw: string, amountRaw: string, multiplierRaw: string) => {
-  const normalizedAmount = Number(amountRaw.replace(/,/g, '.'));
+  const normalizedAmount = parseDecimal(amountRaw);
   if (!Number.isFinite(normalizedAmount)) return null;
   const multiplier = /b|billion|bilhao|bilhoes/i.test(multiplierRaw) ? 1_000_000_000
     : /m|million|milhao|milhoes/i.test(multiplierRaw) ? 1_000_000
@@ -384,19 +398,36 @@ const parseAmount = (currencyRaw: string, amountRaw: string, multiplierRaw: stri
 
 const cleanInvestorNames = (value: string) => value
   .replace(/\s+(?:and|e)\s+/gi, ',')
+  .replace(/\s+alongside\s+/gi, ',')
   .split(',')
   .map((name) => name.replace(/^(?:the|a|an)\s+/i, '').trim())
+  .map((name) => name.replace(/\s+(?:also\s+)?participated.*$/i, '').trim())
   .filter((name) => name.length >= 2 && name.length <= 90)
-  .filter((name) => !/investors?|round|funding|company|startup|participation|existing/i.test(name.toLowerCase()));
+  .filter((name) => !/^(?:other |additional )?(?:financial-sector )?investors?$|undisclosed|investment round|funding round/i.test(name.toLowerCase()));
+
+const dedupeInvestorObservations = (observations: InvestorRelationshipObservation[]) => {
+  const deduped = new Map<string, InvestorRelationshipObservation>();
+  for (const observation of observations) {
+    const key = normalize(observation.investorName);
+    if (!key) continue;
+    const existing = deduped.get(key);
+    if (!existing || observation.isLead || observation.confidenceScore > existing.confidenceScore) deduped.set(key, observation);
+  }
+  return [...deduped.values()];
+};
 
 const parseFundingInvestors = (context: string, sourceUrl: string, announcedAt: string | null) => {
   const text = sanitizePeopleCapitalText(context);
-  if (!/raised|funding round|series\s+[a-z]|seed round|captou|rodada/i.test(text)) return [] as InvestorRelationshipObservation[];
+  if (!/raised|funding round|series\s+[a-z]|seed round|captou|rodada|secured .*financing/i.test(text)) return [] as InvestorRelationshipObservation[];
   const stage = text.match(/\b(series\s+[a-z0-9]+|pre-seed|seed|growth|series\s+[a-z])\b/i)?.[1] ?? null;
-  const amountMatch = text.match(/(?:raised|captou|rodada)[^.!?]{0,80}?(US\$|USD|R\$|\$)?\s*([\d.,]+)\s*(B|M|K|billion|million|thousand|bilh(?:ao|oes)|milh(?:ao|oes)|mil)?/i);
+  const amountMatch = text.match(/(?:raised|captou|rodada|secured)[^.!?]{0,100}?(US\$|USD|R\$|\$)?\s*([\d.,]+)\s*(B|M|K|billion|million|thousand|bilh(?:ao|oes)|milh(?:ao|oes)|mil)?/i);
   const parsedAmount = amountMatch ? parseAmount(amountMatch[1] ?? '', amountMatch[2] ?? '', amountMatch[3] ?? '') : null;
   const leadMatch = text.match(/led by\s+([^.;]+?)(?=\s+with participation|\s+alongside|\s+and participation|[.;]|$)/i);
-  const participantMatch = text.match(/(?:with participation from|participation from|alongside)\s+([^.;]+)/i);
+  const participantMatches = [
+    text.match(/(?:with participation from|participation from|alongside)\s+([^.;]+)/i),
+    text.match(/([^.]{2,900}?)\s+(?:also\s+)?participated(?:\s+in\s+the\s+round)?[.;]/i),
+    text.match(/backed by\s+([^.;]+)/i),
+  ].filter((match): match is RegExpMatchArray => Boolean(match));
   const observations: InvestorRelationshipObservation[] = [];
 
   cleanInvestorNames(leadMatch?.[1] ?? '').forEach((investorName) => observations.push({
@@ -408,22 +439,26 @@ const parseFundingInvestors = (context: string, sourceUrl: string, announcedAt: 
     isLead: true,
     announcedAt,
     sourceUrl,
-    confidenceScore: 0.78,
+    confidenceScore: 0.82,
     evidenceText: leadMatch?.[0] ?? text.slice(0, 400),
   }));
-  cleanInvestorNames(participantMatch?.[1] ?? '').forEach((investorName) => observations.push({
-    investorName,
-    relationshipType: 'participant_investor',
-    roundStage: stage,
-    roundAmount: parsedAmount?.amount ?? null,
-    roundCurrency: parsedAmount?.currency ?? null,
-    isLead: false,
-    announcedAt,
-    sourceUrl,
-    confidenceScore: 0.74,
-    evidenceText: participantMatch?.[0] ?? text.slice(0, 400),
-  }));
-  return observations;
+
+  for (const participantMatch of participantMatches) {
+    cleanInvestorNames(participantMatch[1] ?? '').forEach((investorName) => observations.push({
+      investorName,
+      relationshipType: 'participant_investor',
+      roundStage: stage,
+      roundAmount: parsedAmount?.amount ?? null,
+      roundCurrency: parsedAmount?.currency ?? null,
+      isLead: false,
+      announcedAt,
+      sourceUrl,
+      confidenceScore: 0.78,
+      evidenceText: participantMatch[0] ?? text.slice(0, 400),
+    }));
+  }
+
+  return dedupeInvestorObservations(observations);
 };
 
 const companyContext = (text: string, aliases: string[]) => {
@@ -435,7 +470,7 @@ const companyContext = (text: string, aliases: string[]) => {
   const index = normalized.indexOf(alias);
   const ratio = normalized.length ? index / normalized.length : 0;
   const approximateIndex = Math.floor(clean.length * ratio);
-  return clean.slice(Math.max(0, approximateIndex - 600), Math.min(clean.length, approximateIndex + 2600));
+  return clean.slice(Math.max(0, approximateIndex - 600), Math.min(clean.length, approximateIndex + 3200));
 };
 
 export const captureTechSignalsLatam = async (params: {
@@ -488,7 +523,7 @@ export const captureTechSignalsLatam = async (params: {
       });
     }
     if (investors.length) signals.push({
-      type: 'investor_relationship_signal', strength: 74, confidenceScore: 0.76,
+      type: 'investor_relationship_signal', strength: 74, confidenceScore: 0.78,
       evidenceText: `${params.companyName}: ${investors.length} relação(ões) investidor↔empresa identificada(s) em rodada.`,
       sourceUrl: matchedEntry.link,
     });
@@ -496,7 +531,7 @@ export const captureTechSignalsLatam = async (params: {
     return {
       connectorStatus: 'real', matched: true, sourceUrl: matchedEntry.link, collectedAt,
       jobs: [], headcount, investors, signals,
-      metadata: { scannedEntries: itemBlocks.length, publishedAt: observedAt, evidenceContext: matchedEntry.context.slice(0, 2000) },
+      metadata: { scannedEntries: itemBlocks.length, publishedAt: observedAt, evidenceContext: matchedEntry.context.slice(0, 2400) },
     };
   } catch (error) {
     return {
