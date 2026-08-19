@@ -21,7 +21,7 @@ const money = (value?: number) => value && value > 0
   : undefined;
 
 const originationBriefNote = (company: CompanySeed) => company.signals
-  .find((signal) => signal.type === 'origination_brief' && signal.note.trim())
+  ?.find((signal) => signal.type === 'origination_brief' && signal.note.trim())
   ?.note.trim();
 
 export const buildThesisOutput = (company: CompanySeed, qualification: QualificationSnapshot, patterns: CompanyPattern[]): ThesisOutput => {
