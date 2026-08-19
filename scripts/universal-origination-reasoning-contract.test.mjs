@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(new URL('../db/migrations/141_universal_origination_reasoning_v2.sql', import.meta.url), 'utf8');
+const calibration = readFileSync(new URL('../db/migrations/142_universal_origination_reasoning_calibration.sql', import.meta.url), 'utf8');
 
 test('universal reasoning maps the major origination signal families', () => {
   for (const token of [
@@ -89,4 +90,14 @@ test('all non-context mapped signals refresh the canonical brief automatically',
   assert.match(migration, /v_dimension='context'/);
   assert.match(migration, /perform public\.refresh_company_origination_brief_v1\(v_company_id\)/);
   assert.match(migration, /Existing qualification\/pattern\/job\/metric\/investor triggers from v1/);
+});
+
+test('calibration keeps generic risk validation contextual and Factor Map current', () => {
+  assert.match(calibration, /signal_type='risk_validation_signal' then 'context'/);
+  assert.match(calibration, /signal_type='risk_validation_signal' then 'contextual'/);
+  assert.match(calibration, /latest_factor as/);
+  assert.match(calibration, /distinct on \(f\.company_id,f\.factor_id\)/);
+  assert.match(calibration, /interval '365 days'/);
+  assert.match(calibration, /Hipótese analítica do Factor Map/);
+  assert.match(calibration, /from top_rows/);
 });
