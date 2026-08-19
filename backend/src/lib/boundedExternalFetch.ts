@@ -12,11 +12,38 @@ const boundedGlobal = globalThis as BoundedFetchGlobal;
 const storage = boundedGlobal[STORAGE_KEY] ?? new AsyncLocalStorage<number>();
 boundedGlobal[STORAGE_KEY] = storage;
 
+const requestUrl = (input: RequestInfo | URL) => {
+  try {
+    if (input instanceof URL) return input;
+    if (typeof input === 'string') return new URL(input);
+    if (typeof Request !== 'undefined' && input instanceof Request) return new URL(input.url);
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const configuredSupabaseOrigins = new Set(
+  [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL]
+    .filter((value): value is string => Boolean(value))
+    .flatMap((value) => {
+      try { return [new URL(value).origin]; } catch { return []; }
+    }),
+);
+
+export const isPersistenceRequest = (input: RequestInfo | URL) => {
+  const url = requestUrl(input);
+  if (!url) return false;
+  return configuredSupabaseOrigins.has(url.origin)
+    || url.hostname === 'supabase.co'
+    || url.hostname.endsWith('.supabase.co');
+};
+
 if (!boundedGlobal[PATCHED_KEY]) {
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const timeoutMs = storage.getStore();
-    if (!timeoutMs) return nativeFetch(input, init);
+    if (!timeoutMs || isPersistenceRequest(input)) return nativeFetch(input, init);
 
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal = init.signal
