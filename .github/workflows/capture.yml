@@ -82,6 +82,7 @@ jobs:
       TARGETS_URL: https://motor-originac-srm.vercel.app/api/bounded-capture-targets
       CAPTURE_URL: https://motor-originac-srm.vercel.app/api/bounded-capture-run
       MAX_PARALLELISM: "3"
+      CAPTURE_RELEASE: "persistence-safe-v3"
       SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
       REQUESTED_CADENCE: ${{ inputs.cadence || '' }}
 
@@ -99,6 +100,7 @@ jobs:
           esac
           echo "CAPTURE_CADENCE=$CADENCE" >> "$GITHUB_ENV"
           echo "Resolved cadence: $CADENCE"
+          echo "Capture release: $CAPTURE_RELEASE"
       - name: Run bounded company-source fanout
         shell: bash
         run: bash scripts/capture/bounded-capture-fanout.sh
