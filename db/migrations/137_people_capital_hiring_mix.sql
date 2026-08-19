@@ -6,7 +6,12 @@ update public.source_catalog
 set frequency='daily', updated_at=now()
 where metadata->>'code'='src_tech_signals_latam';
 
-create or replace view public.company_headcount_history_v1
+-- Postgres does not allow inserting new view columns in the middle with CREATE OR REPLACE.
+-- Drop/recreate the dependent views transactionally; underlying tables/history are untouched.
+drop view if exists public.company_people_capital_snapshot_v1;
+drop view if exists public.company_headcount_history_v1;
+
+create view public.company_headcount_history_v1
 with (security_invoker=true)
 as
 with ranked_daily as (
@@ -94,7 +99,7 @@ from enriched;
 
 grant select on public.company_headcount_history_v1 to authenticated, service_role;
 
-create or replace view public.company_people_capital_snapshot_v1
+create view public.company_people_capital_snapshot_v1
 with (security_invoker=true)
 as
 with latest_headcount as (
