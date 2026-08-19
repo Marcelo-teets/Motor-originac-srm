@@ -401,6 +401,7 @@ const cleanInvestorNames = (value: string) => value
   .replace(/\s+alongside\s+/gi, ',')
   .split(',')
   .map((name) => name.replace(/^(?:the|a|an)\s+/i, '').trim())
+  .map((name) => name.replace(/^(?:angel|existing|new)\s+investors?\s+/i, '').trim())
   .map((name) => name.replace(/\s+(?:also\s+)?participated.*$/i, '').trim())
   .filter((name) => name.length >= 2 && name.length <= 90)
   .filter((name) => !/^(?:other |additional )?(?:financial-sector )?investors?$|undisclosed|investment round|funding round/i.test(name.toLowerCase()));
@@ -418,30 +419,37 @@ const dedupeInvestorObservations = (observations: InvestorRelationshipObservatio
 
 const parseFundingInvestors = (context: string, sourceUrl: string, announcedAt: string | null) => {
   const text = sanitizePeopleCapitalText(context);
-  if (!/raised|funding round|series\s+[a-z]|seed round|captou|rodada|secured .*financing/i.test(text)) return [] as InvestorRelationshipObservation[];
+  if (!/raised|funding round|series\s+[a-z]|seed round|captou|rodada|secured .*financing|fidc/i.test(text)) return [] as InvestorRelationshipObservation[];
   const stage = text.match(/\b(series\s+[a-z0-9]+|pre-seed|seed|growth|series\s+[a-z])\b/i)?.[1] ?? null;
   const amountMatch = text.match(/(?:raised|captou|rodada|secured)[^.!?]{0,100}?(US\$|USD|R\$|\$)?\s*([\d.,]+)\s*(B|M|K|billion|million|thousand|bilh(?:ao|oes)|milh(?:ao|oes)|mil)?/i);
   const parsedAmount = amountMatch ? parseAmount(amountMatch[1] ?? '', amountMatch[2] ?? '', amountMatch[3] ?? '') : null;
-  const leadMatch = text.match(/led by\s+([^.;]+?)(?=\s+with participation|\s+alongside|\s+and participation|[.;]|$)/i);
+  const leadMatches = [
+    text.match(/led by\s+([^.;]+?)(?=\s+with participation|\s+alongside|\s+and participation|[.;]|$)/i),
+    text.match(/(?:^|[.;]\s*)([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9&' -]{1,80})\s+led the investment/i),
+    text.match(/(?:with\s+)?([A-ZÀ-Ý][A-Za-zÀ-ÿ0-9&' -]{1,80})\s+(?:serving|acting) as (?:the )?(?:principal|lead) investor/i),
+  ].filter((match): match is RegExpMatchArray => Boolean(match));
   const participantMatches = [
     text.match(/(?:with participation from|participation from|alongside)\s+([^.;]+)/i),
-    text.match(/([^.]{2,900}?)\s+(?:also\s+)?participated(?:\s+in\s+the\s+round)?[.;]/i),
+    text.match(/([^.]{2,900}?)\s+(?:also\s+)?participated(?:\s+in\s+[^.;]+)?[.;]/i),
     text.match(/backed by\s+([^.;]+)/i),
+    text.match(/angel investors? (?:included|include)\s+([^.;]+)/i),
   ].filter((match): match is RegExpMatchArray => Boolean(match));
   const observations: InvestorRelationshipObservation[] = [];
 
-  cleanInvestorNames(leadMatch?.[1] ?? '').forEach((investorName) => observations.push({
-    investorName,
-    relationshipType: 'lead_investor',
-    roundStage: stage,
-    roundAmount: parsedAmount?.amount ?? null,
-    roundCurrency: parsedAmount?.currency ?? null,
-    isLead: true,
-    announcedAt,
-    sourceUrl,
-    confidenceScore: 0.82,
-    evidenceText: leadMatch?.[0] ?? text.slice(0, 400),
-  }));
+  for (const leadMatch of leadMatches) {
+    cleanInvestorNames(leadMatch[1] ?? '').forEach((investorName) => observations.push({
+      investorName,
+      relationshipType: 'lead_investor',
+      roundStage: stage,
+      roundAmount: parsedAmount?.amount ?? null,
+      roundCurrency: parsedAmount?.currency ?? null,
+      isLead: true,
+      announcedAt,
+      sourceUrl,
+      confidenceScore: 0.82,
+      evidenceText: leadMatch[0] ?? text.slice(0, 400),
+    }));
+  }
 
   for (const participantMatch of participantMatches) {
     cleanInvestorNames(participantMatch[1] ?? '').forEach((investorName) => observations.push({
@@ -459,6 +467,51 @@ const parseFundingInvestors = (context: string, sourceUrl: string, announcedAt: 
   }
 
   return dedupeInvestorObservations(observations);
+};
+
+const capitalSignalsFromContext = (context: string, sourceUrl: string): PeopleCapitalSignal[] => {
+  const text = sanitizePeopleCapitalText(context);
+  const value = normalize(text);
+  const signals: PeopleCapitalSignal[] = [];
+  const evidenceText = text.slice(0, 700);
+  const fidcEvent = /\bfidc\b|fundos? de investimento em direitos creditorios/.test(value)
+    && /raised|captou|capta[cç][aã]o|financing|funding|through|via|vehicle|veiculo/.test(value);
+
+  if (fidcEvent) signals.push({
+    type: 'fidc_funding_event',
+    strength: 97,
+    confidenceScore: 0.9,
+    evidenceText,
+    sourceUrl,
+  });
+
+  if (!fidcEvent && /debt round|debt financing|combining equity and debt|credit facility|structured debt|raised [^.!?]{0,120} debt|secured [^.!?]{0,120} financing/.test(value)) {
+    signals.push({
+      type: 'structured_debt_funding',
+      strength: 92,
+      confidenceScore: 0.86,
+      evidenceText,
+      sourceUrl,
+    });
+  }
+
+  if (/\bbndes\b|\bfinep\b/.test(value) && /financing|funding|financiamento|credito/.test(value)) signals.push({
+    type: 'public_financing_signal',
+    strength: 88,
+    confidenceScore: 0.9,
+    evidenceText,
+    sourceUrl,
+  });
+
+  if (/originations?|originacoes|origina[cç][aã]o/.test(value) && /rose|grew|increased|cresceu|aumentou/.test(value)) signals.push({
+    type: 'credit_origination_acceleration',
+    strength: 89,
+    confidenceScore: 0.86,
+    evidenceText,
+    sourceUrl,
+  });
+
+  return signals;
 };
 
 const companyContext = (text: string, aliases: string[]) => {
@@ -512,7 +565,7 @@ export const captureTechSignalsLatam = async (params: {
     const observedAt = Number.isNaN(Date.parse(matchedEntry.publishedAt)) ? collectedAt : new Date(matchedEntry.publishedAt).toISOString();
     const headcount = parseHeadcount(matchedEntry.context, matchedEntry.link, observedAt);
     const investors = parseFundingInvestors(matchedEntry.context, matchedEntry.link, observedAt);
-    const signals: PeopleCapitalSignal[] = [];
+    const signals: PeopleCapitalSignal[] = capitalSignalsFromContext(matchedEntry.context, matchedEntry.link);
 
     if (headcount?.growthPct !== null && headcount) {
       const strength = headcount.growthPct >= 20 ? 90 : headcount.growthPct >= 10 ? 84 : headcount.growthPct >= 5 ? 76 : 68;
