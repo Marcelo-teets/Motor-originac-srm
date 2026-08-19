@@ -19,6 +19,7 @@
     "lint": "npm -C backend run lint && npm -C frontend run lint",
     "test:frontend-quality": "node --test scripts/frontend-quality-contract.test.mjs",
     "test:search-discovery-quality": "tsx --test backend/src/lib/searchDiscoveryQuality.test.ts backend/src/lib/candidateRediscoveryLineage.test.ts backend/src/lib/discoverySourceRouting.test.ts backend/src/services/searchProfileRunMapping.test.ts backend/src/services/searchProfileScheduledRunner.test.ts",
+    "test:people-capital": "tsx --test backend/src/lib/peopleCapitalSignals.test.ts backend/src/lib/techSignalsDiscovery.test.ts",
     "test:auth-captcha-retirement": "node --test scripts/retire-captcha-production.test.mjs",
     "test:auth-config-audit": "node scripts/audit-supabase-auth-config.test.mjs",
     "test:auth-public-env": "node --test scripts/sync-public-auth-env-to-vercel.test.mjs",

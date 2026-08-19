@@ -37,6 +37,9 @@ jobs:
       - name: Validate search discovery quality contract
         run: npm run test:search-discovery-quality
 
+      - name: Validate People & Capital Intelligence contract
+        run: npm run test:people-capital
+
       - name: Validate Vercel deployment budget guard
         run: npm run test:vercel-deploy-guard
 
