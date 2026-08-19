@@ -64,11 +64,11 @@ const candidateNameFromParagraph = (paragraph: string) => {
 const classifyCandidate = (paragraph: string) => {
   const text = normalizeLoose(paragraph);
   const isFintech = /fintech|payments?|credit|lender|lending|banking|open finance|financial infrastructure|payroll/.test(text);
-  const isCredit = /credit|lender|lending|loan|payroll|fidc|receivables|origination/.test(text);
+  const isCredit = /credit|lender|lending|loan|payroll|fidcs?|receivables|origination/.test(text);
   const isPayments = /payments?|payment infrastructure|wallet|card/.test(text);
-  const hasFidc = /\bfidc\b|direitos creditorios/.test(text);
+  const hasFidc = /\bfidcs?\b|direitos creditorios/.test(text);
   const hasDebt = /debt financing|structured debt|credit facility|financing|bndes/.test(text);
-  const hasFunding = /raised|funding|series|seed|investment|financing|fidc/.test(text);
+  const hasFunding = /raised|funding|series|seed|investment|financing|fidcs?/.test(text);
 
   return {
     segment: isFintech ? 'Fintech' : 'Technology',
@@ -85,7 +85,7 @@ const signalHints = (paragraph: string) => {
   const hints: string[] = [];
   if (/headcount|employees/.test(text)) hints.push('headcount');
   if (/capital markets|funding|treasury/.test(text)) hints.push('capital_markets_or_funding');
-  if (/\bfidc\b|direitos creditorios/.test(text)) hints.push('fidc');
+  if (/\bfidcs?\b|direitos creditorios/.test(text)) hints.push('fidc');
   if (/debt financing|structured debt|credit facility/.test(text)) hints.push('structured_debt');
   if (/raised|series|seed|investment/.test(text)) hints.push('equity_funding');
   if (/origination|originations/.test(text)) hints.push('credit_origination');
@@ -169,9 +169,8 @@ export const syncTechSignalsDiscoveryCandidates = async (params: {
   const [companyRows, candidateRows] = await Promise.all([
     client.select('companies', { select: 'id,trade_name,legal_name', limit: 5000 }),
     client.select('discovered_company_candidates', {
-      select: 'id,dedupe_key,confidence,raw_payload,candidate_status,updated_at',
-      filters: [{ column: 'source_ref', value: 'src_tech_signals_latam' }],
-      limit: 2000,
+      select: 'id,dedupe_key,confidence,source_ref,raw_payload,candidate_status,updated_at',
+      limit: 5000,
     }),
   ]);
 
@@ -210,11 +209,14 @@ export const syncTechSignalsDiscoveryCandidates = async (params: {
       const nextLineage = [...lineage, lineageEntry]
         .filter((entry, index, array) => array.findIndex((other) => `${other.issueTitle}|${other.sourceUrl}` === `${entry.issueTitle}|${entry.sourceUrl}`) === index)
         .slice(-12);
+      const isTechSignalsOwned = existing.source_ref === 'src_tech_signals_latam';
       await client.update('discovered_company_candidates', {
-        evidence_summary: candidate.evidenceSummary,
+        ...(isTechSignalsOwned ? {
+          evidence_summary: candidate.evidenceSummary,
+          captured_at: candidate.publishedAt ?? collectedAt,
+        } : {}),
         confidence: Math.max(Number(existing.confidence ?? 0), candidate.confidence),
         raw_payload: { ...previousPayload, ...candidate.rawPayload, newsletterLineage: nextLineage },
-        captured_at: candidate.publishedAt ?? collectedAt,
         updated_at: collectedAt,
       }, [{ column: 'id', value: existing.id }]);
       updatedCandidates += 1;
