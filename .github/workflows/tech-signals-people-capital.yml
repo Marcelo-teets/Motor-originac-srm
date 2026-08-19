@@ -1,0 +1,38 @@
+name: Tech Signals People & Capital
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '25 12 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tech-signals-people-capital
+  cancel-in-progress: false
+
+jobs:
+  discover-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Discover and persist Tech Signals candidates
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TECH_SIGNALS_LATAM_FEED_URL: https://pedrobmesquita.substack.com/feed
+        run: npx tsx scripts/capture/tech-signals-discovery.ts
