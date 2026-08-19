@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-const RUNTIME = 'bounded-capture-run-v1';
+const RUNTIME = 'bounded-capture-run-v2';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
@@ -48,22 +48,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       { CaptureRuntimeService },
       { assertBoundedCaptureScope, withCaptureDeadline },
       { writeCaptureAudit },
+      { withBoundedExternalFetch, BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS },
     ] = await Promise.all([
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/services/captureRuntimeService.js'),
       import('../backend/src/lib/boundedCapture.js'),
       import('../backend/src/lib/captureAudit.js'),
+      import('../backend/src/lib/boundedExternalFetch.js'),
     ]);
 
     assertBoundedCaptureScope(companyId, sourceId);
     const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
-    const result = await withCaptureDeadline(runtime.run({
-      companyId: companyId!,
-      sourceId: sourceId!,
-      triggerType: 'cron',
-      reason: 'github_actions_bounded_fanout',
-    }));
+    const result = await withBoundedExternalFetch(
+      () => withCaptureDeadline(runtime.run({
+        companyId: companyId!,
+        sourceId: sourceId!,
+        triggerType: 'cron',
+        reason: 'github_actions_bounded_fanout',
+      })),
+    );
     const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
     const statusCode = result.persisted.status === 'real' ? 200 : 207;
 
@@ -80,8 +84,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       enrichmentsWritten: result.persisted.enrichmentsWritten,
       errorMessage: persistedErrors.length ? persistedErrors.slice(0, 3).join(' | ') : null,
       metadata: {
-        auditVersion: 'bounded_capture_fanout_v1',
+        auditVersion: 'bounded_capture_fanout_v2',
         runtime: RUNTIME,
+        externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS,
         requested: result.requested,
         companiesProcessed: result.companiesProcessed,
         documentsCollected: result.documentsCollected,
@@ -115,7 +120,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           sourceId,
           errorMessage,
           metadata: {
-            auditVersion: 'bounded_capture_fanout_v1',
+            auditVersion: 'bounded_capture_fanout_v2',
             runtime: RUNTIME,
             code,
             retryable: statusCode === 504,
