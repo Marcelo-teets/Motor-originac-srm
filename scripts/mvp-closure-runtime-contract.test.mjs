@@ -31,6 +31,18 @@ test('automatic entity resolution deduplicates canonical keys and quarantines co
   assert.match(sql, /enqueue_company_origination_reprocessing/);
 });
 
+test('verified operating issuers use strict CNPJ identity and remain deduplicated', async () => {
+  const sql = await read('db/migrations/148_operating_issuer_resolution_and_analytics_fix.sql');
+  assert.match(sql, /candidate_role='operating_issuer'/);
+  assert.match(sql, /coalesce\(c\.cnpj_valid,false\)/);
+  assert.match(sql, /automatic_deterministic_issuer_identity/);
+  assert.match(sql, /canonical_key_conflict/);
+  assert.match(sql, /domain_cnpj_conflict/);
+  assert.match(sql, /status','quarantined'/);
+  assert.match(sql, /excluded_from_qualification',false/);
+  assert.match(sql, /excluded_from_scoring',false/);
+});
+
 test('verified real entities enter origination analytics without becoming credit-approved', async () => {
   const sql = await read('db/migrations/147_origination_entity_eligibility_gate.sql');
   assert.match(sql, /verified_entity_ready_for_origination_qualification/);
