@@ -235,10 +235,17 @@ export class SearchProfileCaptureService {
   async approveCandidateIdentityReview(input: CandidateIdentityApprovalInput) {
     if (!this.identityReviewExecutor) throw new Error('Candidate identity review executor is unavailable.');
     const result = await this.identityReviewExecutor.approve(input);
+    let monitoringRefreshed = false;
+    let derivedDataRecomputed = false;
     if (result.companyId && this.hooks.refreshMonitoring) {
-      await this.hooks.refreshMonitoring(result.companyId).catch(() => undefined);
+      await this.hooks.refreshMonitoring(result.companyId);
+      monitoringRefreshed = true;
     }
-    return { ...result, derivedDataRecomputeSkipped: true };
+    if (result.companyId && this.hooks.recomputeDerivedData) {
+      await this.hooks.recomputeDerivedData(result.companyId);
+      derivedDataRecomputed = true;
+    }
+    return { ...result, monitoringRefreshed, derivedDataRecomputed };
   }
 
   async rejectCandidateIdentityReview(input: CandidateIdentityRejectionInput) {
@@ -266,14 +273,23 @@ export class SearchProfileCaptureService {
       promotedAt: nowIso(),
     });
 
+    let monitoringRefreshed = false;
+    let derivedDataRecomputed = false;
     if (this.hooks.refreshMonitoring) {
-      await this.hooks.refreshMonitoring(companyId).catch(() => undefined);
+      await this.hooks.refreshMonitoring(companyId);
+      monitoringRefreshed = true;
+    }
+    if (this.hooks.recomputeDerivedData) {
+      await this.hooks.recomputeDerivedData(companyId);
+      derivedDataRecomputed = true;
     }
 
     return {
       companyId,
       created: false,
       candidate: promoted,
+      monitoringRefreshed,
+      derivedDataRecomputed,
     };
   }
 }

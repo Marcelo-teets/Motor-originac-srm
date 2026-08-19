@@ -40,6 +40,9 @@ jobs:
       - name: Validate People & Capital Intelligence contract
         run: npm run test:people-capital
 
+      - name: Validate MVP closure runtime contract
+        run: npm run test:mvp-closure-runtime
+
       - name: Validate Vercel deployment budget guard
         run: npm run test:vercel-deploy-guard
 
