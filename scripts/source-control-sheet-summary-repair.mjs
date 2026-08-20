@@ -10,6 +10,8 @@ const required = (name) => {
 };
 
 const normalize = (value) => String(value ?? '').trim().toLocaleLowerCase('pt-BR');
+const normalizeCell = (value) => String(value ?? '').trim();
+export const normalizeRowsForComparison = (rows) => rows.map((row) => row.map(normalizeCell));
 
 export function buildSummaryFromDisplayedRows(rows) {
   const data = rows.filter((row) => String(row?.[1] ?? '').trim());
@@ -81,7 +83,7 @@ export async function main() {
     'sheet_summary_verify',
   );
   const actual = verify?.values ?? [];
-  if (JSON.stringify(actual) !== JSON.stringify(summary)) {
+  if (JSON.stringify(normalizeRowsForComparison(actual)) !== JSON.stringify(normalizeRowsForComparison(summary))) {
     throw new Error(`sheet_summary_verify_mismatch expected=${JSON.stringify(summary)} actual=${JSON.stringify(actual)}`);
   }
   console.log(JSON.stringify({ status: 'repaired', spreadsheetId, sheetName, versionDate, summary }, null, 2));

@@ -332,16 +332,25 @@ async function verifySheet({ accessToken, spreadsheetId, sheetName, sourceCount,
 }
 
 async function recordAudit({ supabaseUrl, serviceRoleKey, row }) {
-  await fetchJson(`${supabaseUrl}/rest/v1/source_control_sheet_sync_runs`, {
-    method: 'POST',
-    headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
-      'content-type': 'application/json',
-      prefer: 'return=minimal',
-    },
-    body: JSON.stringify(row),
-  }, 'supabase_source_control_audit');
+  try {
+    await fetchJson(`${supabaseUrl}/rest/v1/source_control_sheet_sync_runs`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        'content-type': 'application/json',
+        prefer: 'return=minimal',
+      },
+      body: JSON.stringify(row),
+    }, 'supabase_source_control_audit');
+    return { status: 'ok' };
+  } catch (error) {
+    return {
+      status: 'warning',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function main() {
@@ -375,7 +384,7 @@ export async function main() {
   const updateResult = await writeSheet({ accessToken, spreadsheetId, sheetName, tableRows, summaryRows, versionDate });
   const verification = await verifySheet({ accessToken, spreadsheetId, sheetName, sourceCount: sources.length, expectedDate: versionDate });
 
-  await recordAudit({
+  const audit = await recordAudit({
     supabaseUrl,
     serviceRoleKey,
     row: {
@@ -406,6 +415,7 @@ export async function main() {
     statusCounts,
     healthCounts,
     verification,
+    audit,
   }, null, 2));
 }
 
