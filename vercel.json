@@ -1,144 +1,54 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "git": {
-    "deploymentEnabled": {
-      "*": false
-    }
-  },
+  "git": { "deploymentEnabled": { "*": false } },
   "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "installCommand": "npm install",
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "framework": null,
   "functions": {
-    "api/index.ts": {
-      "maxDuration": 30
-    },
-    "api/capital-market-run.ts": {
-      "maxDuration": 30
-    },
-    "api/capital-market-health.ts": {
-      "maxDuration": 15
-    },
-    "api/public-data-operations.ts": {
-      "maxDuration": 15
-    },
-    "api/strategic-public-data-run.ts": {
-      "maxDuration": 300
-    },
-    "api/agentetome.ts": {
-      "maxDuration": 300
-    },
-    "api/fidcs.ts": {
-      "maxDuration": 30
-    },
-    "api/dcm-daily-operating-loop.ts": {
-      "maxDuration": 10
-    },
-    "api/dcm-daily-leads.ts": {
-      "maxDuration": 15
-    },
-    "api/microsoft.ts": {
-      "maxDuration": 30
-    },
-    "api/task-ai.ts": {
-      "maxDuration": 30
-    }
+    "api/index.ts": { "maxDuration": 30 },
+    "api/capital-market-run.ts": { "maxDuration": 30 },
+    "api/capital-market-health.ts": { "maxDuration": 15 },
+    "api/public-data-operations.ts": { "maxDuration": 15 },
+    "api/strategic-public-data-run.ts": { "maxDuration": 300 },
+    "api/agentetome.ts": { "maxDuration": 300 },
+    "api/fidcs.ts": { "maxDuration": 30 },
+    "api/dcm-daily-operating-loop.ts": { "maxDuration": 10 },
+    "api/dcm-daily-leads.ts": { "maxDuration": 15 },
+    "api/paperclip.ts": { "maxDuration": 300 },
+    "api/microsoft.ts": { "maxDuration": 30 },
+    "api/task-ai.ts": { "maxDuration": 30 }
   },
   "crons": [
-    {
-      "path": "/api/strategic-public-data-run",
-      "schedule": "15 9 * * 1"
-    },
-    {
-      "path": "/api/sources/qsa-fallback-run",
-      "schedule": "30 10 8 * *"
-    },
-    {
-      "path": "/api/integrations/microsoft/cron-sync",
-      "schedule": "15 12 * * *"
-    }
+    { "path": "/api/strategic-public-data-run", "schedule": "15 9 * * 1" },
+    { "path": "/api/sources/qsa-fallback-run", "schedule": "30 10 8 * *" },
+    { "path": "/api/integrations/microsoft/cron-sync", "schedule": "15 12 * * *" }
   ],
   "rewrites": [
-    {
-      "source": "/api/health",
-      "destination": "/api/capital-market-health?mode=platform"
-    },
-    {
-      "source": "/api/capital-markets/run",
-      "destination": "/api/capital-market-run"
-    },
-    {
-      "source": "/api/capital-markets/health",
-      "destination": "/api/capital-market-health"
-    },
-    {
-      "source": "/api/sources/public-operations",
-      "destination": "/api/public-data-operations"
-    },
-    {
-      "source": "/api/sources/strategic-run",
-      "destination": "/api/strategic-public-data-run"
-    },
-    {
-      "source": "/api/sources/qsa-fallback-run",
-      "destination": "/api/strategic-public-data-run?mode=qsa-fallback"
-    },
-    {
-      "source": "/api/knowledge-learning-agent",
-      "destination": "/api/agentetome?operation=knowledge-learning"
-    },
-    {
-      "source": "/api/sources/agentetome",
-      "destination": "/api/agentetome?operation=status"
-    },
-    {
-      "source": "/api/sources/agentetome/:operation",
-      "destination": "/api/agentetome?operation=:operation"
-    },
-    {
-      "source": "/api/sources/fidcs/status",
-      "destination": "/api/fidcs?operation=status"
-    },
-    {
-      "source": "/api/sources/fidcs/fund/:cnpj",
-      "destination": "/api/fidcs?operation=fund&cnpj=:cnpj"
-    },
-    {
-      "source": "/api/sources/fidcs/run",
-      "destination": "/api/fidcs?operation=run"
-    },
-    {
-      "source": "/api/sources/fidcs/cron-run",
-      "destination": "/api/fidcs?operation=cron-run"
-    },
-    {
-      "source": "/api/origination/daily-operating-loop",
-      "destination": "/api/dcm-daily-operating-loop?view=loop"
-    },
-    {
-      "source": "/api/origination/business-analyst",
-      "destination": "/api/dcm-daily-operating-loop?view=business-analyst"
-    },
-    {
-      "source": "/api/origination/daily-leads",
-      "destination": "/api/dcm-daily-leads"
-    },
-    {
-      "source": "/api/integrations/microsoft/:operation",
-      "destination": "/api/microsoft?operation=:operation"
-    },
-    {
-      "source": "/api/integrations/task-ai",
-      "destination": "/api/task-ai"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/index"
-    },
-    {
-      "source": "/((?!api).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/health", "destination": "/api/capital-market-health?mode=platform" },
+    { "source": "/api/capital-markets/run", "destination": "/api/capital-market-run" },
+    { "source": "/api/capital-markets/health", "destination": "/api/capital-market-health" },
+    { "source": "/api/sources/public-operations", "destination": "/api/public-data-operations" },
+    { "source": "/api/sources/strategic-run", "destination": "/api/strategic-public-data-run" },
+    { "source": "/api/sources/qsa-fallback-run", "destination": "/api/strategic-public-data-run?mode=qsa-fallback" },
+    { "source": "/api/knowledge-learning-agent", "destination": "/api/agentetome?operation=knowledge-learning" },
+    { "source": "/api/sources/agentetome", "destination": "/api/agentetome?operation=status" },
+    { "source": "/api/sources/agentetome/:operation", "destination": "/api/agentetome?operation=:operation" },
+    { "source": "/api/sources/fidcs/status", "destination": "/api/fidcs?operation=status" },
+    { "source": "/api/sources/fidcs/fund/:cnpj", "destination": "/api/fidcs?operation=fund&cnpj=:cnpj" },
+    { "source": "/api/sources/fidcs/run", "destination": "/api/fidcs?operation=run" },
+    { "source": "/api/sources/fidcs/cron-run", "destination": "/api/fidcs?operation=cron-run" },
+    { "source": "/api/origination/daily-operating-loop", "destination": "/api/dcm-daily-operating-loop?view=loop" },
+    { "source": "/api/origination/business-analyst", "destination": "/api/dcm-daily-operating-loop?view=business-analyst" },
+    { "source": "/api/origination/daily-leads", "destination": "/api/dcm-daily-leads" },
+    { "source": "/api/agents/paper-clip/command", "destination": "/api/paperclip" },
+    { "source": "/api/aba/command", "destination": "/api/paperclip" },
+    { "source": "/api/aba/status", "destination": "/api/paperclip" },
+    { "source": "/api/aba/auto-run", "destination": "/api/paperclip" },
+    { "source": "/api/integrations/microsoft/:operation", "destination": "/api/microsoft?operation=:operation" },
+    { "source": "/api/integrations/task-ai", "destination": "/api/task-ai" },
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/((?!api).*)", "destination": "/index.html" }
   ]
 }
