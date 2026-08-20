@@ -32,6 +32,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: google-drive-cold-archive
@@ -42,8 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
       - name: Validate migration script syntax
@@ -54,9 +55,11 @@ jobs:
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
 
@@ -78,6 +81,7 @@ jobs:
 
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "${missing[@]}" | paste -sd, - | sed 's/^/missing=/' >> "$GITHUB_OUTPUT"
             {
               echo '## Google Drive Cold Archive — paused'
               echo
@@ -92,6 +96,7 @@ jobs:
           fi
 
           echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "missing=" >> "$GITHUB_OUTPUT"
 
       - name: Prove Google OAuth and archive destinations
         if: steps.config.outputs.configured == 'true'
@@ -124,6 +129,7 @@ jobs:
           echo 'oauth_valid=true' >> "$GITHUB_OUTPUT"
 
       - name: Migrate verified archive parts
+        id: archive_migration
         if: steps.config.outputs.configured == 'true' && steps.google_probe.outputs.oauth_valid == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -147,6 +153,10 @@ jobs:
           ARGS=("--limit=${LIMIT}")
           if [ "$DELETE" = 'true' ]; then ARGS+=("--delete-staging"); fi
           node scripts/google-drive-cold-archive-migrate.mjs "${ARGS[@]}" | tee /tmp/google-drive-cold-archive.json
+          echo "scanned=$(jq -r '.scanned // 0' /tmp/google-drive-cold-archive.json)" >> "$GITHUB_OUTPUT"
+          echo "migrated=$(jq -r '.migrated // 0' /tmp/google-drive-cold-archive.json)" >> "$GITHUB_OUTPUT"
+          echo "failed=$(jq -r '.failed // 0' /tmp/google-drive-cold-archive.json)" >> "$GITHUB_OUTPUT"
+          echo "staging_deleted=$(jq -r '.stagingDeleted // 0' /tmp/google-drive-cold-archive.json)" >> "$GITHUB_OUTPUT"
 
       - name: Publish canary summary
         if: always()
@@ -157,8 +167,34 @@ jobs:
             echo
             echo "- repository secrets complete: \`${{ steps.config.outputs.configured || 'false' }}\`"
             echo "- OAuth + Drive + Sheets destinations valid: \`${{ steps.google_probe.outputs.oauth_valid || 'false' }}\`"
+            echo "- eligible parts scanned: \`${{ steps.archive_migration.outputs.scanned || '0' }}\`"
+            echo "- parts migrated: \`${{ steps.archive_migration.outputs.migrated || '0' }}\`"
+            echo "- failures: \`${{ steps.archive_migration.outputs.failed || '0' }}\`"
+            echo "- staging objects deleted: \`${{ steps.archive_migration.outputs.staging_deleted || '0' }}\`"
             if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
               echo '- push safety limit: `1 archive part`'
               echo '- staging deletion on push: `disabled`'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish sanitized proof to issue 460
+        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          BODY=$(cat <<EOF
+          Google Drive cold-archive canary for commit \`${GITHUB_SHA}\`:
+
+          - repository secrets complete: **${{ steps.config.outputs.configured || 'false' }}**
+          - missing secret names: **${{ steps.config.outputs.missing || 'none' }}**
+          - Google OAuth + Drive + Sheets destinations valid: **${{ steps.google_probe.outputs.oauth_valid || 'false' }}**
+          - eligible archive parts scanned: **${{ steps.archive_migration.outputs.scanned || '0' }}**
+          - archive parts migrated: **${{ steps.archive_migration.outputs.migrated || '0' }}**
+          - migration failures: **${{ steps.archive_migration.outputs.failed || '0' }}**
+          - staging objects deleted: **${{ steps.archive_migration.outputs.staging_deleted || '0' }}**
+          - push safety limit: **1 part**
+          - staging deletion on push: **disabled**
+
+          Secret values and OAuth access tokens are never included.
+          EOF
+          )
+          gh issue comment 460 --repo "$GITHUB_REPOSITORY" --body "$BODY"
