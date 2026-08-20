@@ -72,7 +72,7 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Compile strategic Vercel function
-        run: npm -C backend exec -- tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node ../api/strategic-public-data-run.ts
+        run: ./backend/node_modules/.bin/tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node api/strategic-public-data-run.ts
       - name: Guard Vercel ESM boundary
         shell: bash
         run: |
