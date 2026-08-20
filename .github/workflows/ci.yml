@@ -79,11 +79,14 @@ jobs:
       - name: Validate Knowledge Learning Agent service-role contract
         run: npm run test:knowledge-learning-service-role
 
-      - name: Validate Knowledge Learning Agent OIDC contract
+      - name: Validate Knowledge Learning paid-provider lock
         run: npm run test:knowledge-learning-oidc
 
       - name: Validate Knowledge Learning queue governance
         run: npm run test:knowledge-learning-queue
+
+      - name: Enforce zero-cost AI policy
+        run: npm run test:zero-cost-ai
 
       - name: Validate pipeline eligibility contract
         run: npm run test:pipeline-eligibility
