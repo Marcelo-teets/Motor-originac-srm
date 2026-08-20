@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../lib/supabase.js';
+import { applyCandidateMediaRecencyGuard } from '../lib/candidateMediaRecency.js';
 import {
   applyCandidateCommercialSemantics,
   classifyCandidateCommercialSemantics,
@@ -7,7 +8,7 @@ import {
 
 const DEFAULT_LIMIT = 250;
 const MAX_LIMIT = 500;
-const SEMANTICS_VERSION = 3;
+const SEMANTICS_VERSION = 4;
 
 type CandidateRow = {
   id: string;
@@ -21,28 +22,14 @@ type CandidateRow = {
 
 type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
 
-type Dependencies = {
-  client?: SupabaseClient | null;
-  now?: () => Date;
-};
+type Dependencies = { client?: SupabaseClient | null; now?: () => Date };
 
-export type CandidateNewsSemanticsOptions = {
-  limit?: number;
-  force?: boolean;
-};
-
+export type CandidateNewsSemanticsOptions = { limit?: number; force?: boolean };
 export type CandidateNewsSemanticsResult = {
-  status: 'completed' | 'no_targets';
-  inspected: number;
-  classified: number;
-  directFunding: number;
-  fundingPlans: number;
-  creditExpansion: number;
-  intermediaries: number;
-  editorialNoiseDiscarded: number;
-  relevantUnclassified: number;
-  skippedCurrentVersion: number;
-  errors: number;
+  status: 'completed' | 'no_targets'; inspected: number; classified: number;
+  directFunding: number; fundingPlans: number; creditExpansion: number; intermediaries: number;
+  editorialNoiseDiscarded: number; relevantUnclassified: number; staleFundingSuppressed: number;
+  skippedCurrentVersion: number; errors: number;
 };
 
 const signalCounterKey = (signalClass: CandidateCommercialSignalClass) => {
@@ -80,23 +67,16 @@ export class CandidateNewsSemanticsService {
       return {
         status: 'no_targets', inspected: 0, classified: 0, directFunding: 0,
         fundingPlans: 0, creditExpansion: 0, intermediaries: 0,
-        editorialNoiseDiscarded: 0, relevantUnclassified: 0,
+        editorialNoiseDiscarded: 0, relevantUnclassified: 0, staleFundingSuppressed: 0,
         skippedCurrentVersion: 0, errors: 0,
       };
     }
 
     const result: CandidateNewsSemanticsResult = {
-      status: 'completed',
-      inspected: rows.length,
-      classified: 0,
-      directFunding: 0,
-      fundingPlans: 0,
-      creditExpansion: 0,
-      intermediaries: 0,
-      editorialNoiseDiscarded: 0,
-      relevantUnclassified: 0,
-      skippedCurrentVersion: 0,
-      errors: 0,
+      status: 'completed', inspected: rows.length, classified: 0, directFunding: 0,
+      fundingPlans: 0, creditExpansion: 0, intermediaries: 0,
+      editorialNoiseDiscarded: 0, relevantUnclassified: 0, staleFundingSuppressed: 0,
+      skippedCurrentVersion: 0, errors: 0,
     };
 
     for (const row of rows) {
@@ -117,21 +97,20 @@ export class CandidateNewsSemanticsService {
         if (!semantics) continue;
 
         const observedAt = this.now().toISOString();
-        const rawPayload = {
+        const classifiedPayload = {
           ...applyCandidateCommercialSemantics(input),
-          classification_status: semantics.signalClass === 'editorial_noise'
-            ? 'discarded_non_entity'
-            : 'classified',
+          commercial_semantics_version: SEMANTICS_VERSION,
+          classification_status: semantics.signalClass === 'editorial_noise' ? 'discarded_non_entity' : 'classified',
           classification_reason: semantics.reason,
           classification_version: SEMANTICS_VERSION,
           classification_observed_at: observedAt,
           ...(semantics.signalClass === 'editorial_noise'
-            ? {
-              discarded_reason: 'generic_editorial_subject_not_company',
-              discarded_at: observedAt,
-            }
+            ? { discarded_reason: 'generic_editorial_subject_not_company', discarded_at: observedAt }
             : {}),
         };
+        const rawPayload = applyCandidateMediaRecencyGuard(classifiedPayload, this.now());
+        const recency = rawPayload.commercial_recency as Record<string, unknown> | undefined;
+        if (recency?.commercialSuppressed === true) result.staleFundingSuppressed += 1;
 
         await this.client.update('discovered_company_candidates', {
           ...(semantics.signalClass === 'editorial_noise' ? { candidate_status: 'discarded' } : {}),
