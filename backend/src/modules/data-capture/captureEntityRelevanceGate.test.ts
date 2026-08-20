@@ -161,3 +161,74 @@ test('first-party company evidence remains eligible without repeating the compan
   assert.equal(assessment.reason, 'company_bound_source');
   assert.equal(assessment.score, 100);
 });
+
+test('legal-name noise and official domain still resolve the real company alias in RSS evidence', () => {
+  const casasBahia = {
+    ...company,
+    id: '22222222-2222-4222-8222-222222222222',
+    legalName: 'GRUPO CASAS BAHIA S.A.',
+    tradeName: 'GRUPO CASAS BAHIA S.A.',
+    cnpj: '33.041.260/0652-90',
+    website: 'https://www.casasbahia.com.br',
+  } satisfies CompanySeed;
+
+  const rss: MonitoringOutput = {
+    ...output({
+      id: 'rss-casas-bahia',
+      sourceId: 'rss-source',
+      companyId: casasBahia.id,
+      title: 'FIDC Market Signals RSS · GRUPO CASAS BAHIA S.A.',
+      summary: 'Casas Bahia capta R$ 555 milhões com FIDCs de risco sacado | Grupo IOX avança no crédito para PMEs',
+      normalizedPayload: {
+        sourceCode: 'src_fidc_market_rss',
+        sourceCategory: 'news_niche',
+        sourceUrl: 'https://news.google.com/rss/search?q=Grupo+Casas+Bahia',
+        items: [
+          { title: 'Casas Bahia capta R$ 555 milhões com FIDCs de risco sacado', description: 'Nova operação da Casas Bahia.' },
+          { title: 'Grupo IOX avança no crédito para PMEs', description: 'Outra companhia.' },
+        ],
+      },
+    }),
+  };
+
+  const assessment = assessOutputEntityRelevance(casasBahia, rss);
+  assert.equal(assessment.eligible, true);
+  assert.equal(assessment.reason, 'explicit_entity_item_match');
+  assert.equal(assessment.matchedEvidence.length, 1);
+  assert.match(assessment.matchedEvidence[0] ?? '', /Casas Bahia/);
+});
+
+test('separator acronym resolves CASAN without accepting unrelated market content', () => {
+  const casan = {
+    ...company,
+    id: '33333333-3333-4333-8333-333333333333',
+    legalName: 'CIA CAT. DE ÁGUAS E SANEAMENTO - CASAN',
+    tradeName: 'CIA CAT. DE ÁGUAS E SANEAMENTO - CASAN',
+    cnpj: '82.508.433/0001-17',
+    website: 'https://casan.com.br',
+  } satisfies CompanySeed;
+
+  const rss: MonitoringOutput = {
+    ...output({
+      id: 'rss-casan',
+      sourceId: 'rss-source',
+      companyId: casan.id,
+      title: 'DCM Funding RSS · CASAN',
+      summary: 'CASAN aprova nova captação para investimentos | Mercado de crédito privado cresce no Brasil',
+      normalizedPayload: {
+        sourceCode: 'src_dcm_funding_rss',
+        sourceCategory: 'news_niche',
+        sourceUrl: 'https://news.google.com/rss/search?q=CASAN+debenture',
+        items: [
+          { title: 'CASAN aprova nova captação para investimentos', description: 'Conselho aprova operação.' },
+          { title: 'Mercado de crédito privado cresce no Brasil', description: 'Contexto geral.' },
+        ],
+      },
+    }),
+  };
+
+  const assessment = assessOutputEntityRelevance(casan, rss);
+  assert.equal(assessment.eligible, true);
+  assert.equal(assessment.matchedEvidence.length, 1);
+  assert.match(assessment.matchedEvidence[0] ?? '', /CASAN/);
+});
