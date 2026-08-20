@@ -1,4 +1,4 @@
-# Assistente de tarefas — GPT + Claude
+# Assistente de tarefas — modo zero-cost
 
 ## Objetivo
 
@@ -9,34 +9,36 @@ O assistente transforma uma solicitação em linguagem natural em um plano estru
 
 A IA apenas propõe. Nenhuma tarefa é criada sem aprovação explícita do usuário na tela.
 
-## Provedores
+## Política vigente
 
-A tela permite escolher:
+O projeto está sob **ZERO-COST LOCK** até revogação explícita do usuário.
 
-- **Automático**: usa GPT quando `OPENAI_API_KEY` estiver configurada; caso contrário, usa Claude;
-- **GPT**: chama a OpenAI Responses API com Structured Outputs;
-- **Claude**: chama a Anthropic Messages API com tool use e schema de saída.
+Enquanto o lock estiver ativo:
+- OpenAI não é chamada;
+- Anthropic não é chamada;
+- Vercel AI Gateway pago não é chamado;
+- não existe fallback pago;
+- a presença de secrets antigos no ambiente não autoriza seu uso.
 
-## Variáveis de ambiente
+## Provedor
 
-Cadastre na Vercel:
+O Task AI usa somente o **Motor Free Inference Node**, com modelo open-source/local e contrato HTTP compatível com OpenAI Chat Completions apenas como formato de transporte.
+
+## Variáveis de ambiente permitidas
 
 ```text
-OPENAI_API_KEY=<chave da OpenAI>
-OPENAI_TASK_MODEL=gpt-5-mini
-ANTHROPIC_API_KEY=<chave da Anthropic>
-ANTHROPIC_TASK_MODEL=claude-sonnet-4-20250514
+ZERO_COST_AI_POLICY=locked
+FREE_INFERENCE_BASE_URL=https://hungry-mountainous-harddrives--antunespmarcelo.replit.app
+FREE_INFERENCE_MODEL=motor-local
 ```
 
-Pelo menos uma das duas chaves é necessária. Os nomes dos modelos são configuráveis para permitir atualização sem alteração do código.
-
-Nunca use prefixo `VITE_` nessas chaves. Elas devem existir apenas nas funções serverless.
+Nenhuma chave OpenAI, Anthropic ou AI Gateway é requisito operacional.
 
 ## Fluxo
 
 1. O usuário descreve o trabalho.
-2. Escolhe Automático, GPT ou Claude.
-3. A IA devolve:
+2. O Motor envia o prompt ao nó gratuito.
+3. O modelo devolve:
    - resumo;
    - tarefas;
    - destino To Do ou Planner;
@@ -52,15 +54,14 @@ Nunca use prefixo `VITE_` nessas chaves. Elas devem existir apenas nas funções
 ## Regras de segurança e qualidade
 
 - endpoint protegido por sessão Supabase;
-- chaves de IA somente no backend;
-- limite de 12.000 caracteres por solicitação;
+- máximo de 12.000 caracteres aceitos pelo backend e 6.000 caracteres na interface;
 - máximo de 20 tarefas por plano;
-- timeout de 30 segundos por chamada;
 - saída validada no backend antes de chegar ao frontend;
 - datas inválidas são descartadas;
 - destinos e buckets são normalizados;
 - aprovação humana sempre obrigatória;
-- a IA é instruída a não inventar responsáveis, datas, números ou fatos ausentes.
+- a IA é instruída a não inventar responsáveis, datas, números ou fatos ausentes;
+- falha do nó gratuito não dispara provedor pago.
 
 ## Endpoint
 
@@ -68,7 +69,7 @@ Nunca use prefixo `VITE_` nessas chaves. Elas devem existir apenas nas funções
 GET /api/integrations/task-ai
 ```
 
-Retorna os provedores configurados e modelos ativos.
+Retorna o status do Motor Free Inference Node e confirma que fallback pago está desativado.
 
 ```text
 POST /api/integrations/task-ai
@@ -76,24 +77,19 @@ Content-Type: application/json
 Authorization: Bearer <SUPABASE_ACCESS_TOKEN>
 
 {
-  "provider": "auto",
   "prompt": "Preparar a reunião de quinta e dividir as entregas com o time"
 }
 ```
 
 ## Diagnóstico
 
-### GPT não aparece disponível
+### Nó gratuito indisponível
 
-Confirme `OPENAI_API_KEY` na Vercel e faça novo deployment.
-
-### Claude não aparece disponível
-
-Confirme `ANTHROPIC_API_KEY` na Vercel e faça novo deployment.
+O assistente fica temporariamente indisponível. Nenhum provedor pago é utilizado como fallback e o restante da plataforma continua funcionando.
 
 ### A IA gera tarefas, mas a criação falha
 
-A camada de IA está funcionando, mas a integração Microsoft ainda não está completamente ativada. Revise:
+A camada de IA está funcionando, mas a integração Microsoft pode ainda não estar completamente ativada. Revise:
 
 - conexão Microsoft;
 - migration do Supabase;
@@ -104,3 +100,7 @@ A camada de IA está funcionando, mas a integração Microsoft ainda não está 
 ### Prazo não foi preenchido
 
 O assistente só define uma data quando o pedido contém informação suficiente. Isso evita inventar prazos.
+
+## Revogação
+
+A volta de qualquer API paga exige autorização explícita do usuário, novo PR, revisão do contrato `zero-cost-ai-policy` e validação prévia de custo.
