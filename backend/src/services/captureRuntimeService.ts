@@ -54,15 +54,15 @@ export class CaptureRuntimeService {
 
     const reason = options.reason ?? options.triggerType ?? 'manual';
     const persisted = await this.persistence.persist(captureResults, reason);
-    const treatmentDecisionResults = filterCaptureResultsForDecision(captureResults, persisted.decisionGate);
-    const entityRelevanceGate = filterCaptureResultsForEntityRelevance(treatmentDecisionResults, targetCompanies);
-    const decisionCaptureResults = entityRelevanceGate.results;
+    const decisionCaptureResults = filterCaptureResultsForDecision(captureResults, persisted.decisionGate);
+    const entityRelevanceGate = filterCaptureResultsForEntityRelevance(decisionCaptureResults, targetCompanies);
+    const entityRelevantCaptureResults = entityRelevanceGate.results;
 
     // Raw evidence remains broad and auditable. Decision artifacts are intentionally narrower:
     // Company Master eligibility, treatment/quality and semantic entity relevance must all pass
     // before qualification, patterns, scores, ranking inputs or pipeline can move.
     const companiesWithEligibleEvidence = new Set(
-      decisionCaptureResults
+      entityRelevantCaptureResults
         .filter((result) => result.outputs.length > 0)
         .map((result) => result.run.companyId)
         .filter((companyId): companyId is string => Boolean(companyId)),
@@ -73,7 +73,7 @@ export class CaptureRuntimeService {
     const derived = await this.derivedSync.sync({
       companies: decisionCompanies,
       patternCatalog,
-      captureResults: decisionCaptureResults,
+      captureResults: entityRelevantCaptureResults,
       reason,
     });
 
@@ -90,12 +90,12 @@ export class CaptureRuntimeService {
       companiesEligibleForDerivedDecision: decisionCompanies.length,
       companiesSkippedFromDerivedDecision: Math.max(0, targetCompanies.length - decisionCompanies.length),
       outputsCollected: captureResults.reduce((sum, result) => sum + result.outputs.length, 0),
-      outputsTreatmentEligible: treatmentDecisionResults.reduce((sum, result) => sum + result.outputs.length, 0),
-      outputsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
+      outputsTreatmentEligible: decisionCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
+      outputsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
       signalsCollected: captureResults.reduce((sum, result) => sum + result.signals.length, 0),
-      signalsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
+      signalsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
       enrichmentsCollected: captureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
-      enrichmentsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
+      enrichmentsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
       documentsCollected: captureResults.reduce((sum, result) => sum + result.documents.length, 0),
       entityRelevanceGate: entityRelevanceGate.diagnostics,
       persisted,
