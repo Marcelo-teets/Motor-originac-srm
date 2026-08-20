@@ -109,13 +109,16 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "{\"batchSize\":1,\"dailyLimit\":1000,\"leaseSeconds\":600,\"workerId\":\"provider-canary-${GITHUB_RUN_ID}\"}" \
             "$PRODUCTION_URL/api/knowledge-learning-agent" || true)"
-          jq '{httpCode:env.HTTP_CODE,status:(.status // "unknown"),runtime:(.runtime // null),claimed:(.claimed // 0),completed:(.completed // 0),failed:(.failed // 0),hasError:(.error != null)}' \
-            --argjson HTTP_CODE "${HTTP_CODE:-0}" /tmp/knowledge-probe.json 2>/dev/null > /tmp/knowledge-probe-sanitized.json || \
-            printf '{"httpCode":%s,"status":"unparseable","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
+          if [ -f /tmp/knowledge-probe.json ]; then
+            jq --argjson httpCode "${HTTP_CODE:-0}" \
+              '{httpCode:$httpCode,status:(.status // "unknown"),runtime:(.runtime // null),claimed:(.claimed // 0),completed:(.completed // 0),failed:(.failed // 0),hasError:(.error != null)}' \
+              /tmp/knowledge-probe.json > /tmp/knowledge-probe-sanitized.json 2>/dev/null || \
+              printf '{"httpCode":%s,"status":"unparseable","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
+          else
+            printf '{"httpCode":%s,"status":"no_response","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
+          fi
           cat /tmp/knowledge-probe-sanitized.json
           echo "http_code=${HTTP_CODE:-0}" >> "$GITHUB_OUTPUT"
-        env:
-          HTTP_CODE: '0'
 
       - name: Publish sanitized evidence to issue 461
         if: always()
