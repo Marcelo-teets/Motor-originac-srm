@@ -58,7 +58,12 @@ jobs:
             const codeBlockers = marker.acceptance?.codeBlockers ?? marker.acceptance?.blockers;
             if (codeBlockers !== 0) process.exit(1);
             if (!Number.isInteger(marker.acceptance?.externalBlockers ?? 0)) process.exit(1);
-            if (marker.acceptance?.scoreImpact !== false) process.exit(1);
+            const followUpKind = marker.followUp?.kind ?? null;
+            const expectedScoreImpact = followUpKind === "entity-relevance-gate-v3-production-rollout";
+            if (marker.acceptance?.scoreImpact !== expectedScoreImpact) {
+              console.error(`scoreImpact mismatch for follow-up ${followUpKind ?? "none"}: expected ${expectedScoreImpact}`);
+              process.exit(1);
+            }
           '
 
       - name: Confirm automatic Git deployments are paused
