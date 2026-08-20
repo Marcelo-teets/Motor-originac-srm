@@ -1,29 +1,36 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-20T02:55:00Z",
+  "requestedAt": "2026-08-20T20:55:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "provider-runtime-control-plane-rollout",
-    "previousProductionSha": "f229aaaa247ef3bc54c9edeccdff7725555cee88",
+    "kind": "zero-cost-ai-runtime-rollout",
+    "previousProductionSha": "current-production-before-merge",
     "applicationHeadSha": "current-main-on-merge",
     "stabilityCloseoutIssues": [459, 460, 461],
     "fixes": [
+      "zero-cost-ai-policy-lock",
+      "openai-runtime-blocked",
+      "anthropic-runtime-blocked",
+      "paid-vercel-ai-gateway-runtime-blocked",
+      "motor-free-inference-node-default",
+      "paid-knowledge-learning-schedule-disabled",
+      "provider-canary-without-paid-inference",
+      "task-ai-ui-paid-provider-controls-removed",
       "sanitized-microsoft-runtime-readiness-probe",
-      "real-openai-and-anthropic-task-ai-connectivity-probes",
-      "mais-retorno-v4-free-search-connectivity-probe",
+      "mais-retorno-v4-zero-credit-search-connectivity-probe",
       "google-oauth-cold-archive-issue-evidence",
-      "source-control-sheet-independent-summary-repair",
-      "source-control-sheet-secret-readiness-evidence"
+      "source-control-sheet-independent-summary-repair"
     ],
     "validate": [
       "deploy-exact-current-main-sha",
       "ci-success",
-      "provider-runtime-canary-executes-after-exact-production-sha",
+      "zero-cost-ai-contract-green",
+      "provider-runtime-canary-confirms-paid-providers-blocked",
+      "knowledge-learning-entrypoint-returns-policy-lock-without-provider-call",
       "google-oauth-evidence-published-without-secret-values",
-      "source-control-sheet-summary-repair-verified",
       "automatic-git-deployments-disabled"
     ]
   },
@@ -33,11 +40,10 @@
     "rolloutStatus": "pending-deploy",
     "rolloutHealth": "pending-validation",
     "codeBlockers": 0,
-    "externalBlockers": 1,
-    "externalBlocker": "Vercel AI Gateway billing requires a valid card before model inference if the real gateway canary confirms billing rejection",
-    "externalWarnings": 1,
-    "externalWarning": "Supabase SQL connections remain degraded until the pg_cron stabilization migration can be applied successfully",
-    "currentFidcFunds": 183,
+    "paidAiAllowed": false,
+    "paidAiPolicy": "locked-until-explicit-user-revocation",
+    "externalWarnings": 2,
+    "externalWarning": "Supabase SQL connections may remain degraded until the pg_cron stabilization migration can be applied successfully; Replit free-tier availability must continue to be monitored and must fail closed rather than incur paid fallback.",
     "scoreImpact": false
   }
 }
