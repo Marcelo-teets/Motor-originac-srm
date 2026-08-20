@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildSummaryFromDisplayedRows } from './source-control-sheet-summary-repair.mjs';
+import { buildSummaryFromDisplayedRows, normalizeRowsForComparison } from './source-control-sheet-summary-repair.mjs';
 
 test('counts localized status and health labels from displayed Sheet rows', () => {
   const summary = buildSummaryFromDisplayedRows([
@@ -14,4 +14,13 @@ test('counts localized status and health labels from displayed Sheet rows', () =
     ['Total', 4, 'Real', 1, 'Ativa', 1, 'Parcial', 1],
     ['Planejada', 1, 'Saudável', 2, 'Degradada', 2, 'Controle', 'Supabase → Sheets'],
   ]);
+});
+
+test('treats numeric values read back from Sheets as equivalent strings', () => {
+  const actual = [['Total', '4', 'Real', '1']];
+  const expected = [['Total', 4, 'Real', 1]];
+  assert.equal(
+    JSON.stringify(normalizeRowsForComparison(actual)),
+    JSON.stringify(normalizeRowsForComparison(expected)),
+  );
 });
