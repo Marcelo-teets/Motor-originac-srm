@@ -2,7 +2,7 @@
   "name": "motor-originac-srm",
   "private": true,
   "version": "0.1.0",
-  "engines": { "node": "22.x" },
+  "engines": { "node": "24.x" },
   "workspaces": ["frontend", "backend"],
   "scripts": {
     "dev": "npm -C backend run dev",

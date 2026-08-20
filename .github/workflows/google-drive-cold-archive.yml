@@ -93,8 +93,38 @@ jobs:
 
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
-      - name: Migrate verified archive parts
+      - name: Prove Google OAuth and archive destinations
         if: steps.config.outputs.configured == 'true'
+        id: google_probe
+        shell: bash
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ARCHIVE_FOLDER_ID: 16RwLyzLUm45BshgO5Qkr9kZunYBfDuNV
+          GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID: 1z29lCdGlZdndvurzZP7LqGPOreyIm5onlnmFvUquY3Y
+        run: |
+          set -euo pipefail
+          TOKEN_JSON="$(curl -fsS --max-time 30 -X POST https://oauth2.googleapis.com/token \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "client_id=$GOOGLE_DRIVE_CLIENT_ID" \
+            --data-urlencode "client_secret=$GOOGLE_DRIVE_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$GOOGLE_DRIVE_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token')"
+          ACCESS_TOKEN="$(printf '%s' "$TOKEN_JSON" | jq -r '.access_token // empty')"
+          test -n "$ACCESS_TOKEN" || { echo 'Google OAuth did not return an access token.'; exit 1; }
+          curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://www.googleapis.com/drive/v3/files/$GOOGLE_DRIVE_ARCHIVE_FOLDER_ID?fields=id,name,mimeType" \
+            | jq -e '.id and .name and .mimeType' >/dev/null
+          curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "https://sheets.googleapis.com/v4/spreadsheets/$GOOGLE_DRIVE_CATALOG_SPREADSHEET_ID?fields=spreadsheetId,properties.title" \
+            | jq -e '.spreadsheetId and .properties.title' >/dev/null
+          echo 'oauth_valid=true' >> "$GITHUB_OUTPUT"
+
+      - name: Migrate verified archive parts
+        if: steps.config.outputs.configured == 'true' && steps.google_probe.outputs.oauth_valid == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -108,6 +138,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ARGS=("--limit=${REQUESTED_LIMIT}")
-          if [ "$DELETE_STAGING" = "true" ]; then ARGS+=("--delete-staging"); fi
-          node scripts/google-drive-cold-archive-migrate.mjs "${ARGS[@]}"
+          LIMIT="$REQUESTED_LIMIT"
+          DELETE="$DELETE_STAGING"
+          if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
+            LIMIT='1'
+            DELETE='false'
+          fi
+          ARGS=("--limit=${LIMIT}")
+          if [ "$DELETE" = 'true' ]; then ARGS+=("--delete-staging"); fi
+          node scripts/google-drive-cold-archive-migrate.mjs "${ARGS[@]}" | tee /tmp/google-drive-cold-archive.json
+
+      - name: Publish canary summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Google Drive Cold Archive — execution proof'
+            echo
+            echo "- repository secrets complete: \`${{ steps.config.outputs.configured || 'false' }}\`"
+            echo "- OAuth + Drive + Sheets destinations valid: \`${{ steps.google_probe.outputs.oauth_valid || 'false' }}\`"
+            if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
+              echo '- push safety limit: `1 archive part`'
+              echo '- staging deletion on push: `disabled`'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

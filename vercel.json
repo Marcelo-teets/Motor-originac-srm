@@ -47,10 +47,6 @@
   },
   "crons": [
     {
-      "path": "/api/data-capture/cron/run",
-      "schedule": "30 10 * * *"
-    },
-    {
       "path": "/api/strategic-public-data-run",
       "schedule": "15 9 * * 1"
     },

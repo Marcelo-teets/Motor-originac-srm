@@ -21,10 +21,10 @@ const [
 const packageJson = JSON.parse(packageSource);
 const vercelJson = JSON.parse(vercelSource);
 
-test('Vercel production and CI are aligned on the stable Node 22 runtime', () => {
-  assert.equal(packageJson.engines?.node, '22.x');
-  assert.match(ciSource, /node-version:\s*22/);
-  assert.doesNotMatch(ciSource, /node-version:\s*24/);
+test('Vercel production and CI are aligned on the stable Node 24 runtime', () => {
+  assert.equal(packageJson.engines?.node, '24.x');
+  assert.match(ciSource, /node-version:\s*24/);
+  assert.doesNotMatch(ciSource, /node-version:\s*22/);
 });
 
 test('CI uses current Node 24-native GitHub Actions without write access', () => {

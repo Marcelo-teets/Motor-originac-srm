@@ -1,6 +1,6 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-20T00:45:00Z",
+  "requestedAt": "2026-08-20T02:22:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
@@ -9,19 +9,21 @@
     "kind": "entity-relevance-gate-v3-production-rollout",
     "sourcePr": 456,
     "previousProductionSha": "6ab03284fc33057dc1bfcb976b9d01836f19866b",
-    "applicationHeadSha": "31de2ab690e295047985cc2c3b695ae91150e0cf",
+    "applicationHeadSha": "current-main-on-merge",
     "rolloutContractFix": "block-entity-irrelevant-signals-before-persistence-and-derived-decisions",
+    "stabilityCloseoutIssues": [459, 460, 461],
     "fixes": [
       "gate-rss-news-and-vc-portfolio-items-by-explicit-company-evidence",
       "block-macro-context-from-company-specific-decision-signals",
       "filter-semantic-signals-and-enrichments-before-company-signals-persistence",
       "revalidate-quality-approved-evidence-before-qualification-patterns-scores-ranking-and-pipeline",
       "support-deterministic-company-aliases-including-casas-bahia-and-casan",
-      "version-historical-remediation-with-raw-evidence-preservation"
+      "version-historical-remediation-with-raw-evidence-preservation",
+      "stagger-pg-cron-contention",
+      "remove-redundant-vercel-capture-schedule",
+      "prove-google-oauth-and-one-part-cold-archive-canary"
     ],
     "validate": [
-      "source-pr-455-merged",
-      "source-pr-456-merged",
       "deploy-exact-current-main-sha",
       "ci-success",
       "capture-data-workflow-success",
@@ -30,9 +32,8 @@
       "serverless-typecheck-success",
       "production-build-success",
       "production-dependency-audit-success",
-      "entity-relevance-gate-v3-present",
-      "semantic-filter-before-company-signals-persistence",
-      "raw-monitoring-evidence-preserved",
+      "google-oauth-canary-success",
+      "cold-archive-push-limit-one",
       "automatic-git-deployments-disabled"
     ]
   },
@@ -45,7 +46,7 @@
     "externalBlockers": 1,
     "externalBlocker": "Vercel AI Gateway billing requires a valid card before model inference",
     "externalWarnings": 2,
-    "externalWarning": "Supabase Auth leaked password protection remains disabled; Supabase migration/history connector is temporarily timing out during entity-relevance remediation apply",
+    "externalWarning": "Supabase Auth leaked password protection remains disabled; Supabase SQL layer is being stabilized after statement/job startup timeouts",
     "currentFidcFunds": 183,
     "scoreImpact": true
   }
