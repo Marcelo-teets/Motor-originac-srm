@@ -26,6 +26,7 @@
     "test:knowledge-learning-service-role": "node --test scripts/knowledge-learning-service-role-contract.test.mjs",
     "test:knowledge-learning-oidc": "node --test scripts/knowledge-learning-oidc-contract.test.mjs",
     "test:knowledge-learning-queue": "node --test scripts/knowledge-learning-queue-governance.test.mjs",
+    "test:zero-cost-ai": "node --test scripts/zero-cost-ai-policy.test.mjs",
     "test:pipeline-eligibility": "node --test scripts/pipeline-eligibility-contract.test.mjs",
     "test:database-hardening": "node --test scripts/database-ownership-lineage-contract.test.mjs",
     "test:capture-derived-decision-gate": "node --test scripts/capture-derived-decision-contract.test.mjs scripts/entity-relevance-remediation-contract.test.mjs && tsx --test backend/src/modules/data-capture/captureTreatment.test.ts backend/src/modules/data-capture/captureDecisionGate.test.ts backend/src/modules/data-capture/captureEntityRelevanceGate.test.ts",
