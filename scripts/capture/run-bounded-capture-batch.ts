@@ -31,14 +31,50 @@ const requireProductionPersistence = () => {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for scheduled capture.');
 };
 
-const diversifyBySource = (targets: BoundedCaptureTarget[]) => {
-  const firstBySource = new Map<string, BoundedCaptureTarget>();
-  const remainder: BoundedCaptureTarget[] = [];
+/**
+ * Selects a bounded smoke/sample fairly across companies.
+ * buildBoundedCaptureTargets is company-major, so taking the first N rows would
+ * concentrate work on the first company. Round-robin selection gives every
+ * eligible company a chance before selecting a second source for the same one.
+ */
+export const selectCaptureTargetsRoundRobin = (
+  targets: BoundedCaptureTarget[],
+  limit: number,
+): BoundedCaptureTarget[] => {
+  if (limit >= targets.length) return [...targets];
+  const byCompany = new Map<string, BoundedCaptureTarget[]>();
   for (const target of targets) {
-    if (!firstBySource.has(target.sourceId)) firstBySource.set(target.sourceId, target);
-    else remainder.push(target);
+    const queue = byCompany.get(target.companyId) ?? [];
+    queue.push(target);
+    byCompany.set(target.companyId, queue);
   }
-  return [...firstBySource.values(), ...remainder];
+
+  const queues = [...byCompany.values()];
+  const selected: BoundedCaptureTarget[] = [];
+  let round = 0;
+  while (selected.length < limit) {
+    let added = false;
+    for (const queue of queues) {
+      const target = queue[round];
+      if (!target) continue;
+      selected.push(target);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+    if (!added) break;
+    round += 1;
+  }
+  return selected;
+};
+
+export const groupCaptureTargetsByCompany = (targets: BoundedCaptureTarget[]) => {
+  const groups = new Map<string, BoundedCaptureTarget[]>();
+  for (const target of targets) {
+    const group = groups.get(target.companyId) ?? [];
+    group.push(target);
+    groups.set(target.companyId, group);
+  }
+  return [...groups.values()];
 };
 
 type TargetResult = {
@@ -76,6 +112,7 @@ const renderSummary = (cadence: CaptureCadence, allTargets: number, selectedTarg
     `- partial: ${partial}`,
     `- failed: ${failed}`,
     `- external fetch deadline: ${BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS}ms`,
+    '- concurrency policy: parallel-between-companies / serial-within-company',
     '',
     '| status | company | source | duration ms | outputs | signals | enrichments |',
     '|---|---|---|---:|---:|---:|---:|',
@@ -90,7 +127,7 @@ export const runDirectCaptureBatch = async () => {
   const cadence = asCadence(process.env.CAPTURE_CADENCE);
   const parallelism = asPositiveInteger(process.env.MAX_PARALLELISM, 3, 8);
   const targetCap = asPositiveInteger(process.env.MAX_CAPTURE_TARGETS, Number.MAX_SAFE_INTEGER, 10_000);
-  const release = String(process.env.CAPTURE_RELEASE ?? 'direct-github-runner-v1');
+  const release = String(process.env.CAPTURE_RELEASE ?? 'github-actions-direct-v2-company-serialized');
 
   const repository = createPlatformRepository('supabase');
   const runtime = new CaptureRuntimeService(repository);
@@ -100,113 +137,102 @@ export const runDirectCaptureBatch = async () => {
   ]);
 
   const allTargets = buildBoundedCaptureTargets(companies, sources, true, cadence);
-  const targets = diversifyBySource(allTargets).slice(0, targetCap);
+  const targets = selectCaptureTargetsRoundRobin(allTargets, targetCap);
+  const companyGroups = groupCaptureTargetsByCompany(targets);
   console.log(JSON.stringify({
     event: 'direct_capture_start',
     cadence,
     release,
-    companies: new Set(targets.map((item) => item.companyId)).size,
+    companies: companyGroups.length,
     sources: new Set(targets.map((item) => item.sourceId)).size,
     eligibleTargets: allTargets.length,
     selectedTargets: targets.length,
     parallelism,
+    concurrencyPolicy: 'parallel_between_companies_serial_within_company',
   }));
 
   const results: TargetResult[] = [];
-  let cursor = 0;
+  let companyCursor = 0;
+
+  const runTarget = async (target: BoundedCaptureTarget, workerId: number) => {
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    try {
+      const result = await withBoundedExternalFetch(() => runtime.run({
+        companyId: target.companyId,
+        sourceId: target.sourceId,
+        triggerType: 'cron',
+        reason: `github_actions_direct_capture:${release}`,
+      }));
+      const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
+      const status: TargetResult['status'] = result.persisted.status === 'real' && persistedErrors.length === 0
+        ? 'completed'
+        : 'partial';
+      const finishedAt = new Date().toISOString();
+      const errorMessage = persistedErrors.length ? persistedErrors.slice(0, 3).join(' | ') : undefined;
+
+      await safeAudit({
+        triggerType: 'cron', status, startedAt, finishedAt,
+        companyId: target.companyId, sourceId: target.sourceId,
+        itemsCollected: result.outputsCollected,
+        outputsWritten: result.persisted.outputsWritten,
+        signalsWritten: result.persisted.signalsWritten,
+        enrichmentsWritten: result.persisted.enrichmentsWritten,
+        errorMessage: errorMessage ?? null,
+        metadata: {
+          auditVersion: 'github_actions_direct_capture_v2',
+          runtime: 'github-actions-direct', release, workerId, cadence,
+          concurrencyPolicy: 'serial_within_company',
+          externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS,
+          requested: result.requested,
+          companiesProcessed: result.companiesProcessed,
+          documentsCollected: result.documentsCollected,
+          persisted: result.persisted,
+        },
+      });
+
+      results.push({
+        ...target, status, durationMs: Date.now() - startedMs,
+        outputsWritten: result.persisted.outputsWritten,
+        signalsWritten: result.persisted.signalsWritten,
+        enrichmentsWritten: result.persisted.enrichmentsWritten,
+        ...(errorMessage ? { error: errorMessage } : {}),
+      });
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await safeAudit({
+        triggerType: 'cron', status: 'failed', startedAt, finishedAt,
+        companyId: target.companyId, sourceId: target.sourceId, errorMessage,
+        metadata: {
+          auditVersion: 'github_actions_direct_capture_v2', runtime: 'github-actions-direct',
+          release, workerId, cadence, concurrencyPolicy: 'serial_within_company',
+          externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS,
+        },
+      });
+      results.push({
+        ...target, status: 'failed', durationMs: Date.now() - startedMs,
+        outputsWritten: 0, signalsWritten: 0, enrichmentsWritten: 0, error: errorMessage,
+      });
+    }
+  };
 
   const worker = async (workerId: number) => {
     while (true) {
-      const index = cursor;
-      cursor += 1;
-      const target = targets[index];
-      if (!target) return;
-
-      const startedAt = new Date().toISOString();
-      const startedMs = Date.now();
-      try {
-        const result = await withBoundedExternalFetch(() => runtime.run({
-          companyId: target.companyId,
-          sourceId: target.sourceId,
-          triggerType: 'cron',
-          reason: `github_actions_direct_capture:${release}`,
-        }));
-        const persistedErrors = Array.isArray(result.persisted.errors) ? result.persisted.errors : [];
-        const status: TargetResult['status'] = result.persisted.status === 'real' && persistedErrors.length === 0
-          ? 'completed'
-          : 'partial';
-        const finishedAt = new Date().toISOString();
-        const errorMessage = persistedErrors.length ? persistedErrors.slice(0, 3).join(' | ') : undefined;
-
-        await safeAudit({
-          triggerType: 'cron',
-          status,
-          startedAt,
-          finishedAt,
-          companyId: target.companyId,
-          sourceId: target.sourceId,
-          itemsCollected: result.outputsCollected,
-          outputsWritten: result.persisted.outputsWritten,
-          signalsWritten: result.persisted.signalsWritten,
-          enrichmentsWritten: result.persisted.enrichmentsWritten,
-          errorMessage: errorMessage ?? null,
-          metadata: {
-            auditVersion: 'github_actions_direct_capture_v1',
-            runtime: 'github-actions-direct',
-            release,
-            workerId,
-            cadence,
-            externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS,
-            requested: result.requested,
-            companiesProcessed: result.companiesProcessed,
-            documentsCollected: result.documentsCollected,
-            persisted: result.persisted,
-          },
-        });
-
-        results.push({
-          ...target,
-          status,
-          durationMs: Date.now() - startedMs,
-          outputsWritten: result.persisted.outputsWritten,
-          signalsWritten: result.persisted.signalsWritten,
-          enrichmentsWritten: result.persisted.enrichmentsWritten,
-          ...(errorMessage ? { error: errorMessage } : {}),
-        });
-      } catch (error) {
-        const finishedAt = new Date().toISOString();
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        await safeAudit({
-          triggerType: 'cron',
-          status: 'failed',
-          startedAt,
-          finishedAt,
-          companyId: target.companyId,
-          sourceId: target.sourceId,
-          errorMessage,
-          metadata: {
-            auditVersion: 'github_actions_direct_capture_v1',
-            runtime: 'github-actions-direct',
-            release,
-            workerId,
-            cadence,
-            externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS,
-          },
-        });
-        results.push({
-          ...target,
-          status: 'failed',
-          durationMs: Date.now() - startedMs,
-          outputsWritten: 0,
-          signalsWritten: 0,
-          enrichmentsWritten: 0,
-          error: errorMessage,
-        });
+      const groupIndex = companyCursor;
+      companyCursor += 1;
+      const group = companyGroups[groupIndex];
+      if (!group) return;
+      for (const target of group) {
+        await runTarget(target, workerId);
       }
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(parallelism, Math.max(1, targets.length)) }, (_, index) => worker(index + 1)));
+  await Promise.all(Array.from(
+    { length: Math.min(parallelism, Math.max(1, companyGroups.length)) },
+    (_, index) => worker(index + 1),
+  ));
   results.sort((a, b) => a.sourceName.localeCompare(b.sourceName) || a.companyName.localeCompare(b.companyName));
   const summary = renderSummary(cadence, allTargets.length, targets.length, results);
   console.log(summary.text);
@@ -214,10 +240,7 @@ export const runDirectCaptureBatch = async () => {
 
   if (summary.failed > 0 || summary.partial > 0) {
     const failures = results.filter((item) => item.status !== 'completed').map((item) => ({
-      status: item.status,
-      company: item.companyName,
-      source: item.sourceName,
-      error: item.error,
+      status: item.status, company: item.companyName, source: item.sourceName, error: item.error,
     }));
     console.error(JSON.stringify({ event: 'direct_capture_failed', failures }, null, 2));
     process.exitCode = 1;
