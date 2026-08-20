@@ -40,10 +40,12 @@
     "rolloutStatus": "pending-deploy",
     "rolloutHealth": "pending-validation",
     "codeBlockers": 0,
+    "externalBlockers": 1,
+    "externalBlocker": "Supabase SQL connections remain degraded until the pg_cron stabilization migration can be applied successfully; this does not authorize paid AI or paid infrastructure fallback.",
     "paidAiAllowed": false,
     "paidAiPolicy": "locked-until-explicit-user-revocation",
-    "externalWarnings": 2,
-    "externalWarning": "Supabase SQL connections may remain degraded until the pg_cron stabilization migration can be applied successfully; Replit free-tier availability must continue to be monitored and must fail closed rather than incur paid fallback.",
+    "externalWarnings": 1,
+    "externalWarning": "Replit free-tier availability must continue to fail closed: if free inference cannot be served at zero cost, AI is paused instead of moving to a paid provider.",
     "scoreImpact": false
   }
 }
