@@ -53,16 +53,27 @@ export class CaptureRuntimeService {
     }, targetCompanies, targetSources);
 
     const reason = options.reason ?? options.triggerType ?? 'manual';
-    const persisted = await this.persistence.persist(captureResults, reason);
-    const decisionCaptureResults = filterCaptureResultsForDecision(captureResults, persisted.decisionGate);
-    const entityRelevanceGate = filterCaptureResultsForEntityRelevance(decisionCaptureResults, targetCompanies);
-    const entityRelevantCaptureResults = entityRelevanceGate.results;
 
-    // Raw evidence remains broad and auditable. Decision artifacts are intentionally narrower:
-    // Company Master eligibility, treatment/quality and semantic entity relevance must all pass
-    // before qualification, patterns, scores, ranking inputs or pipeline can move.
+    // Preserve every raw output/document/treatment record, but never persist semantic signals or
+    // enrichments that are not actually about the target company. This matters because inserting a
+    // company_signal immediately feeds the Factor Map through database triggers.
+    const prePersistenceEntityGate = filterCaptureResultsForEntityRelevance(captureResults, targetCompanies);
+    const persistenceCaptureResults = captureResults.map((result, index) => ({
+      ...result,
+      signals: prePersistenceEntityGate.results[index]?.signals ?? [],
+      enrichments: prePersistenceEntityGate.results[index]?.enrichments ?? [],
+    }));
+
+    const persisted = await this.persistence.persist(persistenceCaptureResults, reason);
+    const qualityDecisionResults = filterCaptureResultsForDecision(captureResults, persisted.decisionGate);
+    const entityRelevanceGate = filterCaptureResultsForEntityRelevance(qualityDecisionResults, targetCompanies);
+    const decisionCaptureResults = entityRelevanceGate.results;
+
+    // Decision artifacts are narrower than persisted raw evidence: Company Master eligibility,
+    // treatment/quality and semantic entity relevance must all pass before qualification, patterns,
+    // scores, ranking inputs or pipeline can move.
     const companiesWithEligibleEvidence = new Set(
-      entityRelevantCaptureResults
+      decisionCaptureResults
         .filter((result) => result.outputs.length > 0)
         .map((result) => result.run.companyId)
         .filter((companyId): companyId is string => Boolean(companyId)),
@@ -73,7 +84,7 @@ export class CaptureRuntimeService {
     const derived = await this.derivedSync.sync({
       companies: decisionCompanies,
       patternCatalog,
-      captureResults: entityRelevantCaptureResults,
+      captureResults: decisionCaptureResults,
       reason,
     });
 
@@ -90,13 +101,16 @@ export class CaptureRuntimeService {
       companiesEligibleForDerivedDecision: decisionCompanies.length,
       companiesSkippedFromDerivedDecision: Math.max(0, targetCompanies.length - decisionCompanies.length),
       outputsCollected: captureResults.reduce((sum, result) => sum + result.outputs.length, 0),
-      outputsTreatmentEligible: decisionCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
-      outputsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
+      outputsTreatmentEligible: qualityDecisionResults.reduce((sum, result) => sum + result.outputs.length, 0),
+      outputsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.outputs.length, 0),
       signalsCollected: captureResults.reduce((sum, result) => sum + result.signals.length, 0),
-      signalsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
+      signalsEntityRelevantForPersistence: persistenceCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
+      signalsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.signals.length, 0),
       enrichmentsCollected: captureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
-      enrichmentsDecisionEligible: entityRelevantCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
+      enrichmentsEntityRelevantForPersistence: persistenceCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
+      enrichmentsDecisionEligible: decisionCaptureResults.reduce((sum, result) => sum + result.enrichments.length, 0),
       documentsCollected: captureResults.reduce((sum, result) => sum + result.documents.length, 0),
+      prePersistenceEntityGate: prePersistenceEntityGate.diagnostics,
       entityRelevanceGate: entityRelevanceGate.diagnostics,
       persisted,
       derived,
