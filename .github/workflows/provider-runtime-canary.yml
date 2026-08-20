@@ -1,0 +1,144 @@
+name: Provider Runtime Canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/provider-runtime-canary.yml'
+      - 'api/public-data-operations.ts'
+      - '.env.example'
+      - 'ops/rollouts/agentetome-production-2026-07-26.json'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/provider-runtime-canary.yml'
+      - 'api/public-data-operations.ts'
+      - '.env.example'
+      - 'ops/rollouts/agentetome-production-2026-07-26.json'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: provider-runtime-canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck serverless provider surface
+        run: npm run typecheck:serverless
+      - name: Guard sanitized provider probe contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "operation === 'provider-probe'" api/public-data-operations.ts
+          grep -F "timingSafeEqual" api/public-data-operations.ts
+          grep -F "X-Api-Key" api/public-data-operations.ts
+          grep -F "https://data.maisretorno.com/mr-data/v4/api" api/public-data-operations.ts
+          ! grep -Eq "console\.(log|error).*API_KEY|writeJson\(.*API_KEY" api/public-data-operations.ts
+
+  production-canary:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      PRODUCTION_URL: https://motor-originac-srm.vercel.app
+      EXPECTED_SHA: ${{ github.sha }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate canary secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET" || { echo 'CRON_SECRET is missing.'; exit 1; }
+
+      - name: Wait for exact controlled production artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            CURRENT_SHA="$(curl -fsS --max-time 10 -H 'cache-control: no-cache' "$PRODUCTION_URL/api/health" | jq -r '.data.build.gitSha // empty' || true)"
+            if [ "$CURRENT_SHA" = "$EXPECTED_SHA" ]; then
+              echo "Production is on expected SHA $EXPECTED_SHA."
+              exit 0
+            fi
+            echo "Attempt $attempt: production=${CURRENT_SHA:-unavailable}; expected=$EXPECTED_SHA"
+            sleep 10
+          done
+          echo "Production did not reach expected SHA $EXPECTED_SHA."
+          exit 1
+
+      - name: Probe Microsoft, Task AI and Mais Retorno
+        id: providers
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP_CODE="$(curl -sS --max-time 25 \
+            -o /tmp/provider-probe.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$PRODUCTION_URL/api/sources/public-operations?operation=provider-probe")"
+          test "$HTTP_CODE" = '200' -o "$HTTP_CODE" = '207' || { echo "Provider probe HTTP $HTTP_CODE"; exit 1; }
+          jq '{status, data:{microsoft:.data.microsoft, taskAi:.data.taskAi, maisRetorno:.data.maisRetorno, aiGateway:.data.aiGateway}}' /tmp/provider-probe.json > /tmp/provider-probe-sanitized.json
+          cat /tmp/provider-probe-sanitized.json
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Probe Vercel AI Gateway through the real Knowledge worker
+        id: gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP_CODE="$(curl -sS --max-time 60 \
+            -o /tmp/knowledge-probe.json \
+            -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Content-Type: application/json' \
+            --data "{\"batchSize\":1,\"dailyLimit\":1000,\"leaseSeconds\":600,\"workerId\":\"provider-canary-${GITHUB_RUN_ID}\"}" \
+            "$PRODUCTION_URL/api/knowledge-learning-agent" || true)"
+          jq '{httpCode:env.HTTP_CODE,status:(.status // "unknown"),runtime:(.runtime // null),claimed:(.claimed // 0),completed:(.completed // 0),failed:(.failed // 0),hasError:(.error != null)}' \
+            --argjson HTTP_CODE "${HTTP_CODE:-0}" /tmp/knowledge-probe.json 2>/dev/null > /tmp/knowledge-probe-sanitized.json || \
+            printf '{"httpCode":%s,"status":"unparseable","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
+          cat /tmp/knowledge-probe-sanitized.json
+          echo "http_code=${HTTP_CODE:-0}" >> "$GITHUB_OUTPUT"
+        env:
+          HTTP_CODE: '0'
+
+      - name: Publish sanitized evidence to issue 461
+        if: always()
+        shell: bash
+        run: |
+          PROVIDERS='{"status":"not_run"}'
+          GATEWAY='{"status":"not_run"}'
+          test -f /tmp/provider-probe-sanitized.json && PROVIDERS="$(cat /tmp/provider-probe-sanitized.json)"
+          test -f /tmp/knowledge-probe-sanitized.json && GATEWAY="$(cat /tmp/knowledge-probe-sanitized.json)"
+          BODY=$(cat <<EOF
+          Provider runtime canary for production SHA \`$EXPECTED_SHA\`:
+
+          **Microsoft / Task AI / Mais Retorno**
+          \`\`\`json
+          $PROVIDERS
+          \`\`\`
+
+          **Vercel AI Gateway / Knowledge worker**
+          \`\`\`json
+          $GATEWAY
+          \`\`\`
+
+          No secret values or provider response bodies are included in this report.
+          EOF
+          )
+          gh issue comment 461 --repo "$GITHUB_REPOSITORY" --body "$BODY"
