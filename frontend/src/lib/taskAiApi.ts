@@ -2,11 +2,11 @@ import { fetchWithPolicy } from './http';
 import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 
-export type TaskAiProvider = 'auto' | 'openai' | 'anthropic';
-
 export type TaskAiStatus = {
-  openai: { configured: boolean; model: string };
-  anthropic: { configured: boolean; model: string };
+  provider: 'motor-free-inference-node';
+  model: string;
+  baseUrlConfigured: boolean;
+  paidFallbackEnabled: false;
   approvalRequired: boolean;
 };
 
@@ -21,9 +21,10 @@ export type PlannedTask = {
 };
 
 export type TaskAiPlan = {
-  provider: 'openai' | 'anthropic';
+  provider: 'motor-free-inference-node';
   model: string;
   approvalRequired: boolean;
+  paidFallbackEnabled: false;
   plan: {
     summary: string;
     tasks: PlannedTask[];
@@ -41,7 +42,7 @@ const request = async <T>(session: SessionData | null, init: RequestInit = {}) =
   const response = await fetchWithPolicy(buildApiUrl('/integrations/task-ai'), {
     ...init,
     headers,
-  }, { timeoutMs: init.method === 'POST' ? 28_000 : 15_000, retries: 1 });
+  }, { timeoutMs: init.method === 'POST' ? 48_000 : 15_000, retries: 1 });
   const raw = await response.text();
   let payload: Envelope<T>;
   try {
@@ -55,8 +56,8 @@ const request = async <T>(session: SessionData | null, init: RequestInit = {}) =
 
 export const taskAiApi = {
   getStatus: (session: SessionData | null) => request<TaskAiStatus>(session),
-  plan: (session: SessionData | null, prompt: string, provider: TaskAiProvider) => request<TaskAiPlan>(session, {
+  plan: (session: SessionData | null, prompt: string) => request<TaskAiPlan>(session, {
     method: 'POST',
-    body: JSON.stringify({ prompt, provider }),
+    body: JSON.stringify({ prompt }),
   }),
 };

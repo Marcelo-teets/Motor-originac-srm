@@ -1,0 +1,20 @@
+{
+  "policy": "zero-cost-ai-lock",
+  "status": "locked",
+  "effectiveAt": "2026-08-20",
+  "revocation": "explicit-user-authorization-required",
+  "paidProviders": {
+    "openai": "blocked",
+    "anthropic": "blocked",
+    "vercelAiGatewayPaid": "blocked"
+  },
+  "freeInference": {
+    "provider": "motor-free-inference-node",
+    "baseUrl": "https://hungry-mountainous-harddrives--antunespmarcelo.replit.app",
+    "fallbackToPaid": false
+  },
+  "automation": {
+    "paidKnowledgeLearningSchedule": "disabled",
+    "paidProviderCanaryCalls": "disabled"
+  }
+}

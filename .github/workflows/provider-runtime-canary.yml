@@ -5,7 +5,12 @@ on:
     paths:
       - '.github/workflows/provider-runtime-canary.yml'
       - 'api/public-data-operations.ts'
+      - 'api/task-ai.ts'
+      - 'api/agentetome.ts'
+      - 'backend/src/ai/aiGateway.ts'
+      - '.github/workflows/knowledge-learning-agent.yml'
       - '.env.example'
+      - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
   push:
     branches:
@@ -13,7 +18,12 @@ on:
     paths:
       - '.github/workflows/provider-runtime-canary.yml'
       - 'api/public-data-operations.ts'
+      - 'api/task-ai.ts'
+      - 'api/agentetome.ts'
+      - 'backend/src/ai/aiGateway.ts'
+      - '.github/workflows/knowledge-learning-agent.yml'
       - '.env.example'
+      - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
 
 permissions:
@@ -37,6 +47,8 @@ jobs:
       - run: npm ci
       - name: Typecheck serverless provider surface
         run: npm run typecheck:serverless
+      - name: Enforce zero-cost AI policy
+        run: node --test scripts/zero-cost-ai-policy.test.mjs
       - name: Guard sanitized provider probe contract
         shell: bash
         run: |
@@ -45,6 +57,8 @@ jobs:
           grep -F "timingSafeEqual" api/public-data-operations.ts
           grep -F "X-Api-Key" api/public-data-operations.ts
           grep -F "https://data.maisretorno.com/mr-data/v4/api" api/public-data-operations.ts
+          grep -F "X-AI-Cost-Policy" api/public-data-operations.ts
+          grep -F "blockedByPolicy" api/public-data-operations.ts
           ! grep -Eq "console\.(log|error).*API_KEY|writeJson\(.*API_KEY" api/public-data-operations.ts
 
   production-canary:
@@ -81,7 +95,7 @@ jobs:
           echo "Production did not reach expected SHA $EXPECTED_SHA."
           exit 1
 
-      - name: Probe Microsoft, Task AI and Mais Retorno
+      - name: Probe zero-cost provider control plane
         id: providers
         shell: bash
         run: |
@@ -92,56 +106,52 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "$PRODUCTION_URL/api/sources/public-operations?operation=provider-probe")"
           test "$HTTP_CODE" = '200' -o "$HTTP_CODE" = '207' || { echo "Provider probe HTTP $HTTP_CODE"; exit 1; }
-          jq '{status, data:{microsoft:.data.microsoft, taskAi:.data.taskAi, maisRetorno:.data.maisRetorno, aiGateway:.data.aiGateway}}' /tmp/provider-probe.json > /tmp/provider-probe-sanitized.json
+          jq '{status, data:{costPolicy:.data.costPolicy, microsoft:.data.microsoft, taskAi:.data.taskAi, paidProviders:.data.paidProviders, maisRetorno:.data.maisRetorno}}' /tmp/provider-probe.json > /tmp/provider-probe-sanitized.json
           cat /tmp/provider-probe-sanitized.json
+          jq -e '.data.costPolicy.mode == "free-only" and .data.costPolicy.locked == true' /tmp/provider-probe.json >/dev/null
+          jq -e '.data.taskAi.paidFallbackEnabled == false' /tmp/provider-probe.json >/dev/null
+          jq -e '.data.paidProviders.openai.blockedByPolicy == true and .data.paidProviders.anthropic.blockedByPolicy == true and .data.paidProviders.aiGateway.blockedByPolicy == true' /tmp/provider-probe.json >/dev/null
           echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Probe Vercel AI Gateway through the real Knowledge worker
-        id: gateway
+      - name: Verify paid Knowledge worker entrypoint is locked without invoking inference
         shell: bash
         run: |
           set -euo pipefail
-          HTTP_CODE="$(curl -sS --max-time 60 \
-            -o /tmp/knowledge-probe.json \
+          HTTP_CODE="$(curl -sS --max-time 15 \
+            -o /tmp/knowledge-lock.json \
             -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H 'Content-Type: application/json' \
-            --data "{\"batchSize\":1,\"dailyLimit\":1000,\"leaseSeconds\":600,\"workerId\":\"provider-canary-${GITHUB_RUN_ID}\"}" \
-            "$PRODUCTION_URL/api/knowledge-learning-agent" || true)"
-          if [ -f /tmp/knowledge-probe.json ]; then
-            jq --argjson httpCode "${HTTP_CODE:-0}" \
-              '{httpCode:$httpCode,status:(.status // "unknown"),runtime:(.runtime // null),claimed:(.claimed // 0),completed:(.completed // 0),failed:(.failed // 0),hasError:(.error != null)}' \
-              /tmp/knowledge-probe.json > /tmp/knowledge-probe-sanitized.json 2>/dev/null || \
-              printf '{"httpCode":%s,"status":"unparseable","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
-          else
-            printf '{"httpCode":%s,"status":"no_response","hasError":true}\n' "${HTTP_CODE:-0}" > /tmp/knowledge-probe-sanitized.json
-          fi
-          cat /tmp/knowledge-probe-sanitized.json
-          echo "http_code=${HTTP_CODE:-0}" >> "$GITHUB_OUTPUT"
+            --data '{}' \
+            "$PRODUCTION_URL/api/knowledge-learning-agent")"
+          test "$HTTP_CODE" = '423' || { echo "Expected policy lock HTTP 423, got $HTTP_CODE"; cat /tmp/knowledge-lock.json; exit 1; }
+          jq -e '.policy == "locked" and .paidProviderAttempted == false' /tmp/knowledge-lock.json >/dev/null
+          jq '{httpCode:423,status,policy,paidProviderAttempted}' /tmp/knowledge-lock.json > /tmp/knowledge-lock-sanitized.json
+          cat /tmp/knowledge-lock-sanitized.json
 
       - name: Publish sanitized evidence to issue 461
         if: always()
         shell: bash
         run: |
           PROVIDERS='{"status":"not_run"}'
-          GATEWAY='{"status":"not_run"}'
+          LOCK='{"status":"not_run"}'
           test -f /tmp/provider-probe-sanitized.json && PROVIDERS="$(cat /tmp/provider-probe-sanitized.json)"
-          test -f /tmp/knowledge-probe-sanitized.json && GATEWAY="$(cat /tmp/knowledge-probe-sanitized.json)"
+          test -f /tmp/knowledge-lock-sanitized.json && LOCK="$(cat /tmp/knowledge-lock-sanitized.json)"
           BODY=$(cat <<EOF
-          Provider runtime canary for production SHA \`$EXPECTED_SHA\`:
+          Zero-cost provider runtime canary for production SHA \`$EXPECTED_SHA\`:
 
-          **Microsoft / Task AI / Mais Retorno**
+          **Provider control plane**
           \`\`\`json
           $PROVIDERS
           \`\`\`
 
-          **Vercel AI Gateway / Knowledge worker**
+          **Paid Knowledge worker lock**
           \`\`\`json
-          $GATEWAY
+          $LOCK
           \`\`\`
 
-          No secret values or provider response bodies are included in this report.
+          No OpenAI, Anthropic or paid AI Gateway inference request is emitted by this canary.
           EOF
           )
           gh issue comment 461 --repo "$GITHUB_REPOSITORY" --body "$BODY"

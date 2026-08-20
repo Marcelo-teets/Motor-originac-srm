@@ -16,6 +16,7 @@ class ApiError extends Error {
 }
 
 const RUNTIME = 'agentetome-v2';
+const ZERO_COST_POLICY = 'locked';
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected error.';
 const errorStatusCode = (error: unknown) => typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 500;
@@ -35,6 +36,7 @@ const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) =>
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('X-Origination-Runtime', RUNTIME);
+  res.setHeader('X-AI-Cost-Policy', 'free-only');
   return res.status(statusCode).json(payload);
 };
 
@@ -76,28 +78,6 @@ const authenticateCron = (req: AgentetomeRequest) => {
   const receivedBuffer = Buffer.from(received);
   if (!process.env.CRON_SECRET || expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
     throw new ApiError('Unauthorized learning worker.', 401);
-  }
-};
-
-const withKnowledgeGatewayCredential = async <T>(req: AgentetomeRequest, action: () => Promise<T>): Promise<T> => {
-  // In Vercel Functions the fresh OIDC credential is delivered on the request,
-  // while VERCEL_OIDC_TOKEN is mainly available during builds/local development.
-  // The existing learning agent consumes an env credential, so bridge the
-  // request-scoped token only for this invocation and restore the process state.
-  const requestOidcToken = requestValue(req.headers['x-vercel-oidc-token']);
-  const previousOidcToken = process.env.VERCEL_OIDC_TOKEN;
-  const hasApiKey = Boolean(process.env.AI_GATEWAY_API_KEY);
-  const shouldBridgeRequestToken = !previousOidcToken && Boolean(requestOidcToken);
-
-  if (!hasApiKey && !previousOidcToken && !requestOidcToken) {
-    throw new ApiError('AI Gateway credential unavailable before claiming learning jobs.', 503, 900);
-  }
-
-  if (shouldBridgeRequestToken) process.env.VERCEL_OIDC_TOKEN = requestOidcToken;
-  try {
-    return await action();
-  } finally {
-    if (shouldBridgeRequestToken) delete process.env.VERCEL_OIDC_TOKEN;
   }
 };
 
@@ -153,7 +133,8 @@ const proxyXmlValidation = async (user: AuthenticatedUser, body: Record<string, 
 
 export default async function handler(req: AgentetomeRequest, res: VercelResponse) {
   const operation = requestValue(req.query.operation) ?? 'status';
-  res.setHeader('X-Origination-Runtime', operation === 'knowledge-learning' ? 'knowledge-learning-agent-v14' : RUNTIME);
+  res.setHeader('X-Origination-Runtime', operation === 'knowledge-learning' ? 'knowledge-learning-zero-cost-lock-v1' : RUNTIME);
+  res.setHeader('X-AI-Cost-Policy', 'free-only');
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -164,22 +145,14 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
   try {
     if (operation === 'knowledge-learning' && ['GET', 'POST'].includes(req.method ?? '')) {
       authenticateCron(req);
-      const body = readBody(req);
-      const learning = await import('../backend/src/ai/knowledgeLearningAgent.js');
-      const result = await withKnowledgeGatewayCredential(req, () => learning.runKnowledgeLearningAgent(serviceRpc, {
-        batchSize: Number(body.batchSize ?? body.batch_size ?? 2),
-        dailyLimit: Number(body.dailyLimit ?? body.daily_limit ?? 48),
-        leaseSeconds: Number(body.leaseSeconds ?? body.lease_seconds ?? 900),
-        workerId: typeof body.workerId === 'string' ? body.workerId : undefined,
-        deployment: {
-          commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
-          environment: process.env.VERCEL_ENV ?? null,
-          url: process.env.VERCEL_URL ?? null,
-          gatewayCredential: process.env.AI_GATEWAY_API_KEY ? 'api_key' : 'vercel_oidc_request',
-        },
-      }));
-      const statusCode = result.status === 'failed' ? 502 : result.status === 'partial' ? 207 : 200;
-      return writeJson(res, statusCode, { generatedAt: new Date().toISOString(), ...result });
+      return writeJson(res, 423, {
+        status: 'paused',
+        generatedAt: new Date().toISOString(),
+        policy: ZERO_COST_POLICY,
+        error: 'Knowledge Learning pago está bloqueado pela política zero-cost. Nenhum AI Gateway/OpenAI/Anthropic será chamado.',
+        paidProviderAttempted: false,
+        nextAction: 'Use exclusivamente o Motor Free Inference Node após smoke e orçamento zero comprovados.',
+      });
     }
 
     const user = await authenticate(req);
