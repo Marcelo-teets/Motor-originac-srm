@@ -28,7 +28,7 @@ jobs:
 
       - name: Check production health
         env:
-          SMOKE_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/data-capture/health
+          SMOKE_URL: https://motor-originac-srm.vercel.app/api/data-capture/health
           SMOKE_BEARER_TOKEN: ${{ secrets.CRON_SECRET }}
           SMOKE_ATTEMPTS: 12
           SMOKE_DELAY_MS: 10000
