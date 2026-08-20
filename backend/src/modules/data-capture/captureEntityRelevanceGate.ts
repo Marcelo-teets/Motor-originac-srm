@@ -206,7 +206,7 @@ const signalEligible = (
 
     const relevantEvidence = strictOutputs.flatMap((output) => assessmentById.get(output.id)?.matchedEvidence ?? []).join(' ');
     const keywords = stringArray(signal.evidencePayload?.keywords);
-    return keywords.length > 0 && keywords.some((keyword) => normalize(relevantEvidence).includes(normalize(keyword)));
+    return keywords.length > 0 && keywords.some((keyword) => hasPhrase(relevantEvidence, keyword));
   }
 
   if (!signal.sourceId && referencedIds.length) {
