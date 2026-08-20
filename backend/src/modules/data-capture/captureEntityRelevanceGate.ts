@@ -39,6 +39,10 @@ const CROSS_THEME_PATTERNS: Record<string, RegExp> = {
   risk_signal: /inadimpl|provis|chargeback|risc|default|reestruturacao/i,
 };
 
+const LEGAL_SUFFIX_PATTERN = /\b(?:s\s*a|sa|ltda|limitada|eireli|spe|s\s*c|sc)\b/g;
+const LEADING_GROUP_PATTERN = /^(?:grupo|group|companhia|cia)\s+/;
+const COMMON_HOST_LABELS = new Set(['www', 'ri', 'ir', 'investor', 'investors', 'app', 'portal']);
+
 export type EntityRelevanceAssessment = {
   eligible: boolean;
   score: number;
@@ -78,10 +82,34 @@ const sourceUrlFor = (output: MonitoringOutput) => stringValue(
 );
 
 const companyAliases = (company: CompanySeed) => {
-  const candidates = [company.tradeName, company.legalName]
-    .map((value) => normalize(value ?? ''))
-    .filter((value) => value.length >= 3);
-  return [...new Set(candidates)];
+  const aliases = new Set<string>();
+  const rawNames = [company.tradeName, company.legalName].filter((value): value is string => Boolean(value?.trim()));
+
+  for (const rawName of rawNames) {
+    const normalizedName = normalize(rawName);
+    if (normalizedName.length >= 3) aliases.add(normalizedName);
+
+    const withoutLegalSuffix = normalizedName.replace(LEGAL_SUFFIX_PATTERN, ' ').replace(/\s+/g, ' ').trim();
+    if (withoutLegalSuffix.length >= 3) aliases.add(withoutLegalSuffix);
+
+    const withoutLeadingGroup = withoutLegalSuffix.replace(LEADING_GROUP_PATTERN, '').trim();
+    if (withoutLeadingGroup.length >= 3) aliases.add(withoutLeadingGroup);
+
+    const separatorAlias = rawName.match(/[-–—]\s*([A-Za-z0-9][A-Za-z0-9 .&]{2,})\s*$/)?.[1];
+    if (separatorAlias) aliases.add(normalize(separatorAlias));
+
+    const parentheticalAliases = [...rawName.matchAll(/\(([^)]+)\)/g)].map((match) => normalize(match[1] ?? ''));
+    parentheticalAliases.filter((alias) => alias.length >= 3).forEach((alias) => aliases.add(alias));
+  }
+
+  const host = hostname(company.website);
+  if (host) {
+    const labels = host.split('.').filter(Boolean);
+    const domainAlias = labels.find((label) => !COMMON_HOST_LABELS.has(label));
+    if (domainAlias && domainAlias.length >= 4) aliases.add(normalize(domainAlias));
+  }
+
+  return [...aliases].filter((alias) => alias.length >= 3);
 };
 
 const hasPhrase = (text: string, phrase: string) => {
@@ -91,10 +119,17 @@ const hasPhrase = (text: string, phrase: string) => {
   return normalizedPhrase.length > 4 && normalizedText.includes(normalizedPhrase);
 };
 
+const hasEntityAlias = (text: string, alias: string) => {
+  if (hasPhrase(text, alias)) return true;
+  const compactAlias = normalize(alias).replace(/\s+/g, '');
+  if (compactAlias.length < 5) return false;
+  return normalize(text).replace(/\s+/g, '').includes(compactAlias);
+};
+
 const textMatchesCompany = (company: CompanySeed, text: string) => {
   const companyCnpj = digits(company.cnpj ?? '');
   if (companyCnpj.length === 14 && digits(text).includes(companyCnpj)) return true;
-  return companyAliases(company).some((alias) => hasPhrase(text, alias));
+  return companyAliases(company).some((alias) => hasEntityAlias(text, alias));
 };
 
 const itemTexts = (output: MonitoringOutput) => {
