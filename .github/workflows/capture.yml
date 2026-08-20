@@ -8,11 +8,13 @@ on:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
       - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/recompute-derived-intelligence.ts
       - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/services/capture*Service.ts
+      - backend/src/services/platformService.ts
       - backend/src/lib/boundedCapture.ts
       - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
@@ -25,12 +27,14 @@ on:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
       - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/recompute-derived-intelligence.ts
       - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/modules/data-capture/**
       - backend/src/services/capture*Service.ts
+      - backend/src/services/platformService.ts
       - backend/src/lib/boundedCapture.ts
       - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
@@ -76,7 +80,7 @@ jobs:
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Validate direct runner import graph
-        run: npx tsx -e "import('./scripts/capture/run-bounded-capture-batch.ts').then(() => console.log('direct capture runner import ok'))"
+        run: npx tsx -e "Promise.all([import('./scripts/capture/run-bounded-capture-batch.ts'), import('./scripts/recompute-derived-intelligence.ts')]).then(() => console.log('capture + derived runners import ok'))"
       - name: Test direct runner contract
         run: node --test scripts/direct-capture-runner-contract.test.mjs
       - name: Test cadence selection
@@ -132,3 +136,5 @@ jobs:
       - name: Run direct company-source capture
         shell: bash
         run: bash scripts/capture/bounded-capture-fanout.sh
+      - name: Recompute qualification patterns scores and ranking
+        run: npx tsx scripts/recompute-derived-intelligence.ts
