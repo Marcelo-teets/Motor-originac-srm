@@ -3,11 +3,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const CANONICAL_MAIS_RETORNO_BASE = 'https://data.maisretorno.com/mr-data/v4/api';
 const CANONICAL_APP_BASE = 'https://motor-originac-srm.vercel.app';
+const FREE_INFERENCE_BASE_URL = (process.env.FREE_INFERENCE_BASE_URL ?? 'https://hungry-mountainous-harddrives--antunespmarcelo.replit.app').replace(/\/+$/, '');
+const ZERO_COST_POLICY = 'locked';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Cache-Control': 'private, max-age=20, stale-while-revalidate=40',
+    'X-AI-Cost-Policy': 'free-only',
   });
   res.end(JSON.stringify(payload));
 };
@@ -29,41 +32,39 @@ const isCronAuthorized = (req: IncomingMessage) => {
   return Boolean(secret && left.length === right.length && timingSafeEqual(left, right));
 };
 
-const probeOpenAi = async () => {
-  const apiKey = process.env.OPENAI_API_KEY ?? '';
-  const model = process.env.OPENAI_TASK_MODEL ?? 'gpt-5-mini';
-  if (!apiKey) return { configured: false, ok: false, model, reason: 'missing_secret' };
-  try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: 'Reply only with OK.', max_output_tokens: 16 }),
-      signal: AbortSignal.timeout(12_000),
-    });
-    return { configured: true, ok: response.ok, model, httpStatus: response.status };
-  } catch (error) {
-    return { configured: true, ok: false, model, reason: safeError(error) };
-  }
-};
+const paidProviderStatus = (name: 'openai' | 'anthropic' | 'vercel-ai-gateway') => ({
+  provider: name,
+  configured: false,
+  ok: false,
+  blockedByPolicy: true,
+  policy: ZERO_COST_POLICY,
+  reason: 'paid_provider_disabled_until_explicit_user_revocation',
+});
 
-const probeAnthropic = async () => {
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
-  const model = process.env.ANTHROPIC_TASK_MODEL ?? 'claude-sonnet-4-20250514';
-  if (!apiKey) return { configured: false, ok: false, model, reason: 'missing_secret' };
+const probeFreeInference = async () => {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Reply only with OK.' }] }),
-      signal: AbortSignal.timeout(12_000),
+    const response = await fetch(`${FREE_INFERENCE_BASE_URL}/health`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
     });
-    return { configured: true, ok: response.ok, model, httpStatus: response.status };
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+    return {
+      configured: true,
+      ok: response.ok,
+      baseUrl: FREE_INFERENCE_BASE_URL,
+      httpStatus: response.status,
+      model: payload?.model ?? process.env.FREE_INFERENCE_MODEL ?? 'motor-local',
+      paid: false,
+    };
   } catch (error) {
-    return { configured: true, ok: false, model, reason: safeError(error) };
+    return {
+      configured: true,
+      ok: false,
+      baseUrl: FREE_INFERENCE_BASE_URL,
+      model: process.env.FREE_INFERENCE_MODEL ?? 'motor-local',
+      paid: false,
+      reason: safeError(error),
+    };
   }
 };
 
@@ -123,27 +124,33 @@ const probeMicrosoft = async () => {
 };
 
 const providerProbe = async () => {
-  const [openai, anthropic, maisRetorno, microsoft] = await Promise.all([
-    probeOpenAi(),
-    probeAnthropic(),
+  const [freeInference, maisRetorno, microsoft] = await Promise.all([
+    probeFreeInference(),
     probeMaisRetorno(),
     probeMicrosoft(),
   ]);
-  const aiConfigured = openai.configured || anthropic.configured;
-  const aiOk = (openai.configured && openai.ok) || (anthropic.configured && anthropic.ok);
-  const allRequiredOk = microsoft.ok && maisRetorno.ok && aiConfigured && aiOk;
+  const allRequiredOk = microsoft.ok && maisRetorno.ok && freeInference.ok;
   return {
     status: allRequiredOk ? 'real' : 'partial',
     generatedAt: new Date().toISOString(),
     data: {
-      microsoft,
-      taskAi: { openai, anthropic, atLeastOneConfigured: aiConfigured, atLeastOneHealthy: aiOk },
-      maisRetorno,
-      aiGateway: {
-        staticKeyConfigured: Boolean(process.env.AI_GATEWAY_API_KEY),
-        oidcAvailable: Boolean(process.env.VERCEL_OIDC_TOKEN),
-        model: process.env.KNOWLEDGE_LEARNING_MODEL ?? 'openai/gpt-5.4',
+      costPolicy: {
+        mode: 'free-only',
+        locked: true,
+        revocationRequired: true,
       },
+      microsoft,
+      taskAi: {
+        provider: 'motor-free-inference-node',
+        freeInference,
+        paidFallbackEnabled: false,
+      },
+      paidProviders: {
+        openai: paidProviderStatus('openai'),
+        anthropic: paidProviderStatus('anthropic'),
+        aiGateway: paidProviderStatus('vercel-ai-gateway'),
+      },
+      maisRetorno,
     },
   };
 };
