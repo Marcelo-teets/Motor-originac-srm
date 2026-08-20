@@ -6,7 +6,6 @@ import {
   taskAiApi,
   type PlannedTask,
   type TaskAiPlan,
-  type TaskAiProvider,
   type TaskAiStatus,
 } from '../lib/taskAiApi';
 
@@ -35,8 +34,6 @@ const createDraftId = () => {
   return `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
-const providerLabel = (provider: 'openai' | 'anthropic') => provider === 'openai' ? 'GPT' : 'Claude';
-
 const toDateTimeLocal = (value: string | null) => {
   if (!value) return '';
   const date = new Date(value);
@@ -51,7 +48,6 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
   const { session } = useAuth();
   const [status, setStatus] = useState<TaskAiStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [provider, setProvider] = useState<TaskAiProvider>('auto');
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState<EditablePlan | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -69,7 +65,7 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
         if (active) setStatus(nextStatus);
       })
       .catch((statusError) => {
-        if (active) setError(statusError instanceof Error ? statusError.message : 'Falha ao carregar os provedores de IA.');
+        if (active) setError(statusError instanceof Error ? statusError.message : 'Falha ao carregar o nó gratuito de IA.');
       })
       .finally(() => {
         if (active) setStatusLoading(false);
@@ -79,10 +75,7 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
     };
   }, [session]);
 
-  const configuredProviders = useMemo(() => [
-    status?.openai.configured ? 'GPT' : null,
-    status?.anthropic.configured ? 'Claude' : null,
-  ].filter(Boolean).join(' + '), [status]);
+  const freeNodeReady = Boolean(status?.baseUrlConfigured && status?.paidFallbackEnabled === false);
 
   const pendingTasks = useMemo(
     () => result?.plan.tasks.filter((task) => !createdIds.includes(task.draftId)) ?? [],
@@ -96,7 +89,7 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
     setMessage(null);
     setCreatedIds([]);
     try {
-      const nextResult = await taskAiApi.plan(session, prompt.trim(), provider);
+      const nextResult = await taskAiApi.plan(session, prompt.trim());
       setResult({
         ...nextResult,
         plan: {
@@ -104,9 +97,9 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
           tasks: nextResult.plan.tasks.map((task) => ({ ...task, draftId: createDraftId() })),
         },
       });
-      setMessage(`${providerLabel(nextResult.provider)} organizou o pedido em ${nextResult.plan.tasks.length} tarefa(s). Revise títulos, destinos e prazos antes de criar.`);
+      setMessage(`Motor Local organizou o pedido em ${nextResult.plan.tasks.length} tarefa(s), sem API paga. Revise títulos, destinos e prazos antes de criar.`);
     } catch (planError) {
-      setError(planError instanceof Error ? planError.message : 'A IA não conseguiu organizar as tarefas.');
+      setError(planError instanceof Error ? planError.message : 'O modelo gratuito não conseguiu organizar as tarefas.');
     } finally {
       setPlanning(false);
     }
@@ -186,10 +179,10 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
     <div className={embedded ? 'task-ai-panel' : 'page task-ai-panel'}>
       {!embedded ? (
         <PageIntro
-          eyebrow="GPT + Claude"
+          eyebrow="IA local · custo zero"
           title="Assistente de tarefas com IA"
-          description="Descreva um objetivo em linguagem natural. A IA divide o trabalho, escolhe To Do ou Planner e apresenta tudo para sua aprovação antes de criar qualquer item."
-          actions={<Pill tone={configuredProviders ? 'success' : 'warning'}>{configuredProviders || 'Chaves de IA pendentes'}</Pill>}
+          description="Descreva um objetivo em linguagem natural. O modelo open-source divide o trabalho, escolhe To Do ou Planner e apresenta tudo para sua aprovação antes de criar qualquer item."
+          actions={<Pill tone={freeNodeReady ? 'success' : 'warning'}>{freeNodeReady ? 'Zero-cost ativo' : 'Nó gratuito pendente'}</Pill>}
         />
       ) : null}
 
@@ -198,9 +191,9 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
         {error ? <div className="inline-notice inline-notice-error" role="alert"><strong>Atenção.</strong><span>{error}</span></div> : null}
       </div>
 
-      <section className="task-ai-status-grid" aria-label="Provedores de inteligência artificial">
-        <Stat label="GPT" value={statusLoading ? '...' : status?.openai.configured ? 'Disponível' : 'Pendente'} helper={status?.openai.model || 'OPENAI_API_KEY'} />
-        <Stat label="Claude" value={statusLoading ? '...' : status?.anthropic.configured ? 'Disponível' : 'Pendente'} helper={status?.anthropic.model || 'ANTHROPIC_API_KEY'} />
+      <section className="task-ai-status-grid" aria-label="Status do nó gratuito de inteligência artificial">
+        <Stat label="Modelo" value={statusLoading ? '...' : status?.model || 'motor-local'} helper="open-source / nó próprio" />
+        <Stat label="Custo de IA" value="R$ 0" helper="APIs pagas bloqueadas" />
         <Stat label="Aprovação" value={status?.approvalRequired === false ? 'Automática' : 'Humana'} helper="nenhuma escrita sem revisão" />
         <Stat label="Rascunhos" value={String(result?.plan.tasks.length ?? 0)} helper={`${createdIds.length} já criada(s)`} />
       </section>
@@ -209,12 +202,9 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
         <div className="task-ai-prompt-layout">
           <div className="task-ai-prompt-main">
             <label className="task-field">
-              <span>Modelo</span>
-              <select value={provider} onChange={(event) => setProvider(event.target.value as TaskAiProvider)} disabled={statusLoading}>
-                <option value="auto">Automático — usa o provedor disponível</option>
-                <option value="openai" disabled={!status?.openai.configured}>GPT {status?.openai.configured ? `— ${status.openai.model}` : '— não configurado'}</option>
-                <option value="anthropic" disabled={!status?.anthropic.configured}>Claude {status?.anthropic.configured ? `— ${status.anthropic.model}` : '— não configurado'}</option>
-              </select>
+              <span>Motor de IA</span>
+              <input value={`Motor Free Inference Node · ${status?.model || 'motor-local'}`} readOnly />
+              <small>OpenAI, Anthropic e gateways pagos estão bloqueados por política.</small>
             </label>
             <label className="task-field">
               <span>O que precisa ser feito?</span>
@@ -228,14 +218,14 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
               <small>{prompt.length.toLocaleString('pt-BR')} / 6.000 caracteres</small>
             </label>
             <div className="actions">
-              <button type="button" disabled={planning || !prompt.trim() || !configuredProviders} aria-busy={planning} onClick={() => void planTasks()}>
-                {planning ? 'Organizando o plano...' : result ? 'Gerar novo plano' : 'Organizar tarefas com IA'}
+              <button type="button" disabled={planning || !prompt.trim() || !freeNodeReady} aria-busy={planning} onClick={() => void planTasks()}>
+                {planning ? 'Organizando o plano...' : result ? 'Gerar novo plano' : 'Organizar tarefas com IA gratuita'}
               </button>
             </div>
-            {!statusLoading && !configuredProviders ? (
+            {!statusLoading && !freeNodeReady ? (
               <div className="inline-notice inline-notice-warning" role="status">
-                <strong>Assistente inativo.</strong>
-                <span>Cadastre OPENAI_API_KEY e/ou ANTHROPIC_API_KEY na Vercel.</span>
+                <strong>Assistente gratuito indisponível.</strong>
+                <span>Nenhuma API paga será usada como fallback. O restante da plataforma continua operando normalmente.</span>
               </div>
             ) : null}
           </div>
@@ -254,7 +244,7 @@ export function TaskAiComposer({ embedded = false }: TaskAiComposerProps) {
       {result ? (
         <Card
           title="Revisar e aprovar"
-          subtitle={`${providerLabel(result.provider)} · ${result.model} · nenhuma tarefa é criada automaticamente`}
+          subtitle={`Motor Local · ${result.model} · custo zero · nenhuma tarefa é criada automaticamente`}
           className="task-ai-plan-card"
           actions={pendingTasks.length ? <Pill tone="warning">{pendingTasks.length} pendente(s)</Pill> : <Pill tone="success">plano executado</Pill>}
         >
