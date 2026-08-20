@@ -1,18 +1,7 @@
 name: Knowledge Learning Agent
 
 on:
-  schedule:
-    - cron: '17 * * * *'
   workflow_dispatch:
-    inputs:
-      batch_size:
-        description: Eventos máximos consolidados por execução
-        required: false
-        default: '32'
-      daily_limit:
-        description: Limite diário de empresas processadas
-        required: false
-        default: '48'
 
 concurrency:
   group: knowledge-learning-agent
@@ -22,56 +11,16 @@ permissions:
   contents: read
 
 jobs:
-  learn:
+  zero-cost-policy:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
     steps:
-      - name: Validate required secret
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Confirm zero-cost lock
         run: |
-          test -n "$CRON_SECRET" || { echo 'CRON_SECRET ausente'; exit 1; }
-
-      - name: Process governed learning queue
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          BATCH_SIZE: ${{ inputs.batch_size || '32' }}
-          DAILY_LIMIT: ${{ inputs.daily_limit || '48' }}
-        run: |
-          set -euo pipefail
-          response_file="$(mktemp)"
-          status=$(curl --silent --show-error --location \
-            --connect-timeout 15 --max-time 330 \
-            --output "$response_file" --write-out '%{http_code}' \
-            --request POST \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header 'Content-Type: application/json' \
-            --data "{\"batchSize\":${BATCH_SIZE},\"dailyLimit\":${DAILY_LIMIT},\"workerId\":\"github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}\"}" \
-            'https://motor-originac-srm.vercel.app/api/knowledge-learning-agent')
-          cat "$response_file"
-          echo
-
-          response_status="$(jq -r '.status // "unknown"' "$response_file" 2>/dev/null || echo unknown)"
-          billing_blocked="$(jq -r '
-            [ .companies[]?.error? // empty ] as $errors
-            | ($errors | length) > 0
-              and all($errors[]; contains("AI Gateway 403") and contains("valid credit card"))
-          ' "$response_file" 2>/dev/null || echo false)"
-
-          if [[ "$billing_blocked" == "true" ]]; then
-            {
-              echo '## Knowledge Learning Agent — provider paused'
-              echo
-              echo '- Queue governance remains active and failed claims are returned for retry by the application.'
-              echo '- AI Gateway is currently blocked by Vercel billing configuration.'
-              echo '- This is an external prerequisite, not a code/runtime failure, so the scheduled workflow is marked successful.'
-              echo "- API HTTP status observed: \`$status\`"
-              echo "- Application status observed: \`$response_status\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if [[ "$status" != "200" && "$status" != "207" ]]; then
-            echo "Knowledge Learning Agent retornou HTTP $status"
-            exit 1
-          fi
+          {
+            echo '## Knowledge Learning Agent — zero-cost lock active'
+            echo
+            echo '- Scheduled execution is disabled.'
+            echo '- OpenAI, Anthropic and paid Vercel AI Gateway calls are blocked by repository policy.'
+            echo '- This workflow performs no inference and emits no paid-provider request.'
+            echo '- Re-enabling paid inference requires explicit user revocation plus a reviewed code change.'
+          } >> "$GITHUB_STEP_SUMMARY"
