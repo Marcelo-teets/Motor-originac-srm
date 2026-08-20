@@ -1,34 +1,38 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-20T00:03:00Z",
+  "requestedAt": "2026-08-20T00:45:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "redeploy-current-main-after-direct-capture-runner-fix",
-    "sourcePr": 453,
-    "previousProductionSha": "eb8991301eec1e9b8d0f67d5b49678dc50b420d2",
-    "applicationHeadSha": "b04741d152d668b292a912543a3c99c50f21752c",
-    "rolloutContractFix": "publish-current-main-with-direct-github-capture-runner",
+    "kind": "entity-relevance-gate-v3-production-rollout",
+    "sourcePr": 456,
+    "previousProductionSha": "6ab03284fc33057dc1bfcb976b9d01836f19866b",
+    "applicationHeadSha": "31de2ab690e295047985cc2c3b695ae91150e0cf",
+    "rolloutContractFix": "block-entity-irrelevant-signals-before-persistence-and-derived-decisions",
     "fixes": [
-      "run-scheduled-captures-directly-in-github-actions",
-      "route-capture-fanout-through-direct-github-runner",
-      "make-direct-capture-runner-import-safe",
-      "validate-direct-capture-runner-import-graph",
-      "preserve-supabase-persistence-and-existing-production-controller"
+      "gate-rss-news-and-vc-portfolio-items-by-explicit-company-evidence",
+      "block-macro-context-from-company-specific-decision-signals",
+      "filter-semantic-signals-and-enrichments-before-company-signals-persistence",
+      "revalidate-quality-approved-evidence-before-qualification-patterns-scores-ranking-and-pipeline",
+      "support-deterministic-company-aliases-including-casas-bahia-and-casan",
+      "version-historical-remediation-with-raw-evidence-preservation"
     ],
     "validate": [
-      "source-pr-453-merged",
+      "source-pr-455-merged",
+      "source-pr-456-merged",
       "deploy-exact-current-main-sha",
       "ci-success",
+      "capture-data-workflow-success",
       "backend-typecheck-success",
       "frontend-typecheck-success",
       "serverless-typecheck-success",
       "production-build-success",
       "production-dependency-audit-success",
-      "direct-github-capture-runner-present",
-      "capture-fanout-contract-success",
+      "entity-relevance-gate-v3-present",
+      "semantic-filter-before-company-signals-persistence",
+      "raw-monitoring-evidence-preserved",
       "automatic-git-deployments-disabled"
     ]
   },
@@ -40,9 +44,9 @@
     "codeBlockers": 0,
     "externalBlockers": 1,
     "externalBlocker": "Vercel AI Gateway billing requires a valid card before model inference",
-    "externalWarnings": 1,
-    "externalWarning": "Supabase Auth leaked password protection remains disabled by external plan/configuration",
+    "externalWarnings": 2,
+    "externalWarning": "Supabase Auth leaked password protection remains disabled; Supabase migration/history connector is temporarily timing out during entity-relevance remediation apply",
     "currentFidcFunds": 183,
-    "scoreImpact": false
+    "scoreImpact": true
   }
 }
