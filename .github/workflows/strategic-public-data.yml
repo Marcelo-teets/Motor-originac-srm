@@ -16,7 +16,6 @@ on:
       - backend/src/services/strategicPublicIngestionService.test.ts
       - backend/src/services/publicDataDownstreamService.ts
   schedule:
-    # Receita QSA: mensal e particionada. CVM FRE roda na Vercel.
     - cron: "40 09 8 * *"
   workflow_dispatch:
     inputs:
@@ -62,18 +61,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Install dependencies
         run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Compile strategic Vercel function
-        run: npx tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node api/strategic-public-data-run.ts
+        run: npm -C backend exec -- tsc --noEmit --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 --types node ../api/strategic-public-data-run.ts
       - name: Guard Vercel ESM boundary
         shell: bash
         run: |
@@ -103,11 +102,11 @@ jobs:
       REQUESTED_FULL_COVERAGE: ${{ inputs.full_coverage || false }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Install dependencies
         run: npm ci
