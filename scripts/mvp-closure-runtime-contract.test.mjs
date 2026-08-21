@@ -118,24 +118,29 @@ test('daily outreach is materialized from ranking without fabricated contacts or
 
 test('outreach learning stays human-governed before any rule is applied', async () => {
   const sql = await read('db/migrations/20260820170500_close_dcm_outreach_loop.sql');
-  const api = await read('api/dcm-outreach-learning.ts');
+  const module = await read('serverless/dcm-outreach-learning.ts');
   assert.match(sql, /pending_review/);
   assert.match(sql, /dcm_outreach_learning_rules/);
-  assert.match(api, /review_feedback/);
-  assert.match(api, /set_rule_status/);
-  assert.match(api, /reviewed_by/);
+  assert.match(module, /review_feedback/);
+  assert.match(module, /set_rule_status/);
+  assert.match(module, /reviewed_by/);
 });
 
-test('Paperclip is an audited control plane inside the official stack', async () => {
-  const endpoint = await read('api/paperclip.ts');
+test('Paperclip is an audited control plane inside the official stack and shares an existing Vercel function', async () => {
+  const endpoint = await read('serverless/paperclip-control-plane.ts');
+  const multiplexer = await read('api/dcm-daily-operating-loop.ts');
   const migration = await read('db/migrations/20260820171500_paperclip_real_control_plane.sql');
   const vercel = await read('vercel.json');
   assert.match(endpoint, /createPlatformRepository\('supabase'\)/);
   assert.match(endpoint, /paperclip_commands/);
   assert.match(endpoint, /run_suggested_improvements/);
-  assert.match(endpoint, /autoSend: false/);
+  assert.match(endpoint, /autoSend:false/);
   assert.match(migration, /paperclip_status_v/);
-  assert.match(vercel, /api\/paperclip\.ts/);
+  assert.match(multiplexer, /view === 'paperclip'/);
+  assert.match(multiplexer, /view === 'outreach-learning'/);
+  assert.match(vercel, /dcm-daily-operating-loop\?view=paperclip/);
+  assert.match(vercel, /dcm-daily-operating-loop\?view=outreach-learning/);
+  assert.doesNotMatch(vercel, /api\/paperclip\.ts|api\/dcm-outreach-learning\.ts/);
   assert.doesNotMatch(vercel, /railway|docker/i);
 });
 
