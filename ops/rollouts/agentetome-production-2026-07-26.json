@@ -1,14 +1,14 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-20T20:55:00Z",
+  "requestedAt": "2026-08-21T20:30:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "zero-cost-ai-runtime-rollout",
-    "previousProductionSha": "current-production-before-merge",
-    "applicationHeadSha": "current-main-on-merge",
+    "kind": "zero-cost-inference-e2e-production-rollout",
+    "previousProductionSha": "fbe12319bc8a68b94afd25ac2da95c852d64a65a",
+    "applicationHeadSha": "05623bb1960a48858ff6b60ba89b3a3c60521e9b",
     "stabilityCloseoutIssues": [459, 460, 461],
     "fixes": [
       "zero-cost-ai-policy-lock",
@@ -16,21 +16,23 @@
       "anthropic-runtime-blocked",
       "paid-vercel-ai-gateway-runtime-blocked",
       "motor-free-inference-node-default",
+      "provider-probe-real-health-models-chat-smoke",
+      "vercel-to-replit-real-inference-canary",
       "paid-knowledge-learning-schedule-disabled",
-      "provider-canary-without-paid-inference",
       "task-ai-ui-paid-provider-controls-removed",
-      "sanitized-microsoft-runtime-readiness-probe",
-      "mais-retorno-v4-zero-credit-search-connectivity-probe",
-      "google-oauth-cold-archive-issue-evidence",
-      "source-control-sheet-independent-summary-repair"
+      "vercel-hobby-function-budget-preserved"
     ],
     "validate": [
       "deploy-exact-current-main-sha",
       "ci-success",
       "zero-cost-ai-contract-green",
-      "provider-runtime-canary-confirms-paid-providers-blocked",
+      "vercel-hobby-function-budget-green",
+      "provider-runtime-canary-health-http-200",
+      "provider-runtime-canary-models-http-200",
+      "provider-runtime-canary-chat-http-200",
+      "provider-runtime-canary-response-non-empty",
+      "provider-runtime-canary-paid-provider-attempted-false",
       "knowledge-learning-entrypoint-returns-policy-lock-without-provider-call",
-      "google-oauth-evidence-published-without-secret-values",
       "automatic-git-deployments-disabled"
     ]
   },
