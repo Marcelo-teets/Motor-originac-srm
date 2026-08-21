@@ -39,14 +39,16 @@ const normalizeBaseUrl = (value) => value.replace(/\/+$/, '');
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const fetchWithRetry = async (url, options = {}, fetchImpl = fetch) => {
-  const attempts = Number(options.attempts ?? 5);
-  const retryDelayMs = Number(options.retryDelayMs ?? 2_000);
+  const attempts = Number(options.attempts ?? 3);
+  const retryDelayMs = Number(options.retryDelayMs ?? 1_000);
+  const requestTimeoutMs = Number(options.requestTimeoutMs ?? 5_000);
   let lastError;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetchImpl(url, {
         redirect: 'follow',
+        signal: AbortSignal.timeout(requestTimeoutMs),
         headers: {
           'cache-control': 'no-cache',
           ...(options.headers ?? {}),
