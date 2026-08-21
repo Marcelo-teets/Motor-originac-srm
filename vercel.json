@@ -21,9 +21,6 @@
       "maxDuration": 15
     },
     "api/public-data-operations.ts": {
-      "maxDuration": 15
-    },
-    "api/free-inference-smoke.ts": {
       "maxDuration": 30
     },
     "api/strategic-public-data-run.ts": {
@@ -134,10 +131,6 @@
     {
       "source": "/api/integrations/task-ai",
       "destination": "/api/task-ai"
-    },
-    {
-      "source": "/api/internal/free-inference-smoke",
-      "destination": "/api/free-inference-smoke"
     },
     {
       "source": "/api/:path*",
