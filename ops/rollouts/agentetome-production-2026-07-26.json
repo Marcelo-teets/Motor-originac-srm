@@ -1,14 +1,14 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-21T20:34:00Z",
+  "requestedAt": "2026-08-21T20:44:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "zero-cost-inference-e2e-canary-supersession",
+    "kind": "bounded-production-auth-smoke-rollout",
     "previousProductionSha": "d7efcb4b21f9005d7fcb376e596e6d11af208740",
-    "applicationHeadSha": "d7efcb4b21f9005d7fcb376e596e6d11af208740",
+    "applicationHeadSha": "6b0af77e12f9371d86323b6fbc1b7b05a27d9e18",
     "stabilityCloseoutIssues": [459, 460, 461],
     "fixes": [
       "zero-cost-ai-policy-lock",
@@ -16,6 +16,7 @@
       "provider-probe-real-health-models-chat-smoke",
       "vercel-to-replit-real-inference-canary",
       "provider-canary-cancel-stale-main-runs",
+      "production-auth-smoke-request-timeouts",
       "paid-provider-runtime-blocked",
       "vercel-hobby-function-budget-preserved"
     ],
@@ -24,7 +25,7 @@
       "ci-success",
       "zero-cost-ai-contract-green",
       "vercel-hobby-function-budget-green",
-      "stale-provider-canary-run-superseded",
+      "production-auth-smoke-bounded",
       "provider-runtime-canary-health-http-200",
       "provider-runtime-canary-models-http-200",
       "provider-runtime-canary-chat-http-200",
