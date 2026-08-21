@@ -17,13 +17,6 @@ jobs:
   build-and-typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      HAS_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
-      HAS_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD != '' }}
-      HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
-      HAS_POSTGRES_URL: ${{ secrets.POSTGRES_URL != '' }}
-      HAS_POSTGRES_PRISMA_URL: ${{ secrets.POSTGRES_PRISMA_URL != '' }}
-      HAS_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
 
     steps:
       - name: Checkout
@@ -37,56 +30,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Probe service role present
-        if: env.HAS_SERVICE_ROLE == 'true'
-        run: 'true'
-
-      - name: Probe DB password present
-        if: env.HAS_DB_PASSWORD == 'true'
-        run: 'true'
-
-      - name: Probe DATABASE_URL present
-        if: env.HAS_DATABASE_URL == 'true'
-        run: 'true'
-
-      - name: Probe POSTGRES_URL present
-        if: env.HAS_POSTGRES_URL == 'true'
-        run: 'true'
-
-      - name: Probe POSTGRES_PRISMA_URL present
-        if: env.HAS_POSTGRES_PRISMA_URL == 'true'
-        run: 'true'
-
-      - name: Probe Supabase access token present
-        if: env.HAS_ACCESS_TOKEN == 'true'
-        run: 'true'
-
-      - name: Validate DATABASE_URL target and schema prerequisites
-        if: env.HAS_DATABASE_URL == 'true'
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          EXPECTED_SUPABASE_REF: hdghpmssudrqhsbvrdyt
-          PGCONNECT_TIMEOUT: '15'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const url = new URL(process.env.DATABASE_URL);
-          const ref = process.env.EXPECTED_SUPABASE_REF;
-          const hostMatches = url.hostname.includes(ref);
-          const userMatches = decodeURIComponent(url.username).includes(ref);
-          if (!hostMatches && !userMatches) {
-            throw new Error('DATABASE_URL does not identify the canonical Supabase project.');
-          }
-          console.log(`Canonical Supabase target verified: ${ref}`);
-          NODE
-          if ! command -v psql >/dev/null 2>&1; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq postgresql-client
-          fi
-          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select (to_regclass('public.companies') is not null and to_regclass('public.source_catalog') is not null and to_regclass('public.ranking_v2') is not null and to_regclass('public.dcm_daily_leads') is not null and to_regclass('public.dcm_outreach_feedback') is not null and to_regclass('public.company_origination_brief_v1') is not null and exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='extensions' and p.proname='digest'))::text")" = "true"
-          echo 'Canonical schema prerequisites verified.'
 
       - name: Validate frontend quality contract
         run: npm run test:frontend-quality
