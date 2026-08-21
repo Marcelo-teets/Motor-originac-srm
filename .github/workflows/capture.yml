@@ -8,11 +8,14 @@ on:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
       - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/recompute-derived-intelligence.ts
+      - scripts/materialize-dcm-daily-outreach.ts
       - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/services/capture*Service.ts
+      - backend/src/services/platformService.ts
       - backend/src/lib/boundedCapture.ts
       - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
@@ -25,12 +28,15 @@ on:
       - .github/workflows/capture.yml
       - scripts/capture/bounded-capture-fanout.sh
       - scripts/capture/run-bounded-capture-batch.ts
+      - scripts/recompute-derived-intelligence.ts
+      - scripts/materialize-dcm-daily-outreach.ts
       - scripts/direct-capture-runner-contract.test.mjs
       - scripts/bounded-external-fetch-contract.test.mjs
       - api/bounded-capture-*.ts
       - serverless/bounded-capture-*.ts
       - backend/src/modules/data-capture/**
       - backend/src/services/capture*Service.ts
+      - backend/src/services/platformService.ts
       - backend/src/lib/boundedCapture.ts
       - backend/src/lib/boundedExternalFetch.ts
       - backend/src/lib/boundedCaptureSchedule.test.ts
@@ -75,8 +81,8 @@ jobs:
         run: bash -n scripts/capture/bounded-capture-fanout.sh
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Validate direct runner import graph
-        run: npx tsx -e "import('./scripts/capture/run-bounded-capture-batch.ts').then(() => console.log('direct capture runner import ok'))"
+      - name: Validate operational runner imports
+        run: npx tsx -e "Promise.all([import('./scripts/capture/run-bounded-capture-batch.ts'), import('./scripts/recompute-derived-intelligence.ts'), import('./scripts/materialize-dcm-daily-outreach.ts')]).then(() => console.log('operational runners import ok'))"
       - name: Test direct runner contract
         run: node --test scripts/direct-capture-runner-contract.test.mjs
       - name: Test cadence selection
@@ -94,7 +100,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       USE_SUPABASE: "true"
       MAX_PARALLELISM: "3"
-      CAPTURE_RELEASE: "github-actions-direct-v1"
+      CAPTURE_RELEASE: "github-actions-direct-v2-company-serialized"
       SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
       REQUESTED_CADENCE: ${{ inputs.cadence || '' }}
 
@@ -132,3 +138,7 @@ jobs:
       - name: Run direct company-source capture
         shell: bash
         run: bash scripts/capture/bounded-capture-fanout.sh
+      - name: Recompute qualification patterns scores and ranking
+        run: npx tsx scripts/recompute-derived-intelligence.ts
+      - name: Materialize daily DCM outreach queue
+        run: npx tsx scripts/materialize-dcm-daily-outreach.ts
