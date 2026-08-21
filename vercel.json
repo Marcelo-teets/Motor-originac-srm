@@ -21,7 +21,7 @@
       "maxDuration": 15
     },
     "api/public-data-operations.ts": {
-      "maxDuration": 15
+      "maxDuration": 30
     },
     "api/strategic-public-data-run.ts": {
       "maxDuration": 300

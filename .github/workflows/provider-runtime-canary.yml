@@ -12,6 +12,7 @@ on:
       - '.env.example'
       - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
+      - 'vercel.json'
   push:
     branches:
       - main
@@ -25,6 +26,7 @@ on:
       - '.env.example'
       - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
+      - 'vercel.json'
 
 permissions:
   contents: read
@@ -59,6 +61,10 @@ jobs:
           grep -F "https://data.maisretorno.com/mr-data/v4/api" api/public-data-operations.ts
           grep -F "X-AI-Cost-Policy" api/public-data-operations.ts
           grep -F "blockedByPolicy" api/public-data-operations.ts
+          grep -F "/v1/chat/completions" api/public-data-operations.ts
+          grep -F "inferenceOk" api/public-data-operations.ts
+          grep -F "paidProviderAttempted: false" api/public-data-operations.ts
+          ! grep -Eq "api\.openai\.com|api\.anthropic\.com|ai-gateway\.vercel\.sh" api/public-data-operations.ts
           ! grep -Eq "console\.(log|error).*API_KEY|writeJson\(.*API_KEY" api/public-data-operations.ts
 
   production-canary:
@@ -95,12 +101,12 @@ jobs:
           echo "Production did not reach expected SHA $EXPECTED_SHA."
           exit 1
 
-      - name: Probe zero-cost provider control plane
+      - name: Probe zero-cost provider control plane and real inference
         id: providers
         shell: bash
         run: |
           set -euo pipefail
-          HTTP_CODE="$(curl -sS --max-time 25 \
+          HTTP_CODE="$(curl -sS --max-time 35 \
             -o /tmp/provider-probe.json \
             -w '%{http_code}' \
             -H "Authorization: Bearer $CRON_SECRET" \
@@ -110,7 +116,12 @@ jobs:
           cat /tmp/provider-probe-sanitized.json
           jq -e '.data.costPolicy.mode == "free-only" and .data.costPolicy.locked == true' /tmp/provider-probe.json >/dev/null
           jq -e '.data.taskAi.paidFallbackEnabled == false' /tmp/provider-probe.json >/dev/null
+          jq -e '.data.taskAi.freeInference.ok == true and .data.taskAi.freeInference.inferenceOk == true' /tmp/provider-probe.json >/dev/null
+          jq -e '.data.taskAi.freeInference.healthHttpStatus == 200 and .data.taskAi.freeInference.modelsHttpStatus == 200 and .data.taskAi.freeInference.chatHttpStatus == 200' /tmp/provider-probe.json >/dev/null
+          jq -e '.data.taskAi.freeInference.responseChars > 0 and .data.taskAi.freeInference.paidFallbackEnabled == false and .data.taskAi.freeInference.paidProviderAttempted == false' /tmp/provider-probe.json >/dev/null
           jq -e '.data.paidProviders.openai.blockedByPolicy == true and .data.paidProviders.anthropic.blockedByPolicy == true and .data.paidProviders.aiGateway.blockedByPolicy == true' /tmp/provider-probe.json >/dev/null
+          jq '{status:"real",data:{ok:.data.taskAi.freeInference.ok,inferenceOk:.data.taskAi.freeInference.inferenceOk,provider:.data.taskAi.provider,model:.data.taskAi.freeInference.model,healthHttpStatus:.data.taskAi.freeInference.healthHttpStatus,modelsHttpStatus:.data.taskAi.freeInference.modelsHttpStatus,chatHttpStatus:.data.taskAi.freeInference.chatHttpStatus,responseChars:.data.taskAi.freeInference.responseChars,markerMatched:.data.taskAi.freeInference.markerMatched,paidFallbackEnabled:.data.taskAi.freeInference.paidFallbackEnabled,paidProviderAttempted:.data.taskAi.freeInference.paidProviderAttempted}}' /tmp/provider-probe.json > /tmp/free-inference-smoke-sanitized.json
+          cat /tmp/free-inference-smoke-sanitized.json
           echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Verify paid Knowledge worker entrypoint is locked without invoking inference
@@ -135,8 +146,10 @@ jobs:
         shell: bash
         run: |
           PROVIDERS='{"status":"not_run"}'
+          SMOKE='{"status":"not_run"}'
           LOCK='{"status":"not_run"}'
           test -f /tmp/provider-probe-sanitized.json && PROVIDERS="$(cat /tmp/provider-probe-sanitized.json)"
+          test -f /tmp/free-inference-smoke-sanitized.json && SMOKE="$(cat /tmp/free-inference-smoke-sanitized.json)"
           test -f /tmp/knowledge-lock-sanitized.json && LOCK="$(cat /tmp/knowledge-lock-sanitized.json)"
           BODY=$(cat <<EOF
           Zero-cost provider runtime canary for production SHA \`$EXPECTED_SHA\`:
@@ -144,6 +157,11 @@ jobs:
           **Provider control plane**
           \`\`\`json
           $PROVIDERS
+          \`\`\`
+
+          **Vercel → Replit real inference smoke**
+          \`\`\`json
+          $SMOKE
           \`\`\`
 
           **Paid Knowledge worker lock**
