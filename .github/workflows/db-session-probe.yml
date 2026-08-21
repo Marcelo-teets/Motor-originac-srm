@@ -1,0 +1,60 @@
+name: DB Session Probe
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Probe canonical Supabase session/direct connection
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EXPECTED_SUPABASE_REF: hdghpmssudrqhsbvrdyt
+          PGCONNECT_TIMEOUT: '10'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = new URL(process.env.DATABASE_URL);
+          const ref = process.env.EXPECTED_SUPABASE_REF;
+          if (!source.hostname.includes(ref) && !decodeURIComponent(source.username).includes(ref)) {
+            throw new Error('DATABASE_URL does not identify the canonical project.');
+          }
+          const session = new URL(source.toString());
+          session.port = '5432';
+          fs.writeFileSync('/tmp/session-url', session.toString(), { mode: 0o600 });
+          const direct = new URL(source.toString());
+          direct.hostname = `db.${ref}.supabase.co`;
+          direct.port = '5432';
+          direct.username = 'postgres';
+          fs.writeFileSync('/tmp/direct-url', direct.toString(), { mode: 0o600 });
+          console.log(`Canonical target verified: ${ref}`);
+          NODE
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          if psql "$(cat /tmp/session-url)" -v ON_ERROR_STOP=1 -Atc 'select 1' >/tmp/db-probe.out 2>/tmp/session.err; then
+            cp /tmp/session-url /tmp/working-db-url
+            echo 'Session-mode connection succeeded.'
+          elif psql "$(cat /tmp/direct-url)" -v ON_ERROR_STOP=1 -Atc 'select 1' >/tmp/db-probe.out 2>/tmp/direct.err; then
+            cp /tmp/direct-url /tmp/working-db-url
+            echo 'Direct connection succeeded.'
+          else
+            echo 'Session mode failed:' >&2
+            sed -E 's#(postgres(ql)?://)[^@]+@#\1***@#g' /tmp/session.err >&2 || true
+            echo 'Direct mode failed:' >&2
+            sed -E 's#(postgres(ql)?://)[^@]+@#\1***@#g' /tmp/direct.err >&2 || true
+            exit 1
+          fi
+          test "$(psql "$(cat /tmp/working-db-url)" -v ON_ERROR_STOP=1 -Atc "select (to_regclass('public.companies') is not null and to_regclass('public.source_catalog') is not null and to_regclass('public.ranking_v2') is not null and to_regclass('public.dcm_daily_leads') is not null and to_regclass('public.dcm_outreach_feedback') is not null and to_regclass('public.company_origination_brief_v1') is not null)::text")" = "true"
+          echo 'Core schema prerequisites verified.'
