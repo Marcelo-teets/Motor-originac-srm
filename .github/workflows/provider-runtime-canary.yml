@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/provider-runtime-canary.yml'
       - 'api/public-data-operations.ts'
+      - 'api/free-inference-smoke.ts'
       - 'api/task-ai.ts'
       - 'api/agentetome.ts'
       - 'backend/src/ai/aiGateway.ts'
@@ -12,12 +13,14 @@ on:
       - '.env.example'
       - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
+      - 'vercel.json'
   push:
     branches:
       - main
     paths:
       - '.github/workflows/provider-runtime-canary.yml'
       - 'api/public-data-operations.ts'
+      - 'api/free-inference-smoke.ts'
       - 'api/task-ai.ts'
       - 'api/agentetome.ts'
       - 'backend/src/ai/aiGateway.ts'
@@ -25,6 +28,7 @@ on:
       - '.env.example'
       - 'scripts/zero-cost-ai-policy.test.mjs'
       - 'ops/rollouts/agentetome-production-2026-07-26.json'
+      - 'vercel.json'
 
 permissions:
   contents: read
@@ -59,6 +63,10 @@ jobs:
           grep -F "https://data.maisretorno.com/mr-data/v4/api" api/public-data-operations.ts
           grep -F "X-AI-Cost-Policy" api/public-data-operations.ts
           grep -F "blockedByPolicy" api/public-data-operations.ts
+          grep -F "/v1/chat/completions" api/free-inference-smoke.ts
+          grep -F "paidProviderAttempted: false" api/free-inference-smoke.ts
+          grep -F '"source": "/api/internal/free-inference-smoke"' vercel.json
+          ! grep -Eq "api\.openai\.com|api\.anthropic\.com|ai-gateway\.vercel\.sh" api/free-inference-smoke.ts
           ! grep -Eq "console\.(log|error).*API_KEY|writeJson\(.*API_KEY" api/public-data-operations.ts
 
   production-canary:
@@ -113,6 +121,26 @@ jobs:
           jq -e '.data.paidProviders.openai.blockedByPolicy == true and .data.paidProviders.anthropic.blockedByPolicy == true and .data.paidProviders.aiGateway.blockedByPolicy == true' /tmp/provider-probe.json >/dev/null
           echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
 
+      - name: Run real Vercel to Replit inference smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP_CODE="$(curl -sS --max-time 35 \
+            -o /tmp/free-inference-smoke.json \
+            -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Content-Type: application/json' \
+            --data '{}' \
+            "$PRODUCTION_URL/api/internal/free-inference-smoke")"
+          test "$HTTP_CODE" = '200' || { echo "Free inference smoke HTTP $HTTP_CODE"; cat /tmp/free-inference-smoke.json; exit 1; }
+          jq -e '.status == "real" and .data.ok == true' /tmp/free-inference-smoke.json >/dev/null
+          jq -e '.data.healthHttpStatus == 200 and .data.modelsHttpStatus == 200 and .data.chatHttpStatus == 200' /tmp/free-inference-smoke.json >/dev/null
+          jq -e '.data.responseChars > 0 and .data.costPolicy == "free-only" and .data.zeroCostPolicy == "locked"' /tmp/free-inference-smoke.json >/dev/null
+          jq -e '.data.paidFallbackEnabled == false and .data.paidProviderAttempted == false' /tmp/free-inference-smoke.json >/dev/null
+          jq '{status, data:{ok:.data.ok,provider:.data.provider,modelConfigured:.data.modelConfigured,healthHttpStatus:.data.healthHttpStatus,modelsHttpStatus:.data.modelsHttpStatus,chatHttpStatus:.data.chatHttpStatus,responseChars:.data.responseChars,markerMatched:.data.markerMatched,costPolicy:.data.costPolicy,zeroCostPolicy:.data.zeroCostPolicy,paidFallbackEnabled:.data.paidFallbackEnabled,paidProviderAttempted:.data.paidProviderAttempted}}' /tmp/free-inference-smoke.json > /tmp/free-inference-smoke-sanitized.json
+          cat /tmp/free-inference-smoke-sanitized.json
+
       - name: Verify paid Knowledge worker entrypoint is locked without invoking inference
         shell: bash
         run: |
@@ -135,8 +163,10 @@ jobs:
         shell: bash
         run: |
           PROVIDERS='{"status":"not_run"}'
+          SMOKE='{"status":"not_run"}'
           LOCK='{"status":"not_run"}'
           test -f /tmp/provider-probe-sanitized.json && PROVIDERS="$(cat /tmp/provider-probe-sanitized.json)"
+          test -f /tmp/free-inference-smoke-sanitized.json && SMOKE="$(cat /tmp/free-inference-smoke-sanitized.json)"
           test -f /tmp/knowledge-lock-sanitized.json && LOCK="$(cat /tmp/knowledge-lock-sanitized.json)"
           BODY=$(cat <<EOF
           Zero-cost provider runtime canary for production SHA \`$EXPECTED_SHA\`:
@@ -144,6 +174,11 @@ jobs:
           **Provider control plane**
           \`\`\`json
           $PROVIDERS
+          \`\`\`
+
+          **Vercel → Replit real inference smoke**
+          \`\`\`json
+          $SMOKE
           \`\`\`
 
           **Paid Knowledge worker lock**
