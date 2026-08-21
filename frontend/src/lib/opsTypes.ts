@@ -93,18 +93,24 @@ export type AbaCommandRecord = {
   target: 'aba' | 'paper_clip' | 'adm';
   action: string;
   context: Record<string, unknown>;
-  status: string;
-  result: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | string;
+  result: unknown;
+  error?: string | null;
   createdAt: string;
-  finishedAt?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
 };
 
 export type AbaStatus = {
-  abaEnabled: boolean;
-  capabilities: string[];
-  commandTargets: string[];
-  lastCommands: AbaCommandRecord[];
-  suggestedImprovements: Array<{ id: string; title: string; reason: string; owner: string; priority: string }>;
+  runtime: string;
+  commandCount: number;
+  queued: number;
+  running: number;
+  completed: number;
+  failed: number;
+  lastCommandAt: string | null;
+  lastCompletedAt: string | null;
+  commands: AbaCommandRecord[];
 };
 
 export type OriginationProduct = {
