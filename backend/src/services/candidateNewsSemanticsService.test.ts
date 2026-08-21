@@ -48,7 +48,7 @@ test('classifies direct funding, market intermediary and editorial noise in one 
   const openCoPayload = updates[0].payload.raw_payload as Record<string, unknown>;
   assert.equal(openCoPayload.candidate_role, 'operating_company');
   assert.equal(openCoPayload.commercial_queue, true);
-  assert.equal(openCoPayload.commercial_semantics_version, 3);
+  assert.equal(openCoPayload.commercial_semantics_version, 4);
   assert.equal('candidate_status' in updates[0].payload, false);
   assert.equal('decision_eligible' in openCoPayload, false);
 
@@ -68,7 +68,7 @@ test('skips already classified current-version candidates unless forced', async 
       'current',
       'Open Co',
       'Open Co capta FIDC de R$ 50 milhões',
-      { commercial_semantics_version: 3 },
+      { commercial_semantics_version: 4 },
     )],
     update: async () => { updates += 1; return []; },
   };
@@ -79,14 +79,14 @@ test('skips already classified current-version candidates unless forced', async 
   assert.equal(updates, 0);
 });
 
-test('automatically reclassifies previous v2 semantics after v3 rule change', async () => {
+test('automatically reclassifies previous v3 semantics after v4 recency rule change', async () => {
   const updates: Array<Record<string, unknown>> = [];
   const client = {
     select: async () => [candidate(
       'cerc',
       'CERC',
       'CERC fecha acordo com fintech Adiante e registra R$ 11 milhões em duplicatas eletrônicas',
-      { commercial_semantics_version: 2, commercial_queue: true },
+      { commercial_semantics_version: 3, commercial_queue: true },
     )],
     update: async (_table: string, payload: Record<string, unknown>) => { updates.push(payload); return []; },
   };
@@ -96,7 +96,7 @@ test('automatically reclassifies previous v2 semantics after v3 rule change', as
   assert.equal(result.relevantUnclassified, 1);
   assert.equal(result.skippedCurrentVersion, 0);
   const rawPayload = updates[0].raw_payload as Record<string, unknown>;
-  assert.equal(rawPayload.commercial_semantics_version, 3);
+  assert.equal(rawPayload.commercial_semantics_version, 4);
   assert.equal(rawPayload.commercial_queue, false);
   assert.equal(rawPayload.candidate_role, 'needs_classification');
 });
@@ -108,7 +108,7 @@ test('force reclassifies a current-version candidate without enabling promotion'
       'current',
       'PicPay',
       'PicPay compra BX Blue, fintech de consignado público',
-      { commercial_semantics_version: 3, promotion_ready: false, identity_review_status: 'pending' },
+      { commercial_semantics_version: 4, promotion_ready: false, identity_review_status: 'pending' },
     )],
     update: async (_table: string, payload: Record<string, unknown>) => { updates.push(payload); return []; },
   };
