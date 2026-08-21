@@ -154,12 +154,13 @@ test('People and Capital reuses existing canonical connectors on the bounded run
   assert.doesNotMatch(sql, /insert into public\.source_catalog/i);
 });
 
-test('Company Detail remains decision-oriented and does not silently assume credit product presence', async () => {
+test('Company Detail is decision-oriented and receives an explicit boolean credit-product fact', async () => {
   const page = await read('frontend/src/pages/CompanyDetailPage.tsx');
+  const qualification = await read('backend/src/lib/qualification.ts');
   assert.match(page, /Thesis \/ Recommendation/);
   assert.match(page, /Structural Qualification/);
   assert.match(page, /Detected Patterns/);
   assert.match(page, /Prediction/);
   assert.match(page, /Deal Risks \/ Pre-Mortem/);
-  assert.doesNotMatch(page, /has_credit_product \?\? true/);
+  assert.match(qualification, /has_credit_product: Boolean\(company\.creditProduct\)/);
 });
