@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import paperclipControlPlaneHandler from '../serverless/paperclip-control-plane.js';
+import dcmOutreachLearningHandler from '../serverless/dcm-outreach-learning.js';
 
-const RUNTIME = 'dcm-daily-operating-loop-v1';
+const RUNTIME = 'dcm-daily-operating-loop-v2-consolidated';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, {
@@ -25,6 +27,21 @@ const parseUrl = (req: IncomingMessage) => {
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  const view = parseUrl(req).searchParams.get('view') ?? 'loop';
+
+  // Consolidate authenticated operational surfaces behind an existing Vercel
+  // function so the Hobby deployment remains within the 12-function budget.
+  // The delegated modules keep their own auth, validation and audit contracts.
+  if (view === 'paperclip') {
+    await paperclipControlPlaneHandler(req, res);
+    return;
+  }
+
+  if (view === 'outreach-learning') {
+    await dcmOutreachLearningHandler(req, res);
+    return;
+  }
+
   if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
     writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
     return;
@@ -53,7 +70,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const view = parseUrl(req).searchParams.get('view') ?? 'loop';
     const module = await import('../backend/src/modules/dcmDailyOperatingLoop.js');
     const data = view === 'business-analyst'
       ? module.getBusinessAnalystAgent()

@@ -63,9 +63,13 @@ export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
 
   async bootstrap() {
+    if (env.useSupabase) {
+      return { mode: 'real' as const, seeded: false, monitoringRefreshed: false, derivedRecomputed: false };
+    }
     await this.repository.seedBaseData();
     await this.refreshMonitoring();
     await this.recomputeDerivedData();
+    return { mode: 'memory' as const, seeded: true, monitoringRefreshed: true, derivedRecomputed: true };
   }
 
   private async hydrateCompanies() {
@@ -249,12 +253,13 @@ export class PlatformService {
   }
 
   private async ensureDerivedData() {
+    if (env.useSupabase) return;
     const [companies, qualifications, leadScores] = await Promise.all([
       this.hydrateCompanies(),
       this.repository.listQualificationSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
-    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const decisionCompanies = companies;
     const decisionIds = new Set(decisionCompanies.map((company) => company.id));
     if (!decisionIds.size) return;
     const qualificationIds = new Set(qualifications.map((item) => item.companyId));
@@ -289,13 +294,16 @@ export class PlatformService {
     const latestScores = latestByCompany(scoreSnapshots.filter((item) => item.scoreType === 'qualification'));
     const patternByCompany = groupByCompany(companyPatterns);
     const outputsByCompany = groupByCompany(monitoringOutputs);
-    const thesisByCompany = new Map(companies.map((company) => {
+    const completeCompanies = env.useSupabase
+      ? companies.filter((company) => latestQualifications.has(company.id) && latestLeads.has(company.id))
+      : companies;
+    const thesisByCompany = new Map(completeCompanies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
       const patterns = patternByCompany.get(company.id) ?? [];
       return [company.id, buildThesisOutput(company, qualification, patterns)] as const;
     }));
 
-    const computedRankingRows = companies
+    const computedRankingRows = completeCompanies
       .map((company) => buildRankingRow({
         companyId: company.id,
         companyName: company.tradeName,
@@ -314,7 +322,7 @@ export class PlatformService {
           const persistedRows = await client.select('ranking_v2', {
             select: '*',
             orderBy: { column: 'created_at', ascending: false },
-            limit: Math.max(companies.length * 3, 50),
+            limit: Math.max(completeCompanies.length * 3, 50),
           });
           const latestSnapshotAt = persistedRows?.[0]?.created_at;
           const latestSnapshot = latestSnapshotAt
@@ -337,14 +345,14 @@ export class PlatformService {
             .filter((row): row is RankingRow => Boolean(row))
             .sort((a, b) => a.position - b.position);
 
-          if (mapped.length === companies.length) rankingRows = mapped;
+          if (mapped.length === completeCompanies.length) rankingRows = mapped;
         } catch (error) {
           console.warn('Ranking V2 persistence fallback:', error instanceof Error ? error.message : error);
         }
       }
     }
 
-    const companyViews = companies.map((company) => {
+    const companyViews = completeCompanies.map((company) => {
       const qualification = latestQualifications.get(company.id)!;
       const lead = latestLeads.get(company.id)!;
       const thesis = thesisByCompany.get(company.id)!;
@@ -373,7 +381,7 @@ export class PlatformService {
     });
 
     return {
-      companies,
+      companies: completeCompanies,
       companyViews,
       qualifications: latestQualifications,
       patterns: patternByCompany,
@@ -397,10 +405,10 @@ export class PlatformService {
 
     return {
       summary: [
-        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base vinda do backend com Supabase + fallback local apenas se necessário.' },
+        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base real elegível com dados derivados persistidos.' },
         { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
-        { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
-        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
+        { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Padrões persistidos e explicáveis por empresa.' },
+        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'Monitoring outputs persistidos pelas fontes reais.' },
       ],
       topLeads: rankingRows.slice(0, 5),
       monitoring: {

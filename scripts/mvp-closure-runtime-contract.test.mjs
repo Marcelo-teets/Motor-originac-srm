@@ -76,3 +76,96 @@ test('candidate promotion refreshes monitoring and recomputes downstream artifac
   assert.doesNotMatch(service, /recomputeDerivedDataSkipped:\s*true/);
   assert.doesNotMatch(service, /derivedDataRecomputeSkipped:\s*true/);
 });
+
+test('scheduled capture serializes sources within each company and closes downstream intelligence', async () => {
+  const workflow = await read('.github/workflows/capture.yml');
+  const runner = await read('scripts/capture/run-bounded-capture-batch.ts');
+  assert.match(runner, /parallel_between_companies_serial_within_company/);
+  assert.match(runner, /for \(const target of group\) \{\s*await runTarget\(target, workerId\);/s);
+  assert.match(workflow, /Recompute qualification patterns scores and ranking/);
+  assert.match(workflow, /Materialize daily DCM outreach queue/);
+});
+
+test('Supabase bootstrap and read paths do not seed or recompute implicitly', async () => {
+  const service = await read('backend/src/services/platformService.ts');
+  assert.match(service, /async bootstrap\(\) \{\s*if \(env\.useSupabase\) \{\s*return \{ mode: 'real'/s);
+  assert.match(service, /private async ensureDerivedData\(\) \{\s*if \(env\.useSupabase\) return;/s);
+  assert.match(service, /completeCompanies/);
+});
+
+test('news funding recency suppresses stale commercial urgency without deleting history', async () => {
+  const recency = await read('backend/src/lib/candidateMediaRecency.ts');
+  const semantics = await read('backend/src/services/candidateNewsSemanticsService.ts');
+  assert.match(recency, /DEFAULT_MAX_FUNDING_AGE_DAYS = 365/);
+  assert.match(recency, /historical_funding_signal/);
+  assert.match(recency, /commercial_queue: false/);
+  assert.match(recency, /explicitFundingNeed: false/);
+  assert.match(semantics, /SEMANTICS_VERSION = 4/);
+  assert.match(semantics, /applyCandidateMediaRecencyGuard/);
+});
+
+test('daily outreach is materialized from ranking without fabricated contacts or auto-send', async () => {
+  const sql = await read('db/migrations/20260820170500_close_dcm_outreach_loop.sql');
+  const runner = await read('scripts/materialize-dcm-daily-outreach.ts');
+  assert.match(sql, /from public\.ranking_v2/);
+  assert.match(sql, /company_origination_brief_v1/);
+  assert.match(sql, /'Contato a identificar'/);
+  assert.match(sql, /'missing_data'/);
+  assert.match(sql, /'autoSend',false/);
+  assert.match(sql, /'never_fabricate_contact'/);
+  assert.match(runner, /dcm_daily_outreach_autosend_detected/);
+});
+
+test('outreach learning stays human-governed before any rule is applied', async () => {
+  const sql = await read('db/migrations/20260820170500_close_dcm_outreach_loop.sql');
+  const module = await read('serverless/dcm-outreach-learning.ts');
+  assert.match(sql, /pending_review/);
+  assert.match(sql, /dcm_outreach_learning_rules/);
+  assert.match(module, /review_feedback/);
+  assert.match(module, /set_rule_status/);
+  assert.match(module, /reviewed_by/);
+});
+
+test('Paperclip is an audited control plane inside the official stack and shares an existing Vercel function', async () => {
+  const endpoint = await read('serverless/paperclip-control-plane.ts');
+  const multiplexer = await read('api/dcm-daily-operating-loop.ts');
+  const migration = await read('db/migrations/20260820171500_paperclip_real_control_plane.sql');
+  const vercel = await read('vercel.json');
+  assert.match(endpoint, /createPlatformRepository\('supabase'\)/);
+  assert.match(endpoint, /paperclip_commands/);
+  assert.match(endpoint, /run_suggested_improvements/);
+  assert.match(endpoint, /autoSend:false/);
+  assert.match(migration, /paperclip_status_v/);
+  assert.match(multiplexer, /view === 'paperclip'/);
+  assert.match(multiplexer, /view === 'outreach-learning'/);
+  assert.match(vercel, /dcm-daily-operating-loop\?view=paperclip/);
+  assert.match(vercel, /dcm-daily-operating-loop\?view=outreach-learning/);
+  assert.doesNotMatch(vercel, /api\/paperclip\.ts|api\/dcm-outreach-learning\.ts/);
+  assert.doesNotMatch(vercel, /railway|docker/i);
+});
+
+test('production quick actions never fall back to synthetic records', async () => {
+  const api = await read('frontend/src/lib/api.ts');
+  assert.doesNotMatch(api, /qa_mock_/);
+  assert.doesNotMatch(api, /fallback sintético/i);
+  assert.match(api, /Quick actions carregadas exclusivamente do backend oficial/);
+});
+
+test('People and Capital reuses existing canonical connectors on the bounded runtime', async () => {
+  const sql = await read('db/migrations/20260820172500_people_capital_runtime_schedule.sql');
+  assert.match(sql, /src_company_careers/);
+  assert.match(sql, /src_tech_signals_latam/);
+  assert.match(sql, /'bounded_capture'/);
+  assert.doesNotMatch(sql, /insert into public\.source_catalog/i);
+});
+
+test('Company Detail is decision-oriented and receives an explicit boolean credit-product fact', async () => {
+  const page = await read('frontend/src/pages/CompanyDetailPage.tsx');
+  const qualification = await read('backend/src/lib/qualification.ts');
+  assert.match(page, /Thesis \/ Recommendation/);
+  assert.match(page, /Structural Qualification/);
+  assert.match(page, /Detected Patterns/);
+  assert.match(page, /Prediction/);
+  assert.match(page, /Deal Risks \/ Pre-Mortem/);
+  assert.match(qualification, /has_credit_product: Boolean\(company\.creditProduct\)/);
+});

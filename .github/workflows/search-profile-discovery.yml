@@ -14,6 +14,8 @@ on:
       - backend/src/modules/public-data/bcbRegulatedInstitutionsConnector.test.ts
       - backend/src/lib/candidateCommercialSemantics.ts
       - backend/src/lib/candidateCommercialSemantics.test.ts
+      - backend/src/lib/candidateMediaRecency.ts
+      - backend/src/lib/candidateMediaRecency.test.ts
       - backend/src/lib/candidatePromotion.ts
       - backend/src/lib/candidateRediscoveryLineage.ts
       - backend/src/lib/candidateRediscoveryLineage.test.ts
@@ -33,6 +35,7 @@ on:
       - backend/src/services/candidateBcbIdentityService.ts
       - backend/src/modules/public-data/bcbRegulatedInstitutionsConnector.ts
       - backend/src/lib/candidateCommercialSemantics.ts
+      - backend/src/lib/candidateMediaRecency.ts
       - backend/src/lib/candidatePromotion.ts
       - backend/src/lib/candidateRediscoveryLineage.ts
       - backend/src/lib/discoveryCapture.ts
@@ -49,19 +52,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: Typecheck backend
         run: npm -C backend run typecheck
-      - name: Test RSS entity, commercial semantics and BCB identity
+      - name: Test RSS entity, commercial semantics, recency and BCB identity
         working-directory: backend
         run: >-
           npx tsx --test
           src/lib/candidateCommercialSemantics.test.ts
+          src/lib/candidateMediaRecency.test.ts
           src/lib/candidateRediscoveryLineage.test.ts
           src/lib/discoveryEntityNormalization.test.ts
           src/services/candidateNewsSemanticsService.test.ts
@@ -77,7 +81,7 @@ jobs:
       - name: Run scheduled search profile discovery
         env:
           DISCOVERY_TOKEN: ${{ secrets.CRON_SECRET }}
-          DISCOVERY_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/search-profiles/cron/run
+          DISCOVERY_URL: https://motor-originac-srm.vercel.app/api/search-profiles/cron/run
         run: |
           test -n "$DISCOVERY_TOKEN" || (echo "discovery token is missing" && exit 1)
           test -n "$DISCOVERY_URL" || (echo "discovery url is missing" && exit 1)
@@ -108,12 +112,12 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - name: Checkout production main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - name: Validate production secrets
