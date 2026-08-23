@@ -1,5 +1,6 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response as ExpressResponse } from 'express';
 import { env } from './env.js';
+import { fetchSupabaseWithRetry } from './supabase.js';
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 export type AuthUser = { id: string; email?: string; role?: string; raw: Record<string, unknown> };
@@ -34,6 +35,19 @@ const decodeBase64Url = (value: string) => {
   return Buffer.from(padded, 'base64');
 };
 
+const readJsonObject = async (response: globalThis.Response): Promise<Record<string, any>> => {
+  const raw = await response.text();
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, any>
+      : {};
+  } catch {
+    return { raw_response: raw.slice(0, 240) };
+  }
+};
+
 const mapAuthUser = (payload: Record<string, unknown>): AuthUser => ({
   id: String(payload.sub ?? payload.id ?? ''),
   email: typeof payload.email === 'string' ? payload.email : undefined,
@@ -59,16 +73,16 @@ const mapSession = (payload: Record<string, any>): AuthSession => ({
 const getSupabaseJwks = async () => {
   requireAuthEnv();
   if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
-  const response = await fetch(`${env.supabaseUrl}/auth/v1/.well-known/jwks.json`);
+  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/.well-known/jwks.json`, {}, { label: 'auth jwks' });
   if (!response.ok) throw new Error(`Unable to load Supabase JWKS: ${response.status}`);
-  const payload = await response.json() as { keys: Jwk[] };
-  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys: payload.keys ?? [] };
+  const payload = await readJsonObject(response) as { keys?: Jwk[] };
+  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys: Array.isArray(payload.keys) ? payload.keys : [] };
   return jwksCache.keys;
 };
 
 const importVerificationKey = async (jwk: Jwk) => {
   if (jwk.kty === 'RSA') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PK1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   }
   if (jwk.kty === 'EC') {
     return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
@@ -105,50 +119,54 @@ export const verifySupabaseJwt = async (token: string): Promise<AuthUser> => {
 
 export const signInWithPassword = async (email: string, password: string): Promise<AuthSession> => {
   requireAuthEnv();
-  const response = await fetch(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
+  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: {
       apikey: env.supabaseAnonKey,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ email, password }),
-  });
-  const payload = await response.json() as Record<string, any>;
+  }, { label: 'auth password sign-in' });
+  const payload = await readJsonObject(response);
   if (!response.ok) {
-    throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Falha no login com Supabase Auth.'));
+    throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? `Falha no login com Supabase Auth (${response.status}).`));
+  }
+  if (!payload.access_token || !payload.user) {
+    throw new Error('Supabase Auth retornou uma sessão inválida.');
   }
   return mapSession(payload);
 };
 
 export const fetchCurrentSupabaseUser = async (accessToken: string): Promise<AuthUser> => {
   requireAuthEnv();
-  const response = await fetch(`${env.supabaseUrl}/auth/v1/user`, {
+  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/user`, {
     headers: {
       apikey: env.supabaseAnonKey,
       Authorization: `Bearer ${accessToken}`,
     },
-  });
-  const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Unable to fetch current user.'));
+  }, { label: 'auth current user' });
+  const payload = await readJsonObject(response);
+  if (!response.ok) throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? `Unable to fetch current user (${response.status}).`));
+  if (!payload.id && !payload.sub) throw new Error('Supabase Auth retornou um usuário inválido.');
   return mapAuthUser(payload);
 };
 
 export const signOutSupabase = async (accessToken: string) => {
   requireAuthEnv();
-  const response = await fetch(`${env.supabaseUrl}/auth/v1/logout`, {
+  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/logout`, {
     method: 'POST',
     headers: {
       apikey: env.supabaseAnonKey,
       Authorization: `Bearer ${accessToken}`,
     },
-  });
+  }, { label: 'auth logout' });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Supabase logout failed: ${response.status} ${body}`);
+    throw new Error(`Supabase logout failed: ${response.status} ${body.slice(0, 240)}`);
   }
 };
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: Request, res: ExpressResponse, next: NextFunction) => {
   try {
     requireAuthEnv();
   } catch (error) {
