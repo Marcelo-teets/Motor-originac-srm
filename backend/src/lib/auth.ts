@@ -1,4 +1,4 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response as ExpressResponse } from 'express';
 import { env } from './env.js';
 import { fetchSupabaseWithRetry } from './supabase.js';
 
@@ -35,7 +35,7 @@ const decodeBase64Url = (value: string) => {
   return Buffer.from(padded, 'base64');
 };
 
-const readJsonObject = async (response: Response): Promise<Record<string, any>> => {
+const readJsonObject = async (response: globalThis.Response): Promise<Record<string, any>> => {
   const raw = await response.text();
   if (!raw.trim()) return {};
   try {
@@ -166,7 +166,7 @@ export const signOutSupabase = async (accessToken: string) => {
   }
 };
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: Request, res: ExpressResponse, next: NextFunction) => {
   try {
     requireAuthEnv();
   } catch (error) {
