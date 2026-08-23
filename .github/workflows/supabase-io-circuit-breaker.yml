@@ -53,10 +53,16 @@ jobs:
           source-control-sheet-sync.yml
           google-drive-cold-archive.yml
           qsa-fallback-persistence.yml
+          source-schedule-audit.yml
+          source-activation-probes.yml
+          finep-source-probe.yml
           EOF
-          test "$(grep -cv '^[[:space:]]*$' /tmp/protected-workflows.txt)" -eq 14
+          test "$(grep -cv '^[[:space:]]*$' /tmp/protected-workflows.txt)" -eq 17
           ! grep -Fxq 'ci.yml' /tmp/protected-workflows.txt
           ! grep -Fxq 'supabase-io-circuit-breaker.yml' /tmp/protected-workflows.txt
+          ! grep -Fxq 'supabase-smoke.yml' /tmp/protected-workflows.txt
+          ! grep -Fxq 'public-bulk-owner-dispatch.yml' /tmp/protected-workflows.txt
+          ! grep -Fxq 'cvm-production-intelligence.yml' /tmp/protected-workflows.txt
 
   manage:
     if: github.event_name != 'pull_request'
@@ -96,11 +102,15 @@ jobs:
             source-control-sheet-sync.yml
             google-drive-cold-archive.yml
             qsa-fallback-persistence.yml
+            source-schedule-audit.yml
+            source-activation-probes.yml
+            finep-source-probe.yml
           )
 
           printf '## Supabase IO circuit breaker\n\n' >> "$GITHUB_STEP_SUMMARY"
           printf -- '- Mode: `%s`\n' "$MODE" >> "$GITHUB_STEP_SUMMARY"
           printf -- '- Project: `hdghpmssudrqhsbvrdyt`\n' >> "$GITHUB_STEP_SUMMARY"
+          printf -- '- Protected scheduled workflows: `17`\n' >> "$GITHUB_STEP_SUMMARY"
           printf -- '- Policy: no paid compute, no data deletion, manual recovery only\n\n' >> "$GITHUB_STEP_SUMMARY"
 
           failures=0
@@ -142,7 +152,7 @@ jobs:
           MODE="${{ steps.mode.outputs.mode }}"
           EXPECTED=active
           [ "$MODE" = "disable" ] && EXPECTED=disabled_manually
-          WORKFLOWS=(capture.yml search-profile-discovery.yml candidate-domain-intelligence.yml candidate-cvm-registry-enrichment.yml capital-market-ingestion.yml cvm-fund-documents-schedule.yml public-bulk-ingestion.yml bndes-automatic-datastore.yml strategic-public-data.yml tech-signals-people-capital.yml knowledge-embedding-coverage.yml source-control-sheet-sync.yml google-drive-cold-archive.yml qsa-fallback-persistence.yml)
+          WORKFLOWS=(capture.yml search-profile-discovery.yml candidate-domain-intelligence.yml candidate-cvm-registry-enrichment.yml capital-market-ingestion.yml cvm-fund-documents-schedule.yml public-bulk-ingestion.yml bndes-automatic-datastore.yml strategic-public-data.yml tech-signals-people-capital.yml knowledge-embedding-coverage.yml source-control-sheet-sync.yml google-drive-cold-archive.yml qsa-fallback-persistence.yml source-schedule-audit.yml source-activation-probes.yml finep-source-probe.yml)
           for workflow in "${WORKFLOWS[@]}"; do
             STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow" --jq '.state')"
             echo "$workflow => $STATE"
