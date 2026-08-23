@@ -82,7 +82,7 @@ const getSupabaseJwks = async () => {
 
 const importVerificationKey = async (jwk: Jwk) => {
   if (jwk.kty === 'RSA') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PK1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   }
   if (jwk.kty === 'EC') {
     return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
