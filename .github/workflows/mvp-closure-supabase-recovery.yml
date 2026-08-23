@@ -1,9 +1,9 @@
 name: MVP Closure Supabase Recovery
 
 on:
-  push:
+  pull_request:
     branches:
-      - gpt/close-11-mvp-gates-20260821
+      - main
     paths:
       - .github/workflows/mvp-closure-supabase-recovery.yml
 
@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: mvp-closure-supabase-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recover_and_smoke:
