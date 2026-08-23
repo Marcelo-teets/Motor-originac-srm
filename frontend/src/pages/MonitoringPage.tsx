@@ -53,7 +53,7 @@ export function MonitoringPage() {
         )}
       />
 
-      <DataStatusBanner source={snapshot.source} note={snapshotState.error ? `Monitoring indisponível: ${snapshotState.error.message}` : snapshot.note} />
+      <DataStatusBanner source={snapshot.source} note={snapshotState.error ? `Monitoring indisponível: ${snapshotState.error}` : snapshot.note} />
 
       <Card title="Captura & tratamento" subtitle="Estado seguro para operação e decisão de originação" className="dense-card">
         <div className="mini-metric-grid">
