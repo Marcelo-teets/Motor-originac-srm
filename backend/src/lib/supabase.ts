@@ -22,12 +22,30 @@ type SupabaseFetchRetryOptions = {
   label?: string;
 };
 
-const RETRYABLE_SUPABASE_STATUS = new Set([408, 425, 429, 502, 503, 504]);
+const RETRYABLE_SUPABASE_STATUS = new Set([408, 425, 429, 502, 503, 504, 521, 522, 523, 524]);
 const DEFAULT_SUPABASE_ATTEMPTS = 5;
 const DEFAULT_SUPABASE_TIMEOUT_MS = 60_000;
 const DEFAULT_SUPABASE_BASE_DELAY_MS = 500;
+const VERCEL_SUPABASE_ATTEMPTS = 1;
+const VERCEL_SUPABASE_TIMEOUT_MS = 5_000;
+const VERCEL_SUPABASE_BASE_DELAY_MS = 0;
 
 const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+export const getSupabaseRetryDefaults = () => {
+  const isVercelRuntime = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+  return isVercelRuntime
+    ? {
+        attempts: VERCEL_SUPABASE_ATTEMPTS,
+        timeoutMs: VERCEL_SUPABASE_TIMEOUT_MS,
+        baseDelayMs: VERCEL_SUPABASE_BASE_DELAY_MS,
+      }
+    : {
+        attempts: DEFAULT_SUPABASE_ATTEMPTS,
+        timeoutMs: DEFAULT_SUPABASE_TIMEOUT_MS,
+        baseDelayMs: DEFAULT_SUPABASE_BASE_DELAY_MS,
+      };
+};
 
 const encodeFilterValue = (value: FilterDefinition['value']) => {
   if (Array.isArray(value)) return `(${value.map((item) => `"${String(item).replaceAll('"', '\\"')}"`).join(',')})`;
@@ -91,9 +109,10 @@ export const fetchSupabaseWithRetry = async (
   init: RequestInit,
   options: SupabaseFetchRetryOptions = {},
 ) => {
-  const attempts = Math.max(1, options.attempts ?? DEFAULT_SUPABASE_ATTEMPTS);
-  const timeoutMs = Math.max(1_000, options.timeoutMs ?? DEFAULT_SUPABASE_TIMEOUT_MS);
-  const baseDelayMs = Math.max(0, options.baseDelayMs ?? DEFAULT_SUPABASE_BASE_DELAY_MS);
+  const defaults = getSupabaseRetryDefaults();
+  const attempts = Math.max(1, options.attempts ?? defaults.attempts);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? defaults.timeoutMs);
+  const baseDelayMs = Math.max(0, options.baseDelayMs ?? defaults.baseDelayMs);
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleepImpl = options.sleepImpl ?? sleep;
   const label = options.label ?? String(input);
@@ -213,11 +232,11 @@ class SupabaseRestClient {
 
   async insert(table: string, rows: unknown[]) {
     if (!rows.length) return [];
-    const response = await fetch(this.buildUrl(table), {
+    const response = await fetchSupabaseWithRetry(this.buildUrl(table), {
       method: 'POST',
       headers: this.headers({ Prefer: 'return=representation' }),
       body: JSON.stringify(rows),
-    });
+    }, { label: `insert ${table}` });
     if (!response.ok) throw new Error(`Supabase insert failed for ${table}: ${response.status} ${await response.text()}`);
     return response.json().catch(() => []);
   }
@@ -242,11 +261,11 @@ class SupabaseRestClient {
   }
 
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>) {
-    const response = await fetch(`${this.baseUrl}/rest/v1/rpc/${fn}`, {
+    const response = await fetchSupabaseWithRetry(`${this.baseUrl}/rest/v1/rpc/${fn}`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(args),
-    });
+    }, { label: `rpc ${fn}` });
     if (!response.ok) throw new Error(`Supabase rpc failed for ${fn}: ${response.status} ${await response.text()}`);
     return response.json() as Promise<T>;
   }
