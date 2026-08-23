@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   group: mvp-closure-supabase-recovery
@@ -153,3 +155,14 @@ jobs:
 
       - name: Materialize outreach and enforce zero auto-send
         run: npx tsx scripts/materialize-dcm-daily-outreach.ts
+
+      - name: Publish sanitized recovery result to PR 468
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh pr comment 468 --repo "$GITHUB_REPOSITORY" --body "MVP Closure Supabase Recovery: **${FINAL_STATUS}**. Run ID: \`${GITHUB_RUN_ID}\`. SHA: \`${GITHUB_SHA}\`. Run: ${RUN_URL}. No secret values are included."
