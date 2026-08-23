@@ -1,0 +1,104 @@
+name: Supabase Postgres Restart Observability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/supabase-postgres-restart-observability.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: supabase-postgres-restart-observability
+  cancel-in-progress: false
+
+jobs:
+  diagnose-and-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Diagnose and request restart
+        id: diag
+        shell: bash
+        run: |
+          set +e
+          token_state=missing
+          project_code=000
+          restart_code=000
+          data_plane_code=000
+          project_status=unknown
+
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            token_state=configured
+
+            project_payload="$(curl --silent --show-error --max-time 20 \
+              --output /tmp/project.json --write-out '%{http_code}' \
+              --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}" 2>/tmp/project.err)"
+            project_code="${project_payload:-000}"
+            project_status="$(python3 - <<'PY'
+import json
+try:
+    with open('/tmp/project.json', 'r', encoding='utf-8') as f:
+        print(json.load(f).get('status', 'unknown'))
+except Exception:
+    print('unknown')
+PY
+)"
+
+            restart_code="$(curl --silent --show-error --max-time 30 \
+              --output /tmp/restart.json --write-out '%{http_code}' \
+              --request POST \
+              --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              --header "Content-Type: application/json" \
+              "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/restart" 2>/tmp/restart.err)"
+            restart_code="${restart_code:-000}"
+
+            sleep 20
+            data_plane_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 12 \
+              "https://${SUPABASE_PROJECT_REF}.supabase.co/rest/v1/" || true)"
+            data_plane_code="${data_plane_code:-000}"
+          fi
+
+          {
+            echo "token_state=${token_state}"
+            echo "project_code=${project_code}"
+            echo "project_status=${project_status}"
+            echo "restart_code=${restart_code}"
+            echo "data_plane_code=${data_plane_code}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish sanitized incident result
+        if: always()
+        shell: bash
+        env:
+          TOKEN_STATE: ${{ steps.diag.outputs.token_state }}
+          PROJECT_CODE: ${{ steps.diag.outputs.project_code }}
+          PROJECT_STATUS: ${{ steps.diag.outputs.project_status }}
+          RESTART_CODE: ${{ steps.diag.outputs.restart_code }}
+          DATA_PLANE_CODE: ${{ steps.diag.outputs.data_plane_code }}
+        run: |
+          set -euo pipefail
+          title="[ops] Supabase restart diagnostic ${GITHUB_RUN_ID}"
+          body=$(cat <<EOF
+          Automated sanitized diagnostic for project \`${SUPABASE_PROJECT_REF}\`.
+
+          - Management token: \`${TOKEN_STATE:-unknown}\`
+          - Project GET HTTP: \`${PROJECT_CODE:-000}\`
+          - Control-plane status: \`${PROJECT_STATUS:-unknown}\`
+          - Restart POST HTTP: \`${RESTART_CODE:-000}\`
+          - Data-plane REST after restart request: \`${DATA_PLANE_CODE:-000}\`
+          - Workflow run: \`${GITHUB_RUN_ID}\`
+          - Commit: \`${GITHUB_SHA}\`
+
+          No secret values or response bodies are included.
+          EOF
+          )
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
