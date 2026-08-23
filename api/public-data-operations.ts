@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 const CANONICAL_MAIS_RETORNO_BASE = 'https://data.maisretorno.com/mr-data/v4/api';
 const CANONICAL_APP_BASE = 'https://motor-originac-srm.vercel.app';
 const FREE_INFERENCE_BASE_URL = (process.env.FREE_INFERENCE_BASE_URL ?? 'https://hungry-mountainous-harddrives--antunespmarcelo.replit.app').replace(/\/+$/, '');
+const FREE_INFERENCE_MODEL = process.env.FREE_INFERENCE_MODEL ?? 'motor-local';
 const ZERO_COST_POLICY = 'locked';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
@@ -22,6 +23,12 @@ const getHeader = (req: IncomingMessage, key: string) => {
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240);
+const extractText = (payload: Record<string, any>) => {
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) return content.map((item) => typeof item?.text === 'string' ? item.text : '').join('\n').trim();
+  return '';
+};
 
 const isCronAuthorized = (req: IncomingMessage) => {
   const secret = process.env.CRON_SECRET ?? '';
@@ -43,26 +50,70 @@ const paidProviderStatus = (name: 'openai' | 'anthropic' | 'vercel-ai-gateway') 
 
 const probeFreeInference = async () => {
   try {
-    const response = await fetch(`${FREE_INFERENCE_BASE_URL}/health`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(8_000),
-    });
-    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+    const [healthResponse, modelsResponse, chatResponse] = await Promise.all([
+      fetch(`${FREE_INFERENCE_BASE_URL}/health`, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      }),
+      fetch(`${FREE_INFERENCE_BASE_URL}/v1/models`, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      }),
+      fetch(`${FREE_INFERENCE_BASE_URL}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          model: FREE_INFERENCE_MODEL,
+          temperature: 0,
+          max_tokens: 32,
+          stream: false,
+          messages: [
+            { role: 'system', content: 'You are a production connectivity smoke test. Return one short non-empty response.' },
+            { role: 'user', content: 'Reply with MOTOR_SMOKE_OK.' },
+          ],
+        }),
+        signal: AbortSignal.timeout(20_000),
+      }),
+    ]);
+
+    const [healthPayload, modelsPayload, chatPayload] = await Promise.all([
+      healthResponse.json().catch(() => null) as Promise<Record<string, unknown> | null>,
+      modelsResponse.json().catch(() => null) as Promise<Record<string, any> | null>,
+      chatResponse.json().catch(() => ({})) as Promise<Record<string, any>>,
+    ]);
+    const text = extractText(chatPayload);
+    const advertisedModels = Array.isArray(modelsPayload?.data)
+      ? modelsPayload.data.map((item: Record<string, any>) => String(item?.id ?? '')).filter(Boolean).slice(0, 10)
+      : [];
+    const inferenceOk = chatResponse.ok && text.length > 0;
+    const ok = healthResponse.ok && modelsResponse.ok && inferenceOk;
+
     return {
       configured: true,
-      ok: response.ok,
+      ok,
+      inferenceOk,
       baseUrl: FREE_INFERENCE_BASE_URL,
-      httpStatus: response.status,
-      model: payload?.model ?? process.env.FREE_INFERENCE_MODEL ?? 'motor-local',
+      model: healthPayload?.model ?? FREE_INFERENCE_MODEL,
+      advertisedModels,
+      healthHttpStatus: healthResponse.status,
+      modelsHttpStatus: modelsResponse.status,
+      chatHttpStatus: chatResponse.status,
+      responseChars: text.length,
+      markerMatched: text.toUpperCase().includes('MOTOR_SMOKE_OK'),
       paid: false,
+      paidFallbackEnabled: false,
+      paidProviderAttempted: false,
     };
   } catch (error) {
     return {
       configured: true,
       ok: false,
+      inferenceOk: false,
       baseUrl: FREE_INFERENCE_BASE_URL,
-      model: process.env.FREE_INFERENCE_MODEL ?? 'motor-local',
+      model: FREE_INFERENCE_MODEL,
       paid: false,
+      paidFallbackEnabled: false,
+      paidProviderAttempted: false,
       reason: safeError(error),
     };
   }

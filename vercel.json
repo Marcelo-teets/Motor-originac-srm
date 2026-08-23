@@ -10,7 +10,7 @@
     "api/index.ts": { "maxDuration": 30 },
     "api/capital-market-run.ts": { "maxDuration": 30 },
     "api/capital-market-health.ts": { "maxDuration": 15 },
-    "api/public-data-operations.ts": { "maxDuration": 15 },
+    "api/public-data-operations.ts": { "maxDuration": 30 },
     "api/strategic-public-data-run.ts": { "maxDuration": 300 },
     "api/agentetome.ts": { "maxDuration": 300 },
     "api/fidcs.ts": { "maxDuration": 30 },
