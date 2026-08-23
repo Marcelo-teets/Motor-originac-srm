@@ -24,8 +24,8 @@ const response = await fetch(`${supabaseUrl}/rest/v1/rpc/assert_ingestion_storag
   },
   body: JSON.stringify({
     p_operation: 'github_actions_preflight',
-    p_requested_rows: 0,
-    p_trigger_type: 'manual',
+    p_requested_rows: requestedRows,
+    p_trigger_type: triggerType,
   }),
   signal: AbortSignal.timeout(30_000),
 });
