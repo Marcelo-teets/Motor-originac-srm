@@ -100,6 +100,9 @@ jobs:
       - name: Validate Supabase Edge source parity
         run: npm run test:supabase-edge-source
 
+      - name: Validate Supabase Nano IO guard
+        run: npm run test:supabase-nano-io
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
