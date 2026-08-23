@@ -1,0 +1,12 @@
+{
+  "deploy": true,
+  "reason": "Promote the P0 Supabase fail-fast, bounded Auth, safe Monitoring and anti-hallucination Quick Actions fixes merged through PRs #476 and #477.",
+  "requestedAt": "2026-08-23T19:24:00-03:00",
+  "requestedBy": "production-audit",
+  "scope": [
+    "supabase-serverless-fail-fast",
+    "auth-bounded-requests",
+    "monitoring-secret-boundary",
+    "remove-synthetic-quick-actions"
+  ]
+}
