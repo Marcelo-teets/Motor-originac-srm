@@ -1,0 +1,150 @@
+name: Supabase IO Circuit Breaker
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supabase-io-circuit-breaker.yml
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/supabase-io-circuit-breaker.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Disable or re-enable Supabase-heavy automation
+        required: true
+        default: disable
+        type: choice
+        options: [disable, enable]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: supabase-io-circuit-breaker
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate protected workflow inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat <<'EOF' >/tmp/protected-workflows.txt
+          capture.yml
+          search-profile-discovery.yml
+          candidate-domain-intelligence.yml
+          candidate-cvm-registry-enrichment.yml
+          capital-market-ingestion.yml
+          cvm-fund-documents-schedule.yml
+          public-bulk-ingestion.yml
+          bndes-automatic-datastore.yml
+          strategic-public-data.yml
+          tech-signals-people-capital.yml
+          knowledge-embedding-coverage.yml
+          source-control-sheet-sync.yml
+          google-drive-cold-archive.yml
+          qsa-fallback-persistence.yml
+          EOF
+          test "$(grep -cv '^[[:space:]]*$' /tmp/protected-workflows.txt)" -eq 14
+          ! grep -Fxq 'ci.yml' /tmp/protected-workflows.txt
+          ! grep -Fxq 'supabase-io-circuit-breaker.yml' /tmp/protected-workflows.txt
+
+  manage:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_MODE: ${{ inputs.mode || 'disable' }}
+    steps:
+      - name: Resolve recovery mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE="$REQUESTED_MODE"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then MODE=disable; fi
+          case "$MODE" in disable|enable) ;; *) echo "invalid mode: $MODE"; exit 1 ;; esac
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Apply zero-cost Supabase IO protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE="${{ steps.mode.outputs.mode }}"
+          WORKFLOWS=(
+            capture.yml
+            search-profile-discovery.yml
+            candidate-domain-intelligence.yml
+            candidate-cvm-registry-enrichment.yml
+            capital-market-ingestion.yml
+            cvm-fund-documents-schedule.yml
+            public-bulk-ingestion.yml
+            bndes-automatic-datastore.yml
+            strategic-public-data.yml
+            tech-signals-people-capital.yml
+            knowledge-embedding-coverage.yml
+            source-control-sheet-sync.yml
+            google-drive-cold-archive.yml
+            qsa-fallback-persistence.yml
+          )
+
+          printf '## Supabase IO circuit breaker\n\n' >> "$GITHUB_STEP_SUMMARY"
+          printf -- '- Mode: `%s`\n' "$MODE" >> "$GITHUB_STEP_SUMMARY"
+          printf -- '- Project: `hdghpmssudrqhsbvrdyt`\n' >> "$GITHUB_STEP_SUMMARY"
+          printf -- '- Policy: no paid compute, no data deletion, manual recovery only\n\n' >> "$GITHUB_STEP_SUMMARY"
+
+          failures=0
+          for workflow in "${WORKFLOWS[@]}"; do
+            echo "Managing $workflow => $MODE"
+            if [ "$MODE" = "disable" ]; then
+              if ! gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/disable" >/dev/null; then
+                echo "Failed to disable $workflow"
+                failures=$((failures + 1))
+                continue
+              fi
+
+              for status in queued in_progress waiting requested pending; do
+                while read -r run_id; do
+                  [ -z "$run_id" ] && continue
+                  echo "Cancelling $workflow run $run_id ($status)"
+                  gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" >/dev/null 2>&1 || true
+                done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?status=$status&per_page=100" --jq '.workflow_runs[].id' 2>/dev/null || true)
+              done
+            else
+              if ! gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/enable" >/dev/null; then
+                echo "Failed to enable $workflow"
+                failures=$((failures + 1))
+                continue
+              fi
+            fi
+            printf -- '- `%s`: `%s`\n' "$workflow" "$MODE" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ "$failures" -ne 0 ]; then
+            echo "$failures workflow action(s) failed"
+            exit 1
+          fi
+
+      - name: Verify workflow states
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODE="${{ steps.mode.outputs.mode }}"
+          EXPECTED=active
+          [ "$MODE" = "disable" ] && EXPECTED=disabled_manually
+          WORKFLOWS=(capture.yml search-profile-discovery.yml candidate-domain-intelligence.yml candidate-cvm-registry-enrichment.yml capital-market-ingestion.yml cvm-fund-documents-schedule.yml public-bulk-ingestion.yml bndes-automatic-datastore.yml strategic-public-data.yml tech-signals-people-capital.yml knowledge-embedding-coverage.yml source-control-sheet-sync.yml google-drive-cold-archive.yml qsa-fallback-persistence.yml)
+          for workflow in "${WORKFLOWS[@]}"; do
+            STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow" --jq '.state')"
+            echo "$workflow => $STATE"
+            test "$STATE" = "$EXPECTED"
+          done
