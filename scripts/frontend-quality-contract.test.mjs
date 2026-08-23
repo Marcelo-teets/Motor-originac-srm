@@ -79,6 +79,13 @@ test('critical frontend requests are bounded and readiness calls are deduplicate
   assert.match(readiness, /inflight/);
 });
 
+test('quick actions never fabricate operational decisions when the backend is unavailable', () => {
+  assert.doesNotMatch(api, /qa_mock_/);
+  assert.doesNotMatch(api, /Quick actions usando fallback sintético/);
+  assert.doesNotMatch(api, /source:\s*'mock'[\s\S]{0,260}Quick actions/);
+  assert.match(api, /ausência de dados não é preenchida por mocks/);
+});
+
 test('lead list avoids the company-detail N+1 request pattern', () => {
   assert.doesNotMatch(companies, /api\.getCompany\(/);
   assert.match(companies, /Promise\.allSettled\(\[api\.getAbmWeekly/);
