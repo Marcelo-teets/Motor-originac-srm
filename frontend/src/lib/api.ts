@@ -33,8 +33,8 @@ import { buildApiUrl } from './runtimeConfig';
 
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
   if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
-  if (status === 'partial') return `${path} carregado parcialmente; backend priorizou DB real e completou com fallback controlado.`;
-  return `${path} carregado via fallback mock.`;
+  if (status === 'partial') return `${path} carregado parcialmente a partir das fontes reais disponíveis; dados ausentes permanecem explícitos.`;
+  return `${path} está em modo de demonstração; este estado não deve alimentar decisões de originação.`;
 };
 
 const readJsonPayload = async <T>(response: Response, path: string): Promise<ApiEnvelope<T> & { error?: string }> => {
@@ -144,25 +144,12 @@ export const api = {
   ).data.item,
 
   getMvpQuickActions: async (session: SessionData | null): Promise<DataState<MvpQuickActionsSnapshot>> => {
-    try {
-      const quick = await requestEnvelope<MvpQuickActionsSnapshot>('/mvp/ops/quick-actions', session);
-      return {
-        source: quick.status,
-        note: 'Quick actions carregadas do backend.',
-        data: quick.data,
-      };
-    } catch {
-      return {
-        source: 'mock',
-        note: 'Quick actions usando fallback sintético até a tela ser conectada ao backend oficial.',
-        data: {
-          items: [
-            { id: 'qa_mock_1', title: 'Revisar ranking', owner: 'Origination', priority: 'high' },
-            { id: 'qa_mock_2', title: 'Abrir monitoring', owner: 'Intelligence', priority: 'medium' },
-          ],
-        },
-      };
-    }
+    const quick = await requestEnvelope<MvpQuickActionsSnapshot>('/mvp/ops/quick-actions', session);
+    return {
+      source: quick.status,
+      note: 'Quick actions carregadas exclusivamente do backend oficial; ausência de dados não é preenchida por mocks.',
+      data: quick.data,
+    };
   },
   getMvpReadiness: async (session: SessionData | null): Promise<DataState<MvpReadiness>> => (
     toState('MVP readiness', await requestEnvelope<MvpReadiness>('/mvp-readiness', session))
