@@ -65,7 +65,7 @@ export function MissionControlPage() {
       <PageIntro
         eyebrow={`Mission Control · ${missionControl.version}`}
         title="Centro de controle da missão"
-        description="Visão única do produto, saúde dos módulos, prioridades de desenvolvimento, bloqueios e execução do Motor - Originação."
+        description="Visão única do produto, saúde dos módulos, telas, prioridades de desenvolvimento, bloqueios e execução do Motor - Originação."
       />
 
       <section className="hero executive-hero">
@@ -122,6 +122,22 @@ export function MissionControlPage() {
                 <td><Pill tone={item[3] === 'P0' ? 'danger' : item[3] === 'P1' ? 'warning' : 'info'}>{item[3]}</Pill></td>
                 <td style={{ minWidth: 130 }}><ProgressBar value={item[4]} max={100} tone={item[4] >= 80 ? 'success' : item[4] >= 60 ? 'info' : 'warning'} /><small>{item[4]}%</small></td>
                 <td>{item[5] ? <Link to={item[5]} className="button secondary compact-button">Abrir</Link> : <small>Runtime</small>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      <Card title="Inventário de telas" subtitle="Quais superfícies existem, para que servem e em que nível de maturidade estão.">
+        <table className="dense-table">
+          <thead><tr><th>Tela</th><th>Rota</th><th>Status</th><th>Função</th></tr></thead>
+          <tbody>
+            {missionControl.screens.map((screen) => (
+              <tr key={screen[1]}>
+                <td><strong>{screen[0]}</strong></td>
+                <td><code>{screen[1]}</code></td>
+                <td><Pill tone={tone(screen[2])}>{label(screen[2])}</Pill></td>
+                <td>{screen[3]}</td>
               </tr>
             ))}
           </tbody>
