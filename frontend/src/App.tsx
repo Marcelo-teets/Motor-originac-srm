@@ -24,6 +24,7 @@ const KnowledgeLearningAgentPage = lazy(() => import('./pages/KnowledgeLearningA
 const KnowledgeSearchPage = lazy(() => import('./pages/KnowledgeSearchPage').then((module) => ({ default: module.KnowledgeSearchPage })));
 const KnowledgeVaultPage = lazy(() => import('./pages/KnowledgeVaultPage').then((module) => ({ default: module.KnowledgeVaultPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const MissionControlPage = lazy(() => import('./pages/MissionControlPage').then((module) => ({ default: module.MissionControlPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then((module) => ({ default: module.MonitoringPage })));
 const OriginationOsPage = lazy(() => import('./pages/OriginationOsPage').then((module) => ({ default: module.OriginationOsPage })));
 const OutcomeOperationsPage = lazy(() => import('./pages/OutcomeOperationsPage').then((module) => ({ default: module.OutcomeOperationsPage })));
@@ -63,6 +64,7 @@ export default function App() {
             <Route path="change-password" element={<ChangePasswordPage />} />
             <Route path="users" element={<RequireGodMode><UsersPage /></RequireGodMode>} />
             <Route path="historical-archive" element={<RequireGodMode><HistoricalArchivePage /></RequireGodMode>} />
+            <Route path="mission-control" element={<MissionControlPage />} />
             <Route path="search-profiles" element={<QuickSearchPage />} />
             <Route path="search-profiles/advanced" element={<SearchProfilesPage />} />
             <Route path="companies" element={portfolioGate(<CompaniesPage />)} />
