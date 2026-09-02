@@ -109,6 +109,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/mission-control',
+    label: 'Mission Control',
+    shortLabel: 'Controle da missão',
+    description: 'Acompanhe features, módulos, filas de desenvolvimento, bloqueios, maturidade e GitHub ao vivo.',
+    group: 'Operação & governança',
+  },
+  {
     to: '/capture-inbox',
     label: 'Capturas',
     shortLabel: 'Candidatas descobertas',
