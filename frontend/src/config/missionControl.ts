@@ -1,0 +1,53 @@
+export type MissionStatus = 'real' | 'partial' | 'blocked' | 'planned';
+export type MissionPriority = 'P0' | 'P1' | 'P2' | 'P3';
+
+export const missionControl = {
+  version: '2026.09.02',
+  mission: 'Transformar sinais públicos e operacionais em pipeline real de crédito estruturado antes do mercado.',
+  northStar: [
+    'Quem são os melhores leads?',
+    'O que mudou neles?',
+    'Por que isso importa financeiramente?',
+    'Qual estrutura faz sentido?',
+    'Por que agora?',
+    'Qual a próxima ação?',
+    'Qual foi o resultado?',
+  ],
+  currentFocus: [
+    'Supabase real e estável',
+    'Auth real',
+    'Connectors reais',
+    'Redução de mocks',
+    'Qualification + patterns com dados reais',
+    'MVP funcional com dados reais',
+    'Paperclip operacional',
+  ],
+  modules: [
+    ['Company Master', 'Core data', 'real', 'P0', 88, '/companies'],
+    ['Source Governance', 'Sources', 'partial', 'P0', 72, '/sources'],
+    ['Monitoring Engine', 'Capture', 'partial', 'P0', 70, '/monitoring'],
+    ['Entity Resolution', 'Data quality', 'partial', 'P1', 76, '/identity-review'],
+    ['Qualification Engine', 'Decision', 'partial', 'P0', 74, '/credit-review'],
+    ['Pattern Engine', 'Decision', 'partial', 'P0', 70, '/companies'],
+    ['Scoring + Lead Score', 'Decision', 'partial', 'P0', 76, '/companies'],
+    ['Ranking Engine', 'Prioritization', 'partial', 'P0', 72, '/companies'],
+    ['Thesis Generator', 'Decision', 'partial', 'P1', 68, '/companies'],
+    ['Market Map', 'Structuring', 'partial', 'P1', 66, '/market-map'],
+    ['CRM / Pipeline', 'Execution', 'real', 'P0', 82, '/pipeline'],
+    ['DCM Daily Outreach', 'Execution', 'partial', 'P1', 75, '/dcm-daily'],
+    ['Copilot', 'Interface intelligence', 'partial', 'P2', 55, '/origination-os'],
+    ['Paperclip', 'Execution runtime', 'partial', 'P0', 62, ''],
+    ['Cold Archive', 'Infrastructure', 'blocked', 'P0', 45, '/historical-archive'],
+    ['Auth + Access', 'Infrastructure', 'partial', 'P0', 84, ''],
+  ] as const,
+  queue: [
+    ['MC-P0-01', 'Recuperar e estabilizar Supabase data plane', 'P0', 'blocked', 'Agora'],
+    ['MC-P0-02', 'Estabilizar scheduler / pg_cron', 'P0', 'partial', 'Agora'],
+    ['MC-P0-03', 'Provar cold archive Google Drive E2E', 'P0', 'blocked', 'Agora'],
+    ['MC-P0-04', 'Fechar 11 gates do MVP', 'P0', 'partial', 'Agora'],
+    ['MC-P1-01', 'Enriquecer Candidate Decision Queue com ICP e porte', 'P1', 'planned', 'Próximo'],
+    ['MC-P1-02', 'Materializar top leads com owner + next action', 'P1', 'partial', 'Próximo'],
+    ['MC-P1-03', 'Fechar loop de outcomes no ranking', 'P1', 'partial', 'Próximo'],
+    ['MC-P2-01', 'Evoluir comparables + Copilot contextual', 'P2', 'planned', 'Depois'],
+  ] as const,
+} as const;
