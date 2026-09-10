@@ -1,7 +1,6 @@
 -- P0/P1 closure: separate verified entities from commercial decision eligibility,
 -- recover stale Search Profile runs and close exposed SECURITY DEFINER/RLS advisor findings.
 
--- A verified company may be monitored and enriched without being a ranked origination lead.
 create or replace function public.is_company_origination_icp_eligible(p_company_id uuid)
 returns boolean
 language sql
@@ -39,8 +38,8 @@ as $$
             )
         )
       )
-  from public.companies c
-  where c.id=p_company_id
+    from public.companies c
+    where c.id=p_company_id
   ),false);
 $$;
 
@@ -50,7 +49,6 @@ comment on function public.is_company_origination_icp_eligible(uuid) is
 revoke all on function public.is_company_origination_icp_eligible(uuid) from public,anon,authenticated;
 grant execute on function public.is_company_origination_icp_eligible(uuid) to service_role;
 
--- Canonical decision gate now means commercial origination eligibility, not identity verification.
 create or replace function public.is_company_decision_eligible(p_company_id uuid)
 returns boolean
 language sql
@@ -64,7 +62,6 @@ $$;
 revoke all on function public.is_company_decision_eligible(uuid) from public,anon,authenticated;
 grant execute on function public.is_company_decision_eligible(uuid) to service_role;
 
--- Reconcile a company after identity or discovery-link changes.
 create or replace function public.reconcile_company_origination_eligibility(p_company_id uuid)
 returns void
 language plpgsql
@@ -105,8 +102,8 @@ $$;
 revoke all on function public.reconcile_company_origination_eligibility(uuid) from public,anon,authenticated;
 grant execute on function public.reconcile_company_origination_eligibility(uuid) to service_role;
 
--- Replace the broad v1 auto-promotion trigger. Identity verification enables analytics only;
--- commercial eligibility is reconciled after the candidate link exists.
+-- Identity verification grants analytics. Commercial decision eligibility is evaluated
+-- against the canonical production Search Profile (or explicit ICP approval).
 create or replace function public.promote_verified_entity_to_origination_analytics()
 returns trigger
 language plpgsql
@@ -115,6 +112,7 @@ set search_path=public
 as $$
 declare
   v_entity boolean;
+  v_icp boolean:=false;
 begin
   v_entity:=
     coalesce(new.metadata->>'data_status','partial')='real'
@@ -123,16 +121,16 @@ begin
     and not coalesce((new.metadata->>'synthetic_seed')::boolean,false);
 
   if v_entity then
+    if coalesce(new.metadata->>'icp_status','')='eligible' then
+      v_icp:=true;
+    elsif tg_op<>'INSERT' then
+      v_icp:=public.is_company_origination_icp_eligible(new.id);
+    end if;
+
     new.metadata:=coalesce(new.metadata,'{}'::jsonb)||jsonb_build_object(
       'origination_analytics_eligible',true,
-      'decision_eligible',case
-        when coalesce(new.metadata->>'icp_status','')='eligible' then true
-        else false
-      end,
-      'decision_eligibility_reason',case
-        when coalesce(new.metadata->>'icp_status','')='eligible' then 'explicit_icp_approval'
-        else 'identity_verified_pending_icp'
-      end,
+      'decision_eligible',v_icp,
+      'decision_eligibility_reason',case when v_icp then 'origination_icp_gate_v2' else 'identity_verified_pending_icp' end,
       'credit_approval_separate',true,
       'icp_gate_version',2,
       'icp_headcount_requirement',50
@@ -160,7 +158,7 @@ security definer
 set search_path=public
 as $$
 begin
-  perform public.reconcile_company_origination_eligibility(coalesce(new.company_id,old.company_id));
+  perform public.reconcile_company_origination_eligibility(case when tg_op='DELETE' then old.company_id else new.company_id end);
   if tg_op='DELETE' then return old; else return new; end if;
 end;
 $$;
@@ -173,7 +171,6 @@ create trigger trg_reconcile_company_origination_eligibility_from_link
 after insert or update or delete on public.company_discovery_links
 for each row execute function public.trg_reconcile_company_origination_eligibility_from_link();
 
--- Reconcile the live Company Master without deleting identity/evidence history.
 do $$
 declare r record;
 begin
@@ -183,7 +180,6 @@ begin
 end;
 $$;
 
--- Search Profile run watchdog: a run cannot remain running for weeks.
 update public.search_profile_runs
 set run_status='failed',
     finished_at=coalesce(finished_at,now()),
@@ -195,7 +191,6 @@ set run_status='failed',
 where run_status in ('queued','running')
   and started_at < now()-interval '2 hours';
 
--- SECURITY DEFINER functions flagged by the live advisor: service-only execution.
 revoke execute on function public.is_company_origination_brief_eligible_v1(uuid) from public,anon,authenticated;
 revoke execute on function public.promote_verified_entity_to_origination_analytics() from public,anon,authenticated;
 revoke execute on function public.refresh_company_origination_brief_v1(uuid) from public,anon,authenticated;
@@ -208,7 +203,6 @@ grant execute on function public.refresh_company_origination_brief_v1(uuid) to s
 grant execute on function public.trg_refresh_company_origination_brief_from_company_v2() to service_role;
 grant execute on function public.trg_refresh_company_origination_brief_v1() to service_role;
 
--- Service-owned RLS tables intentionally deny browser roles; explicit policies remove ambiguity.
 do $$
 declare
   t text;
