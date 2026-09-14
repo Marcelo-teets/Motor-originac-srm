@@ -32,7 +32,7 @@ set search_path=''
 as $$
   with company_values as (
     select greatest(
-      coalesce(public.parse_headcount_floor(to_jsonb(c)->>'employee_count_range'),0),
+      coalesce(public.parse_headcount_floor(c.employee_count_range),0),
       coalesce(public.parse_headcount_floor(c.metadata->>'icp_headcount_verified_min'),0),
       coalesce(public.parse_headcount_floor(c.metadata->>'employee_count'),0)
     )::integer as value
@@ -55,8 +55,7 @@ as $$
     join public.discovered_company_candidates dc on dc.id=dl.discovered_candidate_id
     where dl.company_id=p_company_id
       and nullif(dc.raw_payload#>>'{firmographic_evidence,provider}','') is not null
-      and nullif(dc.raw_payload#>>'{firmographic_evidence,observedAt}','') is not null
-      and (dc.raw_payload#>>'{firmographic_evidence,observedAt}')::timestamptz>=now()-interval '365 days'
+      and coalesce(dc.updated_at,dc.captured_at,dc.created_at)>=now()-interval '365 days'
   )
   select nullif(greatest(
     coalesce((select value from company_values),0),
@@ -105,7 +104,7 @@ as $$
           join public.search_profiles sp on sp.id=dc.search_profile_id
           where dl.company_id=c.id
             and sp.active
-            and not coalesce(sp.config ? 'qaSmoke',false)
+            and not coalesce((sp.config->>'qaSmoke')::boolean,false)
             and coalesce(sp.min_employee_count,0)>=50
             and lower(coalesce(sp.geography,'')) in ('br','brasil','brazil')
             and coalesce(dc.confidence,0)>=0.60
@@ -135,6 +134,51 @@ comment on function public.is_company_origination_icp_eligible(uuid) is
 
 revoke all on function public.is_company_origination_icp_eligible(uuid) from public,anon,authenticated;
 grant execute on function public.is_company_origination_icp_eligible(uuid) to service_role;
+
+create or replace function public.reconcile_company_origination_eligibility(p_company_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path='public'
+as $$
+declare
+  v_entity boolean;
+  v_icp boolean;
+  v_headcount integer;
+begin
+  if p_company_id is null then return; end if;
+  v_entity:=public.is_company_entity_eligible(p_company_id);
+  v_headcount:=public.company_verified_headcount_floor(p_company_id);
+  v_icp:=case when v_entity then public.is_company_origination_icp_eligible(p_company_id) else false end;
+
+  update public.companies c
+  set metadata=coalesce(c.metadata,'{}'::jsonb)||jsonb_build_object(
+        'origination_analytics_eligible',v_entity,
+        'decision_eligible',v_icp,
+        'decision_eligibility_reason',case
+          when not v_entity then 'entity_not_verified'
+          when v_icp then 'origination_icp_gate_v3'
+          when coalesce(v_headcount,0)<50 then 'identity_verified_headcount_unverified_or_below_50'
+          else 'identity_verified_pending_icp'
+        end,
+        'icp_gate_version',3,
+        'icp_headcount_requirement',50,
+        'icp_verified_headcount_floor',v_headcount,
+        'icp_gate_evaluated_at',now()
+      ),
+      updated_at=now()
+  where c.id=p_company_id
+    and (
+      coalesce((c.metadata->>'origination_analytics_eligible')::boolean,false) is distinct from v_entity
+      or coalesce((c.metadata->>'decision_eligible')::boolean,false) is distinct from v_icp
+      or coalesce(c.metadata->>'icp_gate_version','')<>'3'
+      or nullif(c.metadata->>'icp_verified_headcount_floor','')::integer is distinct from v_headcount
+    );
+end;
+$$;
+
+revoke all on function public.reconcile_company_origination_eligibility(uuid) from public,anon,authenticated;
+grant execute on function public.reconcile_company_origination_eligibility(uuid) to service_role;
 
 -- Reconcile current entities without deleting any evidence or analytics history.
 do $$
