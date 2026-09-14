@@ -1,15 +1,13 @@
--- P2-005..007/P2-010 closure: evidence-backed thesis, market-map options and human review.
--- This migration intentionally does not manufacture a top-20. Materialization only runs for
--- companies that already passed public.is_company_decision_eligible().
+-- P2-005..007/P2-010 closure: evidence-backed thesis, Market Map options and human review.
+-- Uses the live thesis_outputs / market_map_cards schema as canonical. No parallel thesis model.
+-- Materialization is allowed only for companies that pass public.is_company_decision_eligible().
 
 alter table public.thesis_outputs add column if not exists version integer not null default 1;
 alter table public.thesis_outputs add column if not exists status text not null default 'draft';
-alter table public.thesis_outputs add column if not exists why_credit text;
-alter table public.thesis_outputs add column if not exists why_now text;
 alter table public.thesis_outputs add column if not exists structure_rationale text;
-alter table public.thesis_outputs add column if not exists key_risks text[] not null default '{}';
+alter table public.thesis_outputs add column if not exists market_map_summary text;
 alter table public.thesis_outputs add column if not exists next_action text;
-alter table public.thesis_outputs add column if not exists evidence_payload jsonb not null default '{}'::jsonb;
+alter table public.thesis_outputs add column if not exists confidence_score numeric(5,4);
 alter table public.thesis_outputs add column if not exists qualification_snapshot_id uuid references public.qualification_snapshots(id) on delete set null;
 alter table public.thesis_outputs add column if not exists lead_score_snapshot_id uuid references public.lead_score_snapshots(id) on delete set null;
 alter table public.thesis_outputs add column if not exists supersedes_id uuid references public.thesis_outputs(id) on delete set null;
@@ -29,16 +27,12 @@ create unique index if not exists uq_thesis_outputs_company_version on public.th
 
 alter table public.market_map_cards add column if not exists thesis_id uuid references public.thesis_outputs(id) on delete cascade;
 alter table public.market_map_cards add column if not exists option_rank integer not null default 1;
-alter table public.market_map_cards add column if not exists structure_type text;
 alter table public.market_map_cards add column if not exists size_guidance text;
 alter table public.market_map_cards add column if not exists risk_level text;
-alter table public.market_map_cards add column if not exists evidence_payload jsonb not null default '{}'::jsonb;
 alter table public.market_map_cards add column if not exists created_by text not null default 'thesis_engine_v1';
-alter table public.market_map_cards add column if not exists updated_at timestamptz not null default now();
 create index if not exists idx_market_map_cards_company_thesis on public.market_map_cards(company_id,thesis_id,option_rank);
 
--- Decision artifacts are machine-generated and/or explicitly reviewed. Browser users may read,
--- but direct table writes are denied so they cannot bypass the review API/RPC contract.
+-- Decision artifacts are generated/reviewed by trusted runtime only.
 drop policy if exists authenticated_insert on public.thesis_outputs;
 drop policy if exists authenticated_update on public.thesis_outputs;
 drop policy if exists authenticated_delete on public.thesis_outputs;
@@ -55,7 +49,7 @@ create or replace function public.generate_origination_thesis_v1(p_company_id uu
 returns uuid
 language plpgsql
 security definer
-set search_path=public
+set search_path='public'
 as $$
 declare
   c public.companies%rowtype;
@@ -68,17 +62,17 @@ declare
   v_why_now text;
   v_structure text;
   v_structure_rationale text;
-  v_summary text;
+  v_commercial_angle text;
   v_next_action text;
   v_market_summary text;
   v_risks text[]:='{}';
   v_evidence jsonb:='{}'::jsonb;
   v_trigger_evidence jsonb:='[]'::jsonb;
   v_pattern_evidence jsonb:='[]'::jsonb;
-  v_source_evidence jsonb:='[]'::jsonb;
+  v_signal_evidence jsonb:='[]'::jsonb;
   v_public jsonb:='{}'::jsonb;
   v_confidence numeric:=0;
-  v_risk_level text:='none';
+  v_risk_level text:='unverified';
 begin
   if p_company_id is null or not public.is_company_decision_eligible(p_company_id) then
     raise exception using errcode='23514',message='Company is not eligible for origination thesis materialization.';
@@ -92,7 +86,7 @@ begin
   end if;
 
   v_public:=coalesce(q.evidence_payload->'publicEvidence','{}'::jsonb);
-  v_risk_level:=coalesce(v_public->>'riskLevel','none');
+  v_risk_level:=coalesce(nullif(v_public->>'riskLevel',''),'unverified');
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'kind','trigger','id',t.id,'catalogCode',t.catalog_code,'type',t.trigger_type,
@@ -103,27 +97,28 @@ begin
   from (select * from public.trigger_events where company_id=p_company_id and material and coalesce(stale_after,now())>=now() order by trigger_strength desc,occurred_at desc limit 8) t;
 
   select coalesce(jsonb_agg(jsonb_build_object(
-    'kind','pattern','id',cp.id,'patternId',cp.pattern_id,'confidence',cp.confidence_score,
+    'kind','pattern','id',cp.id,'patternId',cp.pattern_id,'confidence',coalesce(cp.confidence_score,cp.confidence),
     'rationale',cp.rationale,'thesisImpact',cp.thesis_impact,'evidence',cp.evidence_payload
-  ) order by cp.ranking_impact desc,cp.detected_at desc),'[]'::jsonb)
+  ) order by cp.ranking_impact desc,coalesce(cp.detected_at,cp.created_at) desc),'[]'::jsonb)
   into v_pattern_evidence
-  from (select * from public.company_patterns where company_id=p_company_id order by ranking_impact desc,detected_at desc limit 6) cp;
+  from (select * from public.company_patterns where company_id=p_company_id order by ranking_impact desc,coalesce(detected_at,created_at) desc limit 6) cp;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'kind','signal','id',s.id,'signalType',s.signal_type,'strength',coalesce(s.signal_strength,s.strength),
     'confidence',coalesce(s.confidence_score,s.confidence),'observedAt',coalesce(s.observed_at,s.created_at),
     'sourceId',s.source_id,'evidenceUrl',s.evidence_url,'evidenceText',s.evidence_text,'evidence',s.evidence_payload
   ) order by coalesce(s.signal_strength,s.strength,0) desc,coalesce(s.observed_at,s.created_at) desc),'[]'::jsonb)
-  into v_source_evidence
+  into v_signal_evidence
   from (select * from public.company_signals where company_id=p_company_id order by coalesce(signal_strength,strength,0) desc,coalesce(observed_at,created_at) desc limit 10) s;
 
-  v_structure:=coalesce(nullif(q.suggested_structure_type,''),case when coalesce(q.fit_fidc,false) then 'FIDC' when coalesce(q.fit_dcm,false) then 'Debênture / Nota Comercial' else 'Estrutura a validar' end);
+  v_structure:=coalesce(nullif(q.suggested_structure_type,''),nullif(l.suggested_structure,''),case when coalesce(q.fit_fidc,false) then 'FIDC' when coalesce(q.fit_dcm,false) then 'Debênture / Nota Comercial' else 'Estrutura a validar' end);
   v_next_action:=coalesce(nullif(q.next_action,''),nullif(l.next_action,''),'Validar estrutura, ticket, prazo, garantias e sponsor financeiro antes da abordagem.');
+  v_commercial_angle:=coalesce(nullif(l.commercial_angle,''),'Validar funding gap, estrutura atual, qualidade do lastro e janela de captação antes de abordagem comercial.');
 
   v_why_credit:=concat_ws(' ',
     case when coalesce(q.has_credit_product,false) then 'Há evidência de produto de crédito.' end,
     case when coalesce(q.has_receivables,false) then 'Há evidência de recebíveis.' end,
-    case when coalesce(q.funding_gap,false) or coalesce(q.funding_gap_level,'') in ('medium','high','critical') then 'Há sinal de necessidade/desalinhamento de funding.' end,
+    case when coalesce(q.funding_gap,false) or coalesce(q.funding_gap_level,'') in ('medium','high','critical') then 'Há sinal de necessidade ou desalinhamento de funding.' end,
     case when coalesce(q.fit_fidc,false) then 'A qualificação indica fit potencial para FIDC.' end,
     case when coalesce(q.fit_dcm,false) then 'A qualificação indica fit potencial para DCM.' end
   );
@@ -154,13 +149,11 @@ begin
 
   v_market_summary:=concat_ws(' ',
     format('Comparar %s com alternativas de funding aderentes à natureza do lastro e ao estágio da companhia.',v_structure),
-    'Tamanho e prazo permanecem “a dimensionar” até existirem dados financeiros suficientes.',
-    'O Market Map deve mostrar alternativas, trade-offs e riscos; não recomendar instrumento por disponibilidade de dado.'
+    'Tamanho e prazo permanecem a dimensionar até existirem dados financeiros suficientes.',
+    'O Market Map mostra alternativas, trade-offs e riscos; não recomenda instrumento por disponibilidade de dado.'
   );
 
-  v_summary:=concat_ws(' ',coalesce(nullif(c.trade_name,''),nullif(c.legal_name,''),'Empresa'),v_why_credit,format('Por que agora: %s',v_why_now),format('Estrutura sugerida: %s.',v_structure));
   v_confidence:=least(0.99,greatest(0,coalesce(q.confidence_score,q.source_confidence_score,0)));
-
   v_evidence:=jsonb_build_object(
     'engineVersion','origination_thesis_v1',
     'qualificationSnapshotId',q.id,
@@ -168,10 +161,8 @@ begin
     'publicEvidence',v_public,
     'triggers',v_trigger_evidence,
     'patterns',v_pattern_evidence,
-    'signals',v_source_evidence,
-    'evidenceRules',jsonb_build_object(
-      'noInventedTicket',true,'noInventedTenor',true,'materialTriggerRequiredForWhyNow',true,'humanReviewRequired',true
-    )
+    'signals',v_signal_evidence,
+    'evidenceRules',jsonb_build_object('noInventedTicket',true,'noInventedTenor',true,'humanReviewRequired',true)
   );
 
   select id,version into v_previous_id,v_version from public.thesis_outputs where company_id=p_company_id order by version desc,created_at desc limit 1;
@@ -179,21 +170,20 @@ begin
   if v_previous_id is not null then update public.thesis_outputs set status='superseded',updated_at=now() where id=v_previous_id and status<>'rejected'; end if;
 
   insert into public.thesis_outputs(
-    company_id,thesis_summary,structure_type,market_map_summary,confidence_score,version,status,
-    why_credit,why_now,structure_rationale,key_risks,next_action,evidence_payload,
+    company_id,thesis_version,why_credit,why_now,suggested_structure,commercial_angle,risks_to_validate,evidence,
+    version,status,structure_rationale,market_map_summary,next_action,confidence_score,
     qualification_snapshot_id,lead_score_snapshot_id,supersedes_id,review_status,created_at,updated_at
   ) values (
-    p_company_id,v_summary,v_structure,v_market_summary,v_confidence,v_version,'draft',
-    v_why_credit,v_why_now,v_structure_rationale,v_risks,v_next_action,v_evidence,
+    p_company_id,'evidence_v1',v_why_credit,v_why_now,v_structure,v_commercial_angle,v_risks,v_evidence,
+    v_version,'draft',v_structure_rationale,v_market_summary,v_next_action,v_confidence,
     q.id,l.id,v_previous_id,'pending',now(),now()
   ) returning id into v_thesis_id;
 
-  delete from public.market_map_cards where company_id=p_company_id and thesis_id=v_thesis_id;
-  insert into public.market_map_cards(company_id,thesis_id,peer_name,peer_type,rationale,option_rank,structure_type,size_guidance,risk_level,evidence_payload,created_by,created_at,updated_at)
+  insert into public.market_map_cards(company_id,thesis_id,asset_type,suggested_structure,investor_profile,comparables,rationale,metadata,option_rank,size_guidance,risk_level,created_by,created_at,updated_at)
   values
-    (p_company_id,v_thesis_id,'Estrutura-base','structure_option',v_structure_rationale,1,v_structure,'A dimensionar',v_risk_level,jsonb_build_object('thesisId',v_thesis_id,'source','qualification+triggers'),'thesis_engine_v1',now(),now()),
-    (p_company_id,v_thesis_id,'Alternativa FIDC','structure_option','Adequada apenas se houver recebíveis elegíveis, cessíveis e operacionalmente estruturáveis.',2,'FIDC','A dimensionar',case when coalesce(q.fit_fidc,false) then 'conditional_fit' else 'unverified' end,jsonb_build_object('fitFidc',q.fit_fidc,'receivables',q.receivables_type),'thesis_engine_v1',now(),now()),
-    (p_company_id,v_thesis_id,'Alternativa DCM','structure_option','Nota comercial/debênture depende de capacidade de dívida, governança, documentação, distribuição e perfil de caixa.',3,'Nota Comercial / Debênture','A dimensionar',case when coalesce(q.fit_dcm,false) then 'conditional_fit' else 'unverified' end,jsonb_build_object('fitDcm',q.fit_dcm,'fundingStructure',q.funding_structure_type),'thesis_engine_v1',now(),now());
+    (p_company_id,v_thesis_id,coalesce(nullif(array_to_string(q.receivables_type,', '),''),'Ativos/fluxo a validar'),v_structure,'Crédito estruturado / DCM conforme diligência','{}'::text[],v_structure_rationale,jsonb_build_object('thesisId',v_thesis_id,'source','qualification+triggers'),1,'A dimensionar',v_risk_level,'thesis_engine_v1',now(),now()),
+    (p_company_id,v_thesis_id,coalesce(nullif(array_to_string(q.receivables_type,', '),''),'Recebíveis a validar'),'FIDC','Gestores/FIDCs com mandato aderente ao lastro','{}'::text[],'Adequada apenas se houver recebíveis elegíveis, cessíveis e operacionalmente estruturáveis.',jsonb_build_object('fitFidc',q.fit_fidc,'receivables',q.receivables_type),2,'A dimensionar',case when coalesce(q.fit_fidc,false) then 'conditional_fit' else 'unverified' end,'thesis_engine_v1',now(),now()),
+    (p_company_id,v_thesis_id,'Crédito corporativo / fluxo de caixa','Nota Comercial / Debênture','Investidores de crédito privado / DCM','{}'::text[],'Alternativa depende de capacidade de dívida, governança, documentação, distribuição e perfil de caixa.',jsonb_build_object('fitDcm',q.fit_dcm,'fundingStructure',q.funding_structure_type),3,'A dimensionar',case when coalesce(q.fit_dcm,false) then 'conditional_fit' else 'unverified' end,'thesis_engine_v1',now(),now());
 
   return v_thesis_id;
 end;
@@ -206,7 +196,7 @@ create or replace function public.refresh_top_origination_theses_v1(p_limit inte
 returns table(company_id uuid,thesis_id uuid,ranking_position integer)
 language plpgsql
 security definer
-set search_path=public
+set search_path='public'
 as $$
 declare r record; v_id uuid;
 begin
@@ -226,23 +216,22 @@ $$;
 revoke all on function public.refresh_top_origination_theses_v1(integer) from public,anon,authenticated;
 grant execute on function public.refresh_top_origination_theses_v1(integer) to service_role;
 
--- Human review is versioned: every review creates a new row and supersedes the prior thesis.
 create or replace function public.review_origination_thesis_v1(
   p_thesis_id uuid,
   p_action text,
   p_reviewer text,
   p_review_notes text default null,
-  p_thesis_summary text default null,
-  p_structure_type text default null,
+  p_suggested_structure text default null,
   p_why_credit text default null,
   p_why_now text default null,
   p_structure_rationale text default null,
-  p_next_action text default null
+  p_next_action text default null,
+  p_commercial_angle text default null
 )
 returns uuid
 language plpgsql
 security definer
-set search_path=public
+set search_path='public'
 as $$
 declare
   old public.thesis_outputs%rowtype;
@@ -261,21 +250,24 @@ begin
   update public.thesis_outputs set status='superseded',updated_at=now() where id=old.id and old.status<>'rejected';
 
   insert into public.thesis_outputs(
-    company_id,thesis_summary,structure_type,market_map_summary,confidence_score,version,status,
-    why_credit,why_now,structure_rationale,key_risks,next_action,evidence_payload,
+    company_id,thesis_version,why_credit,why_now,suggested_structure,commercial_angle,risks_to_validate,evidence,
+    version,status,structure_rationale,market_map_summary,next_action,confidence_score,
     qualification_snapshot_id,lead_score_snapshot_id,supersedes_id,review_status,
     reviewed_by,reviewed_at,review_notes,created_at,updated_at
   ) values (
-    old.company_id,coalesce(nullif(p_thesis_summary,''),old.thesis_summary),coalesce(nullif(p_structure_type,''),old.structure_type),old.market_map_summary,old.confidence_score,old.version+1,v_status,
-    coalesce(nullif(p_why_credit,''),old.why_credit),coalesce(nullif(p_why_now,''),old.why_now),coalesce(nullif(p_structure_rationale,''),old.structure_rationale),old.key_risks,coalesce(nullif(p_next_action,''),old.next_action),
-    coalesce(old.evidence_payload,'{}'::jsonb)||jsonb_build_object('review',jsonb_build_object('action',p_action,'reviewer',p_reviewer,'notes',p_review_notes,'reviewedAt',now())),
-    old.qualification_snapshot_id,old.lead_score_snapshot_id,old.id,v_review_status,p_reviewer,now(),p_review_notes,now(),now()
+    old.company_id,'human_review_v1',coalesce(nullif(p_why_credit,''),old.why_credit),coalesce(nullif(p_why_now,''),old.why_now),
+    coalesce(nullif(p_suggested_structure,''),old.suggested_structure),coalesce(nullif(p_commercial_angle,''),old.commercial_angle),old.risks_to_validate,
+    coalesce(old.evidence,'{}'::jsonb)||jsonb_build_object('review',jsonb_build_object('action',p_action,'reviewer',p_reviewer,'notes',p_review_notes,'reviewedAt',now())),
+    old.version+1,v_status,coalesce(nullif(p_structure_rationale,''),old.structure_rationale),old.market_map_summary,
+    coalesce(nullif(p_next_action,''),old.next_action),old.confidence_score,old.qualification_snapshot_id,old.lead_score_snapshot_id,old.id,v_review_status,
+    p_reviewer,now(),p_review_notes,now(),now()
   ) returning id into v_new_id;
 
-  insert into public.market_map_cards(company_id,thesis_id,peer_name,peer_type,rationale,option_rank,structure_type,size_guidance,risk_level,evidence_payload,created_by,created_at,updated_at)
-  select company_id,v_new_id,peer_name,peer_type,rationale,option_rank,
-    case when option_rank=1 and nullif(p_structure_type,'') is not null then p_structure_type else structure_type end,
-    size_guidance,risk_level,evidence_payload||jsonb_build_object('copiedFromThesisId',old.id),'human_review_v1',now(),now()
+  insert into public.market_map_cards(company_id,thesis_id,asset_type,suggested_structure,investor_profile,comparables,rationale,metadata,option_rank,size_guidance,risk_level,created_by,created_at,updated_at)
+  select company_id,v_new_id,asset_type,
+    case when option_rank=1 and nullif(p_suggested_structure,'') is not null then p_suggested_structure else suggested_structure end,
+    investor_profile,comparables,rationale,coalesce(metadata,'{}'::jsonb)||jsonb_build_object('copiedFromThesisId',old.id),
+    option_rank,size_guidance,risk_level,'human_review_v1',now(),now()
   from public.market_map_cards where thesis_id=old.id;
   return v_new_id;
 end;
@@ -284,7 +276,7 @@ $$;
 revoke all on function public.review_origination_thesis_v1(uuid,text,text,text,text,text,text,text,text,text) from public,anon,authenticated;
 grant execute on function public.review_origination_thesis_v1(uuid,text,text,text,text,text,text,text,text,text) to service_role;
 
-comment on function public.generate_origination_thesis_v1(uuid) is 'Creates an append-only evidence-backed origination thesis + Market Map options. Never invents ticket/tenor and requires decision eligibility.';
+comment on function public.generate_origination_thesis_v1(uuid) is 'Creates an append-only evidence-backed origination thesis + canonical Market Map options. Never invents ticket/tenor and requires decision eligibility.';
 comment on function public.refresh_top_origination_theses_v1(integer) is 'Materializes evidence-backed theses only for the current decision-eligible ranking, capped at 20.';
 comment on function public.review_origination_thesis_v1(uuid,text,text,text,text,text,text,text,text,text) is 'Versioned human thesis review. Approval/edit/rejection creates a new thesis row and preserves lineage.';
 
