@@ -1,14 +1,14 @@
 {
   "rollout": "agentetome-production-finalization",
-  "requestedAt": "2026-08-21T20:44:00Z",
+  "requestedAt": "2026-09-15T20:20:00Z",
   "target": "production",
   "deploymentMode": "vercel-prebuilt-controlled",
   "requiredRuntime": "agentetome-v2",
   "supabaseProject": "hdghpmssudrqhsbvrdyt",
   "followUp": {
-    "kind": "bounded-production-auth-smoke-rollout",
-    "previousProductionSha": "d7efcb4b21f9005d7fcb376e596e6d11af208740",
-    "applicationHeadSha": "6b0af77e12f9371d86323b6fbc1b7b05a27d9e18",
+    "kind": "supabase-connect-timeout-resilience-rollout",
+    "previousProductionSha": "10c859134e8f8a22066269f8109695eda1bd9a59",
+    "applicationHeadSha": "9d43dbabbf4fc1d1cfe77c95880f9cf4629d1d57",
     "stabilityCloseoutIssues": [459, 460, 461],
     "fixes": [
       "zero-cost-ai-policy-lock",
@@ -18,7 +18,9 @@
       "provider-canary-cancel-stale-main-runs",
       "production-auth-smoke-request-timeouts",
       "paid-provider-runtime-blocked",
-      "vercel-hobby-function-budget-preserved"
+      "vercel-hobby-function-budget-preserved",
+      "supabase-vercel-transient-retry-3x",
+      "supabase-connect-timeout-backoff-250-500ms"
     ],
     "validate": [
       "deploy-exact-current-main-sha",
@@ -26,6 +28,7 @@
       "zero-cost-ai-contract-green",
       "vercel-hobby-function-budget-green",
       "production-auth-smoke-bounded",
+      "supabase-connect-timeout-retry-contract-green",
       "provider-runtime-canary-health-http-200",
       "provider-runtime-canary-models-http-200",
       "provider-runtime-canary-chat-http-200",
@@ -42,7 +45,7 @@
     "rolloutHealth": "pending-validation",
     "codeBlockers": 0,
     "externalBlockers": 1,
-    "externalBlocker": "Supabase SQL connections remain degraded until the pg_cron stabilization migration can be applied successfully; this does not authorize paid AI or paid infrastructure fallback.",
+    "externalBlocker": "Supabase SQL connections remain degraded until the pg_cron stabilization migration can be applied successfully; application-level transient retry hardening is ready for production and does not authorize paid infrastructure fallback.",
     "paidAiAllowed": false,
     "paidAiPolicy": "locked-until-explicit-user-revocation",
     "externalWarnings": 1,
