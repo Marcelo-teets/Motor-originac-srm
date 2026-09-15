@@ -114,7 +114,7 @@ test('fetchSupabaseWithRetry does not retry deterministic PostgREST database err
   assert.equal(calls, 1);
 });
 
-test('Vercel Supabase defaults stay below the serverless request budget', () => {
+test('Vercel Supabase defaults retry transient connectivity within the serverless request budget', () => {
   const previousVercel = process.env.VERCEL;
   const previousVercelEnv = process.env.VERCEL_ENV;
   process.env.VERCEL = '1';
@@ -122,8 +122,11 @@ test('Vercel Supabase defaults stay below the serverless request budget', () => 
 
   try {
     const defaults = getSupabaseRetryDefaults();
-    assert.deepEqual(defaults, { attempts: 1, timeoutMs: 5_000, baseDelayMs: 0 });
-    assert.ok((defaults.attempts * defaults.timeoutMs) + defaults.baseDelayMs < 25_000);
+    assert.deepEqual(defaults, { attempts: 3, timeoutMs: 5_000, baseDelayMs: 250 });
+    const worstCaseBudget = (defaults.attempts * defaults.timeoutMs)
+      + defaults.baseDelayMs
+      + (defaults.baseDelayMs * 2);
+    assert.ok(worstCaseBudget < 25_000);
   } finally {
     if (previousVercel === undefined) delete process.env.VERCEL;
     else process.env.VERCEL = previousVercel;
