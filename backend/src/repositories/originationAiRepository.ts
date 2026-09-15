@@ -138,7 +138,7 @@ export class OriginationAiRepository {
   async getLatestArtifact(companyId: string, artifactType: string) {
     const rows = await this.db().select('origination_os_artifacts', {
       select: '*',
-      filters: [{ column: 'company_id', value: companyId }, { column: 'artifact_type', value: artifactType }, { column: 'status', value: 'active' }],
+      filters: [{ column: 'company_id', value: companyId }, { column: 'artifact_type', value: artifactType }],
       orderBy: { column: 'updated_at', ascending: false },
       limit: 1,
     });
@@ -173,7 +173,6 @@ export class OriginationAiRepository {
   async approveArtifact(companyId: string, artifactId: string, approvedBy: string) {
     const rows = await this.db().update('origination_os_artifacts', {
       status: 'approved',
-      payload: undefined,
       updated_at: new Date().toISOString(),
     }, [{ column: 'id', value: artifactId }, { column: 'company_id', value: companyId }]);
     const artifact = rows?.[0] ?? null;
