@@ -124,6 +124,28 @@ export class OriginationAiRepository {
   }
 
   async resolveConflict(companyId: string, conflictId: string, input: { selectedEvidenceId?: string; resolutionNote: string; resolvedBy: string }) {
+    const conflicts = await this.db().select('company_ai_conflicts', {
+      select: '*',
+      filters: [{ column: 'id', value: conflictId }, { column: 'company_id', value: companyId }, { column: 'status', value: 'open' }],
+      limit: 1,
+    });
+    const conflict = conflicts?.[0];
+    if (!conflict) throw new Error('Conflito aberto não encontrado.');
+    const evidenceIds = Array.isArray(conflict.evidence_ids) ? conflict.evidence_ids.map(String) : [];
+    if (evidenceIds.length && !input.selectedEvidenceId) throw new Error('selectedEvidenceId é obrigatório para resolver conflito com evidências concorrentes.');
+    if (input.selectedEvidenceId && !evidenceIds.includes(input.selectedEvidenceId)) throw new Error('selectedEvidenceId não pertence às evidências do conflito.');
+
+    if (input.selectedEvidenceId) {
+      await this.db().update('company_evidence_facts', { status: 'validated', updated_at: new Date().toISOString() }, [
+        { column: 'id', value: input.selectedEvidenceId }, { column: 'company_id', value: companyId },
+      ]);
+      for (const evidenceId of evidenceIds.filter((id: string) => id !== input.selectedEvidenceId)) {
+        await this.db().update('company_evidence_facts', { status: 'superseded', updated_at: new Date().toISOString() }, [
+          { column: 'id', value: evidenceId }, { column: 'company_id', value: companyId },
+        ]);
+      }
+    }
+
     const rows = await this.db().update('company_ai_conflicts', {
       status: 'resolved',
       selected_evidence_id: input.selectedEvidenceId ?? null,
