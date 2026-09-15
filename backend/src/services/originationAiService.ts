@@ -13,6 +13,7 @@ import {
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const nonEmpty = (value: unknown) => value !== null && value !== undefined && value !== '';
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 type EvidenceInput = Omit<EvidenceFact, 'id' | 'status'> & { status?: EvidenceFact['status'] };
 const fact = (input: EvidenceInput): Omit<EvidenceFact, 'id'> => ({ ...input, status: input.status ?? 'active' });
@@ -84,7 +85,18 @@ export class OriginationAiService {
       confidence: 0.9, materiality: 'high', effectiveAt: documents[0]?.observed_at ?? new Date().toISOString(),
     });
 
-    if (rows.length) await this.repo.upsertEvidence(rows);
+    if (rows.length) {
+      const existing = await this.repo.listEvidence(companyId);
+      const byKey = new Map(existing.map((item) => [item.evidenceKey, item]));
+      const toPersist = rows.flatMap((row) => {
+        const current = byKey.get(row.evidenceKey);
+        if (!current) return [row];
+        if (sameValue(current.value, row.value)) return [];
+        const version = String(row.effectiveAt ?? new Date().toISOString()).replace(/[^0-9]/g, '');
+        return [{ ...row, evidenceKey: `${row.evidenceKey}:${version || randomUUID()}` }];
+      });
+      if (toPersist.length) await this.repo.upsertEvidence(toPersist);
+    }
   }
 
   async rebuildDealMaster(companyId: string) {
