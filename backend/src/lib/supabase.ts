@@ -26,9 +26,13 @@ const RETRYABLE_SUPABASE_STATUS = new Set([408, 425, 429, 502, 503, 504, 521, 52
 const DEFAULT_SUPABASE_ATTEMPTS = 5;
 const DEFAULT_SUPABASE_TIMEOUT_MS = 60_000;
 const DEFAULT_SUPABASE_BASE_DELAY_MS = 500;
-const VERCEL_SUPABASE_ATTEMPTS = 1;
+// Vercel/serverless must fail fast per attempt, but a single 5s attempt turns a
+// transient TCP/connectivity blip into a user-visible failure. Three bounded
+// attempts with exponential backoff keep the worst-case retry budget below 16s
+// while forcing a fresh HTTP connection attempt after CONNECT_TIMEOUT-like errors.
+const VERCEL_SUPABASE_ATTEMPTS = 3;
 const VERCEL_SUPABASE_TIMEOUT_MS = 5_000;
-const VERCEL_SUPABASE_BASE_DELAY_MS = 0;
+const VERCEL_SUPABASE_BASE_DELAY_MS = 250;
 
 const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
