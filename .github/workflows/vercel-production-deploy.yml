@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - .ops/vercel-production-deploy-request.json
 
 permissions:
   contents: read
@@ -33,6 +38,7 @@ jobs:
       SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
       PRODUCTION_URL: https://motor-originac-srm.vercel.app
       VERCEL_CLI_VERSION: 50.28.0
+      REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
 
     steps:
       - name: Checkout current main
@@ -47,10 +53,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Validate controlled production trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const request = JSON.parse(readFileSync('.ops/vercel-production-deploy-request.json', 'utf8'));
+          if (request.deploy !== true) throw new Error('Controlled deploy request must contain deploy=true.');
+          if (!request.reason || typeof request.reason !== 'string') throw new Error('Controlled deploy request must include a reason.');
+          console.log(`Controlled deploy request accepted: ${request.reason}`);
+          NODE
+          fi
+
       - name: Validate production inputs
         shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN" || {
@@ -88,8 +106,6 @@ jobs:
 
       - name: Build immutable production artifact
         shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           export GITHUB_SHA="$REQUESTED_SHA"
@@ -108,8 +124,6 @@ jobs:
       - name: Deploy prebuilt artifact to production
         id: deployment
         shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           DEPLOYMENT_OUTPUT="$(npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
@@ -132,8 +146,6 @@ jobs:
 
       - name: Validate canonical production Auth rollout
         shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           BASE_URL="$PRODUCTION_URL" \
@@ -143,8 +155,6 @@ jobs:
 
       - name: Run strict CAPTCHA smoke when configured
         shell: bash
-        env:
-          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           SITE_KEY_CONFIGURED="$(node -e '

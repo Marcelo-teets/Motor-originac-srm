@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 const workflow = readFileSync('.github/workflows/vercel-production-deploy.yml', 'utf8');
 
 assert.match(workflow, /VERCEL_CLI_VERSION:\s*50\.28\.0/, 'Vercel CLI must be pinned');
+assert.match(workflow, /workflow_dispatch:/, 'Manual production deployment must remain available');
+assert.match(workflow, /push:[\s\S]*branches:[\s\S]*- main[\s\S]*paths:[\s\S]*- \.ops\/vercel-production-deploy-request\.json/, 'Push deployment must only be enabled by the controlled request marker on main');
+assert.doesNotMatch(workflow, /push:[\s\S]*branches:[\s\S]*- main\s*(?:\n\s*)+(?!paths:)/, 'Main push must not enable unrestricted production deploys');
+assert.match(workflow, /REQUESTED_SHA:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.sha \|\| github\.sha \}\}/, 'Push deploys must resolve the exact main SHA from github.sha while manual deploys keep explicit input');
+assert.match(workflow, /Validate controlled production trigger[\s\S]*request\.deploy !== true[\s\S]*request\.reason/, 'Push deploys must validate an explicit deploy request marker');
 assert.match(workflow, /sync-public-auth-env-to-vercel\.mjs/, 'Workflow must synchronize canonical public Supabase Auth config before the build');
 assert.match(workflow, /Synchronize canonical public Supabase Auth config[\s\S]*Link exact Vercel project/, 'Public Auth config must be synchronized before pulling Vercel production settings');
 assert.match(workflow, /vercel@\$VERCEL_CLI_VERSION" pull/, 'Workflow must pull production settings');
