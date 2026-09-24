@@ -43,8 +43,10 @@ export function usageFromProject(p) {
   const c=p?.consumption_period??p?.consumption??{};
   const storage=[p?.synthetic_storage_size,c?.synthetic_storage_size,c?.data_storage_bytes,p?.data_storage_bytes].filter(x=>finiteNonnegative(x)!==null);
   const computeSeconds=finiteNonnegative(c?.compute_time_seconds??p?.compute_time_seconds);
+  // Multiplier 2 is a conservative upper-bound for an unverified Free-plan meter.
+  // This can halt ingestion early; it must never understate chargeable usage.
   return {storageBytes:storage.length?Math.max(...storage):null,
-    computeHours:computeSeconds===null?null:computeSeconds/3600};
+    computeHours:computeSeconds===null?null:(computeSeconds/3600)*2};
 }
 export async function fetchNeon(url,key,request=fetch) {
   const response=await request('https://console.neon.tech/api/v2'+url,{
@@ -68,7 +70,14 @@ export async function liveSnapshot({key,projectId=FREE.projectId,request=fetch})
   const sizes=endpoints.map(e=>finiteNonnegative(e.autoscaling_limit_max_cu));
   const maxCu=sizes.some(x=>x===null)?null:Math.max(0,...sizes);
   const usage=usageFromProject(project);
-  return evaluate({...usage,branches:branches.length,maxCu});
+  const subscription=project.owner?.subscription_type;
+  const periodStart=Date.parse(project.consumption_period_start??'');
+  const periodEnd=Date.parse(project.consumption_period_end??'');
+  const now=Date.now();
+  const extraReasons=[];
+  if(typeof subscription!=='string'||!subscription.startsWith('free')) extraReasons.push('free_plan_not_verified');
+  if(!Number.isFinite(periodStart)||!Number.isFinite(periodEnd)||now<periodStart||now>=periodEnd) extraReasons.push('billing_period_unverified');
+  return evaluate({...usage,branches:branches.length,maxCu,extraReasons});
 }
 async function main() {
   let result;
