@@ -1,0 +1,113 @@
+name: Neon Free Budget Guard
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/neon-free-budget-guard.yml'
+      - 'scripts/neon-free-budget-guard.mjs'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: neon-free-budget-guard
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: steep-poetry-38942951
+      ARMED: ${{ vars.NEON_GUARD_ACTIVE }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check guard contract
+        run: node --test scripts/neon-free-budget-guard.test.mjs
+      - name: Enforce max 1 CU per endpoint when armed
+        if: env.ARMED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_API_KEY:-}" ]; then
+            echo 'Neon key missing; leaving workloads for fail-closed check'
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          const base='https://console.neon.tech/api/v2/projects/'+process.env.NEON_PROJECT_ID;
+          const headers={Authorization:'Bearer '+process.env.NEON_API_KEY,'Content-Type':'application/json'};
+          const res=await fetch(base+'/endpoints',{headers});
+          if(!res.ok) throw new Error('Cannot inspect compute limits: HTTP '+res.status);
+          const {endpoints}=await res.json();
+          if(!Array.isArray(endpoints)) throw new Error('Unknown Neon endpoints response');
+          for(const endpoint of endpoints){
+            const max=endpoint.autoscaling_limit_max_cu;
+            if(typeof max!=='number') throw new Error('Unknown compute limit');
+            if(max<=1) continue;
+            const min=endpoint.autoscaling_limit_min_cu;
+            const body={endpoint:{autoscaling_limit_max_cu:1}};
+            if(typeof min!=='number') throw new Error('Unknown min compute limit');
+            if(min>1) body.endpoint.autoscaling_limit_min_cu=0.25;
+            const update=await fetch(base+'/endpoints/'+encodeURIComponent(endpoint.id),{
+              method:'PATCH',headers,body:JSON.stringify(body)});
+            if(!update.ok) throw new Error('Compute cap update rejected: HTTP '+update.status);
+            console.log('Reduced compute endpoint to maximum 1 CU:',endpoint.id);
+          }
+          NODE
+      - name: Inspect monthly budget and branches
+        id: budget
+        shell: bash
+        run: |
+          set +e
+          node scripts/neon-free-budget-guard.mjs
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Fail-closed heavy ingestion on unsafe telemetry
+        if: env.ARMED == 'true' && steps.budget.outputs.allowed != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Resource guard unsafe: disabling scheduled heavy ingestion (no data deletion).'
+          workflows=(
+            capture.yml search-profile-discovery.yml candidate-domain-intelligence.yml
+            capital-market-ingestion.yml public-bulk-ingestion.yml
+            tech-signals-people-capital.yml cvm-fund-documents-schedule.yml
+            bndes-automatic-datastore.yml strategic-public-data.yml
+          )
+          failures=0
+          for workflow in "${workflows[@]}"; do
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/disable" >/dev/null ||
+              failures=$((failures+1))
+          done
+          echo "Disabled heavy schedulers; failures=$failures" >> "$GITHUB_STEP_SUMMARY"
+          test "$failures" -eq 0
+      - name: Publish status
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Neon free budget guard'
+            echo "- Project: `$NEON_PROJECT_ID`"
+            echo "- Armed: `$ARMED`"
+            echo "- Budget allowed: `${{ steps.budget.outputs.allowed || 'unknown' }}`"
+            echo "- Reasons: `${{ steps.budget.outputs.reasons || 'not_checked' }}`"
+            echo '- Storage stop: 425 MB of 500 MB (85%)'
+            echo '- Compute stop: 85 CU-hours of 100 CU-hours (85%)'
+            echo '- Branch ceiling: 9 of 10; auto delete preview branches via Neon/Vercel'
+            echo '- Compute ceiling: configured 1 CU of 2 CU (50%)'
+            echo '- Unknown metrics mean unsafe. This does not guarantee future use stays below 96%.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Signal failed or unsafe protection
+        if: env.ARMED == 'true' && steps.budget.outputs.allowed != 'true'
+        run: exit 1
