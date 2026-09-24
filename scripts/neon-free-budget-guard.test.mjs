@@ -22,14 +22,14 @@ test('fail closed for missing or invalid billing data',()=>{
 test('do not misinterpret missing Free plan metrics as zero',()=>{
   assert.deepEqual(usageFromProject({}),{storageBytes:null,computeHours:null});
   assert.deepEqual(usageFromProject({consumption_period:{compute_time_seconds:18000,synthetic_storage_size:30000000}}),
-    {storageBytes:30000000,computeHours:5});
+    {storageBytes:30000000,computeHours:10});
 });
 test('read-only Neon API project, branches, endpoint snapshot',async()=>{
   const request=async url=>({
     ok:true, json:async()=>{
       if(url.endsWith('/endpoints')) return {endpoints:[{autoscaling_limit_max_cu:1}]};
       if(url.includes('/branches?')) return {branches:[{id:'a'}]};
-      return {project:{id:FREE.projectId,consumption_period:{compute_time_seconds:36000,synthetic_storage_size:30000000}}};
+      return {project:{id:FREE.projectId,owner:{subscription_type:'free_v3'},consumption_period_start:'2026-09-01T00:00:00Z',consumption_period_end:'2026-10-01T00:00:00Z',consumption_period:{compute_time_seconds:36000,synthetic_storage_size:30000000}}};
     }
   });
   assert.equal((await liveSnapshot({key:'fixture',request})).allowed,true);
