@@ -5,11 +5,11 @@ Destination: `steep-poetry-38942951`, branch `production`. The source Supabase s
 ## Plan limits and conservative protection
 Limits supplied by the 2026-09-24 Neon Free dashboard screenshot:
 - 0.5 GB per project: **500,000,000 bytes** conservative decimal interpretation. 96% target: 480 MB; operational stop: **425 MB (85%)**. The optional database-side trigger blocks selected heavy writes even earlier at 400 MB (80% logical database size).
-- 100 CU-hours/month/project: 96% target: 96 CU-hours; operational stop: **85 CU-hours**.
+- 100 CU-hours/month/project: 96% target: 96 CU-hours; operational stop: **85 estimated upper-bound CU-hours**. If only `compute_time_seconds` is available, the guard multiplies it by the full Free-plan 2-CU ceiling to avoid understating usage; this deliberately can stop early.
 - 10 branches: 96% = 9.6 branches; at most **9 branches**, and **9 is a stop condition for creating more**. Preview cleanup is enabled in the Neon/Vercel integration, but verify that it works.
 - Autoscaling up to 2 CU: to remain *strictly below* 96% of a 2-CU maximum, enforce **maximum 1 CU** for every attached endpoint. Default idle suspend/scale-to-zero must remain on.
 
-The scheduled guard reads project usage/branch count/endpoint limits from the Neon Management API. It refuses to treat missing Free-plan usage data as zero: unknown billing metrics fail closed. Neon v2 consumption-history APIs are paid-plan-only and must not be used as the only Free measurement source. Verify `consumption_period.compute_time_seconds` and `synthetic_storage_size` are actually returned by this project; if Neon omits them, guard stays unsafe until a reliable Free-plan usage source is configured.
+The scheduled guard reads project usage/branch count/endpoint limits from the Neon Management API. It refuses to treat missing Free-plan usage data as zero: unknown billing metrics fail closed. Neon v2 consumption-history APIs are paid-plan-only and must not be used as the only Free measurement source. Verify `compute_time_seconds`, `synthetic_storage_size`, Free subscription type and current billing period are actually returned by this project. Free-plan usage is conservatively estimated, not audited billing telemetry. Missing or stale fields force a closed guard until a reliable Free-plan usage source is configured.
 
 ## Deploy / activate
 1. Merge the PR only when `node --test scripts/neon-free-budget-guard.test.mjs` and the full repository CI pass. This *deploys the versioned guard code and GitHub Actions schedule*, not a live DB trigger or production cutover.
