@@ -26,6 +26,7 @@ jobs:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: steep-poetry-38942951
       ARMED: ${{ vars.NEON_GUARD_ACTIVE }}
+      CUTOVER_VERIFIED: ${{ vars.NEON_CUTOVER_VERIFIED }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +35,8 @@ jobs:
           node-version: '24'
       - name: Check guard contract
         run: node --test scripts/neon-free-budget-guard.test.mjs
-      - name: Enforce max 1 CU per endpoint when armed
-        if: env.ARMED == 'true'
+      - name: Enforce max 1 CU per endpoint only after verified cutover
+        if: env.ARMED == 'true' && env.CUTOVER_VERIFIED == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -73,8 +74,8 @@ jobs:
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Fail-closed heavy ingestion on unsafe telemetry
-        if: env.ARMED == 'true' && steps.budget.outputs.allowed != 'true'
+      - name: Fail-closed heavy ingestion after verified cutover on unsafe telemetry
+        if: env.ARMED == 'true' && env.CUTOVER_VERIFIED == 'true' && steps.budget.outputs.allowed != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -95,19 +96,23 @@ jobs:
       - name: Publish status
         if: always()
         shell: bash
+        env:
+          BUDGET_ALLOWED: ${{ steps.budget.outputs.allowed }}
+          BUDGET_REASONS: ${{ steps.budget.outputs.reasons }}
         run: |
           {
-            echo '## Neon free budget guard'
-            echo "- Project: `$NEON_PROJECT_ID`"
-            echo "- Armed: `$ARMED`"
-            echo "- Budget allowed: `${{ steps.budget.outputs.allowed || 'unknown' }}`"
-            echo "- Reasons: `${{ steps.budget.outputs.reasons || 'not_checked' }}`"
-            echo '- Storage stop: 425 MB of 500 MB (85%)'
-            echo '- Compute stop: 85 CU-hours of 100 CU-hours (85%)'
-            echo '- Branch ceiling: 9 of 10; auto delete preview branches via Neon/Vercel'
-            echo '- Compute ceiling: configured 1 CU of 2 CU (50%)'
-            echo '- Unknown metrics mean unsafe. This does not guarantee future use stays below 96%.'
+            printf '## Neon Free budget guard\n\n'
+            printf '%s\n' "- Project: $NEON_PROJECT_ID"
+            printf '%s\n' "- Armed: $ARMED"
+            printf '%s\n' "- Neon cutover verified: $CUTOVER_VERIFIED"
+            printf '%s\n' "- Budget allowed: ${BUDGET_ALLOWED:-unknown}"
+            printf '%s\n' "- Reasons: ${BUDGET_REASONS:-not_checked}"
+            printf '%s\n' '- Storage stop: 425 MB of 500 MB (85%)'
+            printf '%s\n' '- Compute stop: 85 estimated upper-bound CU-hours of 100 (85%)'
+            printf '%s\n' '- Branch ceiling: 9 of 10; verify automatic preview cleanup'
+            printf '%s\n' '- Endpoint ceiling: max 1 CU (requires post-cutover activation)'
+            printf '%s\n' '- Unknown metrics fail closed; cannot guarantee against out-of-band writes or between-check spikes.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Signal failed or unsafe protection
-        if: env.ARMED == 'true' && steps.budget.outputs.allowed != 'true'
+        if: env.ARMED == 'true' && env.CUTOVER_VERIFIED == 'true' && steps.budget.outputs.allowed != 'true'
         run: exit 1

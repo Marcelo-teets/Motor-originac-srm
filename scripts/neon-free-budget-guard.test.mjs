@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FREE,evaluate,usageFromProject,liveSnapshot } from './neon-free-budget-guard.mjs';
@@ -38,4 +39,12 @@ test('project ID mismatch fails instead of checking another project',async()=>{
   const request=async url=>({ok:true,json:async()=>url.includes('/branches?')?
     {branches:[]} : url.endsWith('/endpoints')?{endpoints:[]}:{project:{id:'other'}}});
   await assert.rejects(liveSnapshot({key:'fixture',request}),/unexpected Neon project/);
+});
+
+test('Neon guard workflow requires completed migration before modifying endpoints or disabling workers', () => {
+  const workflow=readFileSync(new URL('../.github/workflows/neon-free-budget-guard.yml', import.meta.url),'utf8');
+  assert.match(workflow,/CUTOVER_VERIFIED:.*NEON_CUTOVER_VERIFIED/);
+  assert.equal((workflow.match(/env\.CUTOVER_VERIFIED == 'true'/g)||[]).length,3);
+  assert.doesNotMatch(workflow,/\x60\$NEON_PROJECT_ID\x60/);
+  assert.match(workflow,/printf '%s\\n' "- Budget allowed:/);
 });
