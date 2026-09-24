@@ -25,7 +25,7 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: steep-poetry-38942951
-      ARMED: ${{ vars.NEON_GUARD_ACTIVE }}
+      ARMED: ${{ vars.NEON_GUARD_ACTIVE != 'false' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +64,44 @@ jobs:
             console.log('Reduced compute endpoint to maximum 1 CU:',endpoint.id);
           }
           NODE
+      - name: Attempt project-level hard quotas (85 percent budget)
+        if: env.ARMED == 'true'
+        id: quota
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_API_KEY:-}" ]; then
+            echo 'quota_enforced=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const url='https://console.neon.tech/api/v2/projects/'+process.env.NEON_PROJECT_ID;
+          const response=await fetch(url,{
+            method:'PATCH',
+            headers:{Authorization:'Bearer '+process.env.NEON_API_KEY,'Content-Type':'application/json'},
+            body:JSON.stringify({project:{
+              quota:{compute_time_seconds:306000,logical_size_bytes:400000000},
+              default_endpoint_settings:{
+                autoscaling_limit_min_cu:0.25,
+                autoscaling_limit_max_cu:1,
+                suspend_timeout_seconds:60
+              }
+            }})
+          });
+          if(!response.ok){
+            console.log('Project-level custom quota unsupported: HTTP '+response.status);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT,'quota_enforced=false\n');
+            process.exit(0);
+          }
+          const data=await response.json();
+          const quota=data.project?.quota??{};
+          const valid=quota.compute_time_seconds===306000 &&
+            quota.logical_size_bytes===400000000;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,
+            'quota_enforced='+(valid?'true':'false')+'\n');
+          console.log('Provider-enforced hard quota verified:',valid);
+          NODE
       - name: Inspect monthly budget and branches
         id: budget
         shell: bash
@@ -100,6 +138,7 @@ jobs:
             echo '## Neon free budget guard'
             echo "- Project: `$NEON_PROJECT_ID`"
             echo "- Armed: `$ARMED`"
+            echo "- Provider hard quotas: `${{ steps.quota.outputs.quota_enforced || 'unknown' }}`"
             echo "- Budget allowed: `${{ steps.budget.outputs.allowed || 'unknown' }}`"
             echo "- Reasons: `${{ steps.budget.outputs.reasons || 'not_checked' }}`"
             echo '- Storage stop: 425 MB of 500 MB (85%)'
