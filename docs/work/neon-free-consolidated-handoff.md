@@ -11,6 +11,10 @@
 - Política versionada: `scripts/neon-free-budget-guard.mjs`, `.github/workflows/neon-free-budget-guard.yml`, `db/neon/20260924_neon_free_storage_write_guard.sql`, `docs/neon-free-plan-budget-guard.md`.
 - CI: `node --test scripts/neon-free-budget-guard.test.mjs`; verificação horária no GitHub Actions.
 
+## Inventário estático gerado antes do acesso às plataformas
+
+O workflow `.github/workflows/neon-portability-inventory.yml` pode ser executado manualmente ou no CI sem secrets. O comando `node scripts/neon-portability-audit.mjs --json neon-portability.json --markdown neon-portability.md` gera um catálogo de migrações SQL e consumidores Supabase em backend/frontend/API, incluindo dependências de Auth, Storage, pg_cron, Vault, funções e políticas. **Seu resultado é uma triagem estática, não comprova restore nem representa o estado do banco vivo.** Usar o relatório publicado no resumo do GitHub Actions e no artefato `neon-portability-inventory` como matriz de implementação, em conjunto com o dump real antes de executar migrações.
+
 ## Fase 0 — auditoria segura, sem gasto nem cutover
 1. Conectar aos provedores pelos respectivos Apps/integrações já autorizadas ou pelo navegador cloud do Work com OAuth interativo do usuário. Confirmar IDs e permissões, listar apenas **nomes, escopos e presença** de credenciais; nunca ler/publicar valores.
 2. Diagnosticar por que o conector Neon do chat rejeita `project_id` internamente; usar navegador cloud/Neon CLI na nuvem se não houver solução pelo App. Não configurar API key se OAuth autorizado fornecer escopos equivalentes e funcionar com a rotina agendada; caso contrário criar secret mínimo em cofre.
