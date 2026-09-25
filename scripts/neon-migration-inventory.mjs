@@ -4,15 +4,15 @@ import { join, relative } from 'node:path';
 // Offline, read-only inventory. Never infer that a GitHub migration is applied in Supabase.
 const root = process.cwd();
 const excluded = new Set(['.git', 'node_modules', 'dist', 'build', '.vercel', 'coverage']);
-const tokenRegex = /\\b(?:SUPABASE|NEON|GOOGLE_DRIVE|MICROSOFT|CRON|DATABASE|VITE_SUPABASE)_[A-Z0-9_]+\\b/g;
+const tokenRegex = /\b(?:SUPABASE|NEON|GOOGLE_DRIVE|MICROSOFT|CRON|DATABASE|VITE_SUPABASE)_[A-Z0-9_]+\b/g;
 const markers = {
-  auth: /(?:auth\\.|supabase\\.auth|supabase_auth|user_profiles)/i,
-  storage: /(?:storage\\.|storage_bucket|storage_object|supabase.storage)/i,
-  cron: /(?:cron\\.|pg_cron|cron\\.schedule)/i,
-  rpc: /(?:create\\s+(?:or\\s+replace\\s+)?function|\\brpc\\()/i,
-  rls: /(?:row\\s+level\\s+security|create\\s+policy|auth\\.uid\\()/i,
-  vault: /(?:vault\\.|pgsodium|supabase_vault)/i,
-  extension: /create\\s+extension/i,
+  auth: /(?:auth\.|supabase\.auth|supabase_auth|user_profiles)/i,
+  storage: /(?:storage\.|storage_bucket|storage_object|supabase.storage)/i,
+  cron: /(?:cron\.|pg_cron|cron\.schedule)/i,
+  rpc: /(?:create\s+(?:or\s+replace\s+)?function|\brpc\()/i,
+  rls: /(?:row\s+level\s+security|create\s+policy|auth\.uid\()/i,
+  vault: /(?:vault\.|pgsodium|supabase_vault)/i,
+  extension: /create\s+extension/i,
 };
 function walk(folder, result=[]) {
   if (!existsSync(folder)) return result;
@@ -20,7 +20,7 @@ function walk(folder, result=[]) {
     if (excluded.has(item.name)) continue;
     const name=join(folder,item.name);
     if (item.isDirectory()) walk(name,result);
-    else if (item.isFile() && /\\.(?:sql|ts|tsx|js|mjs|json|yml|yaml)$/.test(item.name) && statSync(name).size<2_000_000) result.push(name);
+    else if (item.isFile() && /\.(?:sql|ts|tsx|js|mjs|json|yml|yaml)$/.test(item.name) && statSync(name).size<2_000_000) result.push(name);
   }
   return result;
 }
@@ -50,6 +50,6 @@ export function buildInventory(files) {
 }
 if(process.argv[1] && import.meta.url===new URL('file://'+process.argv[1]).href){
   const folders=['db/migrations','backend/src','frontend/src','api','serverless','.github/workflows'];
-  const files=folders.flatMap(folder=>walk(join(root,folder))).map(file=>({path:relative(root,file).replaceAll('\\\\','/'),content:readFileSync(file,'utf8')}));
-  process.stdout.write(JSON.stringify(buildInventory(files),null,2)+'\\n');
+  const files=folders.flatMap(folder=>walk(join(root,folder))).map(file=>({path:relative(root,file).replaceAll('\\','/'),content:readFileSync(file,'utf8')}));
+  process.stdout.write(JSON.stringify(buildInventory(files),null,2)+'\n');
 }
