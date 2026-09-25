@@ -1,0 +1,96 @@
+name: Motor Supabase Recovery Export
+# Manual and non-destructive. No production DB restore or Vercel cutover.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Probe connection or export encrypted public-schema backup
+        required: true
+        type: choice
+        options: [probe, encrypted_backup]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: motor-supabase-recovery-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_DATABASE_URL: ${{ secrets.MOTOR_SUPABASE_DATABASE_URL }
+      BACKUP_PASSPHRASE: ${{ secrets.MOTOR_BACKUP_PASSPHRASE }
+      PGCONNECT_TIMEOUT: '15'
+      PGSSLMODE: require
+    steps:
+      - name: Require protected source credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_DATABASE_URL" || { echo 'Missing MOTOR_SUPABASE_DATABASE_URL'; exit 1; }
+          if [ '${{ inputs.mode }' = encrypted_backup ]; then
+            test -n "$BACKUP_PASSPHRASE" || { echo 'Missing MOTOR_BACKUP_PASSPHRASE'; exit 1; }
+          fi
+
+      - name: Probe source via PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker run --rm --env SOURCE_DATABASE_URL --env PGCONNECT_TIMEOUT --env PGSSLMODE \
+              postgres:17-alpine sh -ec \
+              'psql "$SOURCE_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -At \
+              -c "SELECT current_database(), current_setting(\x27server_version\x27), pg_database_size(current_database())"'; then
+              echo 'Source PostgreSQL connection successful.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Source connection failed (attempt $attempt / 3); retrying without exposing URI."
+            sleep 12
+          done
+          echo 'Source still unreachable; do not infer that Neon has production data.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Export consistent public-schema archive
+        if: inputs.mode == 'encrypted_backup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/motor-export"
+          docker run --rm --env SOURCE_DATABASE_URL --env PGCONNECT_TIMEOUT --env PGSSLMODE \
+            -v "$RUNNER_TEMP/motor-export:/out" postgres:17-alpine \
+            sh -ec 'pg_dump --dbname="$SOURCE_DATABASE_URL" --schema=public --format=custom \
+                    --no-owner --no-acl --serializable-deferrable \
+                    --file=/out/public.dump'
+          test -s "$RUNNER_TEMP/motor-export/public.dump"
+          docker run --rm -v "$RUNNER_TEMP/motor-export:/out" postgres:17-alpine \
+            pg_restore --list /out/public.dump > "$RUNNER_TEMP/motor-export/toc.txt"
+          sha256sum "$RUNNER_TEMP/motor-export/public.dump" > "$RUNNER_TEMP/motor-export/sha256.txt"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$RUNNER_TEMP/motor-export/public.dump.gpg" \
+            "$RUNNER_TEMP/motor-export/public.dump"
+          test -s "$RUNNER_TEMP/motor-export/public.dump.gpg"
+          echo 'Encrypted public-schema archive created and verified structurally.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'WARNING: Auth users, Storage objects, Vault, and non-public schemas are NOT included.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload encrypted archive only
+        if: inputs.mode == 'encrypted_backup'
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-public-encrypted-${{ github.run_id }
+          path: ${{ runner.temp }/motor-export/public.dump.gpg
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Remove plaintext and temporary metadata
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/motor-export/public.dump" \
+            "$RUNNER_TEMP/motor-export/toc.txt" \
+            "$RUNNER_TEMP/motor-export/sha256.txt" \
+            "$RUNNER_TEMP/motor-export/public.dump.gpg"
