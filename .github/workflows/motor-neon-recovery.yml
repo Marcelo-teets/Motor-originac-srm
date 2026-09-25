@@ -1,0 +1,56 @@
+name: Motor Neon Migration Inventory and Private Backup
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        required: true
+        default: inventory
+        options: [inventory, backup_full, backup_public_only]
+      acknowledge:
+        type: string
+        required: false
+        description: Enter BACKUP_READ_ONLY for any database export
+permissions:
+  contents: read
+concurrency:
+  group: motor-private-source-backup
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Static migration compatibility audit (no database required)
+        run: |
+          node --test scripts/neon-schema-inventory.test.mjs
+          node scripts/neon-schema-inventory.mjs . neon-schema-audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neon-static-schema-audit
+          path: neon-schema-audit.json
+          if-no-files-found: error
+          retention-days: 7
+  source_backup:
+    if: inputs.mode != 'inventory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MODE: ${{ inputs.mode }}
+      ACK: ${{ inputs.acknowledge }}
+      SOURCE_DATABASE_URL: ${{ secrets.MOTOR_SUPABASE_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.MOTOR_BACKUP_PASSPHRASE }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_ARCHIVE_FOLDER_ID: 16RwLyzLUm45BshgO5Qkr9kZunYBfDuNV
+      PGCONNECT_TIMEOUT: '20'
+      PGSSLMODE: require
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only PostgreSQL backup; upload only GPG-encrypted bytes to private Drive
+        run: bash scripts/neon-source-backup.sh
