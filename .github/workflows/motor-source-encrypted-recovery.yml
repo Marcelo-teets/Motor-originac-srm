@@ -1,0 +1,77 @@
+name: Motor Supabase Encrypted Recovery Export
+
+# The source remains read-only; nothing is imported or cut over here.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Operator reason / support incident reference
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: motor-read-only-source-recovery
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      SOURCE_DATABASE_URL: ${{ secrets.MOTOR_SUPABASE_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.MOTOR_BACKUP_PASSPHRASE }}
+      PGCONNECT_TIMEOUT: "15"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate secret presence without printing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SOURCE_DATABASE_URL:-}" || { echo 'Missing MOTOR_SUPABASE_DATABASE_URL'; exit 1; }
+          test -n "${BACKUP_PASSPHRASE:-}" || { echo 'Missing MOTOR_BACKUP_PASSPHRASE'; exit 1; }
+          if [ "${#BACKUP_PASSPHRASE}" -lt 24 ]; then echo 'Backup encryption passphrase is too short'; exit 1; fi
+          case "$SOURCE_DATABASE_URL" in
+            postgresql://*|postgres://*) ;;
+            *) echo 'Invalid Postgres connection URI format'; exit 1;;
+          esac
+      - name: Install pg_dump 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 gnupg
+          pg_dump --version
+      - name: Export a consistent read-only logical backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/motor-recovery"
+          # Full logical backup includes user-visible business schemas as well as
+          # Supabase-managed schemas for later assessment. It is NOT directly
+          # restorable into Neon without a compatibility review.
+          pg_dump --dbname="$SOURCE_DATABASE_URL" --format=custom \
+            --no-owner --no-acl --lock-wait-timeout=5000 \
+            --file="$RUNNER_TEMP/motor-recovery/source-full.dump"
+          pg_restore --list "$RUNNER_TEMP/motor-recovery/source-full.dump" > "$RUNNER_TEMP/motor-recovery/toc.private"
+          test -s "$RUNNER_TEMP/motor-recovery/source-full.dump"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$RUNNER_TEMP/motor-recovery/source-full.dump.gpg" \
+            "$RUNNER_TEMP/motor-recovery/source-full.dump"
+          test -s "$RUNNER_TEMP/motor-recovery/source-full.dump.gpg"
+          sha256sum "$RUNNER_TEMP/motor-recovery/source-full.dump.gpg" | sed "s#.*#Encrypted artifact SHA-256 recorded internally#" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Full dump encrypted before artifact upload; no source rows printed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload encrypted recovery artifact, one-day retention
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-source-recovery-encrypted-${{ github.run_id }}
+          path: ${{ runner.temp }}/motor-recovery/source-full.dump.gpg
+          retention-days: 1
+          if-no-files-found: error
+      - name: Remove runner plaintext dump
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/motor-recovery/source-full.dump" "$RUNNER_TEMP/motor-recovery/toc.private"
