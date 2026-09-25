@@ -106,6 +106,9 @@ jobs:
       - name: Validate Neon Free budget guard
         run: node --test scripts/neon-free-budget-guard.test.mjs
 
+      - name: Validate Neon portability inventory
+        run: node --test scripts/neon-portability-audit.test.mjs && node scripts/neon-portability-audit.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
