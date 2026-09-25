@@ -1,0 +1,116 @@
+name: Motor source recovery (manual, encrypted)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        required: true
+        options: [inventory, export_encrypted]
+        description: Inventory repo migrations or export encrypted Supabase PostgreSQL dump
+permissions:
+  contents: read
+concurrency:
+  group: motor-supabase-source-recovery
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify portable migration audit tests
+        run: node --test scripts/neon-portability-audit.test.mjs
+      - name: Create read-only portability report
+        env:
+          NEON_PORTABILITY_OUTPUT: ${{ runner.temp }}/neon-portability-report.json
+        run: node scripts/neon-portability-audit.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: motor-neon-portability-${{ github.run_id }}
+          path: ${{ runner.temp }}/neon-portability-report.json
+          retention-days: 7
+          if-no-files-found: error
+  export:
+    if: inputs.mode == 'export_encrypted'
+    needs: inspect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      MOTOR_SUPABASE_DATABASE_URL: ${{ secrets.MOTOR_SUPABASE_DATABASE_URL }}
+      MOTOR_BACKUP_PASSPHRASE: ${{ secrets.MOTOR_BACKUP_PASSPHRASE }}
+    steps:
+      - name: Verify required secrets without displaying values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MOTOR_SUPABASE_DATABASE_URL" || { echo 'Missing source connection secret'; exit 1; }
+          test -n "$MOTOR_BACKUP_PASSPHRASE" || { echo 'Missing backup encryption secret'; exit 1; }
+          if [ "${#MOTOR_BACKUP_PASSPHRASE}" -lt 24 ]; then
+            echo 'Backup encryption secret must have at least 24 characters'
+            exit 1
+          fi
+          case "$MOTOR_SUPABASE_DATABASE_URL" in
+            *hdghpmssudrqhsbvrdyt*) ;;
+            *) echo 'Source URL does not reference the canonical Supabase project'; exit 1;;
+          esac
+          case "$MOTOR_SUPABASE_DATABASE_URL" in
+            *sslmode=require*|*sslmode=verify-full*) ;;
+            *) echo 'Source URI must explicitly enable PostgreSQL TLS'; exit 1;;
+          esac
+      - name: Prepare ephemeral runner volume
+        shell: bash
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/motor-source-dump"
+      - name: Dump full available schema and data using PostgreSQL 17
+        id: full
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e MOTOR_SUPABASE_DATABASE_URL \
+            -v "$RUNNER_TEMP/motor-source-dump:/out" postgres:17-alpine \
+            sh -c 'pg_dump --dbname="$MOTOR_SUPABASE_DATABASE_URL" --format=custom --no-owner --no-acl --lock-wait-timeout=5000 --file=/out/full.dump'
+      - name: Export portable public schema independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e MOTOR_SUPABASE_DATABASE_URL \
+            -v "$RUNNER_TEMP/motor-source-dump:/out" postgres:17-alpine \
+            sh -c 'pg_dump --dbname="$MOTOR_SUPABASE_DATABASE_URL" --schema=public --format=custom --no-owner --no-acl --lock-wait-timeout=5000 --file=/out/public.dump'
+          test -s "$RUNNER_TEMP/motor-source-dump/public.dump"
+      - name: Encrypt dumps before uploading anything
+        env:
+          FULL_DUMP_OK: ${{ steps.full.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cd "$RUNNER_TEMP/motor-source-dump"
+          printf '%s' "$MOTOR_BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 --output public.dump.gpg public.dump
+          if [ "$FULL_DUMP_OK" = success ] && [ -s full.dump ]; then
+            printf '%s' "$MOTOR_BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 --output full.dump.gpg full.dump
+          fi
+          sha256sum *.gpg > encrypted-sha256.txt
+          test -s public.dump.gpg
+          echo 'Encrypted backup available. Never treat public-only backup as full Auth/Storage recovery.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload encrypted files only
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-encrypted-source-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/motor-source-dump/*.gpg
+            ${{ runner.temp }}/motor-source-dump/encrypted-sha256.txt
+          retention-days: 1
+          if-no-files-found: error
+      - name: Remove plaintext and encrypted copies from runner
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/motor-source-dump/full.dump" "$RUNNER_TEMP/motor-source-dump/public.dump"
+          rm -f "$RUNNER_TEMP/motor-source-dump/"*.gpg "$RUNNER_TEMP/motor-source-dump/encrypted-sha256.txt"
