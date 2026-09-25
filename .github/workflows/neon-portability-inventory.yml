@@ -1,0 +1,52 @@
+name: Neon Portability Inventory
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'db/**'
+      - 'api/**'
+      - 'backend/**'
+      - 'frontend/src/**'
+      - 'serverless/**'
+      - 'scripts/neon-portability-audit*'
+      - '.github/workflows/neon-portability-inventory.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/neon-portability-inventory.yml'
+      - 'scripts/neon-portability-audit*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-portability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test inventory tooling
+        run: node --test scripts/neon-portability-audit.test.mjs
+      - name: Scan code and migrations — no secrets or database access
+        run: |
+          node scripts/neon-portability-audit.mjs \
+            --json "$RUNNER_TEMP/neon-portability.json" \
+            --markdown "$RUNNER_TEMP/neon-portability.md"
+          cat "$RUNNER_TEMP/neon-portability.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve sanitized inventory
+        uses: actions/upload-artifact@v7
+        with:
+          name: neon-portability-inventory
+          path: |
+            ${{ runner.temp }}/neon-portability.json
+            ${{ runner.temp }}/neon-portability.md
+          retention-days: 7
+          if-no-files-found: error
