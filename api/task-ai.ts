@@ -156,7 +156,12 @@ export default async function handler(req: TaskAiRequest, res: VercelResponse) {
   }
 
   try {
-    await authenticate(req);
+    const authUser = await authenticate(req);
+    if (requestValue(req.query.mode) === 'origination-ai') {
+      const { handleOriginationAi } = await import('../serverless/origination-ai.js');
+      return await handleOriginationAi(req, res, authUser);
+    }
+
     if (req.method === 'GET') {
       return writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: runtimeStatus() });
     }
