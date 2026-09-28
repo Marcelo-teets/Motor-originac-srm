@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/supabase-rest-recovery-probe.yml'
+      - 'scripts/migration/supabase-rest-health-classifier.mjs'
       - 'scripts/migration/supabase-rest-export.mjs'
       - 'scripts/migration/neon-migration-manifest.mjs'
 
@@ -49,10 +50,46 @@ jobs:
           test -n "$SUPABASE_URL" || { echo "SUPABASE_URL missing"; exit 1; }
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY missing"; exit 1; }
 
-      - name: Probe REST table
-        run: |
-          node scripts/migration/supabase-rest-export.mjs \
-            --probe \
-            --tables="${{ matrix.table }}" \
-            --page-size=1 \
-            --out="tmp/probe-${{ matrix.table }}"
+      - name: Classify REST table
+        id: classify
+        run: node scripts/migration/supabase-rest-health-classifier.mjs --table="${{ matrix.table }}"
+
+      - name: Result reachable
+        if: steps.classify.outputs.class == 'reachable'
+        run: echo "REST reachable"
+
+      - name: Result database timeout
+        if: steps.classify.outputs.class == 'db_timeout'
+        run: echo "REST failed because the Supabase database connection timed out"
+
+      - name: Result storage quota
+        if: steps.classify.outputs.class == 'quota'
+        run: echo "REST is blocked by Supabase database-size quota"
+
+      - name: Result authentication
+        if: steps.classify.outputs.class == 'auth'
+        run: echo "REST authentication failed"
+
+      - name: Result missing table or route
+        if: steps.classify.outputs.class == 'missing_table_or_route'
+        run: echo "REST route/table not found"
+
+      - name: Result upstream 5xx
+        if: steps.classify.outputs.class == 'upstream_5xx'
+        run: echo "REST returned an upstream 5xx response"
+
+      - name: Result network timeout
+        if: steps.classify.outputs.class == 'network_timeout'
+        run: echo "REST request timed out before an HTTP response"
+
+      - name: Result network error
+        if: steps.classify.outputs.class == 'network_error'
+        run: echo "REST request failed at network layer"
+
+      - name: Result other
+        if: steps.classify.outputs.class == 'other'
+        run: echo "REST failed with an unclassified response"
+
+      - name: Fail unhealthy REST
+        if: steps.classify.outputs.class != 'reachable'
+        run: exit 1
