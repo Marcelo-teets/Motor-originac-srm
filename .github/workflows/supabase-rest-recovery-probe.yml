@@ -18,8 +18,22 @@ concurrency:
 
 jobs:
   probe:
+    name: Probe ${{ matrix.table }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        table:
+          - companies
+          - source_catalog
+          - monitoring_outputs
+          - company_signals
+          - qualification_snapshots
+          - company_patterns
+          - score_snapshots
+          - lead_score_snapshots
+          - pipeline
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -35,59 +49,10 @@ jobs:
           test -n "$SUPABASE_URL" || { echo "SUPABASE_URL missing"; exit 1; }
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY missing"; exit 1; }
 
-      - name: Probe companies
-        id: companies
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=companies --page-size=1 --out=tmp/probe-companies
-
-      - name: Probe source_catalog
-        id: source_catalog
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=source_catalog --page-size=1 --out=tmp/probe-source-catalog
-
-      - name: Probe monitoring_outputs
-        id: monitoring_outputs
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=monitoring_outputs --page-size=1 --out=tmp/probe-monitoring-outputs
-
-      - name: Probe company_signals
-        id: company_signals
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=company_signals --page-size=1 --out=tmp/probe-company-signals
-
-      - name: Probe qualification_snapshots
-        id: qualification_snapshots
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=qualification_snapshots --page-size=1 --out=tmp/probe-qualification-snapshots
-
-      - name: Probe company_patterns
-        id: company_patterns
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=company_patterns --page-size=1 --out=tmp/probe-company-patterns
-
-      - name: Probe score_snapshots
-        id: score_snapshots
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=score_snapshots --page-size=1 --out=tmp/probe-score-snapshots
-
-      - name: Probe lead_score_snapshots
-        id: lead_score_snapshots
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=lead_score_snapshots --page-size=1 --out=tmp/probe-lead-score-snapshots
-
-      - name: Probe pipeline
-        id: pipeline
-        continue-on-error: true
-        run: node scripts/migration/supabase-rest-export.mjs --probe --tables=pipeline --page-size=1 --out=tmp/probe-pipeline
-
-      - name: Enforce all critical probes
+      - name: Probe REST table
         run: |
-          test "${{ steps.companies.outcome }}" = "success"
-          test "${{ steps.source_catalog.outcome }}" = "success"
-          test "${{ steps.monitoring_outputs.outcome }}" = "success"
-          test "${{ steps.company_signals.outcome }}" = "success"
-          test "${{ steps.qualification_snapshots.outcome }}" = "success"
-          test "${{ steps.company_patterns.outcome }}" = "success"
-          test "${{ steps.score_snapshots.outcome }}" = "success"
-          test "${{ steps.lead_score_snapshots.outcome }}" = "success"
-          test "${{ steps.pipeline.outcome }}" = "success"
+          node scripts/migration/supabase-rest-export.mjs \
+            --probe \
+            --tables="${{ matrix.table }}" \
+            --page-size=1 \
+            --out="tmp/probe-${{ matrix.table }}"
