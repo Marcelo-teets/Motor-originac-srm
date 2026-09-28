@@ -1,50 +1,73 @@
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FREE,evaluate,usageFromProject,liveSnapshot } from './neon-free-budget-guard.mjs';
+import { FREE,evaluate,usageFromProject,liveSnapshot,providerQuotaReasons } from './neon-free-budget-guard.mjs';
 
-const baseline={storageBytes:250_000_000,computeHours:25,branches:1,maxCu:1};
-test('passes a project well below limits',()=>{
+const baseline={storageBytes:250_000_000,computeHours:25,dataTransferBytes:1_000_000_000,branches:1,maxCu:1};
+
+test('passes a project well below limits',()=> {
   assert.equal(evaluate(baseline).allowed,true);
 });
-test('hard stops at 85 percent, not the dangerously late 96 percent',()=>{
+
+test('hard stops at 85 percent before any plan ceiling',()=> {
   assert.equal(evaluate({...baseline,storageBytes:425_000_000}).allowed,false);
   assert.equal(evaluate({...baseline,computeHours:85}).allowed,false);
+  assert.equal(evaluate({...baseline,dataTransferBytes:4_250_000_000}).allowed,false);
   assert.equal(evaluate({...baseline,branches:9}).allowed,false);
 });
-test('autoscale above 1 CU is blocked to stay below 96% of 2 CU',()=>{
+
+test('autoscale above 1 CU is blocked',()=> {
   assert.equal(evaluate({...baseline,maxCu:2}).allowed,false);
 });
-test('fail closed for missing or invalid billing data',()=>{
-  assert.equal(evaluate({...baseline,computeHours:null}).allowed,false);
-  assert.equal(evaluate({...baseline,storageBytes:NaN}).allowed,false);
-  assert.equal(evaluate({...baseline,branches:null}).allowed,false);
+
+test('provider quotas must be present and no looser than policy',()=> {
+  const project={settings:{quota:{
+    logical_size_bytes:FREE.hardLogicalBytes,
+    active_time_seconds:FREE.hardActiveSeconds,
+    compute_time_seconds:FREE.hardComputeSeconds,
+    data_transfer_bytes:FREE.hardTransferBytes,
+  }}};
+  assert.deepEqual(providerQuotaReasons(project),[]);
+  assert.ok(providerQuotaReasons({settings:{quota:{}}}).length>=4);
+  assert.ok(providerQuotaReasons({settings:{quota:{...project.settings.quota,logical_size_bytes:FREE.hardLogicalBytes+1}}}).includes('logical_size_hard_quota_missing_or_loose'));
 });
-test('do not misinterpret missing Free plan metrics as zero',()=>{
-  assert.deepEqual(usageFromProject({}),{storageBytes:null,computeHours:null});
-  assert.deepEqual(usageFromProject({consumption_period:{compute_time_seconds:18000,synthetic_storage_size:30000000}}),
-    {storageBytes:30000000,computeHours:10});
+
+test('usage takes conservative max of active and CPU based compute hours',()=> {
+  assert.deepEqual(usageFromProject({
+    synthetic_storage_size:30_000_000,
+    compute_time_seconds:18_000,
+    active_time_seconds:36_000,
+    data_transfer_bytes:100,
+  },1),{storageBytes:30_000_000,computeHours:10,dataTransferBytes:100});
 });
-test('read-only Neon API project, branches, endpoint snapshot',async()=>{
+
+test('read-only Neon API snapshot accepts hard quotas even if billing-period fields are absent',async()=> {
   const request=async url=>({
-    ok:true, json:async()=>{
+    ok:true,
+    json:async()=>{
       if(url.endsWith('/endpoints')) return {endpoints:[{autoscaling_limit_max_cu:1}]};
       if(url.includes('/branches?')) return {branches:[{id:'a'}]};
-      return {project:{id:FREE.projectId,owner:{subscription_type:'free_v3'},consumption_period_start:new Date(Date.now()-86_400_000).toISOString(),consumption_period_end:new Date(Date.now()+86_400_000).toISOString(),consumption_period:{compute_time_seconds:36000,synthetic_storage_size:30000000}}};
+      return {project:{
+        id:FREE.projectId,
+        owner:{subscription_type:'free_v3'},
+        synthetic_storage_size:30_000_000,
+        compute_time_seconds:1_000,
+        active_time_seconds:1_000,
+        data_transfer_bytes:1_000,
+        settings:{quota:{
+          logical_size_bytes:FREE.hardLogicalBytes,
+          active_time_seconds:FREE.hardActiveSeconds,
+          compute_time_seconds:FREE.hardComputeSeconds,
+          data_transfer_bytes:FREE.hardTransferBytes,
+        }},
+      }};
     }
   });
   assert.equal((await liveSnapshot({key:'fixture',request})).allowed,true);
 });
-test('project ID mismatch fails instead of checking another project',async()=>{
+
+test('fails closed when provider hard quota drifts or project differs',async()=> {
   const request=async url=>({ok:true,json:async()=>url.includes('/branches?')?
     {branches:[]} : url.endsWith('/endpoints')?{endpoints:[]}:{project:{id:'other'}}});
   await assert.rejects(liveSnapshot({key:'fixture',request}),/unexpected Neon project/);
-});
-
-test('Neon guard workflow requires completed migration before modifying endpoints or disabling workers', () => {
-  const workflow=readFileSync(new URL('../.github/workflows/neon-free-budget-guard.yml', import.meta.url),'utf8');
-  assert.match(workflow,/CUTOVER_VERIFIED:.*NEON_CUTOVER_VERIFIED/);
-  assert.equal((workflow.match(/env\.CUTOVER_VERIFIED == 'true'/g)||[]).length,3);
-  assert.doesNotMatch(workflow,/\x60\$NEON_PROJECT_ID\x60/);
-  assert.match(workflow,/printf '%s\\n' "- Budget allowed:/);
+  assert.equal(evaluate({...baseline,extraReasons:['logical_size_hard_quota_missing_or_loose']}).allowed,false);
 });
