@@ -5,11 +5,11 @@ Destination: `steep-poetry-38942951`, branch `production`. The source Supabase s
 ## Plan limits and conservative protection
 Limits supplied by the 2026-09-24 Neon Free dashboard screenshot:
 - 0.5 GB per project: **500,000,000 bytes** conservative decimal interpretation. 96% target: 480 MB; operational stop: **425 MB (85%)**. The optional database-side trigger blocks selected heavy writes even earlier at 400 MB (80% logical database size).
-- 100 CU-hours/month/project: 96% target: 96 CU-hours; operational stop: **85 estimated upper-bound CU-hours**. If only `compute_time_seconds` is available, the guard multiplies it by the full Free-plan 2-CU ceiling to avoid understating usage; this deliberately can stop early.
-- 10 branches: 96% = 9.6 branches; at most **9 branches**, and **9 is a stop condition for creating more**. Preview cleanup is enabled in the Neon/Vercel integration, but verify that it works.
-- Autoscaling up to 2 CU: to remain *strictly below* 96% of a 2-CU maximum, enforce **maximum 1 CU** for every attached endpoint. Default idle suspend/scale-to-zero must remain on.
+- 100 CU-hours/month/project: provider hard quotas now cap both `active_time_seconds` and `compute_time_seconds` at **306,000 seconds (85 h)**. Because every endpoint is capped at **1 CU**, the project cannot intentionally consume more than 85 CU-h before Neon suspends compute. The hourly guard remains a second layer.
+- 10 branches: 96% = 9.6 branches; at most **9 branches**, and **9 is a stop condition for creating more**. Neon Free has no lower provider-side branch quota; preview cleanup plus the guard enforce the operational ceiling.
+- Autoscaling up to 2 CU: **maximum 1 CU** is enforced on production, Vercel dev and project defaults. Free-plan scale-to-zero stays provider-managed at 5 minutes.
 
-The scheduled guard reads project usage/branch count/endpoint limits from the Neon Management API. It refuses to treat missing Free-plan usage data as zero: unknown billing metrics fail closed. Neon v2 consumption-history APIs are paid-plan-only and must not be used as the only Free measurement source. Verify `compute_time_seconds`, `synthetic_storage_size`, Free subscription type and current billing period are actually returned by this project. Free-plan usage is conservatively estimated, not audited billing telemetry. Missing or stale fields force a closed guard until a reliable Free-plan usage source is configured.
+The scheduled guard reads project usage, branch count, endpoint limits and **provider quotas** from the Neon Management API. Hard quotas are now the primary safety boundary: logical size **480 MB**, active time **306,000 s**, compute time **306,000 s**, and proxy data transfer **4.25 GB**. Neon automatically suspends computes after consumption quotas are exceeded; logical-size quota blocks writes on an oversized branch. Missing or looser hard quotas fail closed. This avoids depending on billing-period timestamps that the Free project currently reports as an unusable sentinel value.
 
 ## Deploy / activate
 1. Merge the PR only when `node --test scripts/neon-free-budget-guard.test.mjs` and the full repository CI pass. This *deploys the versioned guard code and GitHub Actions schedule*, not a live DB trigger or production cutover.
@@ -35,3 +35,8 @@ WHERE trigger_name LIKE 'neon_free_guard_%';
 
 ## Remaining migration gates
 Recover the blocked Supabase database dump (or support-provided backup), import and reconcile IDs/counts/checksums, migrate Auth/Storage/Data API and cron processes, perform an authenticated staging smoke test, then switch traffic. Neither this PR nor its workflow claims that the Neon production database is populated with old Supabase records.
+
+
+## Live provider quotas applied on 2026-09-28
+
+The project was updated directly through the Neon Management API with `logical_size_bytes=480000000`, `active_time_seconds=306000`, `compute_time_seconds=306000`, and `data_transfer_bytes=4250000000`. These are provider-enforced controls, not only monitoring thresholds. Do not loosen them without an explicit architecture/capacity decision.
