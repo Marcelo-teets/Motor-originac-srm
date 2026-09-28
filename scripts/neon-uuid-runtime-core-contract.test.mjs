@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const core = readFileSync(new URL('../db/neon/20260928_neon_uuid_runtime_core.sql', import.meta.url), 'utf8');
 const ext = readFileSync(new URL('../db/neon/20260928_neon_uuid_extended_runtime.sql', import.meta.url), 'utf8');
+const intel = readFileSync(new URL('../db/neon/20260928_neon_origination_intelligence_modules.sql', import.meta.url), 'utf8');
 
 test('Neon runtime core preserves live UUID identity contract', () => {
   assert.match(core, /create table if not exists public\.companies[\s\S]*?id uuid primary key/i);
@@ -43,4 +44,20 @@ test('Neon runtime migrations do not copy Supabase managed schemas or permissive
   assert.doesNotMatch(all, /\bcron\./i);
   assert.doesNotMatch(all, /grant\s+.+\s+to\s+authenticated/i);
   assert.match(all, /revoke all privileges on all tables in schema public from anonymous, authenticated/i);
+});
+
+
+test('Neon origination intelligence modules cover factor map and timing evidence', () => {
+  for (const table of [
+    'trigger_events','company_source_metric_snapshots','company_linkedin_role_snapshots',
+    'origination_factor_catalog','source_factor_rules','company_factor_observations',
+    'company_factor_snapshots','source_schedule_registry'
+  ]) assert.match(intel, new RegExp('create table if not exists public\\.'+table, 'i'));
+  assert.match(intel,/company_source_metric_snapshots[\s\S]*?company_id uuid/i);
+  assert.match(intel,/company_factor_observations[\s\S]*?signal_id uuid/i);
+  assert.match(intel,/credit_product_intensity/);
+  assert.match(intel,/receivables_quality/);
+  assert.match(intel,/dcm_market_access/);
+  assert.match(intel,/compliance_blocker/);
+  assert.doesNotMatch(intel,/grant\s+.+\s+to\s+authenticated/i);
 });
