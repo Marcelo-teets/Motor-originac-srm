@@ -109,6 +109,9 @@ jobs:
       - name: Validate Neon portable schema contract
         run: node --test scripts/neon-portable-schema-contract.test.mjs
 
+      - name: Validate Neon Data API default-deny contract
+        run: node --test scripts/neon-data-api-default-deny-contract.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
