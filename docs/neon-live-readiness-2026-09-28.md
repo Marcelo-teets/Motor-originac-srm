@@ -61,3 +61,45 @@ The provider-level 480 MB logical-size quota is the strongest protection current
 ## Identity-contract correction
 
 Repository evidence (`docs/capture-persistence-smoke.md`, migrations 031/048 and later) proves the former Supabase live contract uses UUID primary keys for `companies.id` and `source_catalog.id`; logical connector IDs such as `src_*` live in `source_catalog.metadata.code`. Therefore the old canonical text-ID bootstrap is only a portability probe. A production Neon schema must be reconstructed against the UUID live contract before cutover.
+
+
+## UUID runtime-core candidate validated — 2026-09-28
+
+A production-shaped UUID schema candidate is now versioned in:
+
+- `db/neon/20260928_neon_uuid_runtime_core.sql`
+- `db/neon/20260928_neon_uuid_extended_runtime.sql`
+
+Validation performed on Neon temporary branches created from `production`:
+
+- prepared migration id: `0e4431ef-5f9e-4e95-8b9d-30d927c6fa7c`;
+- verified candidate branch: `br-wispy-math-b6y3br1c`;
+- 47 public runtime tables plus the existing Neon Auth schema;
+- `companies.id` = UUID;
+- `source_catalog.id` = UUID;
+- UUID FKs verified for monitoring, signals, qualification, patterns, pipeline, watchlists, commercial intelligence, public-data records and credit reviews;
+- unique index on `source_catalog.metadata->>'code'`;
+- `pgcrypto` and `vector` available;
+- Data API remains default-deny.
+
+This is **schema readiness only**. No Supabase production row is represented as migrated. Applying the prepared migration to Neon `production` requires the explicit Neon completion action and must only occur after user approval immediately before execution.
+
+Several temporary migration branches exist from compatibility testing. Their deletion/discard is intentionally deferred because Neon destructive cleanup actions require explicit approval.
+
+
+## Extended runtime + origination intelligence validation
+
+On temporary branch `br-wispy-math-b6y3br1c`, the validated UUID runtime was extended with:
+
+- commercial operating layer: watchlists, stakeholders, touchpoints, objections, momentum and commercial priority;
+- engine coordination and external-API usage governance;
+- candidate official enrichments and targeted public-data runtime;
+- investors, investor relationships and strategic job openings;
+- company credit review gate table;
+- trigger events and company/source metric history;
+- origination Factor Map catalog, rules, observations and snapshots;
+- source scheduling registry.
+
+The candidate reached **55 public tables** on the test branch. UUID foreign keys were verified for the intelligence/factor surfaces. Initial factor catalog includes funding need, FIDC fit, DCM fit, timing, executability and risk dimensions.
+
+This remains a **schema-only validation**. The Factor Map is seeded with structural definitions, not with fabricated company evidence or scores.

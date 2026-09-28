@@ -112,6 +112,9 @@ jobs:
       - name: Validate Neon Data API default-deny contract
         run: node --test scripts/neon-data-api-default-deny-contract.test.mjs
 
+      - name: Validate Neon UUID runtime core contract
+        run: node --test scripts/neon-uuid-runtime-core-contract.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
