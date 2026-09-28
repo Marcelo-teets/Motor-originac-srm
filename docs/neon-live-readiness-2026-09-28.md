@@ -85,3 +85,21 @@ Validation performed on Neon temporary branches created from `production`:
 This is **schema readiness only**. No Supabase production row is represented as migrated. Applying the prepared migration to Neon `production` requires the explicit Neon completion action and must only occur after user approval immediately before execution.
 
 Several temporary migration branches exist from compatibility testing. Their deletion/discard is intentionally deferred because Neon destructive cleanup actions require explicit approval.
+
+
+## Extended runtime + origination intelligence validation
+
+On temporary branch `br-wispy-math-b6y3br1c`, the validated UUID runtime was extended with:
+
+- commercial operating layer: watchlists, stakeholders, touchpoints, objections, momentum and commercial priority;
+- engine coordination and external-API usage governance;
+- candidate official enrichments and targeted public-data runtime;
+- investors, investor relationships and strategic job openings;
+- company credit review gate table;
+- trigger events and company/source metric history;
+- origination Factor Map catalog, rules, observations and snapshots;
+- source scheduling registry.
+
+The candidate reached **55 public tables** on the test branch. UUID foreign keys were verified for the intelligence/factor surfaces. Initial factor catalog includes funding need, FIDC fit, DCM fit, timing, executability and risk dimensions.
+
+This remains a **schema-only validation**. The Factor Map is seeded with structural definitions, not with fabricated company evidence or scores.
