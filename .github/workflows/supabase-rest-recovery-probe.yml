@@ -1,0 +1,61 @@
+name: Supabase REST Recovery Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-rest-recovery-probe.yml'
+      - 'scripts/migration/supabase-rest-export.mjs'
+      - 'scripts/migration/neon-migration-manifest.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-rest-recovery-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify secrets are configured
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL missing"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY missing"; exit 1; }
+
+      - name: Probe critical Supabase REST tables
+        run: |
+          node scripts/migration/supabase-rest-export.mjs \
+            --probe \
+            --page-size=1 \
+            --tables=companies,source_catalog,monitoring_outputs,company_signals,qualification_snapshots,company_patterns,score_snapshots,lead_score_snapshots,pipeline \
+            --out=tmp/supabase-rest-probe
+
+      - name: Publish non-sensitive row-count summary
+        if: always()
+        run: |
+          if [ -f tmp/supabase-rest-probe/manifest.json ]; then
+            node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('tmp/supabase-rest-probe/manifest.json','utf8'));
+          console.log('## Supabase REST recovery probe');
+          console.log('');
+          console.log('| Table | Rows |');
+          console.log('|---|---:|');
+          for (const t of m.tables) console.log(`| ${t.table} | ${t.rowCount} |`);
+          console.log('');
+          console.log(`Checked at: ${m.completedAt}`);
+          NODE
+          fi
