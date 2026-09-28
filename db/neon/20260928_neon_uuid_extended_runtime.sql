@@ -1,6 +1,6 @@
 -- Neon extended runtime modules for Motor Originação.
 -- Additive only. Builds on 20260928_neon_uuid_runtime_core.sql.
--- Supabase-specific grants/policies are intentionally not copied; Neon Data API stays default-deny.
+-- Supabase-specific grants/policies are intentionally not copied. Neon Data API stays default-deny.
 
 alter table public.companies
   add column if not exists last_touchpoint_at timestamptz,
