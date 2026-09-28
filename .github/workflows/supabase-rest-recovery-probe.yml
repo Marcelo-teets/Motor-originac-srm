@@ -81,23 +81,13 @@ jobs:
         run: node scripts/migration/supabase-rest-export.mjs --probe --tables=pipeline --page-size=1 --out=tmp/probe-pipeline
 
       - name: Enforce all critical probes
-        env:
-          COMPANIES: ${{ steps.companies.outcome }}
-          SOURCE_CATALOG: ${{ steps.source_catalog.outcome }}
-          MONITORING_OUTPUTS: ${{ steps.monitoring_outputs.outcome }}
-          COMPANY_SIGNALS: ${{ steps.company_signals.outcome }}
-          QUALIFICATION_SNAPSHOTS: ${{ steps.qualification_snapshots.outcome }}
-          COMPANY_PATTERNS: ${{ steps.company_patterns.outcome }}
-          SCORE_SNAPSHOTS: ${{ steps.score_snapshots.outcome }}
-          LEAD_SCORE_SNAPSHOTS: ${{ steps.lead_score_snapshots.outcome }}
-          PIPELINE: ${{ steps.pipeline.outcome }}
         run: |
-          failed=0
-          for name in COMPANIES SOURCE_CATALOG MONITORING_OUTPUTS COMPANY_SIGNALS QUALIFICATION_SNAPSHOTS COMPANY_PATTERNS SCORE_SNAPSHOTS LEAD_SCORE_SNAPSHOTS PIPELINE; do
-            value="${!name}"
-            if [ "$value" != "success" ]; then
-              echo "$name failed"
-              failed=1
-            fi
-          done
-          exit "$failed"
+          test "${{ steps.companies.outcome }}" = "success"
+          test "${{ steps.source_catalog.outcome }}" = "success"
+          test "${{ steps.monitoring_outputs.outcome }}" = "success"
+          test "${{ steps.company_signals.outcome }}" = "success"
+          test "${{ steps.qualification_snapshots.outcome }}" = "success"
+          test "${{ steps.company_patterns.outcome }}" = "success"
+          test "${{ steps.score_snapshots.outcome }}" = "success"
+          test "${{ steps.lead_score_snapshots.outcome }}" = "success"
+          test "${{ steps.pipeline.outcome }}" = "success"
