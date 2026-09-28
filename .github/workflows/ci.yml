@@ -121,6 +121,9 @@ jobs:
       - name: Validate Supabase REST recovery probe workflow
         run: node --test scripts/supabase-rest-recovery-probe-contract.test.mjs
 
+      - name: Validate Supabase REST failure classifier
+        run: node --test scripts/migration/supabase-rest-health-classifier.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
