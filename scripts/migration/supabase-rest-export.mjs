@@ -11,6 +11,15 @@ const argValue = (name) => {
 
 const parseBooleanFlag = (name) => process.argv.includes(`--${name}`);
 
+// OFFSET requires stable primary-key ordering; exceptions verified on Neon UUID schema.
+export const primaryKeyColumns = (table) => {
+  validateMigrationTable(table);
+  if (table === 'external_api_usage_monthly') return ['provider', 'month_key'];
+  if (table === 'origination_reprocessing_queue') return ['company_id'];
+  return ['id'];
+};
+export const paginationOrder = (table) => primaryKeyColumns(table).map((key) => `${key}.asc`).join(',');
+
 const requiredEnv = (name) => {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
@@ -29,6 +38,7 @@ export async function fetchPage({baseUrl,key,table,offset,pageSize,fetchImpl=fet
   validateMigrationTable(table);
   const url = new URL(`${baseUrl.replace(/\/+$/, '')}/rest/v1/${table}`);
   url.searchParams.set('select','*');
+  url.searchParams.set('order',paginationOrder(table));
   const response = await fetchImpl(url,{
     headers:{
       apikey:key,
@@ -46,10 +56,9 @@ export async function fetchPage({baseUrl,key,table,offset,pageSize,fetchImpl=fet
   }
   const rows = await response.json();
   if (!Array.isArray(rows)) throw new Error(`Unexpected REST payload for ${table}`);
-  return {
-    rows,
-    total:countFromContentRange(response.headers.get('content-range')),
-  };
+  const total=countFromContentRange(response.headers.get('content-range'));
+  if (total === null) throw new Error(`Missing exact row count for ${table}; refusing unverified export`);
+  return {rows,total};
 }
 
 export async function probeTable(args) {
@@ -62,6 +71,8 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
   const filePath = resolve(outDir,`${table}.ndjson`);
   const handle = await open(filePath,'w');
   const hash = createHash('sha256');
+  const keys = primaryKeyColumns(table);
+  const seenPrimaryKeys = new Set();
   let offset = 0;
   let rowCount = 0;
   let expectedTotal = null;
@@ -73,6 +84,13 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
       if (!rows.length) break;
 
       for (const row of rows) {
+        const values=keys.map((key)=>row[key]);
+        if (values.some((value)=>value === undefined || value === null)) {
+          throw new Error(`Missing primary key while exporting ${table}`);
+        }
+        const pk=JSON.stringify(values);
+        if (seenPrimaryKeys.has(pk)) throw new Error(`Duplicate primary key while exporting ${table}; source may have changed during pagination`);
+        seenPrimaryKeys.add(pk);
         const line = JSON.stringify(row) + '\n';
         hash.update(line);
         await handle.write(line);
@@ -91,6 +109,12 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
     throw new Error(`Row-count mismatch for ${table}: exported=${rowCount} expected=${expectedTotal}`);
   }
 
+  // A second exact count detects common mid-export source changes.
+  // A write-free final delta and destination-side parity remain mandatory.
+  const finalProbe=await probeTable({baseUrl,key,table,fetchImpl});
+  if (finalProbe.rowCount !== rowCount) {
+    throw new Error(`Source count changed during export for ${table}: exported=${rowCount} final=${finalProbe.rowCount}`);
+  }
   return {table,rowCount,sha256:hash.digest('hex'),file:`${table}.ndjson`};
 }
 
