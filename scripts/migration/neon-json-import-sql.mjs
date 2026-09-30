@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { dirname, resolve } from 'node:path';
 import { MIGRATION_TABLES, validateMigrationTable } from './neon-migration-manifest.mjs';
+import { primaryKeyColumns } from './supabase-rest-export.mjs';
 
 const argValue = (name) => {
   const prefix = `--${name}=`;
@@ -19,19 +20,54 @@ export async function sha256File(filePath) {
   return hash.digest('hex');
 };
 
-export const sqlForBatch = ({table,rows,batchIndex}) => {
+export const sqlForBatch = ({table,rows,batchIndex,upsert=false}) => {
   validateMigrationTable(table);
   if (!rows.length) return '';
   const columns = [...new Set(rows.flatMap((row)=>Object.keys(row)))].sort();
   if (!columns.length) return '';
   const colSql = columns.map(quoteIdent).join(',');
   const json = JSON.stringify(rows);
-  const tag = `$motor_${table}_${batchIndex}$`;
+  const tag = `$motor_${table}_${batchIndex}import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+import { dirname, resolve } from 'node:path';
+import { MIGRATION_TABLES, validateMigrationTable } from './neon-migration-manifest.mjs';
+import { primaryKeyColumns } from './supabase-rest-export.mjs';
+
+const argValue = (name) => {
+  const prefix = `--${name}=`;
+  const match = process.argv.find((arg) => arg.startsWith(prefix));
+  return match ? match.slice(prefix.length) : undefined;
+};
+
+const quoteIdent = (value) => '"' + String(value).replaceAll('"','""') + '"';
+
+export async function sha256File(filePath) {
+  const hash=createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
+};
+
+export const sqlForBatch = ({table,rows,batchIndex,upsert=false}) => {
+  validateMigrationTable(table);
+  if (!rows.length) return '';
+  const columns = [...new Set(rows.flatMap((row)=>Object.keys(row)))].sort();
+  if (!columns.length) return '';
+  const colSql = columns.map(quoteIdent).join(',');
+  const json = JSON.stringify(rows);
+;
+  const keyColumns=primaryKeyColumns(table);
+  const nonKeyColumns=columns.filter((column)=>!keyColumns.includes(column));
+  const conflict=upsert && nonKeyColumns.length
+    ? `on conflict (${keyColumns.map(quoteIdent).join(',')}) do update set ${nonKeyColumns.map((col)=>`${quoteIdent(col)}=excluded.${quoteIdent(col)}`).join(',')};`
+    : 'on conflict do nothing;';
   return [
     `insert into public.${quoteIdent(table)} (${colSql})`,
     `select ${colSql}`,
     `from jsonb_populate_recordset(null::public.${quoteIdent(table)}, ${tag}${json}${tag}::jsonb)`,
-    'on conflict do nothing;',
+    'where true', // Resolve PostgreSQL INSERT...SELECT ON CONFLICT parser ambiguity
+    conflict,
     '',
   ].join('\n');
 };
@@ -56,7 +92,7 @@ export async function readNdjsonBatches(filePath,batchSize,onBatch) {
   return count;
 }
 
-export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=MIGRATION_TABLES}) {
+export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=MIGRATION_TABLES,upsert=false}) {
   const manifest=JSON.parse(await readFile(resolve(bundleDir,'manifest.json'),'utf8'));
   if (manifest.format!=='motor-supabase-rest-export-v1') throw new Error('Unsupported export manifest');
   if (manifest.probe) throw new Error('Probe manifest cannot be imported');
@@ -89,7 +125,7 @@ export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=
     }
     let emitted=0;
     const readCount=await readNdjsonBatches(filePath,batchSize,async(rows,batchIndex)=>{
-      sql += sqlForBatch({table,rows,batchIndex});
+      sql += sqlForBatch({table,rows,batchIndex,upsert});
       emitted += rows.length;
     });
     if (readCount!==entry.rowCount || emitted!==entry.rowCount) {
@@ -110,7 +146,7 @@ async function main() {
   const tables=requested
     ? requested.split(',').map((v)=>validateMigrationTable(v.trim())).filter(Boolean)
     : MIGRATION_TABLES;
-  await generateImportSql({bundleDir,outFile,batchSize,tables});
+  await generateImportSql({bundleDir,outFile,batchSize,tables,upsert:process.argv.includes('--upsert')});
   process.stdout.write(`Generated import SQL: ${outFile}\n`);
 }
 
