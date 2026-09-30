@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { dirname, resolve } from 'node:path';
@@ -11,6 +12,12 @@ const argValue = (name) => {
 };
 
 const quoteIdent = (value) => '"' + String(value).replaceAll('"','""') + '"';
+
+export async function sha256File(filePath) {
+  const hash=createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
+};
 
 export const sqlForBatch = ({table,rows,batchIndex}) => {
   validateMigrationTable(table);
@@ -54,6 +61,9 @@ export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=
   if (manifest.format!=='motor-supabase-rest-export-v1') throw new Error('Unsupported export manifest');
   if (manifest.probe) throw new Error('Probe manifest cannot be imported');
 
+  if (!Array.isArray(manifest.tables) || new Set(manifest.tables.map((entry)=>entry.table)).size !== manifest.tables.length) {
+    throw new Error('Missing or duplicate export manifest table entries');
+  }
   const byTable=new Map(manifest.tables.map((entry)=>[entry.table,entry]));
   await mkdir(dirname(outFile),{recursive:true});
 
@@ -68,9 +78,15 @@ export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=
 
   for (const table of tables) {
     const entry=byTable.get(table);
-    if (!entry) continue;
+    if (!entry) throw new Error(`Missing required export manifest entry for ${table}`);
     validateMigrationTable(table);
+    if (entry.file !== `${table}.ndjson`) throw new Error(`Invalid export filename for ${table}`);
+    if (!/^[a-f0-9]{64}$/i.test(entry.sha256 ?? '')) throw new Error(`Missing/invalid SHA-256 for ${table}`);
     const filePath=resolve(bundleDir,entry.file);
+    const actualHash=await sha256File(filePath);
+    if (actualHash.toLowerCase() !== entry.sha256.toLowerCase()) {
+      throw new Error(`SHA-256 mismatch for ${table}; refusing to generate import SQL`);
+    }
     let emitted=0;
     const readCount=await readNdjsonBatches(filePath,batchSize,async(rows,batchIndex)=>{
       sql += sqlForBatch({table,rows,batchIndex});
