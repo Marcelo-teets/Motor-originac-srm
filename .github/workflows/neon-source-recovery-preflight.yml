@@ -1,0 +1,62 @@
+name: Neon source recovery preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/neon-safe-rest-recovery-20260930
+    paths:
+      - .github/workflows/neon-source-recovery-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-source-check:
+    if: github.repository == 'Marcelo-teets/Motor-originac-srm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MOTOR_SUPABASE_DATABASE_URL: ${{ secrets.MOTOR_SUPABASE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Read-only source recoverability (no backup or secret outputs)
+        shell: bash
+        run: |
+          set -uo pipefail
+          rest_rc=2
+          sql_rc=2
+          if [[ -n "${SUPABASE_URL:-}" && -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            node scripts/migration/supabase-rest-export.mjs \
+              --probe --tables=companies,source_catalog \
+              --out="${RUNNER_TEMP}/neon-source-probe"
+            rest_rc=$?
+          else
+            echo 'REST_PREFLIGHT=missing_secrets'
+          fi
+          if [[ -n "${MOTOR_SUPABASE_DATABASE_URL:-}" ]]; then
+            if ! command -v psql >/dev/null 2>&1; then
+              sudo apt-get update -qq >/dev/null 2>&1 &&
+                sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1
+            fi
+            if command -v psql >/dev/null 2>&1; then
+              PGCONNECT_TIMEOUT=10 psql "${MOTOR_SUPABASE_DATABASE_URL}" \
+                -X -v ON_ERROR_STOP=1 -Atqc 'begin read only; select 1; commit;' \
+                > /dev/null 2> "${RUNNER_TEMP}/pg-probe.err"
+              sql_rc=$?
+            fi
+          else
+            echo 'PG_PREFLIGHT=missing_secret'
+          fi
+          echo "REST_PREFLIGHT_EXIT=${rest_rc}"
+          echo "PG_PREFLIGHT_EXIT=${sql_rc}"
+          if [[ "$rest_rc" -ne 0 && "$sql_rc" -ne 0 ]]; then
+            echo 'RECOVERY_BLOCKED: no usable source read path; no data were copied.'
+            exit 1
+          fi
+          echo 'RECOVERY_PATH_AVAILABLE: read-only probe only; data export/cutover NOT performed.'
