@@ -40,7 +40,7 @@ Saída:
 - um `.ndjson` por tabela;
 - `manifest.json` com contagem e SHA-256 por tabela.
 
-O exportador falha se a contagem observada pelo PostgREST divergir da quantidade efetivamente gravada.
+O exportador fixa a ordenação pelas chaves primárias, detecta IDs repetidos, exige contagem exata e repete a contagem após exportar. **Isso não constitui snapshot transacional**: uma carga final precisa de pausa de escritas, delta e reconciliação.
 
 ### Segurança
 
@@ -62,7 +62,7 @@ node scripts/migration/neon-json-import-sql.mjs \
 
 O gerador usa `jsonb_populate_recordset(null::public.<table>, ...)`, preserva IDs/timestamps e gera `ON CONFLICT DO NOTHING` para permitir uma primeira carga idempotente em destino vazio.
 
-O SQL gerado contém dados reais e também deve permanecer fora do Git.
+O gerador agora verifica o SHA-256 de cada NDJSON, exige as tabelas solicitadas e recusa arquivos trocados ou incompletos.\n\nPara a **carga final de delta**, após conferir o snapshot inicial, gerar o SQL com `--upsert` para atualizar registros existentes pela PK (inclusive PK composta). Sem `--upsert`, o modo inicial é `ON CONFLICT DO NOTHING` e **não substitui** o delta final.\n\nO SQL gerado contém dados reais e também deve permanecer fora do Git.
 
 ## 4. Critério obrigatório antes de executar a carga
 
@@ -99,7 +99,7 @@ Para superfícies de decisão:
 
 a reconciliação deve ser 100% antes do cutover.
 
-## Estado em 2026-09-28
+## Preflight operacional de 30/09/2026\n\nO workflow `.github/workflows/neon-source-recovery-preflight.yml` tenta primeiro a leitura REST de `companies` e `source_catalog`; separadamente tenta `SELECT 1` em transação read-only via PostgreSQL quando `MOTOR_SUPABASE_DATABASE_URL` existir no cofre GitHub. Ele **não exporta dados, não altera o Supabase e não faz o cutover**.\n\nNa verificação direta de 30/09, o SQL administrativo do Supabase retornou timeout e a produção Vercel reportou HTTP 402 por `exceed_db_size_quota` e `exceed_storage_size_quota`. Isso bloqueia a extração REST enquanto durar a restrição. Uma conexão PostgreSQL via pooler ou um backup pré-existente precisa ser confirmada antes de prosseguir. Nunca apague dados da origem para contornar a quota sem backup conferido.\n\nO limite rígido configurado no Neon é 480 MB: uma origem excedendo 500 MB não cabe automaticamente. Arquivar históricos verificáveis fora do banco quente antes da importação, conforme política cold archive do Motor. Storage e usuários de Auth são migrações separadas, não cobertas pelo NDJSON `public`.\n\n## Estado em 2026-09-28
 
 - Neon schema candidato: 55 tabelas public validadas em branch temporária.
 - Supabase SQL administrativo: ainda com CONNECT_TIMEOUT.
