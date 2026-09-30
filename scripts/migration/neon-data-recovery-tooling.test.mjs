@@ -98,3 +98,11 @@ test('import rejects corrupted data and incomplete manifests',async()=>{
   await assert.rejects(generateImportSql({bundleDir:dir,outFile:join(dir,'out.sql'),tables:['companies']}),/SHA-256 mismatch/);
   await assert.rejects(generateImportSql({bundleDir:dir,outFile:join(dir,'out.sql'),tables:['source_catalog']}),/Missing required export/);
 });
+
+test('final-delta SQL explicitly upserts by source primary key',()=>{
+  const sql=sqlForBatch({table:'companies',rows:[{id:'00000000-0000-4000-8000-000000000001',legal_name:'updated'}],batchIndex:0,upsert:true});
+  assert.match(sql,/where true\s+on conflict \("id"\) do update set/i);
+  assert.match(sql,/"legal_name"=excluded\."legal_name"/);
+  const composite=sqlForBatch({table:'external_api_usage_monthly',rows:[{provider:'example',month_key:'2026-09',calls:2}],batchIndex:0,upsert:true});
+  assert.match(composite,/on conflict \("provider","month_key"\) do update set/i);
+});
