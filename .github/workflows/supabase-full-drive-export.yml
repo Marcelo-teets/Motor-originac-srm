@@ -1,0 +1,88 @@
+name: Supabase Full Drive Export
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'scripts/migration/supabase-full-drive-export.mjs'
+      - '.github/workflows/supabase-full-drive-export.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-full-drive-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TARGET_DRIVE_FOLDER_ID: 1PsekT_g31Dq0ugiTURZo6tExkSQF5Si2
+      COPY_STORAGE_FILES: 'true'
+      EXPORT_PAGE_SIZE: '1000'
+      MAX_ROWS_PER_SHEET: '50000'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET GOOGLE_DRIVE_REFRESH_TOKEN; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required secret names: %s\n' "$(IFS=,; echo "${missing[*]}")"
+            exit 1
+          fi
+
+      - name: Validate exporter syntax
+        run: node --check scripts/migration/supabase-full-drive-export.mjs
+
+      - name: Export Supabase to Google Drive
+        id: export
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/migration/supabase-full-drive-export.mjs 2>&1 | tee /tmp/supabase-full-drive-export.log
+          SUMMARY_LINE="$(grep 'FINAL_SUMMARY=' /tmp/supabase-full-drive-export.log | tail -n 1 || true)"
+          if [ -n "$SUMMARY_LINE" ]; then
+            printf '%s\n' "${SUMMARY_LINE#FINAL_SUMMARY=}" > /tmp/run_summary.json
+          fi
+
+      - name: Publish execution summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Supabase → Google Drive full export'
+            echo
+            echo '- project: `hdghpmssudrqhsbvrdyt`'
+            echo '- target folder: `Motor Originação - Backup Supabase Completo - 2026-10-01`'
+            echo '- database: all discovered PostgREST tables/views + repository schema candidates'
+            echo '- auth: supported Admin Users export'
+            echo '- storage: bucket/object metadata + raw object copy when readable'
+            echo '- secrets/passwords/tokens: intentionally excluded'
+            echo
+            if [ -f /tmp/run_summary.json ]; then
+              echo '```json'
+              cat /tmp/run_summary.json
+              echo '```'
+            else
+              echo 'No final summary was produced; inspect the job log.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
