@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import { getNeonPostgresClient } from './postgres.js';
 
 type QueryOptions = {
   select?: string;
@@ -276,6 +277,10 @@ class SupabaseRestClient {
 }
 
 export const getSupabaseClient = () => {
+  if (env.dataProvider === 'neon') {
+    return getNeonPostgresClient(env.neonDatabaseUrl);
+  }
+
   if (!env.supabaseUrl || !(env.supabaseServiceRoleKey || env.supabaseAnonKey)) {
     return null;
   }
@@ -286,3 +291,6 @@ export const getSupabaseClient = () => {
     env.supabaseAnonKey || env.supabaseServiceRoleKey,
   );
 };
+
+export const getDataClient = getSupabaseClient;
+export const getDataProvider = () => env.dataProvider;
