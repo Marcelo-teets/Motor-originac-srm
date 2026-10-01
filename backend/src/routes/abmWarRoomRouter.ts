@@ -24,7 +24,7 @@ export const createAbmWarRoomRouter = () => {
   const momentumService = new CommercialMomentumService();
   const priorityService = new CommercialPriorityService();
   const briefingService = new PreCallBriefingService();
-  const repo = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+  const repo = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
   const cap = new DataCaptureEngine();
   const tr = new DataTreatmentEngine();
   const store = new DataEngineOpsStore();
