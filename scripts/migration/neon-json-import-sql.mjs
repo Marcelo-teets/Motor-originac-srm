@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { dirname, resolve } from 'node:path';
 import { MIGRATION_TABLES, validateMigrationTable } from './neon-migration-manifest.mjs';
+import { primaryKeyColumns } from './supabase-rest-export.mjs';
 
 const argValue = (name) => {
   const prefix = `--${name}=`;
@@ -12,19 +14,36 @@ const argValue = (name) => {
 
 const quoteIdent = (value) => '"' + String(value).replaceAll('"','""') + '"';
 
-export const sqlForBatch = ({table,rows,batchIndex}) => {
+export async function sha256File(filePath) {
+  const hash=createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+export const sqlForBatch = ({table,rows,batchIndex,upsert=false}) => {
   validateMigrationTable(table);
   if (!rows.length) return '';
   const columns = [...new Set(rows.flatMap((row)=>Object.keys(row)))].sort();
   if (!columns.length) return '';
+  const keyColumns=primaryKeyColumns(table);
+  for (const keyColumn of keyColumns) {
+    if (!columns.includes(keyColumn)) throw new Error(`Missing primary key column ${keyColumn} in import batch for ${table}`);
+  }
+
   const colSql = columns.map(quoteIdent).join(',');
   const json = JSON.stringify(rows);
   const tag = `$motor_${table}_${batchIndex}$`;
+  const nonKeyColumns=columns.filter((column)=>!keyColumns.includes(column));
+  const conflict=upsert && nonKeyColumns.length
+    ? `on conflict (${keyColumns.map(quoteIdent).join(',')}) do update set ${nonKeyColumns.map((column)=>`${quoteIdent(column)}=excluded.${quoteIdent(column)}`).join(',')};`
+    : 'on conflict do nothing;';
+
   return [
     `insert into public.${quoteIdent(table)} (${colSql})`,
     `select ${colSql}`,
     `from jsonb_populate_recordset(null::public.${quoteIdent(table)}, ${tag}${json}${tag}::jsonb)`,
-    'on conflict do nothing;',
+    'where true',
+    conflict,
     '',
   ].join('\n');
 };
@@ -49,11 +68,14 @@ export async function readNdjsonBatches(filePath,batchSize,onBatch) {
   return count;
 }
 
-export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=MIGRATION_TABLES}) {
+export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=MIGRATION_TABLES,upsert=false}) {
   const manifest=JSON.parse(await readFile(resolve(bundleDir,'manifest.json'),'utf8'));
   if (manifest.format!=='motor-supabase-rest-export-v1') throw new Error('Unsupported export manifest');
   if (manifest.probe) throw new Error('Probe manifest cannot be imported');
+  if (!Array.isArray(manifest.tables)) throw new Error('Invalid export manifest tables');
 
+  const tableNames=manifest.tables.map((entry)=>entry?.table);
+  if (new Set(tableNames).size !== tableNames.length) throw new Error('Duplicate export manifest table entries');
   const byTable=new Map(manifest.tables.map((entry)=>[entry.table,entry]));
   await mkdir(dirname(outFile),{recursive:true});
 
@@ -61,19 +83,29 @@ export async function generateImportSql({bundleDir,outFile,batchSize=250,tables=
     '-- Motor Supabase -> Neon data import',
     '-- Generated from a private REST export. Do not commit the generated SQL or source NDJSON.',
     '-- Target schema must already exist and match the UUID runtime contract.',
+    `-- Mode: ${upsert ? 'final-delta-upsert' : 'initial-conflict-safe-load'}`,
     'begin;',
     "set local statement_timeout = '0';",
     '',
   ].join('\n');
 
   for (const table of tables) {
-    const entry=byTable.get(table);
-    if (!entry) continue;
     validateMigrationTable(table);
+    const entry=byTable.get(table);
+    if (!entry) throw new Error(`Missing required export manifest entry for ${table}`);
+    if (entry.file !== `${table}.ndjson`) throw new Error(`Invalid export filename for ${table}`);
+    if (!Number.isInteger(entry.rowCount) || entry.rowCount < 0) throw new Error(`Invalid row count for ${table}`);
+    if (!/^[a-f0-9]{64}$/i.test(entry.sha256 ?? '')) throw new Error(`Missing/invalid SHA-256 for ${table}`);
+
     const filePath=resolve(bundleDir,entry.file);
+    const actualHash=await sha256File(filePath);
+    if (actualHash.toLowerCase() !== entry.sha256.toLowerCase()) {
+      throw new Error(`SHA-256 mismatch for ${table}; refusing to generate import SQL`);
+    }
+
     let emitted=0;
     const readCount=await readNdjsonBatches(filePath,batchSize,async(rows,batchIndex)=>{
-      sql += sqlForBatch({table,rows,batchIndex});
+      sql += sqlForBatch({table,rows,batchIndex,upsert});
       emitted += rows.length;
     });
     if (readCount!==entry.rowCount || emitted!==entry.rowCount) {
@@ -94,7 +126,13 @@ async function main() {
   const tables=requested
     ? requested.split(',').map((v)=>validateMigrationTable(v.trim())).filter(Boolean)
     : MIGRATION_TABLES;
-  await generateImportSql({bundleDir,outFile,batchSize,tables});
+  await generateImportSql({
+    bundleDir,
+    outFile,
+    batchSize,
+    tables,
+    upsert:process.argv.includes('--upsert'),
+  });
   process.stdout.write(`Generated import SQL: ${outFile}\n`);
 }
 
