@@ -495,7 +495,10 @@ const copyStorageFiles = async ({ buckets, storageRowsByBucket, storageFilesFold
   if (!COPY_STORAGE_FILES) return;
   for (const bucket of buckets) {
     const bucketId = String(bucket.id ?? bucket.name ?? 'unknown');
-    const bucketFolderId = await ensureDriveFolder(safeName(bucketId), storageFilesFolderId, { sourceBucket: bucketId, sourceProject: PROJECT_REF });
+    const bucketFolderId = ARTIFACT_ONLY
+      ? join(storageFilesFolderId, safeName(bucketId))
+      : await ensureDriveFolder(safeName(bucketId), storageFilesFolderId, { sourceBucket: bucketId, sourceProject: PROJECT_REF });
+    if (ARTIFACT_ONLY) await mkdir(bucketFolderId, { recursive: true });
     const rows = storageRowsByBucket.get(bucketId) ?? [];
     for (const row of rows) {
       const fullPath = String(row.full_path ?? row.name ?? '');
@@ -503,7 +506,9 @@ const copyStorageFiles = async ({ buckets, storageRowsByBucket, storageFilesFold
         const slash = fullPath.lastIndexOf('/');
         const dir = slash >= 0 ? fullPath.slice(0, slash) : '';
         const fileName = slash >= 0 ? fullPath.slice(slash + 1) : fullPath;
-        const parentId = dir ? await ensureNestedDrivePath(bucketFolderId, dir) : bucketFolderId;
+        const parentId = ARTIFACT_ONLY
+          ? bucketFolderId
+          : (dir ? await ensureNestedDrivePath(bucketFolderId, dir) : bucketFolderId);
         const downloaded = await downloadStorageObjectToFile({ bucketId, fullPath });
         if (ARTIFACT_ONLY) {
           const targetDir = dir ? join(bucketFolderId, ...dir.split('/').map((part) => safeName(part, 100))) : bucketFolderId;
@@ -693,8 +698,8 @@ const main = async () => {
     targetDriveFolderId: TARGET_DRIVE_FOLDER_ID || null,
     exportRoot: ARTIFACT_ONLY ? EXPORT_ROOT : null,
     databaseObjectsAttempted: tableNames.length,
-    exportPartsCreated: manifestRows.filter((row) => row.raw_file_id).length,
-    storageObjectsCopied: storageManifestRows.filter((row) => row.status === 'ok').length,
+    exportPartsCreated: manifestRows.filter((row) => row.raw_file_id || row.raw_file_path).length,
+    storageObjectsCopied: storageManifestRows.filter((row) => row.status === 'ok' || row.status === 'artifact_ok').length,
     storageObjectsFailed: storageManifestRows.filter((row) => row.status !== 'ok').length,
     blockedScopes,
     manifestFileId: manifestFile?.id ?? null,
