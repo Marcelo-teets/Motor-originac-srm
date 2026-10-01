@@ -2,8 +2,13 @@
   "name": "motor-originac-srm",
   "private": true,
   "version": "0.1.0",
-  "engines": { "node": "24.x" },
-  "workspaces": ["frontend", "backend"],
+  "engines": {
+    "node": "24.x"
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
     "dev": "npm -C backend run dev",
     "dev:frontend": "npm -C frontend run dev",
@@ -28,7 +33,7 @@
     "test:knowledge-learning-queue": "node --test scripts/knowledge-learning-queue-governance.test.mjs",
     "test:zero-cost-ai": "node --test scripts/zero-cost-ai-policy.test.mjs",
     "test:pipeline-eligibility": "node --test scripts/pipeline-eligibility-contract.test.mjs",
-    "test:database-hardening": "node --test scripts/database-ownership-lineage-contract.test.mjs",
+    "test:database-hardening": "node --test scripts/database-ownership-lineage-contract.test.mjs scripts/database-growth-circuit-breaker-contract.test.mjs scripts/neon-database-growth-circuit-breaker-contract.test.mjs",
     "test:capture-derived-decision-gate": "node --test scripts/capture-derived-decision-contract.test.mjs scripts/entity-relevance-remediation-contract.test.mjs && tsx --test backend/src/modules/data-capture/captureTreatment.test.ts backend/src/modules/data-capture/captureDecisionGate.test.ts backend/src/modules/data-capture/captureEntityRelevanceGate.test.ts",
     "test:archive-queue-runtime": "node --test scripts/archive-queue-runtime-contract.test.mjs",
     "test:supabase-edge-source": "node --test scripts/supabase-edge-source-contract.test.mjs",
@@ -42,7 +47,11 @@
     "ops:materialize-company-decision": "tsx scripts/materialize-company-decision.ts",
     "vercel:production-control": "node scripts/vercel-production-control.mjs",
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
-    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless"
+    "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless",
+    "test:database-growth-guard": "node --test scripts/database-growth-circuit-breaker-contract.test.mjs",
+    "test:neon-growth-guard": "node --test scripts/neon-database-growth-circuit-breaker-contract.test.mjs"
   },
-  "devDependencies": { "tsx": "4.19.3" }
+  "devDependencies": {
+    "tsx": "4.19.3"
+  }
 }
