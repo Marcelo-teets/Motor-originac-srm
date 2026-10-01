@@ -28,7 +28,7 @@ export class CaptureRuntimeService {
       this.repository.listSources(),
       this.repository.listPatternCatalog(),
     ]);
-    const companies = selectMonitoringCompanies(allCompanies, env.useSupabase);
+    const companies = selectMonitoringCompanies(allCompanies, env.usePersistentData);
 
     const targetCompanies = options.companyId
       ? companies.filter((company) => company.id === options.companyId)
