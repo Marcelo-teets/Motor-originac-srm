@@ -331,21 +331,22 @@ class MemoryPlatformRepository implements PlatformRepository {
   }
 }
 
-class SupabasePlatformRepository implements PlatformRepository {
+class DatabasePlatformRepository implements PlatformRepository {
   private readonly client = getSupabaseClient();
   private readonly fallback = new MemoryPlatformRepository();
 
   private ensureClient() {
-    if (!this.client) throw new Error('Supabase client not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/ANON key.');
+    if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL (preferred) or Supabase runtime credentials.');
     return this.client;
   }
 
   private async readWithFallback<T>(loader: () => Promise<T>, fallback: () => Promise<T>, shouldFallback?: (result: T) => boolean) {
     try {
       const result = await loader();
-      if (shouldFallback?.(result)) return fallback();
+      if (env.dataProvider !== 'neon' && shouldFallback?.(result)) return fallback();
       return result;
-    } catch {
+    } catch (error) {
+      if (env.dataProvider === 'neon') throw error;
       return fallback();
     }
   }
@@ -353,7 +354,8 @@ class SupabasePlatformRepository implements PlatformRepository {
   private async writeWithFallback(action: () => Promise<void>, fallback: () => Promise<void>) {
     try {
       await action();
-    } catch {
+    } catch (error) {
+      if (env.dataProvider === 'neon') throw error;
       await fallback();
     }
   }
@@ -917,6 +919,10 @@ class SupabasePlatformRepository implements PlatformRepository {
   }
 
   async seedBaseData() {
+    // Neon production is migration-managed. Never inject memory/demo seed companies
+    // into an empty but valid Neon database.
+    if (env.dataProvider === 'neon') return;
+
     await this.writeWithFallback(async () => {
       const client = this.ensureClient();
       await client.upsert('source_catalog', sourceCatalogSeeds.map((item) => ({
@@ -1004,4 +1010,4 @@ class SupabasePlatformRepository implements PlatformRepository {
   }
 }
 
-export const createPlatformRepository = (mode: 'memory' | 'supabase'): PlatformRepository => (mode === 'supabase' ? new SupabasePlatformRepository() : new MemoryPlatformRepository());
+export const createPlatformRepository = (mode: 'memory' | 'database'): PlatformRepository => (mode === 'database' ? new DatabasePlatformRepository() : new MemoryPlatformRepository());
