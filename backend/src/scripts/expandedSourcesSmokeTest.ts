@@ -3,7 +3,7 @@ import { env } from '../lib/env.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
 
 async function main() {
-  const repo = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+  const repo = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
   const [companies, sources] = await Promise.all([repo.listCompanies(), repo.listSources()]);
   const target = companies.slice(0, 1);
 
