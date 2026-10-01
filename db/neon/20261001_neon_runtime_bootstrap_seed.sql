@@ -182,14 +182,6 @@ on conflict (id) do update set
   config=excluded.config,
   updated_at=now();
 
-delete from public.search_profile_filters
-where profile_id in (
-  'sp_fintech_credit_receivables',
-  'sp_middle_market_tech_dcm',
-  'sp_embedded_finance_pressure',
-  'sp_infra_tech_capital'
-);
-
 insert into public.search_profile_filters (id, profile_id, filter_key, filter_value)
 values
   ((substr(md5('sp_fintech_credit_receivables:employee_count'),1,8)||'-'||substr(md5('sp_fintech_credit_receivables:employee_count'),9,4)||'-4'||substr(md5('sp_fintech_credit_receivables:employee_count'),14,3)||'-a'||substr(md5('sp_fintech_credit_receivables:employee_count'),18,3)||'-'||substr(md5('sp_fintech_credit_receivables:employee_count'),21,12))::uuid,'sp_fintech_credit_receivables','min_employee_count','50'::jsonb),
