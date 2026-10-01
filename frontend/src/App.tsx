@@ -33,6 +33,7 @@ const QuickSearchPage = lazy(() => import('./pages/QuickSearchPage').then((modul
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
 const SearchProfilesPage = lazy(() => import('./pages/SearchProfilesPage').then((module) => ({ default: module.SearchProfilesPage })));
 const SourcesPage = lazy(() => import('./pages/SourcesPage').then((module) => ({ default: module.SourcesPage })));
+const StructuringOsPage = lazy(() => import('./pages/StructuringOsPage').then((module) => ({ default: module.StructuringOsPage })));
 const TaskCenterWithAiPage = lazy(() => import('./pages/TaskCenterWithAiPage').then((module) => ({ default: module.TaskCenterWithAiPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })));
 const WatchListPage = lazy(() => import('./pages/WatchListPage').then((module) => ({ default: module.WatchListPage })));
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="sources" element={<SourcesPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route path="origination-os" element={<OriginationOsPage />} />
+            <Route path="structuring-os" element={<StructuringOsPage />} />
             <Route path="dcm-daily" element={<DcmDailyOutreachPage />} />
             <Route path="task-center" element={<TaskCenterWithAiPage />} />
             <Route path="knowledge-vault" element={<KnowledgeVaultPage />} />
