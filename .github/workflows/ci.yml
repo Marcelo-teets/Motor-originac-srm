@@ -127,6 +127,9 @@ jobs:
       - name: Validate Neon migration secret-readiness workflow
         run: node --test scripts/neon-migration-secret-readiness-contract.test.mjs
 
+      - name: Validate verified cold-archive cleanup contract
+        run: node --test scripts/google-drive-cold-archive-cleanup-contract.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
