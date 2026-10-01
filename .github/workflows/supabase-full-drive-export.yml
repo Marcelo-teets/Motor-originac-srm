@@ -1,12 +1,6 @@
 name: Supabase Full Drive Export
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'scripts/migration/supabase-full-drive-export.mjs'
-      - '.github/workflows/supabase-full-drive-export.yml'
   workflow_dispatch:
 
 permissions:
