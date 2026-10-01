@@ -11,6 +11,16 @@ const argValue = (name) => {
 
 const parseBooleanFlag = (name) => process.argv.includes(`--${name}`);
 
+export const primaryKeyColumns = (table) => {
+  validateMigrationTable(table);
+  if (table === 'external_api_usage_monthly') return ['provider','month_key'];
+  if (table === 'origination_reprocessing_queue') return ['company_id'];
+  return ['id'];
+};
+
+export const paginationOrder = (table) =>
+  primaryKeyColumns(table).map((column)=>`${column}.asc`).join(',');
+
 const requiredEnv = (name) => {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
@@ -29,6 +39,7 @@ export async function fetchPage({baseUrl,key,table,offset,pageSize,fetchImpl=fet
   validateMigrationTable(table);
   const url = new URL(`${baseUrl.replace(/\/+$/, '')}/rest/v1/${table}`);
   url.searchParams.set('select','*');
+  url.searchParams.set('order',paginationOrder(table));
   const response = await fetchImpl(url,{
     headers:{
       apikey:key,
@@ -46,15 +57,14 @@ export async function fetchPage({baseUrl,key,table,offset,pageSize,fetchImpl=fet
   }
   const rows = await response.json();
   if (!Array.isArray(rows)) throw new Error(`Unexpected REST payload for ${table}`);
-  return {
-    rows,
-    total:countFromContentRange(response.headers.get('content-range')),
-  };
+  const total=countFromContentRange(response.headers.get('content-range'));
+  if (total === null) throw new Error(`Missing exact row count for ${table}; refusing unverified export`);
+  return {rows,total};
 }
 
 export async function probeTable(args) {
   const page = await fetchPage({...args,offset:0,pageSize:1});
-  return {table:args.table,rowCount:page.total ?? page.rows.length};
+  return {table:args.table,rowCount:page.total};
 }
 
 export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchImpl=fetch}) {
@@ -62,6 +72,8 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
   const filePath = resolve(outDir,`${table}.ndjson`);
   const handle = await open(filePath,'w');
   const hash = createHash('sha256');
+  const keys=primaryKeyColumns(table);
+  const seenPrimaryKeys=new Set();
   let offset = 0;
   let rowCount = 0;
   let expectedTotal = null;
@@ -69,10 +81,23 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
   try {
     for (;;) {
       const {rows,total} = await fetchPage({baseUrl,key,table,offset,pageSize,fetchImpl});
-      if (expectedTotal === null && total !== null) expectedTotal = total;
+      if (expectedTotal === null) expectedTotal = total;
+      else if (total !== expectedTotal) {
+        throw new Error(`Source count changed during export for ${table}: expected=${expectedTotal} observed=${total}`);
+      }
       if (!rows.length) break;
 
       for (const row of rows) {
+        const values=keys.map((keyColumn)=>row[keyColumn]);
+        if (values.some((value)=>value === undefined || value === null)) {
+          throw new Error(`Missing primary key while exporting ${table}`);
+        }
+        const pk=JSON.stringify(values);
+        if (seenPrimaryKeys.has(pk)) {
+          throw new Error(`Duplicate primary key while exporting ${table}; source may have changed during pagination`);
+        }
+        seenPrimaryKeys.add(pk);
+
         const line = JSON.stringify(row) + '\n';
         hash.update(line);
         await handle.write(line);
@@ -80,18 +105,22 @@ export async function exportTable({baseUrl,key,table,outDir,pageSize=1000,fetchI
       }
 
       offset += rows.length;
-      if (rows.length < pageSize) break;
-      if (expectedTotal !== null && offset >= expectedTotal) break;
+      if (rows.length < pageSize || offset >= expectedTotal) break;
     }
   } finally {
     await handle.close();
   }
 
-  if (expectedTotal !== null && rowCount !== expectedTotal) {
+  if (rowCount !== expectedTotal) {
     throw new Error(`Row-count mismatch for ${table}: exported=${rowCount} expected=${expectedTotal}`);
   }
 
-  return {table,rowCount,sha256:hash.digest('hex'),file:`${table}.ndjson`};
+  const finalProbe=await probeTable({baseUrl,key,table,fetchImpl});
+  if (finalProbe.rowCount !== rowCount) {
+    throw new Error(`Source count changed during export for ${table}: exported=${rowCount} final=${finalProbe.rowCount}`);
+  }
+
+  return {table,rowCount,sha256:hash.digest('hex'),file:`${table}.ndjson`,primaryKey:keys};
 }
 
 export async function runExport({
@@ -118,6 +147,7 @@ export async function runExport({
   const manifest = {
     format:'motor-supabase-rest-export-v1',
     source:'supabase-postgrest',
+    consistency:'ordered_exact_count_with_final_count_check_not_transactional_snapshot',
     startedAt,
     completedAt:new Date().toISOString(),
     probe,

@@ -40,7 +40,7 @@ Saída:
 - um `.ndjson` por tabela;
 - `manifest.json` com contagem e SHA-256 por tabela.
 
-O exportador falha se a contagem observada pelo PostgREST divergir da quantidade efetivamente gravada.
+O exportador fixa a ordenação pelas chaves primárias, exige contagem exata, detecta PK repetida, confirma que a contagem não mudou entre páginas e repete a contagem ao final. Isso reduz risco de export inconsistente, mas **não cria snapshot transacional**; antes do cutover ainda é obrigatório pausar escritas, aplicar delta final e reconciliar origem/destino.
 
 ### Segurança
 
@@ -60,9 +60,7 @@ node scripts/migration/neon-json-import-sql.mjs \
   --batch-size=250
 ```
 
-O gerador usa `jsonb_populate_recordset(null::public.<table>, ...)`, preserva IDs/timestamps e gera `ON CONFLICT DO NOTHING` para permitir uma primeira carga idempotente em destino vazio.
-
-O SQL gerado contém dados reais e também deve permanecer fora do Git.
+O gerador usa `jsonb_populate_recordset(null::public.<table>, ...)`, preserva IDs/timestamps, verifica o SHA-256 de cada NDJSON e exige todas as tabelas solicitadas. A primeira carga usa `ON CONFLICT DO NOTHING`. Para o delta final, `--upsert` gera `ON CONFLICT (<PK>) DO UPDATE`, inclusive para PK composta. O SQL gerado contém dados reais e deve permanecer fora do Git.
 
 ## 4. Critério obrigatório antes de executar a carga
 
@@ -105,3 +103,12 @@ a reconciliação deve ser 100% antes do cutover.
 - Supabase SQL administrativo: ainda com CONNECT_TIMEOUT.
 - Supabase REST recovery tooling: versionado, testado em CI, ainda não executado contra dados reais nesta mudança.
 - Nenhum dado real foi apagado, alterado ou migrado por estas ferramentas.
+
+
+## Estado operacional — 2026-10-01
+
+O full export executado em 01/10 **não produziu backup de dados**: os 156 objetos de banco tentados retornaram HTTP 402 por `exceed_db_size_quota` / `exceed_storage_size_quota`; Auth e Storage também ficaram bloqueados. O artifact contém somente manifesto/diagnóstico. O workflow agora possui gate de completude e não pode ficar verde quando o export estiver parcial ou vazio.
+
+O GitHub já possui `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e `NEON_API_KEY`. Continuam ausentes `MOTOR_SUPABASE_DATABASE_URL`, `MOTOR_NEON_DATABASE_URL` e `MOTOR_BACKUP_PASSPHRASE`. A ausência do URL PostgreSQL direto do Supabase é o principal bloqueio para uma recuperação por `pg_dump`/pooler enquanto o PostgREST está restrito.
+
+Não aplicar schema/dados no Neon production antes de existir uma origem recuperável e reconciliação 100% das superfícies de decisão.
