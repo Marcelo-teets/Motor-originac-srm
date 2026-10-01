@@ -146,6 +146,9 @@ jobs:
           set -euo pipefail
           LIMIT="$REQUESTED_LIMIT"
           DELETE="$DELETE_STAGING"
+          if [ "$GITHUB_EVENT_NAME" = 'schedule' ]; then
+            DELETE='true'
+          fi
           if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
             LIMIT='1'
             DELETE='false'
@@ -171,6 +174,9 @@ jobs:
             echo "- parts migrated: \`${{ steps.archive_migration.outputs.migrated || '0' }}\`"
             echo "- failures: \`${{ steps.archive_migration.outputs.failed || '0' }}\`"
             echo "- staging objects deleted: \`${{ steps.archive_migration.outputs.staging_deleted || '0' }}\`"
+            if [ "$GITHUB_EVENT_NAME" = 'schedule' ]; then
+              echo '- scheduled staging deletion: `enabled after verified Drive migration`'
+            fi
             if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
               echo '- push safety limit: `1 archive part`'
               echo '- staging deletion on push: `disabled`'
