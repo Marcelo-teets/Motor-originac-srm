@@ -1,0 +1,76 @@
+name: Supabase Storage Recovery Probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-storage-recovery-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify secrets
+        shell: bash
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL missing"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY missing"; exit 1; }
+
+      - name: Probe Storage API
+        shell: bash
+        run: |
+          node <<'NODE'
+          const base=process.env.SUPABASE_URL;
+          const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const headers={apikey:key,authorization:`Bearer ${key}`};
+
+          async function request(path, init={}) {
+            const res=await fetch(base+path,{...init,headers:{...headers,...(init.headers||{})}});
+            const text=await res.text();
+            console.log(JSON.stringify({path,status:res.status,ok:res.ok,body:text.slice(0,2000)}));
+            return {res,text};
+          }
+
+          const buckets=await request('/storage/v1/bucket');
+          if (!buckets.res.ok) process.exit(2);
+
+          let parsed=[];
+          try { parsed=JSON.parse(buckets.text); } catch {}
+          const names=(Array.isArray(parsed)?parsed:[]).map(x=>x?.name||x?.id).filter(Boolean);
+          console.log('BUCKETS='+JSON.stringify(names));
+
+          for (const bucket of ['historical-excel-archive','agentetome-raw']) {
+            if (!names.includes(bucket)) {
+              console.log(JSON.stringify({bucket,status:'missing'}));
+              continue;
+            }
+            const listed=await request('/storage/v1/object/list/'+encodeURIComponent(bucket),{
+              method:'POST',
+              headers:{'content-type':'application/json'},
+              body:JSON.stringify({prefix:'',limit:100,offset:0,sortBy:{column:'name',order:'asc'}})
+            });
+            if (!listed.res.ok) continue;
+            let rows=[];
+            try { rows=JSON.parse(listed.text); } catch {}
+            console.log(JSON.stringify({
+              bucket,
+              status:'reachable',
+              firstPageCount:Array.isArray(rows)?rows.length:null,
+              sample:Array.isArray(rows)?rows.slice(0,20).map(x=>({name:x.name,id:x.id,metadata:x.metadata})):[],
+            }));
+          }
+          NODE
