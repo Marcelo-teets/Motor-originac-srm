@@ -124,6 +124,9 @@ jobs:
       - name: Validate Supabase REST failure classifier
         run: node --test scripts/migration/supabase-rest-health-classifier.test.mjs
 
+      - name: Validate Neon migration secret-readiness workflow
+        run: node --test scripts/neon-migration-secret-readiness-contract.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 
