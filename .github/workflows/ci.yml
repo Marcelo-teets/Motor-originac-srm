@@ -127,6 +127,9 @@ jobs:
       - name: Validate Neon migration secret-readiness workflow
         run: node --test scripts/neon-migration-secret-readiness-contract.test.mjs
 
+      - name: Validate full Supabase backup completeness gate
+        run: node --test scripts/supabase-full-drive-export-completeness-contract.test.mjs
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
 

@@ -1,12 +1,6 @@
 name: Supabase Full Drive Export
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'scripts/migration/supabase-full-drive-export.mjs'
-      - '.github/workflows/supabase-full-drive-export.yml'
   workflow_dispatch:
 
 permissions:
@@ -100,3 +94,35 @@ jobs:
               echo 'No final summary was produced; inspect the job log.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce complete backup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY="tmp/supabase-full-export/run_summary.json"
+          if [ ! -f "$SUMMARY" ]; then
+            echo "Backup incomplete: run_summary.json missing."
+            exit 1
+          fi
+          node - "$SUMMARY" <<'NODE'
+          const fs=require('node:fs');
+          const p=process.argv[2];
+          const s=JSON.parse(fs.readFileSync(p,'utf8'));
+          const ok = s.status === 'ok'
+            && Number(s.exportPartsCreated || 0) > 0
+            && Array.isArray(s.blockedScopes)
+            && s.blockedScopes.length === 0;
+          if (!ok) {
+            console.error(JSON.stringify({
+              status:s.status,
+              databaseObjectsAttempted:s.databaseObjectsAttempted,
+              exportPartsCreated:s.exportPartsCreated,
+              storageObjectsCopied:s.storageObjectsCopied,
+              storageObjectsFailed:s.storageObjectsFailed,
+              blockedScopeCount:Array.isArray(s.blockedScopes)?s.blockedScopes.length:null,
+            }));
+            process.exit(1);
+          }
+          console.log('Complete backup gate: OK');
+          NODE
