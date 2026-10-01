@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -14,15 +14,17 @@ const required = (name) => {
 
 const SUPABASE_URL = required('SUPABASE_URL').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = required('SUPABASE_SERVICE_ROLE_KEY');
-const GOOGLE_DRIVE_CLIENT_ID = required('GOOGLE_DRIVE_CLIENT_ID');
-const GOOGLE_DRIVE_CLIENT_SECRET = required('GOOGLE_DRIVE_CLIENT_SECRET');
-const GOOGLE_DRIVE_REFRESH_TOKEN = required('GOOGLE_DRIVE_REFRESH_TOKEN');
-const TARGET_DRIVE_FOLDER_ID = required('TARGET_DRIVE_FOLDER_ID');
+const ARTIFACT_ONLY = String(process.env.ARTIFACT_ONLY ?? 'false').toLowerCase() === 'true';
+const GOOGLE_DRIVE_CLIENT_ID = ARTIFACT_ONLY ? '' : required('GOOGLE_DRIVE_CLIENT_ID');
+const GOOGLE_DRIVE_CLIENT_SECRET = ARTIFACT_ONLY ? '' : required('GOOGLE_DRIVE_CLIENT_SECRET');
+const GOOGLE_DRIVE_REFRESH_TOKEN = ARTIFACT_ONLY ? '' : required('GOOGLE_DRIVE_REFRESH_TOKEN');
+const TARGET_DRIVE_FOLDER_ID = ARTIFACT_ONLY ? '' : required('TARGET_DRIVE_FOLDER_ID');
 const COPY_STORAGE_FILES = String(process.env.COPY_STORAGE_FILES ?? 'true').toLowerCase() !== 'false';
 const PAGE_SIZE = Math.max(100, Math.min(Number(process.env.EXPORT_PAGE_SIZE ?? 1000) || 1000, 5000));
 const MAX_ROWS_PER_SHEET = Math.max(1000, Math.min(Number(process.env.MAX_ROWS_PER_SHEET ?? 50000) || 50000, 100000));
 const MAX_SHEET_CELLS = 4_000_000;
-const TMP_DIR = resolve(process.env.RUNNER_TEMP ?? 'tmp', `motor-supabase-drive-export-${Date.now()}`);
+const EXPORT_ROOT = resolve(process.env.EXPORT_ROOT ?? resolve(process.env.RUNNER_TEMP ?? 'tmp', `motor-supabase-full-export-${Date.now()}`));
+const TMP_DIR = resolve(EXPORT_ROOT, '_tmp');
 const PROJECT_REF = 'hdghpmssudrqhsbvrdyt';
 
 const safeName = (value, max = 120) => String(value ?? '')
@@ -261,6 +263,28 @@ const closeAndUploadPart = async ({ part, logicalName, partNumber, rawFolderId, 
   await part.handle.close();
   const rawName = basename(part.filePath);
   const digest = part.hash.digest('hex');
+
+  if (ARTIFACT_ONLY) {
+    await mkdir(rawFolderId, { recursive: true });
+    const finalPath = join(rawFolderId, rawName);
+    await rename(part.filePath, finalPath);
+    manifestRows.push({
+      scope: 'database',
+      logical_name: logicalName,
+      part: partNumber,
+      rows: part.rowCount,
+      sha256: digest,
+      status: 'artifact_ok',
+      raw_file_path: finalPath.replace(EXPORT_ROOT + '/', ''),
+      raw_file_id: null,
+      raw_url: null,
+      sheet_file_id: null,
+      sheet_url: null,
+      error: null,
+    });
+    return;
+  }
+
   const rawFile = await uploadResumable({
     filePath: part.filePath,
     name: rawName,
@@ -481,25 +505,44 @@ const copyStorageFiles = async ({ buckets, storageRowsByBucket, storageFilesFold
         const fileName = slash >= 0 ? fullPath.slice(slash + 1) : fullPath;
         const parentId = dir ? await ensureNestedDrivePath(bucketFolderId, dir) : bucketFolderId;
         const downloaded = await downloadStorageObjectToFile({ bucketId, fullPath });
-        const driveFile = await uploadResumable({
-          filePath: downloaded.tempPath,
-          name: safeName(fileName, 180),
-          parentId,
-          sourceMimeType: downloaded.contentType,
-          appProperties: { sourceProject: PROJECT_REF, sourceBucket: bucketId, sourcePath: fullPath, sha256: downloaded.sha256 },
-        });
-        storageManifestRows.push({
-          bucket_id: bucketId,
-          full_path: fullPath,
-          source_size: row?.metadata?.size ?? downloaded.size,
-          copied_size: downloaded.size,
-          sha256: downloaded.sha256,
-          drive_file_id: driveFile?.id ?? null,
-          drive_url: driveFile?.webViewLink ?? null,
-          status: 'ok',
-          error: null,
-        });
-        await rm(downloaded.tempPath, { force: true });
+        if (ARTIFACT_ONLY) {
+          const targetDir = dir ? join(bucketFolderId, ...dir.split('/').map((part) => safeName(part, 100))) : bucketFolderId;
+          await mkdir(targetDir, { recursive: true });
+          const targetPath = join(targetDir, safeName(fileName, 180));
+          await rename(downloaded.tempPath, targetPath);
+          storageManifestRows.push({
+            bucket_id: bucketId,
+            full_path: fullPath,
+            source_size: row?.metadata?.size ?? downloaded.size,
+            copied_size: downloaded.size,
+            sha256: downloaded.sha256,
+            local_path: targetPath.replace(EXPORT_ROOT + '/', ''),
+            drive_file_id: null,
+            drive_url: null,
+            status: 'artifact_ok',
+            error: null,
+          });
+        } else {
+          const driveFile = await uploadResumable({
+            filePath: downloaded.tempPath,
+            name: safeName(fileName, 180),
+            parentId,
+            sourceMimeType: downloaded.contentType,
+            appProperties: { sourceProject: PROJECT_REF, sourceBucket: bucketId, sourcePath: fullPath, sha256: downloaded.sha256 },
+          });
+          storageManifestRows.push({
+            bucket_id: bucketId,
+            full_path: fullPath,
+            source_size: row?.metadata?.size ?? downloaded.size,
+            copied_size: downloaded.size,
+            sha256: downloaded.sha256,
+            drive_file_id: driveFile?.id ?? null,
+            drive_url: driveFile?.webViewLink ?? null,
+            status: 'ok',
+            error: null,
+          });
+          await rm(downloaded.tempPath, { force: true });
+        }
       } catch (error) {
         storageManifestRows.push({
           bucket_id: bucketId,
@@ -518,10 +561,11 @@ const copyStorageFiles = async ({ buckets, storageRowsByBucket, storageFilesFold
 };
 
 const uploadJsonManifest = async (manifest, folderId) => {
-  const path = join(TMP_DIR, 'export_manifest.json');
+  const path = ARTIFACT_ONLY ? join(folderId, 'export_manifest.json') : join(TMP_DIR, 'export_manifest.json');
+  await mkdir(resolve(path, '..'), { recursive: true }).catch(() => {});
   await writeFile(path, JSON.stringify(manifest, null, 2) + '\n');
-  const uploaded = await uploadResumable({ filePath: path, name: 'export_manifest.json', parentId: folderId, sourceMimeType: 'application/json' });
-  return uploaded;
+  if (ARTIFACT_ONLY) return { id: null, webViewLink: null, localPath: path.replace(EXPORT_ROOT + '/', '') };
+  return uploadResumable({ filePath: path, name: 'export_manifest.json', parentId: folderId, sourceMimeType: 'application/json' });
 };
 
 const main = async () => {
@@ -531,11 +575,23 @@ const main = async () => {
   const storageManifestRows = [];
   const blockedScopes = [];
 
-  await googleAccessToken();
-  const rawFolderId = await ensureDriveFolder('01 - CSV bruto (lossless)', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
-  const sheetsFolderId = await ensureDriveFolder('02 - Google Sheets', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
-  const storageFilesFolderId = await ensureDriveFolder('03 - Supabase Storage - arquivos', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
-  const metaFolderId = await ensureDriveFolder('04 - Manifestos e auditoria', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
+  let rawFolderId;
+  let sheetsFolderId;
+  let storageFilesFolderId;
+  let metaFolderId;
+  if (ARTIFACT_ONLY) {
+    rawFolderId = join(EXPORT_ROOT, '01 - CSV bruto (lossless)');
+    sheetsFolderId = rawFolderId;
+    storageFilesFolderId = join(EXPORT_ROOT, '03 - Supabase Storage - arquivos');
+    metaFolderId = join(EXPORT_ROOT, '04 - Manifestos e auditoria');
+    await Promise.all([rawFolderId, storageFilesFolderId, metaFolderId].map((dir) => mkdir(dir, { recursive: true })));
+  } else {
+    await googleAccessToken();
+    rawFolderId = await ensureDriveFolder('01 - CSV bruto (lossless)', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
+    sheetsFolderId = await ensureDriveFolder('02 - Google Sheets', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
+    storageFilesFolderId = await ensureDriveFolder('03 - Supabase Storage - arquivos', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
+    metaFolderId = await ensureDriveFolder('04 - Manifestos e auditoria', TARGET_DRIVE_FOLDER_ID, { sourceProject: PROJECT_REF });
+  }
 
   const repoCandidates = await readRepoTableCandidates();
   const catalog = await discoverRestCatalog();
@@ -600,7 +656,8 @@ const main = async () => {
     projectRef: PROJECT_REF,
     startedAt,
     completedAt: new Date().toISOString(),
-    targetDriveFolderId: TARGET_DRIVE_FOLDER_ID,
+    targetDriveFolderId: TARGET_DRIVE_FOLDER_ID || null,
+    exportRoot: ARTIFACT_ONLY ? EXPORT_ROOT : null,
     restCatalogStatus: catalog.status,
     restCatalogError: catalog.error,
     discoveredDatabaseObjects: tableNames.length,
@@ -633,7 +690,8 @@ const main = async () => {
   const summary = {
     status: blockedScopes.length || manifestRows.some((row) => String(row.status).includes('failed') || String(row.status).includes('blocked')) ? 'partial' : 'ok',
     projectRef: PROJECT_REF,
-    targetDriveFolderId: TARGET_DRIVE_FOLDER_ID,
+    targetDriveFolderId: TARGET_DRIVE_FOLDER_ID || null,
+    exportRoot: ARTIFACT_ONLY ? EXPORT_ROOT : null,
     databaseObjectsAttempted: tableNames.length,
     exportPartsCreated: manifestRows.filter((row) => row.raw_file_id).length,
     storageObjectsCopied: storageManifestRows.filter((row) => row.status === 'ok').length,
@@ -643,16 +701,16 @@ const main = async () => {
     manifestUrl: manifestFile?.webViewLink ?? null,
   };
 
-  await writeFile(join(TMP_DIR, 'run_summary.json'), JSON.stringify(summary, null, 2) + '\n');
+  await writeFile(join(EXPORT_ROOT, 'run_summary.json'), JSON.stringify(summary, null, 2) + '\n');
   process.stdout.write(`FINAL_SUMMARY=${JSON.stringify(summary)}\n`);
 };
 
 main().catch(async (error) => {
-  const summary = { status: 'failed', projectRef: PROJECT_REF, targetDriveFolderId: TARGET_DRIVE_FOLDER_ID, error: jsonError(error).message };
+  const summary = { status: 'failed', projectRef: PROJECT_REF, targetDriveFolderId: TARGET_DRIVE_FOLDER_ID || null, exportRoot: ARTIFACT_ONLY ? EXPORT_ROOT : null, error: jsonError(error).message };
   process.stderr.write(`FINAL_SUMMARY=${JSON.stringify(summary)}\n`);
   try {
     await mkdir(TMP_DIR, { recursive: true });
-    await writeFile(join(TMP_DIR, 'run_summary.json'), JSON.stringify(summary, null, 2) + '\n');
+    await writeFile(join(EXPORT_ROOT, 'run_summary.json'), JSON.stringify(summary, null, 2) + '\n');
   } catch {}
   process.exitCode = 1;
 });
