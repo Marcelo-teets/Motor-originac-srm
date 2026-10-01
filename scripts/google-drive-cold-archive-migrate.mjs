@@ -182,6 +182,16 @@ const appendManifest = async ({ run, part, file, folderId }) => {
   );
 };
 
+const migratedMetadata = ({ part, file, stagingDeletedAt = null }) => ({
+  ...(part.metadata ?? {}),
+  migrated_from_provider: 'supabase_storage',
+  migrated_from_bucket: part.storage_bucket,
+  migrated_from_path: part.storage_path,
+  google_file_name: file.name,
+  google_reported_size: file.size ?? null,
+  ...(stagingDeletedAt ? { staging_deleted_at: stagingDeletedAt } : {}),
+});
+
 const patchPart = async ({ part, file, folderId }) => {
   if (DRY_RUN) return;
   const externalUrl = file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`;
@@ -196,26 +206,68 @@ const patchPart = async ({ part, file, folderId }) => {
       external_folder_id: folderId,
       external_url: externalUrl,
       migrated_at: new Date().toISOString(),
-      metadata: {
-        ...(part.metadata ?? {}),
-        migrated_from_provider: 'supabase_storage',
-        migrated_from_bucket: part.storage_bucket,
-        migrated_from_path: part.storage_path,
-        google_file_name: file.name,
-        google_reported_size: file.size ?? null,
-      },
+      metadata: migratedMetadata({ part, file }),
     }),
   });
 };
 
-const deleteStaging = async (part) => {
+const deleteStagingObject = async ({ bucket, path }) => {
   if (!DELETE_STAGING || DRY_RUN) return false;
   const response = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(part.storage_bucket)}/${encodeStoragePath(part.storage_path)}`,
+    `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStoragePath(path)}`,
     { method: 'DELETE', headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
   );
   if (!response.ok && response.status !== 404) throw new Error(`storage_delete_${response.status}:${(await response.text()).slice(0, 500)}`);
   return true;
+};
+
+const markNewStagingDeleted = async ({ part, file }) => {
+  if (DRY_RUN) return;
+  await supabase(`/rest/v1/data_archive_parts?id=eq.${encodeURIComponent(part.id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      metadata: migratedMetadata({ part, file, stagingDeletedAt: new Date().toISOString() }),
+    }),
+  });
+};
+
+const cleanupMigratedStaging = async () => {
+  const summary = { scanned: 0, deleted: 0, skipped: 0, failed: 0, errors: [] };
+  if (!DELETE_STAGING || DRY_RUN) return summary;
+
+  const migrated = await supabase(
+    `/rest/v1/data_archive_parts?storage_provider=eq.google_drive&select=id,metadata&order=migrated_at.asc&limit=${LIMIT}`,
+  );
+  summary.scanned = migrated.length;
+
+  for (const part of migrated) {
+    try {
+      const metadata = part.metadata ?? {};
+      const bucket = String(metadata.migrated_from_bucket ?? '');
+      const path = String(metadata.migrated_from_path ?? '');
+      if (!bucket || !path || metadata.staging_deleted_at) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      if (await deleteStagingObject({ bucket, path })) {
+        await supabase(`/rest/v1/data_archive_parts?id=eq.${encodeURIComponent(part.id)}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            metadata: { ...metadata, staging_deleted_at: new Date().toISOString() },
+          }),
+        });
+        summary.deleted += 1;
+      }
+    } catch (error) {
+      summary.failed += 1;
+      summary.errors.push({ partId: part.id, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return summary;
 };
 
 const finalizeRunProvider = async (run) => {
@@ -243,10 +295,20 @@ const finalizeRunProvider = async (run) => {
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 const main = async () => {
+  const cleanup = await cleanupMigratedStaging();
   const candidates = await supabase(
     `/rest/v1/data_archive_parts?storage_provider=eq.supabase_storage&external_file_id=is.null&select=*&order=created_at.asc&limit=${LIMIT}`,
   );
-  const summary = { scanned: candidates.length, migrated: 0, skipped: 0, failed: 0, stagingDeleted: 0, errors: [] };
+  const summary = {
+    scanned: candidates.length,
+    migrated: 0,
+    skipped: 0,
+    failed: 0,
+    stagingDeleted: cleanup.deleted,
+    cleanupScanned: cleanup.scanned,
+    cleanupFailed: cleanup.failed,
+    errors: [...cleanup.errors],
+  };
 
   for (const part of candidates) {
     try {
@@ -275,7 +337,10 @@ const main = async () => {
       const file = await uploadDriveFile({ bytes, name: part.workbook_name, folderId: runFolder, run, part });
       await appendManifest({ run, part, file, folderId: runFolder });
       await patchPart({ part, file, folderId: runFolder });
-      if (await deleteStaging(part)) summary.stagingDeleted += 1;
+      if (await deleteStagingObject({ bucket: part.storage_bucket, path: part.storage_path })) {
+        await markNewStagingDeleted({ part, file });
+        summary.stagingDeleted += 1;
+      }
       await finalizeRunProvider(run);
       summary.migrated += 1;
     } catch (error) {
