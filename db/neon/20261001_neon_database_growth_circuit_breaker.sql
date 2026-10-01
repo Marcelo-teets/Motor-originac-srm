@@ -11,8 +11,6 @@
 
 begin;
 
-create extension if not exists pg_cron;
-
 create schema if not exists private;
 
 create table if not exists private.database_growth_guard_state (
@@ -245,32 +243,9 @@ begin
 end;
 $$;
 
-do $$
-declare
-  v_job_id bigint;
-begin
-  select jobid into v_job_id
-  from cron.job
-  where jobname = 'database-growth-guard-refresh'
-  limit 1;
-
-  if v_job_id is null then
-    perform cron.schedule(
-      'database-growth-guard-refresh',
-      '11,41 * * * *',
-      $cron$select private.refresh_database_growth_guard();$cron$
-    );
-  else
-    perform cron.alter_job(
-      v_job_id,
-      schedule := '11,41 * * * *',
-      command := 'select private.refresh_database_growth_guard();',
-      active := true
-    );
-  end if;
-end;
-$$;
-
+-- No pg_cron dependency: Neon permits pg_cron installation only from database postgres.
+-- The trigger refreshes the cached measurement when it is stale (>30 minutes), so
+-- every raw/heavy write path remains protected without a cross-database scheduler.
 select private.refresh_database_growth_guard();
 
 commit;
