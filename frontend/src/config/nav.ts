@@ -109,6 +109,13 @@ export const navItems = [
     group: 'Execução comercial',
   },
   {
+    to: '/structuring-os',
+    label: 'Structuring OS',
+    shortLabel: 'Crédito & estruturação',
+    description: 'Analise dados, carteira, modelagem, estrutura, stresses, riscos e decisão no workflow Base.DCM.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/capture-inbox',
     label: 'Capturas',
     shortLabel: 'Candidatas descobertas',
