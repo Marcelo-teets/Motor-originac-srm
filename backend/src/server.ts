@@ -111,11 +111,12 @@ app.post('/auth/register', wrap(async (req, res) => {
 
   const flow = await signUpWithPassword(name, email, password);
   const authUser = await verifyNeonJwt(flow.session.access_token);
-  const profile = await ensureUserProfile(authUser, { role: 'common', status: 'active', fullName: name });
-  setAuthSessionCookie(res, flow.sessionToken);
+  const profile = await ensureUserProfile(authUser, { role: 'common', status: 'invited', fullName: name });
+  await signOutAuth(flow.sessionToken).catch(() => undefined);
+  clearAuthSessionCookie(res);
   res.status(201).json(ok('real', {
-    ...flow.session,
-    user: { ...flow.session.user, role: profile.role, email: profile.email ?? flow.session.user.email },
+    registered: true,
+    status: profile.status,
   }));
 }));
 
