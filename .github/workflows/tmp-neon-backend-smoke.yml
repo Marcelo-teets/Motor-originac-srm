@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           test -n "$NEON_API_KEY"
-          MOTOR_NEON_DATABASE_URL="$(npx --yes neon@latest connection-string br-small-wave-b6r4gpez --project-id steep-poetry-38942951 --database-name neondb --pooled)"
+          MOTOR_NEON_DATABASE_URL="$(npx --yes neon@latest connection-string br-small-wave-b6r4gpez --project-id steep-poetry-38942951 --database-name neondb --role-name neondb_owner --pooled)"
           test -n "$MOTOR_NEON_DATABASE_URL"
           echo "::add-mask::$MOTOR_NEON_DATABASE_URL"
           export MOTOR_NEON_DATABASE_URL
