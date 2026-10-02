@@ -2,6 +2,12 @@ name: Vercel Health Smoke
 
 on:
   workflow_dispatch: {}
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/smoke/vercel-health-smoke.mjs
+      - .github/workflows/vercel-smoke.yml
   schedule:
     - cron: '20 11 * * *'
   push:
@@ -24,12 +30,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Check production health
         env:
           SMOKE_URL: https://motor-originac-srm.vercel.app/api/data-capture/health
           SMOKE_BEARER_TOKEN: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DATA_PROVIDER: neon
           SMOKE_ATTEMPTS: 12
           SMOKE_DELAY_MS: 10000
         run: node scripts/smoke/vercel-health-smoke.mjs
