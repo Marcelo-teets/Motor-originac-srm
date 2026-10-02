@@ -7,7 +7,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 type MicrosoftRequest = VercelRequest & { body?: Record<string, unknown> };
 type JsonRecord = Record<string, any>;
