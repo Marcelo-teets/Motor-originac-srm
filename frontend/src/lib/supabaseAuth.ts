@@ -87,7 +87,7 @@ export const supabaseAuth = {
   },
 
   async signUpWithPassword(name: string, email: string, password: string) {
-    return request<SessionData>('/auth/register', {
+    return request<{ registered: boolean; status: UserStatus }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password }),
     });
