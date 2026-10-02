@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from './neon-auth.js';
 
 const RUNTIME = 'company-credit-review-v1';
 
@@ -43,20 +44,13 @@ const authenticate = async (req: IncomingMessage) => {
   const authorization = getHeader(req, 'authorization');
   if (!authorization?.startsWith('Bearer ')) return null;
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Supabase is not configured for company credit review.');
+  try {
+    const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
+    return { userId: user.id, email: user.email };
+  } catch {
+    return null;
   }
-
-  const accessToken = authorization.slice('Bearer '.length);
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) return null;
-  const user = await response.json() as { id?: string; email?: string };
-  return user.id ? { userId: user.id, email: user.email } : null;
-};
+}
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const method = (req.method ?? 'GET').toUpperCase();

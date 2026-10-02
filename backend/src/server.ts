@@ -1,6 +1,33 @@
 import cors from 'cors';
 import express from 'express';
-import { authMiddleware, fetchCurrentSupabaseUser, signInWithPassword, signOutSupabase } from './lib/auth.js';
+import {
+  authMiddleware,
+  changePassword,
+  clearAuthSessionCookie,
+  readAuthSessionCookie,
+  refreshAuthSession,
+  requestPasswordReset,
+  resetPassword,
+  setAuthSessionCookie,
+  signInWithPassword,
+  signOutAuth,
+  signUpWithPassword,
+  verifyNeonJwt,
+} from './lib/auth.js';
+import {
+  claimInitialAuthBootstrap,
+  isInitialAuthBootstrapAvailable,
+  releaseInitialAuthBootstrapClaim,
+} from './lib/neonAuthBootstrap.js';
+import {
+  ensureUserProfile,
+  getUserProfileById,
+  hasActiveGodModeProfile,
+  listUserProfiles,
+  requireGodModeProfile,
+  setUserAccess,
+  updateOwnUserProfile,
+} from './lib/userProfiles.js';
 import { env } from './lib/env.js';
 import { getBuildInfo } from './lib/buildInfo.js';
 import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
@@ -19,7 +46,7 @@ import { SearchProfileCaptureRuntime } from './services/searchProfileCaptureRunt
 import { CandidateDecisionQueueService } from './services/candidateDecisionQueueService.js';
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 const repository = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
@@ -41,7 +68,13 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
     console.error(error);
-    res.status(500).json(fail(500, error instanceof Error ? error.message : 'Unexpected error'));
+    const candidateStatus = error && typeof error === 'object' && 'statusCode' in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : 500;
+    const statusCode = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus <= 599
+      ? candidateStatus
+      : 500;
+    res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
@@ -58,16 +91,134 @@ app.get('/health', (_req, res) => res.json(ok(platformMode, {
   build: getBuildInfo(),
 })));
 
+app.get('/auth/bootstrap-status', wrap(async (_req, res) => {
+  const [available, initialized] = await Promise.all([
+    env.authBootstrapEnabled ? isInitialAuthBootstrapAvailable() : Promise.resolve(false),
+    hasActiveGodModeProfile(),
+  ]);
+  res.json(ok('real', {
+    provider: 'neon',
+    enabled: env.authBootstrapEnabled,
+    available,
+    initialized,
+  }));
+}));
+
+app.post('/auth/register', wrap(async (req, res) => {
+  if (!(await hasActiveGodModeProfile())) {
+    throw Object.assign(new Error('O administrador inicial ainda não foi configurado.'), { statusCode: 409 });
+  }
+
+  const name = String(req.body?.name ?? '').trim();
+  const email = String(req.body?.email ?? '').trim();
+  const password = String(req.body?.password ?? '');
+  if (!name || !email || password.length < 10) {
+    throw Object.assign(new Error('Nome, e-mail e senha com pelo menos 10 caracteres são obrigatórios.'), { statusCode: 400 });
+  }
+
+  const flow = await signUpWithPassword(name, email, password);
+  const authUser = await verifyNeonJwt(flow.session.access_token);
+  const profile = await ensureUserProfile(authUser, { role: 'common', status: 'invited', fullName: name });
+  await signOutAuth(flow.sessionToken).catch(() => undefined);
+  clearAuthSessionCookie(res);
+  res.status(201).json(ok('real', {
+    registered: true,
+    status: profile.status,
+  }));
+}));
+
+app.post('/auth/bootstrap', wrap(async (req, res) => {
+  if (!env.authBootstrapEnabled || !(await isInitialAuthBootstrapAvailable())) {
+    throw Object.assign(new Error('Privileged bootstrap is not available.'), { statusCode: 409 });
+  }
+
+  const name = String(req.body?.name ?? '').trim();
+  const email = String(req.body?.email ?? '').trim();
+  const password = String(req.body?.password ?? '');
+  if (!name || !email || password.length < 10) {
+    throw Object.assign(new Error('Nome, e-mail e senha com pelo menos 10 caracteres são obrigatórios.'), { statusCode: 400 });
+  }
+
+  if (!(await claimInitialAuthBootstrap(email))) {
+    throw Object.assign(new Error('Privileged bootstrap was already claimed.'), { statusCode: 409 });
+  }
+
+  let flow;
+  try {
+    flow = await signUpWithPassword(name, email, password);
+  } catch (error) {
+    await releaseInitialAuthBootstrapClaim().catch(() => undefined);
+    throw error;
+  }
+
+  const authUser = await verifyNeonJwt(flow.session.access_token);
+  const profile = await ensureUserProfile(authUser, { role: 'god_mode', status: 'active', fullName: name });
+  setAuthSessionCookie(res, flow.sessionToken);
+  res.status(201).json(ok('real', {
+    ...flow.session,
+    user: { ...flow.session.user, role: profile.role, email: profile.email ?? flow.session.user.email },
+  }));
+}));
+
 app.post('/auth/login', wrap(async (req, res) => {
   const email = String(req.body?.email ?? '').trim();
   const password = String(req.body?.password ?? '');
   if (!email || !password) {
-    res.status(400).json(fail(400, 'Email e password são obrigatórios.'));
-    return;
+    throw Object.assign(new Error('E-mail e senha são obrigatórios.'), { statusCode: 400 });
   }
 
-  const session = await signInWithPassword(email, password);
-  res.json(ok('real', session));
+  const flow = await signInWithPassword(email, password);
+  const authUser = await verifyNeonJwt(flow.session.access_token);
+  const profile = await ensureUserProfile(authUser);
+  if (profile.status !== 'active') {
+    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  }
+  setAuthSessionCookie(res, flow.sessionToken);
+  res.json(ok('real', {
+    ...flow.session,
+    user: { ...flow.session.user, role: profile.role, email: profile.email ?? flow.session.user.email },
+  }));
+}));
+
+app.post('/auth/session', wrap(async (req, res) => {
+  const sessionToken = readAuthSessionCookie(req);
+  if (!sessionToken) throw Object.assign(new Error('Sessão não encontrada.'), { statusCode: 401 });
+
+  const flow = await refreshAuthSession(sessionToken);
+  const authUser = await verifyNeonJwt(flow.session.access_token);
+  const profile = await ensureUserProfile(authUser);
+  if (profile.status !== 'active') {
+    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  }
+  setAuthSessionCookie(res, flow.sessionToken);
+  res.json(ok('real', {
+    ...flow.session,
+    user: { ...flow.session.user, role: profile.role, email: profile.email ?? flow.session.user.email },
+  }));
+}));
+
+app.post('/auth/password/request', wrap(async (req, res) => {
+  const email = String(req.body?.email ?? '').trim();
+  if (!email) throw Object.assign(new Error('E-mail é obrigatório.'), { statusCode: 400 });
+  await requestPasswordReset(email, `${env.appBaseUrl}/reset-password`);
+  res.json(ok('real', { accepted: true }));
+}));
+
+app.post('/auth/password/reset', wrap(async (req, res) => {
+  const token = String(req.body?.token ?? '');
+  const newPassword = String(req.body?.newPassword ?? '');
+  if (!token || newPassword.length < 10) {
+    throw Object.assign(new Error('Token e nova senha com pelo menos 10 caracteres são obrigatórios.'), { statusCode: 400 });
+  }
+  await resetPassword(token, newPassword);
+  res.json(ok('real', { success: true }));
+}));
+
+app.post('/auth/logout', wrap(async (req, res) => {
+  const sessionToken = readAuthSessionCookie(req);
+  if (sessionToken) await signOutAuth(sessionToken).catch(() => undefined);
+  clearAuthSessionCookie(res);
+  res.json(ok('real', { success: true }));
 }));
 
 app.use(authMiddleware);
@@ -77,11 +228,56 @@ app.use('/watchlists', createWatchlistRouter(repository));
 app.use('/candidate-decision-queue', createCandidateDecisionQueueRouter(candidateDecisionQueueService));
 
 app.get('/auth/me', wrap(async (req, res) => {
-  const liveUser = req.accessToken ? await fetchCurrentSupabaseUser(req.accessToken).catch(() => req.authUser!) : req.authUser;
-  res.json(ok('real', liveUser));
+  const profile = await ensureUserProfile(req.authUser!);
+  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  res.json(ok('real', {
+    id: req.authUser!.id,
+    email: profile.email ?? req.authUser!.email,
+    role: profile.role,
+  }));
 }));
-app.post('/auth/logout', wrap(async (req, res) => {
-  if (req.accessToken) await signOutSupabase(req.accessToken);
+
+app.get('/auth/profile', wrap(async (req, res) => {
+  const profile = await ensureUserProfile(req.authUser!);
+  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  res.json(ok('real', profile));
+}));
+
+app.patch('/auth/profile', wrap(async (req, res) => {
+  const current = await ensureUserProfile(req.authUser!);
+  if (current.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  const profile = await updateOwnUserProfile(req.authUser!.id, {
+    full_name: typeof req.body?.full_name === 'string' && req.body.full_name.trim() ? req.body.full_name.trim() : null,
+    job_title: typeof req.body?.job_title === 'string' && req.body.job_title.trim() ? req.body.job_title.trim() : null,
+    phone: typeof req.body?.phone === 'string' && req.body.phone.trim() ? req.body.phone.trim() : null,
+    avatar_url: typeof req.body?.avatar_url === 'string' && req.body.avatar_url.trim() ? req.body.avatar_url.trim() : null,
+    timezone: String(req.body?.timezone ?? current.timezone),
+    locale: String(req.body?.locale ?? current.locale),
+  });
+  res.json(ok('real', profile));
+}));
+
+app.get('/auth/users', wrap(async (req, res) => {
+  await requireGodModeProfile(req.authUser!.id);
+  res.json(ok('real', await listUserProfiles()));
+}));
+
+app.patch('/auth/users/:id/access', wrap(async (req, res) => {
+  const role = req.body?.role === 'god_mode' ? 'god_mode' : 'common';
+  const status = req.body?.status === 'disabled' ? 'disabled' : req.body?.status === 'invited' ? 'invited' : 'active';
+  const profile = await setUserAccess(req.authUser!.id, param(req.params.id), role, status);
+  res.json(ok('real', profile));
+}));
+
+app.post('/auth/password/change', wrap(async (req, res) => {
+  const sessionToken = readAuthSessionCookie(req);
+  if (!sessionToken) throw Object.assign(new Error('Sessão não encontrada.'), { statusCode: 401 });
+  const currentPassword = String(req.body?.currentPassword ?? '');
+  const newPassword = String(req.body?.newPassword ?? '');
+  if (!currentPassword || newPassword.length < 10) {
+    throw Object.assign(new Error('Senha atual e nova senha com pelo menos 10 caracteres são obrigatórias.'), { statusCode: 400 });
+  }
+  await changePassword(sessionToken, currentPassword, newPassword);
   res.json(ok('real', { success: true }));
 }));
 

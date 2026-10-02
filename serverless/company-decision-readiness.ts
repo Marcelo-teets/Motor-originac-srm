@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from './neon-auth.js';
 
 const RUNTIME = 'company-decision-readiness-v1';
 
@@ -63,22 +64,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    writeJson(req, res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase is not configured for the Company Master gate.' });
-    return;
-  }
-
   try {
-    const accessToken = authorization.slice('Bearer '.length);
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-    });
-    if (!authResponse.ok) {
-      writeJson(req, res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
-      return;
-    }
+    await verifyActiveIdentity(authorization.slice('Bearer '.length));
 
     const { getCompanyDecisionReadiness } = await import('../backend/src/lib/companyDecisionReadiness.js');
     const snapshot = await getCompanyDecisionReadiness();

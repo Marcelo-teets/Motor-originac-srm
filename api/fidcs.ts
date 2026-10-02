@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
+import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -44,12 +45,9 @@ const serviceHeaders = () => {
 const authenticate = async (req: FidcsRequest) => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
-  const { supabaseUrl, anonKey } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anonKey, Authorization: authorization } });
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok || typeof payload.id !== 'string') throw new ApiError('Unauthorized.', 401);
-  return { id: payload.id, authorization };
-};
+  const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
+  return { id: user.id, authorization };
+}
 
 const isCronAuthorized = (req: FidcsRequest) => {
   const secret = process.env.CRON_SECRET ?? '';
@@ -60,18 +58,9 @@ const isCronAuthorized = (req: FidcsRequest) => {
   return Boolean(secret && left.length === right.length && timingSafeEqual(left, right));
 };
 
-const requireGodMode = async (userId: string) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/user_profiles`);
-  url.searchParams.set('select', 'id,role,status');
-  url.searchParams.set('id', `eq.${userId}`);
-  url.searchParams.set('limit', '1');
-  const response = await fetch(url, { headers: serviceHeaders() });
-  const rows = await response.json().catch(() => []) as Array<{ role?: string; status?: string }>;
-  if (!response.ok || rows[0]?.role !== 'god_mode' || rows[0]?.status !== 'active') {
-    throw new ApiError('GOD-MODE ativo é obrigatório para esta operação.', 403);
-  }
-};
+const requireGodMode = async (authorization: string) => {
+  await verifyGodModeIdentity(authorization.slice('Bearer '.length));
+}
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
   const { supabaseUrl } = runtimeConfig();
@@ -222,7 +211,7 @@ export default async function handler(req: FidcsRequest, res: VercelResponse) {
       return writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: result });
     }
     if (operation === 'run' && req.method === 'POST') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const result = await runBatch(source, 'manual', Number(requestValue(req.query.limit) ?? 3));
       return writeJson(res, result.status === 'completed' ? 200 : result.status === 'partial' ? 207 : 502, {
         status: result.status === 'completed' ? 'real' : 'partial', generatedAt: new Date().toISOString(), data: result,

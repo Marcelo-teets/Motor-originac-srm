@@ -1,14 +1,16 @@
 import type { NextFunction, Request, Response as ExpressResponse } from 'express';
 import { env } from './env.js';
-import { fetchSupabaseWithRetry } from './supabase.js';
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 export type AuthUser = { id: string; email?: string; role?: string; raw: Record<string, unknown> };
 export type AuthSession = {
   access_token: string;
-  refresh_token?: string;
   expires_at: number;
   user: { id: string; email?: string; role?: string };
+};
+export type AuthFlowResult = {
+  sessionToken: string;
+  session: AuthSession;
 };
 
 declare global {
@@ -20,12 +22,14 @@ declare global {
   }
 }
 
+export const AUTH_SESSION_COOKIE_NAME = 'motor_neon_session';
+const NEON_UPSTREAM_COOKIE_NAME = '__Secure-neon-auth.session_token';
 const encoder = new TextEncoder();
 let jwksCache: { expiresAt: number; keys: Jwk[] } | null = null;
 
 const requireAuthEnv = () => {
-  if (!env.supabaseUrl || !env.supabaseAnonKey) {
-    throw new Error('Supabase auth environment is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  if (!env.neonAuthBaseUrl || !env.neonAuthJwksUrl) {
+    throw new Error('Neon Managed Auth environment is not configured. Set NEON_AUTH_BASE_URL.');
   }
 };
 
@@ -44,125 +48,306 @@ const readJsonObject = async (response: globalThis.Response): Promise<Record<str
       ? parsed as Record<string, any>
       : {};
   } catch {
-    return { raw_response: raw.slice(0, 240) };
+    return { message: response.ok ? 'Invalid Auth response.' : 'Auth service returned an invalid response.' };
   }
+};
+
+const safeSessionToken = (token: string) => {
+  if (!token || /[;\r\n]/.test(token)) throw new Error('Invalid Auth session token.');
+  return token;
+};
+
+const upstreamCookie = (sessionToken: string) => (
+  `${NEON_UPSTREAM_COOKIE_NAME}=${safeSessionToken(sessionToken)}`
+);
+
+const authError = (payload: Record<string, any>, fallback: string) => {
+  const message = String(payload.message ?? payload.error_description ?? payload.error ?? fallback);
+  if (/invalid email or password|invalid credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
+  if (/too many|rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
+  if (/session|token/i.test(message) && /invalid|expired|missing/i.test(message)) return new Error('Sua sessão expirou. Entre novamente.');
+  return new Error(message || fallback);
+};
+
+const neonAuthRequest = async (
+  path: string,
+  init: RequestInit = {},
+  sessionToken?: string,
+) => {
+  requireAuthEnv();
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  headers.set('Origin', env.appBaseUrl);
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (sessionToken) headers.set('Cookie', upstreamCookie(sessionToken));
+
+  return fetch(`${env.neonAuthBaseUrl}${path}`, {
+    ...init,
+    headers,
+    redirect: 'manual',
+    signal: init.signal ?? AbortSignal.timeout(10_000),
+  });
 };
 
 const mapAuthUser = (payload: Record<string, unknown>): AuthUser => ({
   id: String(payload.sub ?? payload.id ?? ''),
   email: typeof payload.email === 'string' ? payload.email : undefined,
-  role: typeof payload.role === 'string'
-    ? payload.role
-    : (typeof payload.app_metadata === 'object' && payload.app_metadata && 'role' in payload.app_metadata
-      ? String((payload.app_metadata as Record<string, unknown>).role)
-      : 'authenticated'),
+  role: typeof payload.role === 'string' ? payload.role : 'authenticated',
   raw: payload,
 });
 
-const mapSession = (payload: Record<string, any>): AuthSession => ({
-  access_token: String(payload.access_token ?? ''),
-  refresh_token: typeof payload.refresh_token === 'string' ? payload.refresh_token : undefined,
-  expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000,
-  user: {
-    id: String(payload.user?.id ?? payload.user?.sub ?? ''),
-    email: payload.user?.email,
-    role: payload.user?.role ?? payload.user?.app_metadata?.role ?? 'authenticated',
-  },
-});
+const parseJwtPayload = (token: string) => {
+  const [, encodedPayload] = token.split('.');
+  if (!encodedPayload) throw new Error('Malformed JWT payload.');
+  return JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
+};
 
-const getSupabaseJwks = async () => {
+const buildSession = (
+  jwt: string,
+  userPayload: Record<string, unknown>,
+): AuthSession => {
+  const claims = parseJwtPayload(jwt);
+  const expiresAt = typeof claims.exp === 'number'
+    ? claims.exp * 1000
+    : Date.now() + 15 * 60 * 1000;
+  const user = mapAuthUser({
+    ...userPayload,
+    sub: claims.sub ?? userPayload.id,
+    email: claims.email ?? userPayload.email,
+    role: claims.role ?? userPayload.role,
+  });
+  if (!jwt || !user.id) throw new Error('Neon Auth returned an invalid session.');
+  return {
+    access_token: jwt,
+    expires_at: expiresAt,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
+  };
+};
+
+const getNeonJwks = async () => {
   requireAuthEnv();
   if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
-  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/.well-known/jwks.json`, {}, { label: 'auth jwks' });
-  if (!response.ok) throw new Error(`Unable to load Supabase JWKS: ${response.status}`);
+  const response = await fetch(env.neonAuthJwksUrl, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) throw new Error(`Unable to load Neon Auth JWKS: ${response.status}`);
   const payload = await readJsonObject(response) as { keys?: Jwk[] };
-  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys: Array.isArray(payload.keys) ? payload.keys : [] };
-  return jwksCache.keys;
+  const keys = Array.isArray(payload.keys) ? payload.keys : [];
+  if (!keys.length) throw new Error('Neon Auth JWKS is empty.');
+  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys };
+  return keys;
 };
 
 const importVerificationKey = async (jwk: Jwk) => {
+  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') {
+    return crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['verify']);
+  }
   if (jwk.kty === 'RSA') {
     return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   }
   if (jwk.kty === 'EC') {
     return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
   }
-  throw new Error(`Unsupported JWT key type: ${jwk.kty}`);
+  throw new Error(`Unsupported JWT key type: ${jwk.kty ?? 'unknown'}`);
 };
 
-export const verifySupabaseJwt = async (token: string): Promise<AuthUser> => {
+export const verifyNeonJwt = async (token: string): Promise<AuthUser> => {
   requireAuthEnv();
   const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
   if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('Malformed token');
 
   const header = JSON.parse(decodeBase64Url(encodedHeader).toString('utf8')) as { alg?: string; kid?: string };
   const payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
+  const expectedOrigin = new URL(env.neonAuthBaseUrl).origin;
 
   if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) throw new Error('Token expired');
-  const expectedIssuer = `${env.supabaseUrl}/auth/v1`;
-  if (payload.iss && payload.iss !== expectedIssuer) throw new Error('Invalid issuer');
+  if (payload.iss && payload.iss !== expectedOrigin) throw new Error('Invalid issuer');
+  if (payload.aud) {
+    const audiences = Array.isArray(payload.aud) ? payload.aud.map(String) : [String(payload.aud)];
+    if (!audiences.includes(expectedOrigin)) throw new Error('Invalid audience');
+  }
 
-  const jwks = await getSupabaseJwks();
+  const jwks = await getNeonJwks();
   const jwk = jwks.find((item) => item.kid === header.kid) ?? jwks[0];
   if (!jwk) throw new Error('No JWKS available for verification');
+  if (header.alg === 'EdDSA' && !(jwk.kty === 'OKP' && jwk.crv === 'Ed25519')) {
+    throw new Error('JWT algorithm/key mismatch');
+  }
+
   const key = await importVerificationKey(jwk);
   const data = encoder.encode(`${encodedHeader}.${encodedPayload}`);
   const signature = decodeBase64Url(encodedSignature);
-
-  const verified = jwk.kty === 'EC'
-    ? await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, data)
-    : await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
+  const verified = jwk.kty === 'OKP'
+    ? await crypto.subtle.verify('Ed25519', key, signature, data)
+    : jwk.kty === 'EC'
+      ? await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, data)
+      : await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
 
   if (!verified) throw new Error('Invalid token signature');
-  return mapAuthUser(payload);
+  const user = mapAuthUser(payload);
+  if (!user.id) throw new Error('JWT subject is missing');
+  return user;
 };
 
-export const signInWithPassword = async (email: string, password: string): Promise<AuthSession> => {
-  requireAuthEnv();
-  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: {
-      apikey: env.supabaseAnonKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ email, password }),
-  }, { label: 'auth password sign-in' });
-  const payload = await readJsonObject(response);
-  if (!response.ok) {
-    throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? `Falha no login com Supabase Auth (${response.status}).`));
+export const readAuthSessionCookie = (req: Pick<Request, 'headers'>) => {
+  const raw = req.headers.cookie ?? '';
+  for (const part of raw.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0) continue;
+    const name = part.slice(0, separator).trim();
+    if (name !== AUTH_SESSION_COOKIE_NAME) continue;
+    const value = part.slice(separator + 1).trim();
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
   }
-  if (!payload.access_token || !payload.user) {
-    throw new Error('Supabase Auth retornou uma sessão inválida.');
-  }
-  return mapSession(payload);
+  return null;
 };
 
-export const fetchCurrentSupabaseUser = async (accessToken: string): Promise<AuthUser> => {
-  requireAuthEnv();
-  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: env.supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  }, { label: 'auth current user' });
+export const setAuthSessionCookie = (
+  res: ExpressResponse,
+  sessionToken: string,
+  expiresAt?: number,
+) => {
+  const maxAgeSeconds = expiresAt
+    ? Math.max(60, Math.floor((expiresAt - Date.now()) / 1000))
+    : 60 * 60 * 24 * 30;
+  res.append('Set-Cookie', [
+    `${AUTH_SESSION_COOKIE_NAME}=${encodeURIComponent(safeSessionToken(sessionToken))}`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    `Max-Age=${maxAgeSeconds}`,
+  ].join('; '));
+};
+
+export const clearAuthSessionCookie = (res: ExpressResponse) => {
+  res.append('Set-Cookie', [
+    `${AUTH_SESSION_COOKIE_NAME}=`,
+    'Path=/',
+    'HttpOnly',
+    'Secure',
+    'SameSite=Lax',
+    'Max-Age=0',
+  ].join('; '));
+};
+
+export const refreshAuthSession = async (sessionToken: string): Promise<AuthFlowResult> => {
+  const safeToken = safeSessionToken(sessionToken);
+  const [sessionResponse, jwtResponse] = await Promise.all([
+    neonAuthRequest('/get-session', { method: 'GET' }, safeToken),
+    neonAuthRequest('/token', { method: 'GET' }, safeToken),
+  ]);
+
+  const sessionPayload = await readJsonObject(sessionResponse);
+  const jwtPayload = await readJsonObject(jwtResponse);
+  if (!sessionResponse.ok) throw authError(sessionPayload, 'Não foi possível restaurar sua sessão.');
+  if (!jwtResponse.ok) throw authError(jwtPayload, 'Não foi possível emitir o token da sessão.');
+
+  const jwt = String(jwtPayload.token ?? '');
+  const user = sessionPayload.user && typeof sessionPayload.user === 'object'
+    ? sessionPayload.user as Record<string, unknown>
+    : {};
+  return {
+    sessionToken: safeToken,
+    session: buildSession(jwt, user),
+  };
+};
+
+const establishSession = async (
+  response: globalThis.Response,
+  fallback: string,
+): Promise<AuthFlowResult> => {
   const payload = await readJsonObject(response);
-  if (!response.ok) throw new Error(String(payload.error_description ?? payload.msg ?? payload.error ?? `Unable to fetch current user (${response.status}).`));
-  if (!payload.id && !payload.sub) throw new Error('Supabase Auth retornou um usuário inválido.');
-  return mapAuthUser(payload);
+  if (!response.ok) throw authError(payload, fallback);
+  const sessionToken = String(payload.token ?? '');
+  if (!sessionToken) throw new Error('Neon Auth did not return a session token.');
+  return refreshAuthSession(sessionToken);
 };
 
-export const signOutSupabase = async (accessToken: string) => {
-  requireAuthEnv();
-  const response = await fetchSupabaseWithRetry(`${env.supabaseUrl}/auth/v1/logout`, {
+export const signInWithPassword = async (email: string, password: string): Promise<AuthFlowResult> => (
+  establishSession(await neonAuthRequest('/sign-in/email', {
     method: 'POST',
-    headers: {
-      apikey: env.supabaseAnonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  }, { label: 'auth logout' });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Supabase logout failed: ${response.status} ${body.slice(0, 240)}`);
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      password,
+      rememberMe: true,
+    }),
+  }), 'Falha ao autenticar.')
+);
+
+export const signUpWithPassword = async (
+  name: string,
+  email: string,
+  password: string,
+): Promise<AuthFlowResult> => (
+  establishSession(await neonAuthRequest('/sign-up/email', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      password,
+      rememberMe: true,
+    }),
+  }), 'Não foi possível criar o primeiro acesso.')
+);
+
+export const requestPasswordReset = async (email: string, redirectTo: string) => {
+  const response = await neonAuthRequest('/request-password-reset', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      redirectTo,
+    }),
+  });
+  const payload = await readJsonObject(response);
+  if (!response.ok) throw authError(payload, 'Não foi possível iniciar a recuperação de senha.');
+};
+
+export const resetPassword = async (token: string, newPassword: string) => {
+  const response = await neonAuthRequest('/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
+  });
+  const payload = await readJsonObject(response);
+  if (!response.ok) throw authError(payload, 'Não foi possível redefinir a senha.');
+  return payload;
+};
+
+export const changePassword = async (
+  sessionToken: string,
+  currentPassword: string,
+  newPassword: string,
+) => {
+  const response = await neonAuthRequest('/change-password', {
+    method: 'POST',
+    body: JSON.stringify({
+      currentPassword,
+      newPassword,
+      revokeOtherSessions: false,
+    }),
+  }, sessionToken);
+  const payload = await readJsonObject(response);
+  if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.');
+  return payload;
+};
+
+export const signOutAuth = async (sessionToken: string) => {
+  const response = await neonAuthRequest('/sign-out', {
+    method: 'POST',
+    body: '{}',
+  }, sessionToken);
+  if (!response.ok && response.status !== 401) {
+    const payload = await readJsonObject(response);
+    throw authError(payload, 'Não foi possível encerrar a sessão remota.');
   }
 };
 
@@ -170,7 +355,11 @@ export const authMiddleware = async (req: Request, res: ExpressResponse, next: N
   try {
     requireAuthEnv();
   } catch (error) {
-    res.status(500).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Auth unavailable' });
+    res.status(500).json({
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Auth unavailable',
+    });
     return;
   }
 
@@ -183,9 +372,13 @@ export const authMiddleware = async (req: Request, res: ExpressResponse, next: N
   try {
     const accessToken = header.slice('Bearer '.length);
     req.accessToken = accessToken;
-    req.authUser = await verifySupabaseJwt(accessToken);
+    req.authUser = await verifyNeonJwt(accessToken);
     next();
   } catch (error) {
-    res.status(401).json({ status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unauthorized' });
+    res.status(401).json({
+      status: 'partial',
+      generatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Unauthorized',
+    });
   }
 };

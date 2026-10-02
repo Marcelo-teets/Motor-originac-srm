@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
+import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
 type AuthenticatedUser = { id: string; email?: string; authorization: string };
@@ -62,14 +63,9 @@ const runtimeConfig = () => {
 const authenticate = async (req: AgentetomeRequest): Promise<AuthenticatedUser> => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
-  const { supabaseUrl, anonKey } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { apikey: anonKey, Authorization: authorization },
-  });
-  const payload = await response.json().catch(() => ({})) as Record<string, any>;
-  if (!response.ok || !payload.id) throw new ApiError(String(payload.error_description ?? payload.msg ?? payload.error ?? 'Unauthorized.'), 401);
-  return { id: String(payload.id), email: typeof payload.email === 'string' ? payload.email : undefined, authorization };
-};
+  const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
+  return { id: user.id, email: user.email, authorization };
+}
 
 const authenticateCron = (req: AgentetomeRequest) => {
   const expected = `Bearer ${process.env.CRON_SECRET ?? ''}`;
@@ -99,20 +95,9 @@ const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promi
   return payload as T;
 };
 
-const requireGodMode = async (userId: string) => {
-  const { supabaseUrl, serviceRoleKey } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/user_profiles`);
-  url.searchParams.set('select', 'id,role,status');
-  url.searchParams.set('id', `eq.${userId}`);
-  url.searchParams.set('limit', '1');
-  const response = await fetch(url, {
-    headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
-  });
-  const rows = await response.json().catch(() => []) as Array<{ role?: string; status?: string }>;
-  if (!response.ok || rows[0]?.role !== 'god_mode' || rows[0]?.status !== 'active') {
-    throw new ApiError('GOD-MODE ativo é obrigatório para esta operação.', 403);
-  }
-};
+const requireGodMode = async (authorization: string) => {
+  await verifyGodModeIdentity(authorization.slice('Bearer '.length));
+}
 
 const proxyXmlValidation = async (user: AuthenticatedUser, body: Record<string, unknown>) => {
   const { supabaseUrl, anonKey } = runtimeConfig();
@@ -167,7 +152,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
     }
 
     if (operation === 'admin-manifest' && req.method === 'GET') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const administrator = String(requestValue(req.query.admin) ?? 'oliveira trust').trim();
       const cut = String(requestValue(req.query.corte) ?? 'recente');
       const competence = requestValue(req.query.competencia) ?? null;
@@ -186,7 +171,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
     }
 
     if ((operation === 'admin-export' || operation === 'refresh') && req.method === 'POST') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const body = readBody(req);
       const administrator = String(body.admin ?? body.administrator ?? 'oliveira trust').trim();
       const cut = String(body.corte ?? body.cut ?? 'recente');

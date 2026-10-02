@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 const RUNTIME = 'dcm-daily-leads-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -73,19 +74,18 @@ const requireAuth = async (req: IncomingMessage): Promise<SupabaseContext> => {
   const authorization = getHeader(req, 'authorization');
   if (!authorization?.startsWith('Bearer ')) throw Object.assign(new Error('Missing bearer token.'), { statusCode: 401 });
 
-  const baseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!baseUrl || !anonKey) throw Object.assign(new Error('Supabase Auth is not configured.'), { statusCode: 503 });
-
   const accessToken = authorization.slice('Bearer '.length);
-  const authResponse = await fetch(`${baseUrl}/auth/v1/user`, {
-    headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-  });
-  if (!authResponse.ok) throw Object.assign(new Error('Unauthorized.'), { statusCode: 401 });
-  const user = await authResponse.json() as AuthenticatedUser;
-  if (!user.id || !UUID_PATTERN.test(user.id)) throw Object.assign(new Error('Authenticated user is invalid.'), { statusCode: 401 });
+  const { user: neonUser } = await verifyActiveIdentity(accessToken);
+  const user: AuthenticatedUser = { id: neonUser.id, email: neonUser.email };
+  if (!UUID_PATTERN.test(user.id)) throw Object.assign(new Error('Authenticated user is invalid.'), { statusCode: 401 });
 
-  return { baseUrl, anonKey, accessToken, user };
+  // Transitional legacy data access only. Identity is already verified by Neon;
+  // the next data-plane cleanup removes this Supabase REST context entirely.
+  const baseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+  if (!baseUrl || !serviceKey) throw Object.assign(new Error('Legacy daily-leads data bridge is unavailable.'), { statusCode: 503 });
+
+  return { baseUrl, anonKey: serviceKey, accessToken: serviceKey, user };
 };
 
 const rest = async (

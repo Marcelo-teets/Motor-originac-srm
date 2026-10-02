@@ -1,51 +1,72 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import {
-  supabaseAuth,
-  type OAuthProviderOption,
-} from '../lib/supabaseAuth';
+import { supabaseAuth } from '../lib/supabaseAuth';
+
+type AccessMode = 'login' | 'register' | 'bootstrap';
 
 export function LoginPage() {
-  const { login, loading, isAuthenticated } = useAuth();
+  const { login, acceptSession, loading, isAuthenticated } = useAuth();
+  const [mode, setMode] = useState<AccessMode>('login');
+  const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderOption[]>([]);
-  const [oauthLoading, setOAuthLoading] = useState(true);
-  const [oauthUnavailable, setOAuthUnavailable] = useState(false);
-
-  const loadProviders = useCallback(async () => {
-    setOAuthLoading(true);
-    setOAuthUnavailable(false);
-    try {
-      const providers = await supabaseAuth.getEnabledOAuthProviders();
-      setOAuthProviders(providers);
-    } catch {
-      setOAuthProviders([]);
-      setOAuthUnavailable(true);
-    } finally {
-      setOAuthLoading(false);
-    }
-  }, []);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadProviders();
-  }, [loadProviders]);
+    let cancelled = false;
+    supabaseAuth.getBootstrapStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setBootstrapAvailable(status.available);
+        setInitialized(status.initialized);
+        if (status.available) setMode('bootstrap');
+        else if (!status.initialized) setMode('login');
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
-  const hasOAuthProviders = oauthProviders.length > 0;
+  const busy = loading || submitting;
+  const needsName = mode !== 'login';
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+    setSuccess(null);
+    setSubmitting(true);
 
     try {
-      await login(email.trim(), password);
+      if (mode === 'login') {
+        await login(email.trim(), password);
+        return;
+      }
+
+      if (password.length < 10) throw new Error('Use uma senha com pelo menos 10 caracteres.');
+
+      if (mode === 'bootstrap') {
+        const session = await supabaseAuth.bootstrapInitialUser(name.trim(), email.trim(), password);
+        await acceptSession(session);
+        return;
+      }
+
+      const result = await supabaseAuth.signUpWithPassword(name.trim(), email.trim(), password);
+      if (result.status === 'invited') {
+        setSuccess('Cadastro criado. O acesso fica pendente até a liberação pelo administrador.');
+        setMode('login');
+        setPassword('');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha inesperada no login.');
+      setError(err instanceof Error ? err.message : 'Falha inesperada na autenticação.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -56,50 +77,46 @@ export function LoginPage() {
         <h1>Motor SRM</h1>
         <p>Inteligência institucional para encontrar, qualificar e converter oportunidades reais de crédito estruturado.</p>
         <div className="auth-feature-list">
-          <span>Supabase Auth real</span>
-          <span>Controle de acesso por perfil</span>
-          <span>JWT único para frontend e backend</span>
+          <span>Neon Managed Auth</span>
+          <span>Perfis e RBAC no Postgres</span>
+          <span>Cookie HttpOnly + JWT curto</span>
         </div>
       </section>
 
       <main className="auth-panel auth-form-panel">
         <div>
           <p className="eyebrow">Acesso seguro</p>
-          <h2>Entrar na plataforma</h2>
-          <p className="auth-copy">Use seu e-mail e senha ou um provedor de acesso habilitado.</p>
+          <h2>{mode === 'login' ? 'Entrar na plataforma' : mode === 'bootstrap' ? 'Configurar acesso administrador' : 'Solicitar acesso'}</h2>
+          <p className="auth-copy">
+            {mode === 'login'
+              ? 'Use seu e-mail e senha. A sessão é mantida em cookie seguro no domínio do Motor.'
+              : mode === 'bootstrap'
+                ? 'Bootstrap privilegiado habilitado temporariamente para a configuração inicial.'
+                : 'Novos cadastros entram como pendentes e precisam de liberação antes de acessar dados de originação.'}
+          </p>
         </div>
 
-        {oauthLoading ? <div className="auth-progress" role="status" aria-label="Carregando provedores de acesso" /> : null}
-
-        {hasOAuthProviders ? (
-          <div className="oauth-provider-list">
-            {oauthProviders.map(({ provider, label, mark }) => (
-              <button
-                key={provider}
-                type="button"
-                className="oauth-button"
-                disabled={loading}
-                onClick={() => window.location.assign(supabaseAuth.getOAuthUrl(provider))}
-              >
-                <span className="oauth-mark" aria-hidden="true">{mark}</span>
-                Continuar com {label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {oauthUnavailable ? (
+        {bootstrapAvailable ? (
           <div className="auth-alert auth-alert-warning" role="status">
-            <span>Os provedores externos não responderam. O acesso por e-mail e senha continua disponível.</span>
-            <button type="button" className="secondary compact-button" onClick={() => void loadProviders()} disabled={oauthLoading}>
-              Consultar novamente
-            </button>
+            Bootstrap GOD-MODE disponível apenas nesta janela controlada.
           </div>
         ) : null}
 
-        {hasOAuthProviders ? <div className="auth-divider"><span>ou</span></div> : null}
+        <form className="form-grid" onSubmit={handleSubmit} aria-busy={busy}>
+          {needsName ? (
+            <label>
+              <span>Nome completo</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                autoComplete="name"
+                disabled={busy}
+                required
+              />
+            </label>
+          ) : null}
 
-        <form className="form-grid" onSubmit={handleSubmit} aria-busy={loading}>
           <label>
             <span>E-mail</span>
             <input
@@ -112,10 +129,11 @@ export function LoginPage() {
               spellCheck={false}
               autoCapitalize="none"
               autoFocus
-              disabled={loading}
+              disabled={busy}
               required
             />
           </label>
+
           <label>
             <span>Senha</span>
             <div className="password-field">
@@ -124,15 +142,16 @@ export function LoginPage() {
                 name="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-                disabled={loading}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                minLength={mode === 'login' ? undefined : 10}
+                disabled={busy}
                 required
               />
               <button
                 type="button"
                 className="password-toggle"
                 onClick={() => setShowPassword((current) => !current)}
-                disabled={loading}
+                disabled={busy}
                 aria-pressed={showPassword}
               >
                 {showPassword ? 'Ocultar' : 'Mostrar'}
@@ -141,15 +160,43 @@ export function LoginPage() {
           </label>
 
           <div className="auth-row-between">
-            <span className="table-helper">Acesso protegido pelo Supabase</span>
-            <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link>
+            <span className="table-helper">Acesso protegido pelo Neon</span>
+            {mode === 'login' ? <Link to="/forgot-password" className="auth-link">Esqueci minha senha</Link> : null}
           </div>
 
           {error ? <div className="auth-alert auth-alert-error" role="alert" aria-live="assertive">{error}</div> : null}
+          {success ? <div className="auth-alert auth-alert-success" role="status">{success}</div> : null}
 
-          <button type="submit" disabled={loading || !email.trim() || !password}>
-            {loading ? 'Entrando...' : 'Entrar'}
+          <button type="submit" disabled={busy || !email.trim() || !password || (needsName && !name.trim())}>
+            {busy
+              ? 'Processando...'
+              : mode === 'login'
+                ? 'Entrar'
+                : mode === 'bootstrap'
+                  ? 'Criar GOD-MODE'
+                  : 'Criar cadastro pendente'}
           </button>
+
+          {!bootstrapAvailable && initialized ? (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setError(null);
+                setSuccess(null);
+                setMode((current) => current === 'login' ? 'register' : 'login');
+              }}
+            >
+              {mode === 'login' ? 'Solicitar novo acesso' : 'Já tenho acesso'}
+            </button>
+          ) : null}
+
+          {!bootstrapAvailable && !initialized ? (
+            <div className="auth-alert auth-alert-warning" role="status">
+              A plataforma ainda aguarda a configuração controlada do primeiro administrador.
+            </div>
+          ) : null}
         </form>
       </main>
     </div>

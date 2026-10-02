@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -76,16 +77,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (requestUrl(req).searchParams.get('mode') === 'platform') {
-    const mode = process.env.USE_SUPABASE === 'true' ? 'real' : 'partial';
+    const neonConfigured = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL);
+    const legacySupabaseConfigured = Boolean(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY));
+    const dataProvider = neonConfigured ? 'neon' : legacySupabaseConfigured ? 'supabase' : 'memory';
+    const mode = neonConfigured ? 'real' : 'partial';
     writeJson(res, 200, {
       status: mode,
       generatedAt: new Date().toISOString(),
       data: {
         service: 'backend',
         mode,
+        dataProvider,
         uptime: process.uptime(),
         build: getBuildInfo(),
-        runtime: 'lightweight-health-v1',
+        runtime: 'lightweight-health-v2',
       },
     });
     return;
@@ -117,22 +122,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const accessToken = authorization.slice('Bearer '.length);
 
   try {
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!authResponse.ok) {
-      const authBody = await authResponse.text();
-      writeJson(res, 401, {
-        status: 'partial',
-        generatedAt: new Date().toISOString(),
-        error: authBody.slice(0, 240) || 'Unauthorized.',
-      });
-      return;
-    }
+    await verifyActiveIdentity(accessToken);
 
     const healthUrl = new URL(`${supabaseUrl}/rest/v1/capital_market_ingestion_health`);
     healthUrl.searchParams.set('select', '*');

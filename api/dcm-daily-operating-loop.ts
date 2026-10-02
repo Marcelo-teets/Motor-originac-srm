@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 const RUNTIME = 'dcm-daily-operating-loop-v1';
 
@@ -36,22 +37,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey) {
-    writeJson(res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase Auth is not configured.' });
-    return;
-  }
-
   try {
-    const accessToken = authorization.slice('Bearer '.length);
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-    });
-    if (!authResponse.ok) {
-      writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
-      return;
-    }
+    await verifyActiveIdentity(authorization.slice('Bearer '.length));
 
     const view = parseUrl(req).searchParams.get('view') ?? 'loop';
     const module = await import('../backend/src/modules/dcmDailyOperatingLoop.js');

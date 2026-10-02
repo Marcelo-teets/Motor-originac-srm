@@ -20,8 +20,9 @@ test('Agentetome secret stays in Supabase Vault and browser roles are denied', (
   assert.doesNotMatch(api, /AGENTETOME_API_KEY/);
 });
 
-test('admin exports are GOD-MODE and use the Supabase control plane', () => {
-  assert.match(api, /requireGodMode\(user\.id\)/);
+test('admin exports require Neon GOD-MODE and keep the legacy export control plane explicit', () => {
+  assert.match(api, /verifyGodModeIdentity/);
+  assert.match(api, /requireGodMode\(user\.authorization\)/);
   assert.match(api, /queue_agentetome_admin_export/);
   assert.match(control, /agentetome-due-export-refresh/);
   assert.match(control, /private\.run_agentetome_due_exports/);

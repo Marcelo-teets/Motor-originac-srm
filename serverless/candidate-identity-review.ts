@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from './neon-auth.js';
 
 const RUNTIME = 'candidate-identity-review-v1';
 
@@ -46,23 +47,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    writeJson(res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase is not configured for identity review.' });
-    return;
-  }
-
   try {
-    const accessToken = authorization.slice('Bearer '.length);
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-    });
-    if (!authResponse.ok) {
-      writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
-      return;
-    }
-    const user = await authResponse.json() as { id?: string; email?: string };
+    const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
     const body = await readJsonBody(req);
     const action = String(body.action ?? 'approve');
     const candidateId = String(body.candidateId ?? body.candidate_id ?? '').trim();

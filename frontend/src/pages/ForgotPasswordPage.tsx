@@ -29,7 +29,7 @@ export function ForgotPasswordPage() {
         <div>
           <p className="eyebrow">Recuperação de acesso</p>
           <h2>Recuperar senha</h2>
-          <p className="auth-copy">Informe o e-mail cadastrado. O Supabase enviará um link seguro para definir uma nova senha.</p>
+          <p className="auth-copy">Informe o e-mail cadastrado. O Neon Auth enviará um link seguro para definir uma nova senha.</p>
         </div>
 
         {sent ? (

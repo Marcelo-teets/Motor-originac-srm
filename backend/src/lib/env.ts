@@ -26,6 +26,9 @@ const neonDatabaseUrl = process.env.MOTOR_NEON_DATABASE_URL ?? process.env.DATAB
 const hasNeonCredentials = Boolean(neonDatabaseUrl);
 const hasSupabaseCredentials = Boolean(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY));
 const dataProvider = hasNeonCredentials ? 'neon' : hasSupabaseCredentials ? 'supabase' : 'memory';
+const neonAuthBaseUrl = (process.env.NEON_AUTH_BASE_URL ?? '').replace(/\/$/, '');
+const neonAuthJwksUrl = process.env.NEON_AUTH_JWKS_URL
+  ?? (neonAuthBaseUrl ? `${neonAuthBaseUrl}/.well-known/jwks.json` : '');
 
 export const env = {
   port: Number(process.env.PORT ?? 4000),
@@ -37,6 +40,11 @@ export const env = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   useSupabase: dataProvider === 'supabase' && (process.env.USE_SUPABASE ? process.env.USE_SUPABASE === 'true' : true),
   bootstrapSupabase: process.env.BOOTSTRAP_SUPABASE === 'true',
+  appBaseUrl: (process.env.APP_BASE_URL ?? 'https://motor-originac-srm.vercel.app').replace(/\/$/, ''),
+  authProvider: neonAuthBaseUrl ? 'neon' : 'none',
+  neonAuthBaseUrl,
+  neonAuthJwksUrl,
+  authBootstrapEnabled: process.env.MOTOR_AUTH_BOOTSTRAP_ENABLED === 'true',
   maisRetornoApiKey: process.env.MAIS_RETORNO_API_KEY ?? '',
   maisRetornoApiBaseUrl: process.env.MAIS_RETORNO_API_BASE_URL ?? '',
   maisRetornoApiPath: process.env.MAIS_RETORNO_API_PATH ?? '',

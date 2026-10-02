@@ -69,7 +69,7 @@ export function ProfilePage() {
       />
 
       <div className="profile-grid">
-        <Card title="Informações do usuário" subtitle="Os dados de acesso são mantidos pelo Supabase Auth.">
+        <Card title="Informações do usuário" subtitle="A identidade é mantida pelo Neon Auth; perfil e permissões ficam no Postgres do Motor.">
           <form className="form-grid" onSubmit={handleSubmit}>
             <div className="grid cols-2 profile-fields">
               <label>

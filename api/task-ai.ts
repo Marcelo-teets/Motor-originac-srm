@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 type TaskAiRequest = VercelRequest & { body?: Record<string, unknown> };
 type JsonRecord = Record<string, any>;
@@ -49,17 +50,9 @@ const runtimeStatus = () => ({
 const authenticate = async (req: TaskAiRequest) => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
-  const supabaseUrl = (process.env.SUPABASE_URL ?? '').replace(/\/+$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey) throw new ApiError('Supabase Auth não está configurado.', 503);
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { apikey: anonKey, Authorization: authorization },
-    signal: AbortSignal.timeout(10_000),
-  });
-  const payload = await response.json().catch(() => ({})) as JsonRecord;
-  if (!response.ok || typeof payload.id !== 'string') throw new ApiError('Unauthorized.', 401);
-  return { id: payload.id as string, email: typeof payload.email === 'string' ? payload.email : undefined };
-};
+  const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
+  return { id: user.id, email: user.email };
+}
 
 const systemInstructions = () => {
   const now = new Date();

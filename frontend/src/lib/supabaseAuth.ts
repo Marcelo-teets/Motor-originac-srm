@@ -1,10 +1,6 @@
-import publicAuthConfig from '../../public-auth.config.json';
 import type { SessionData } from './types';
 import { fetchWithPolicy } from './http';
-import {
-  buildPasswordGrantPayload,
-  buildPasswordRecoveryPayload,
-} from './supabaseAuthPayload';
+import { buildApiUrl } from './runtimeConfig';
 
 export type UserRole = 'god_mode' | 'common';
 export type UserStatus = 'active' | 'invited' | 'disabled';
@@ -32,204 +28,151 @@ export type UserProfile = {
   updated_at: string;
 };
 
-const supabaseUrl = String(
-  import.meta.env.VITE_SUPABASE_URL
-  ?? publicAuthConfig.supabaseUrl
-  ?? '',
-).replace(/\/$/, '');
-const supabaseAnonKey = String(
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
-  ?? import.meta.env.VITE_SUPABASE_ANON_KEY
-  ?? publicAuthConfig.supabasePublishableKey
-  ?? '',
-);
-
-const supportedOAuthProviders: OAuthProviderOption[] = [
-  { provider: 'github', label: 'GitHub', mark: 'GH' },
-  { provider: 'google', label: 'Google', mark: 'G' },
-];
-
-const requireConfig = () => {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase não está configurado no frontend. Verifique a configuração pública de Auth.');
-  }
+type Envelope<T> = {
+  status: 'real' | 'partial' | 'mock';
+  generatedAt?: string;
+  data: T;
+  error?: string;
 };
 
-const authHeaders = (accessToken?: string) => ({
-  apikey: supabaseAnonKey,
-  'Content-Type': 'application/json',
-  ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-});
-
-const readPayload = async (response: Response) => {
+const readPayload = async <T>(response: Response): Promise<Envelope<T>> => {
   const text = await response.text();
-  if (!text) return {};
+  if (!text) {
+    return {
+      status: 'partial',
+      data: undefined as T,
+      error: response.ok ? undefined : `HTTP ${response.status}`,
+    };
+  }
   try {
-    return JSON.parse(text) as Record<string, any>;
+    return JSON.parse(text) as Envelope<T>;
   } catch {
-    return { message: response.ok ? 'Resposta inválida do serviço de autenticação.' : 'O serviço de autenticação retornou uma resposta inválida.' };
+    throw new Error('O serviço de autenticação retornou uma resposta inválida.');
   }
 };
 
-const authError = (payload: Record<string, any>, fallback: string) => {
-  const code = String(payload.error_code ?? payload.code ?? '');
-  const message = String(payload.error_description ?? payload.msg ?? payload.message ?? payload.error ?? fallback);
-
-  if (/invalid login credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
-  if (code === 'email_not_confirmed' || /email not confirmed/i.test(message)) return new Error('Confirme seu e-mail antes de entrar.');
-  if (code === 'over_request_rate_limit' || /rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
-  if (code === 'refresh_token_not_found' || /invalid refresh token|refresh token.*expired/i.test(message)) return new Error('Sua sessão expirou. Entre novamente.');
-  if (code === 'user_banned') return new Error('Este acesso está desativado.');
+const authError = (payload: { error?: string }, fallback: string) => {
+  const message = String(payload.error ?? fallback);
+  if (/invalid email or password|e-mail ou senha inválidos/i.test(message)) return new Error('E-mail ou senha inválidos.');
+  if (/rate limit|muitas tentativas/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
+  if (/sessão|session|token/i.test(message) && /expir|invalid|not found|não encontrada/i.test(message)) {
+    return new Error('Sua sessão expirou. Entre novamente.');
+  }
   return new Error(message || fallback);
 };
 
-const fetchAuthUser = async (accessToken: string) => {
-  requireConfig();
-  const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/user`, { headers: authHeaders(accessToken) }, { timeoutMs: 15_000 });
-  const payload = await readPayload(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível validar o usuário.');
-  return payload;
-};
+const request = async <T>(
+  path: string,
+  init: RequestInit = {},
+  session?: SessionData | null,
+): Promise<T> => {
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
 
-const buildSession = async (payload: Record<string, any>): Promise<SessionData> => {
-  const accessToken = String(payload.access_token ?? '');
-  if (!accessToken) throw new Error('A autenticação não retornou um token de acesso válido.');
-  const user = payload.user ?? await fetchAuthUser(accessToken);
-  return {
-    access_token: accessToken,
-    refresh_token: typeof payload.refresh_token === 'string' ? payload.refresh_token : undefined,
-    expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000,
-    user: {
-      id: String(user.id ?? user.sub ?? ''),
-      email: typeof user.email === 'string' ? user.email : undefined,
-      role: 'common',
-    },
-  };
+  const response = await fetchWithPolicy(buildApiUrl(path), {
+    ...init,
+    headers,
+    credentials: 'include',
+  }, { timeoutMs: 15_000, retries: 1 });
+  const payload = await readPayload<T>(response);
+  if (!response.ok) throw authError(payload, `Falha de autenticação (HTTP ${response.status}).`);
+  return payload.data;
 };
 
 export const supabaseAuth = {
-  async signInWithPassword(email: string, password: string) {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+  async getBootstrapStatus() {
+    return request<{ provider: 'neon'; enabled: boolean; available: boolean; initialized: boolean }>('/auth/bootstrap-status');
+  },
+
+  async signUpWithPassword(name: string, email: string, password: string) {
+    return request<{ registered: boolean; status: UserStatus }>('/auth/register', {
       method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(buildPasswordGrantPayload(email, password)),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Falha ao autenticar.');
-    return buildSession(payload);
-  },
-
-  async refreshSession(refreshToken: string) {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível renovar sua sessão.');
-    return buildSession(payload);
-  },
-
-  async sendPasswordRecovery(email: string) {
-    requireConfig();
-    const redirectTo = `${window.location.origin}/reset-password`;
-    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(buildPasswordRecoveryPayload(email)),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível enviar o e-mail de recuperação.');
-  },
-
-  async updatePassword(accessToken: string, password: string) {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/user`, {
-      method: 'PUT',
-      headers: authHeaders(accessToken),
-      body: JSON.stringify({ password }),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.');
-    return payload;
-  },
-
-  async getEnabledOAuthProviders(): Promise<OAuthProviderOption[]> {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/auth/v1/settings`, {
-      headers: { ...authHeaders(), Accept: 'application/json' },
-    }, { timeoutMs: 10_000, retries: 1 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível consultar os provedores OAuth.');
-    const external = payload.external && typeof payload.external === 'object'
-      ? payload.external as Record<string, unknown>
-      : {};
-    return supportedOAuthProviders.filter(({ provider }) => external[provider] === true);
-  },
-
-  getOAuthUrl(provider: OAuthProvider) {
-    requireConfig();
-    const redirectTo = `${window.location.origin}/auth/callback`;
-    return `${supabaseUrl}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}`;
-  },
-
-  async sessionFromLocation(): Promise<SessionData> {
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const query = new URLSearchParams(window.location.search);
-    const errorDescription = hash.get('error_description') ?? query.get('error_description') ?? hash.get('error') ?? query.get('error');
-    if (errorDescription) throw new Error(decodeURIComponent(errorDescription));
-    return buildSession({
-      access_token: hash.get('access_token') ?? query.get('access_token'),
-      refresh_token: hash.get('refresh_token') ?? query.get('refresh_token'),
-      expires_in: hash.get('expires_in') ?? query.get('expires_in') ?? 3600,
+      body: JSON.stringify({ name, email, password }),
     });
   },
 
-  async getProfile(session: SessionData): Promise<UserProfile> {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
-      headers: { ...authHeaders(session.access_token), Accept: 'application/json' },
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível carregar o perfil.');
-    const profile = Array.isArray(payload) ? payload[0] : undefined;
-    if (!profile) throw new Error('Perfil de usuário não encontrado.');
-    return profile as UserProfile;
+  async bootstrapInitialUser(name: string, email: string, password: string) {
+    return request<SessionData>('/auth/bootstrap', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    });
   },
 
-  async updateProfile(session: SessionData, changes: Pick<UserProfile, 'full_name' | 'job_title' | 'phone' | 'avatar_url' | 'timezone' | 'locale'>): Promise<UserProfile> {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?id=eq.${encodeURIComponent(session.user.id)}&select=*`, {
+  async signInWithPassword(email: string, password: string) {
+    return request<SessionData>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  async refreshSession() {
+    return request<SessionData>('/auth/session', { method: 'POST' });
+  },
+
+  async sendPasswordRecovery(email: string) {
+    await request<{ accepted: boolean }>('/auth/password/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async resetPassword(token: string, newPassword: string) {
+    await request<{ success: boolean }>('/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
+  async changePassword(session: SessionData, currentPassword: string, newPassword: string) {
+    await request<{ success: boolean }>('/auth/password/change', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }, session);
+  },
+
+  async getEnabledOAuthProviders(): Promise<OAuthProviderOption[]> {
+    // OAuth remains intentionally hidden until its callback also terminates on
+    // the first-party Motor domain. Email/password already runs fully on Neon.
+    return [];
+  },
+
+  getOAuthUrl(_provider: OAuthProvider) {
+    throw new Error('OAuth ainda não está habilitado no proxy first-party do Motor.');
+  },
+
+  async sessionFromLocation(): Promise<SessionData> {
+    return this.refreshSession();
+  },
+
+  async getProfile(session: SessionData): Promise<UserProfile> {
+    return request<UserProfile>('/auth/profile', {}, session);
+  },
+
+  async updateProfile(
+    session: SessionData,
+    changes: Pick<UserProfile, 'full_name' | 'job_title' | 'phone' | 'avatar_url' | 'timezone' | 'locale'>,
+  ): Promise<UserProfile> {
+    return request<UserProfile>('/auth/profile', {
       method: 'PATCH',
-      headers: { ...authHeaders(session.access_token), Prefer: 'return=representation' },
       body: JSON.stringify(changes),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível salvar o perfil.');
-    return (Array.isArray(payload) ? payload[0] : payload) as UserProfile;
+    }, session);
   },
 
   async listUsers(session: SessionData): Promise<UserProfile[]> {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/user_profiles?select=*&order=created_at.asc`, {
-      headers: authHeaders(session.access_token),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível listar os usuários.');
-    return (Array.isArray(payload) ? payload : []) as UserProfile[];
+    return request<UserProfile[]>('/auth/users', {}, session);
   },
 
-  async setUserAccess(session: SessionData, userId: string, role: UserRole, status: UserStatus): Promise<UserProfile> {
-    requireConfig();
-    const response = await fetchWithPolicy(`${supabaseUrl}/rest/v1/rpc/set_user_access`, {
-      method: 'POST',
-      headers: authHeaders(session.access_token),
-      body: JSON.stringify({ target_user_id: userId, new_role: role, new_status: status }),
-    }, { timeoutMs: 15_000 });
-    const payload = await readPayload(response);
-    if (!response.ok) throw authError(payload, 'Não foi possível atualizar o acesso do usuário.');
-    return (Array.isArray(payload) ? payload[0] : payload) as UserProfile;
+  async setUserAccess(
+    session: SessionData,
+    userId: string,
+    role: UserRole,
+    status: UserStatus,
+  ): Promise<UserProfile> {
+    return request<UserProfile>(`/auth/users/${encodeURIComponent(userId)}/access`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role, status }),
+    }, session);
   },
 };

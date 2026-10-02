@@ -1,167 +1,87 @@
-# Production Auth Smoke — Motor Originação
+# Auth Production Smoke — Neon Managed Auth
 
 ## Objetivo
 
-Provar automaticamente que o deployment canônico contém a versão correta dos fluxos de autenticação e que frontend e backend foram publicados a partir do mesmo commit.
+Validar que o Auth de produção da Origination Intelligence Platform está completamente desacoplado do Supabase Auth e opera com:
 
-O smoke não considera HTTP 200 isoladamente como evidência suficiente. Ele valida código, SHA, rotas, bundle e modo operacional do Auth.
+- Neon Managed Auth;
+- cookie HttpOnly first-party no domínio do Motor;
+- JWT curto emitido pelo Neon e validado por JWKS/Ed25519;
+- `public.user_profiles` como fonte de perfil e RBAC;
+- novos cadastros pendentes até aprovação;
+- bootstrap GOD-MODE desabilitado por padrão;
+- ausência de chamadas diretas do frontend para `/auth/v1/*` do Supabase.
 
-## Modos operacionais
+## Contrato de produção
 
-### `full`
+O smoke `scripts/smoke-auth-production.mjs` exige:
 
-- CAPTCHA ativo;
-- site key presente no build;
-- e-mail/senha disponível;
-- recuperação de senha disponível;
-- OAuth disponível conforme providers ativos.
-
-Resultado do smoke:
-
-```text
-passed
-```
-
-### `oauth_fallback`
-
-- CAPTCHA ativo;
-- site key ainda ausente;
-- e-mail/senha e recuperação explicitamente desabilitados;
-- OAuth continua disponível;
-- a interface orienta o usuário a usar o provider ativo, atualmente GitHub.
-
-Resultado do smoke quando `REQUIRE_CAPTCHA_SITE_KEY=false`:
-
-```text
-passed_with_oauth_fallback
-```
-
-Esse resultado comprova plataforma acessível, mas **não** equivale a Auth completo.
-
-## O que é validado
-
-1. `GET /api/health` retorna `status=real`, `data.mode=real` e SHA de produção.
-2. `GET /build-meta.json` identifica SHA, branch, ambiente e modo de Auth.
-3. Frontend e backend possuem o mesmo SHA.
-4. O SHA publicado corresponde ao deployment esperado.
-5. As rotas públicas retornam o shell React:
+1. `/api/health` com `status=real`, `mode=real` e `dataProvider=neon`.
+2. Mesmo SHA entre frontend e backend.
+3. Build metadata com:
+   - `auth.provider=neon`;
+   - `auth.mode=email_password`;
+   - `registrationRequiresApproval=true`;
+   - `oauthProviderDiscovery=false`;
+   - `supportedOAuthProviders=[]`;
+   - `captchaEnabled=false`;
+   - `privilegedBootstrapDefault=false`;
+   - `sessionTransport=first_party_httponly_cookie_plus_short_lived_jwt`.
+4. Rotas públicas React:
    - `/login`;
    - `/forgot-password`;
-   - `/reset-password`;
-   - `/auth/callback`.
-6. O bundle contém:
-   - `gotrue_meta_security`;
-   - `captcha_token`;
-   - rotas de recuperação/callback;
+   - `/reset-password`.
+5. `/api/auth/bootstrap-status` reportando `enabled=false` e `available=false` em produção.
+6. OpenAPI do próprio Neon Auth contendo:
+   - `/sign-in/email`;
+   - `/get-session`;
+   - `/token`;
+   - `/sign-out`;
+   - `/request-password-reset`;
+   - `/reset-password`.
+7. Bundle contendo apenas chamadas para o proxy first-party do Motor e sem:
+   - `/auth/v1/token`;
+   - `/auth/v1/user`;
    - `/auth/v1/settings`;
-   - `github`, `google` e `god_mode`.
-7. O metadata confirma:
-   - `auth.mode`;
-   - `emailPasswordConfigured`;
-   - `oauthFallbackSupported`;
-   - provider CAPTCHA;
-   - presença da site key;
-   - transporte `gotrue_meta_security.captcha_token`;
-   - descoberta dinâmica de OAuth.
+   - marcadores CAPTCHA legados.
 
-## Contrato CAPTCHA
-
-O formato obrigatório é:
-
-```json
-{
-  "gotrue_meta_security": {
-    "captcha_token": "token"
-  }
-}
-```
-
-O smoke rejeita o contrato legado com `captcha_token` no nível superior.
-
-## Descoberta OAuth
-
-A tela de login consulta:
-
-```text
-/auth/v1/settings
-```
-
-Estado auditado em 24/07/2026:
-
-- GitHub: habilitado;
-- Google: desabilitado;
-- e-mail/senha: habilitado no Supabase, condicionado ao CAPTCHA no frontend.
-
-O authorize GitHub preserva o retorno:
-
-```text
-https://motor-originac-srm.vercel.app/auth/callback
-```
-
-## Execução automática
-
-O workflow `.github/workflows/production-auth-smoke.yml` roda após deployment de produção com:
-
-```text
-REQUIRE_CAPTCHA_SITE_KEY=false
-```
-
-Assim ele aceita `oauth_fallback`, mas registra explicitamente o modo parcial.
-
-## Execução manual — Auth completo
+## Execução
 
 ```bash
 BASE_URL=https://motor-originac-srm.vercel.app \
 EXPECTED_SHA=<sha-da-main> \
-REQUIRE_CAPTCHA_SITE_KEY=true \
-node scripts/smoke-auth-production.mjs
+npm run test:auth-production-smoke
 ```
 
-## Execução manual — fallback OAuth
+O workflow de deploy deve executar o mesmo smoke após promover o SHA correto.
 
-```bash
-BASE_URL=https://motor-originac-srm.vercel.app \
-EXPECTED_SHA=<sha-da-main> \
-REQUIRE_CAPTCHA_SITE_KEY=false \
-node scripts/smoke-auth-production.mjs
-```
+## Bootstrap GOD-MODE
 
-## Build metadata
+O bootstrap privilegiado é uma operação excepcional. A variável `MOTOR_AUTH_BOOTSTRAP_ENABLED` deve permanecer `false` em produção. Quando for necessário inicializar a primeira conta GOD-MODE:
 
-Antes do `vite build`, `frontend/scripts/write-build-meta.mjs` gera:
+1. habilitar a variável por janela controlada;
+2. confirmar que `neon_auth.user` e `public.user_profiles` ainda estão vazios;
+3. usar `/auth/bootstrap` uma única vez;
+4. confirmar a claim em `private.auth_bootstrap_claim`;
+5. voltar a variável para `false`;
+6. executar novamente o production smoke.
 
-```text
-frontend/public/build-meta.json
-```
-
-O arquivo publica apenas estado operacional e identificadores não secretos. CAPTCHA secret, OAuth secrets, service role e token da Vercel nunca entram no bundle.
+Nunca deixar o bootstrap habilitado de forma permanente.
 
 ## Interpretação
 
-### `passed`
+### passed
 
-Auth completo aprovado.
+Auth Neon, SHA, data plane e fronteira first-party consistentes.
 
-### `passed_with_oauth_fallback`
+### falha em bootstrap
 
-Aplicação acessível por OAuth; e-mail/senha e recuperação ainda dependem da site key correta.
+Não promover enquanto `MOTOR_AUTH_BOOTSTRAP_ENABLED=true`.
 
-### `VITE_CAPTCHA_SITE_KEY is not configured`
+### falha em bundle boundary
 
-O smoke foi executado em modo estrito, mas o build está em fallback.
+Algum código voltou a chamar Supabase Auth diretamente. Corrigir antes do merge.
 
-### `CAPTCHA token transport is incorrect`
+### falha no OpenAPI
 
-O bundle utiliza contrato incompatível com GoTrue.
-
-### SHA divergente
-
-Alias/deployment inconsistente. Não aprovar.
-
-### Health fora de `real`
-
-Backend em fallback/mock. Não aprovar.
-
-## Limite do smoke
-
-O teste não resolve um CAPTCHA real nem lê a caixa de e-mail. O teste funcional final de recuperação exige envio, abertura do link, alteração da senha e novo login autenticado.
+O endpoint Managed Auth ou sua configuração mudou; revisar integração antes de promover.

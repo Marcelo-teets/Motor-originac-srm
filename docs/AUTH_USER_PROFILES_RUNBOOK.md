@@ -1,179 +1,132 @@
-# Auth, perfis e acessos — Runbook operacional
+# Auth & User Profiles Runbook — Neon
 
-## 1. Objetivo
+## 1. Fonte de verdade
 
-Este fluxo usa o Supabase Auth como fonte oficial de identidade e `public.user_profiles` como fonte oficial de perfil e autorização da Origination Intelligence Platform.
+A plataforma usa:
 
-Não existe sistema paralelo de usuários. O mesmo JWT emitido pelo Supabase protege o frontend, o backend Node/TypeScript e as consultas REST/RPC.
+- Neon Managed Auth como fonte oficial de identidade;
+- `neon_auth.user` e tabelas relacionadas para credenciais/sessões;
+- `public.user_profiles` para perfil, status e RBAC;
+- backend Node/TypeScript como proxy first-party para operações de Auth.
 
-## 2. Tipos de usuário
+O frontend não autentica diretamente contra Supabase Auth.
 
-### GOD-MODE
+## 2. Sessão
 
-- Conta única e protegida.
-- Acesso integral à plataforma.
-- Pode visualizar usuários e ativar/desativar usuários comuns.
-- Não pode ser desativada, rebaixada ou delegada pela interface/RPC.
-- A unicidade também é garantida por índice parcial no Postgres.
+Fluxo:
 
-### Usuário comum
+1. frontend chama `/api/auth/login`;
+2. backend autentica em Neon Managed Auth;
+3. backend recebe o token opaco de sessão do Neon;
+4. backend grava esse token em cookie `motor_neon_session` com `HttpOnly; Secure; SameSite=Lax`;
+5. backend obtém `/token` no Neon Auth e devolve apenas o JWT curto ao frontend;
+6. requests protegidos usam `Authorization: Bearer <jwt>`;
+7. backend valida assinatura via JWKS/Ed25519;
+8. renovação chama `/api/auth/session`, usando o cookie first-party.
 
-- Acesso operacional padrão.
-- Edita apenas o próprio perfil.
-- Não altera `role`, `status`, e-mail ou ID.
-- Não visualiza a página de administração de usuários.
+O browser nunca manipula o token opaco de sessão do Neon nem um refresh token.
 
-## 3. Rotas
+## 3. Perfis e RBAC
 
-### Públicas
+Papéis:
 
-- `/login`: e-mail/senha, OAuth dinâmico e CAPTCHA.
-- `/forgot-password`: solicita link de recuperação.
-- `/reset-password`: valida o link e define nova senha.
-- `/auth/callback`: conclui a sessão OAuth.
+- `god_mode`: administrador único;
+- `common`: usuário operacional.
 
-### Autenticadas
+Status:
 
-- `/profile`: perfil e preferências do usuário.
-- `/change-password`: troca de senha autenticada.
-- `/users`: administração exclusiva do GOD-MODE.
+- `active`: acesso permitido;
+- `invited`: cadastro existe, mas acesso ainda não foi aprovado;
+- `disabled`: acesso bloqueado.
 
-## 4. Variáveis da Vercel
+Regras:
 
-Configurar em Production e Preview:
+- novos cadastros criados por `/auth/register` entram como `common + invited`;
+- login só prossegue para perfis `active`;
+- `god_mode` pode listar usuários e alterar status;
+- o próprio GOD-MODE não pode se desativar nem remover seu próprio papel;
+- a aplicação impede promoção de outra conta para `god_mode`.
 
-```dotenv
-VITE_SUPABASE_URL=https://hdghpmssudrqhsbvrdyt.supabase.co
-VITE_SUPABASE_ANON_KEY=<publishable ou anon key ativa>
-VITE_CAPTCHA_ENABLED=true
-VITE_CAPTCHA_PROVIDER=<turnstile ou hcaptcha>
-VITE_CAPTCHA_SITE_KEY=<site key pública>
-```
+## 4. Rotas
 
-`VITE_CAPTCHA_PROVIDER` e `VITE_CAPTCHA_SITE_KEY` devem pertencer ao mesmo provedor configurado no Supabase Auth.
+Públicas:
 
-Estado auditado na Vercel em 24/07/2026:
+- `GET /auth/bootstrap-status`
+- `POST /auth/register`
+- `POST /auth/bootstrap` — somente quando explicitamente habilitado
+- `POST /auth/login`
+- `POST /auth/session`
+- `POST /auth/password/request`
+- `POST /auth/password/reset`
+- `POST /auth/logout`
 
-- `VITE_CAPTCHA_ENABLED=true`: configurado em Production, Preview e Development;
-- `VITE_CAPTCHA_PROVIDER=turnstile`: configurado em Production, Preview e Development;
-- `VITE_CAPTCHA_SITE_KEY`: ausente.
+Protegidas:
 
-O valor `turnstile` foi preparado como padrão do frontend, mas o rollout permanece bloqueado até a obtenção da site key real e a confirmação de que ela corresponde ao provedor selecionado no Supabase.
+- `GET /auth/me`
+- `GET /auth/profile`
+- `PATCH /auth/profile`
+- `GET /auth/users` — GOD-MODE
+- `PATCH /auth/users/:id/access` — GOD-MODE
+- `POST /auth/password/change`
 
-O frontend trabalha em modo fail-closed: com CAPTCHA ativo e sem site key/token, o botão permanece bloqueado e nenhuma chamada de autenticação é enviada.
+## 5. Variáveis
 
-## 5. Configuração do Supabase Auth
-
-### CAPTCHA
-
-1. Abra Authentication > Bot and Abuse Protection.
-2. Confirme se o provedor ativo é Cloudflare Turnstile ou hCaptcha.
-3. Confirme a secret key cadastrada no Supabase.
-4. Copie a site key pública do mesmo widget/site.
-5. Defina `VITE_CAPTCHA_PROVIDER` e `VITE_CAPTCHA_SITE_KEY` na Vercel.
-6. Gere novo deployment e execute o Production Auth Smoke.
-
-### Contrato REST do GoTrue
-
-O token CAPTCHA **não** é enviado no nível superior do JSON. O formato aceito pelo GoTrue é:
-
-```json
-{
-  "email": "usuario@empresa.com",
-  "password": "senha",
-  "gotrue_meta_security": {
-    "captcha_token": "token-verificado"
-  }
-}
-```
-
-Para recuperação de senha:
-
-```json
-{
-  "email": "usuario@empresa.com",
-  "gotrue_meta_security": {
-    "captcha_token": "token-verificado"
-  }
-}
-```
-
-Um probe controlado confirmou a diferença:
-
-- campo superior `captcha_token`: `no captcha_token found`;
-- campo aninhado `gotrue_meta_security.captcha_token`: token reconhecido e validado pelo provedor, retornando `invalid-input-response` para o token propositalmente inválido.
-
-O contrato é protegido pelo teste `test:auth-captcha-payload` e pelo smoke de produção.
-
-### OAuth dinâmico
-
-A tela de login consulta `/auth/v1/settings` e mostra somente providers realmente habilitados no Supabase.
-
-Estado auditado em 24/07/2026:
-
-- GitHub OAuth: habilitado e authorize validado;
-- Google OAuth: desabilitado;
-- e-mail/senha: habilitado.
-
-O authorize do GitHub foi validado com retorno para:
+Backend:
 
 ```text
-https://motor-originac-srm.vercel.app/auth/callback
+MOTOR_NEON_DATABASE_URL
+NEON_AUTH_BASE_URL
+NEON_AUTH_JWKS_URL
+APP_BASE_URL
+MOTOR_AUTH_BOOTSTRAP_ENABLED=false
 ```
 
-Por isso, o botão operacional atual deve ser **Continuar com GitHub**.
-
-Para habilitar Google futuramente:
-
-1. Crie o Client ID e Client Secret no Google Cloud.
-2. Habilite o provider Google em Authentication > Sign In / Providers.
-3. Cadastre o callback do Supabase no Google.
-4. Inclua as URLs da aplicação na allow list de Redirect URLs do Supabase.
-
-O frontend detectará Google automaticamente e exibirá o botão sem nova mudança de código.
-
-URLs usadas pela aplicação:
-
-- `https://motor-originac-srm.vercel.app/auth/callback`
-- `https://motor-originac-srm.vercel.app/reset-password`
-- equivalentes dos domínios canônico e preview autorizados.
-
-## 6. Modelo de segurança
-
-- Autorização usa `public.user_profiles.role`; não usa `raw_user_meta_data` para decisões.
-- Novos usuários sempre nascem como `common`.
-- RLS permite leitura do próprio perfil ou leitura total pelo GOD-MODE.
-- Trigger bloqueia edição de campos privilegiados por usuário comum.
-- RPC `set_user_access` usa `SECURITY INVOKER`, RLS e verificação explícita do GOD-MODE.
-- A conta GOD-MODE é protegida contra desativação ou delegação.
-
-## 7. Checklist de validação
-
-1. Abrir `/login` em aba anônima.
-2. Confirmar que o desafio CAPTCHA aparece.
-3. Entrar com e-mail/senha e validar carregamento do dashboard.
-4. Sair e testar “Continuar com GitHub”.
-5. Confirmar retorno por `/auth/callback` e carregamento do perfil.
-6. Testar “Esqueci minha senha” e abrir o link recebido.
-7. Definir nova senha em `/reset-password`.
-8. Editar nome/cargo/telefone em `/profile`.
-9. Alterar senha em `/change-password`.
-10. Como GOD-MODE, abrir `/users`.
-11. Confirmar que a conta GOD-MODE não oferece opção de desativação.
-12. Criar/usar um usuário comum e confirmar que `/users` redireciona para `/profile`.
-13. Desativar o usuário comum e confirmar bloqueio no próximo carregamento de sessão.
-
-## 8. Diagnóstico do incidente de CAPTCHA
-
-Sintoma observado:
+Frontend/build:
 
 ```text
-captcha protection: request disallowed (no captcha_token found)
+VITE_NEON_AUTH_URL
 ```
 
-Causas encontradas:
+Variáveis Supabase públicas podem permanecer apenas para superfícies legadas não-Auth até sua retirada. Elas não definem identidade nem sessão.
 
-1. O fluxo antigo não enviava token CAPTCHA.
-2. A primeira correção enviava `captcha_token` no nível superior, formato que o GoTrue não reconhece.
+## 6. Bootstrap GOD-MODE
 
-Correção final: login e recuperação obtêm o token do widget no navegador e o enviam em `gotrue_meta_security.captcha_token`. O backend continua recebendo e validando apenas o JWT resultante.
+A tabela `private.auth_bootstrap_claim` mantém uma claim singleton irreversível no fluxo normal.
+
+Pré-condições:
+
+- `MOTOR_AUTH_BOOTSTRAP_ENABLED=true`;
+- nenhum usuário em `neon_auth.user`;
+- nenhum perfil em `public.user_profiles`;
+- nenhuma claim existente.
+
+Após a criação:
+
+- usuário recebe `god_mode + active`;
+- claim é gravada;
+- variável deve voltar imediatamente para `false`;
+- production smoke precisa passar.
+
+## 7. OAuth
+
+Google compartilhado existe no Neon Managed Auth, mas o frontend não o expõe nesta fase. O callback OAuth só será reativado quando terminar no proxy first-party do Motor e obedecer ao mesmo contrato de sessão/cookie.
+
+## 8. Recuperação e troca de senha
+
+- recuperação: `/auth/password/request` → Neon `/request-password-reset`;
+- reset: `/auth/password/reset` → Neon `/reset-password`;
+- troca autenticada: `/auth/password/change` → Neon `/change-password`;
+- nova senha mínima no Motor: 10 caracteres.
+
+## 9. Operação segura
+
+Antes de promover mudanças de Auth:
+
+1. CI verde;
+2. production smoke verde;
+3. bootstrap desligado;
+4. zero chamadas diretas `/auth/v1/*` do Supabase no bundle;
+5. `user_profiles` sem grants públicos indevidos;
+6. nenhum usuário de teste residual em `neon_auth.user`.
+
+Auth deve servir o objetivo do projeto: liberar acesso institucional ao motor de originação sem criar uma dependência operacional externa que interrompa ranking, qualification, patterns, thesis ou pipeline.

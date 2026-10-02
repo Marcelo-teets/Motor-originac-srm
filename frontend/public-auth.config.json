@@ -1,4 +1,8 @@
 {
+  "authProvider": "neon",
+  "neonProjectId": "steep-poetry-38942951",
+  "neonAuthBaseUrl": "https://ep-fragrant-moon-b6o2wxmx.neonauth.c-2.sa-east-1.aws.neon.tech/neondb/auth",
+  "neonAuthJwksUrl": "https://ep-fragrant-moon-b6o2wxmx.neonauth.c-2.sa-east-1.aws.neon.tech/neondb/auth/.well-known/jwks.json",
   "supabaseProjectRef": "hdghpmssudrqhsbvrdyt",
   "supabaseUrl": "https://hdghpmssudrqhsbvrdyt.supabase.co",
   "supabasePublishableKey": "sb_publishable_tB5S5KOGXB6qxb5q_ofkkw_w-eVzcVp"

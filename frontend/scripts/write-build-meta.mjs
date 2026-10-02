@@ -28,6 +28,12 @@ const deploymentEnvironment = (
   || 'local'
 ).trim();
 
+const resolvedNeonAuthUrl = (
+  env.VITE_NEON_AUTH_URL
+  || publicAuthConfig.neonAuthBaseUrl
+  || ''
+).trim();
+
 const resolvedSupabaseUrl = (
   env.VITE_SUPABASE_URL
   || publicAuthConfig.supabaseUrl
@@ -39,9 +45,9 @@ const resolvedPublishableKey = (
   || publicAuthConfig.supabasePublishableKey
   || ''
 ).trim();
-const supabaseUrlConfigured = Boolean(resolvedSupabaseUrl);
-const publishableKeyConfigured = Boolean(resolvedPublishableKey);
-const emailPasswordConfigured = supabaseUrlConfigured && publishableKeyConfigured;
+
+const neonAuthConfigured = Boolean(resolvedNeonAuthUrl);
+const legacySupabaseConfigured = Boolean(resolvedSupabaseUrl && resolvedPublishableKey);
 
 const metadata = {
   schemaVersion: 1,
@@ -50,16 +56,16 @@ const metadata = {
   branch,
   environment: deploymentEnvironment,
   auth: {
-    mode: emailPasswordConfigured ? 'email_password_and_oauth' : 'misconfigured',
-    emailPasswordConfigured,
-    oauthFallbackSupported: emailPasswordConfigured,
+    provider: 'neon',
+    mode: neonAuthConfigured ? 'email_password' : 'misconfigured',
+    emailPasswordConfigured: neonAuthConfigured,
+    registrationRequiresApproval: true,
+    oauthFallbackSupported: false,
     publicClient: {
-      projectRef: publicAuthConfig.supabaseProjectRef,
-      supabaseUrlConfigured,
-      publishableKeyConfigured,
-      source: env.VITE_SUPABASE_URL && (env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY)
-        ? 'vercel_environment'
-        : 'canonical_public_config',
+      neonProjectId: publicAuthConfig.neonProjectId,
+      neonAuthUrlConfigured: neonAuthConfigured,
+      source: env.VITE_NEON_AUTH_URL ? 'vercel_environment' : 'canonical_public_config',
+      legacySupabaseConfigured,
     },
     routes: [
       '/login',
@@ -71,9 +77,11 @@ const metadata = {
       '/users',
     ],
     captchaEnabled: false,
-    oauthProviderDiscovery: emailPasswordConfigured,
-    supportedOAuthProviders: ['github', 'google'],
+    oauthProviderDiscovery: false,
+    supportedOAuthProviders: [],
     godModeIncluded: true,
+    privilegedBootstrapDefault: false,
+    sessionTransport: 'first_party_httponly_cookie_plus_short_lived_jwt',
   },
 };
 

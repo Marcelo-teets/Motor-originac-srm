@@ -44,8 +44,8 @@ A camada operacional de originação agora está versionada no repositório e ex
 O backlog ORIG-001 a ORIG-020 foi convertido em contrato operacional versionado, cobrindo Company Master, templates, scorecard, pipeline, fontes, ranking semanal, tese, dashboard, triggers, one-pager, sequências de e-mail, hooks, reciclagem, VC/PE monitoring, relatório setorial, copiloto, bases externas, histórico de score e comparáveis.
 
 ## O que esta PR torna real
-- Supabase REST como camada primária de leitura/escrita para `companies`, `source_catalog`, `monitoring_outputs`, `company_signals`, `score_snapshots`, `lead_score_snapshots`, `qualification_snapshots`, `pattern_catalog`, `company_patterns`, `search_profiles` e `search_profile_filters`.
-- Supabase Auth real no backend (`/auth/login`, `/auth/logout`, `/auth/me`) com validação de JWT e rotas protegidas.
+- Neon Postgres como data plane primário de leitura/escrita para o runtime institucional; Supabase permanece apenas em superfícies legadas ainda explicitamente sinalizadas.
+- Neon Managed Auth real no backend (`/auth/register`, `/auth/login`, `/auth/session`, `/auth/logout`, `/auth/me`) com cookie HttpOnly first-party, JWT curto verificado por JWKS/Ed25519 e `public.user_profiles` como fonte de RBAC.
 - Dashboard, companies, qualification, patterns e sources servidos pelo backend real, com fallback controlado apenas quando o banco não retornar dados.
 - Connectors reproduzíveis para BrasilAPI CNPJ, RSS públicos e monitoramento básico de website, gravando `monitoring_outputs`, `company_signals` e `enrichments`.
 - Qualification + pattern engine recalculando snapshots a partir de sinais e outputs persistidos.

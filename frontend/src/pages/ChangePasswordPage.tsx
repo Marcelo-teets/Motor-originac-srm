@@ -6,6 +6,7 @@ import { supabaseAuth } from '../lib/supabaseAuth';
 
 export function ChangePasswordPage() {
   const { session } = useAuth();
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,6 +17,10 @@ export function ChangePasswordPage() {
     event.preventDefault();
     setError(null);
     setSuccess(false);
+    if (!currentPassword) {
+      setError('Informe sua senha atual.');
+      return;
+    }
     if (password.length < 10) {
       setError('Use uma senha com pelo menos 10 caracteres.');
       return;
@@ -31,7 +36,8 @@ export function ChangePasswordPage() {
 
     setLoading(true);
     try {
-      await supabaseAuth.updatePassword(session.access_token, password);
+      await supabaseAuth.changePassword(session, currentPassword, password);
+      setCurrentPassword('');
       setPassword('');
       setConfirmation('');
       setSuccess(true);
@@ -47,12 +53,16 @@ export function ChangePasswordPage() {
       <PageIntro
         eyebrow="Conta / Segurança"
         title="Alterar senha"
-        description="Atualize sua credencial diretamente no Supabase Auth. A plataforma nunca armazena a senha no banco de aplicação."
+        description="Atualize sua credencial no Neon Auth. A plataforma nunca armazena a senha no banco de aplicação."
         actions={<Pill tone="success">sessão autenticada</Pill>}
       />
       <div className="profile-grid">
-        <Card title="Nova senha" subtitle="Use uma combinação exclusiva com pelo menos 10 caracteres.">
+        <Card title="Nova senha" subtitle="Confirme a senha atual e use uma nova combinação exclusiva com pelo menos 10 caracteres.">
           <form className="form-grid" onSubmit={handleSubmit}>
+            <label>
+              <span>Senha atual</span>
+              <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
+            </label>
             <label>
               <span>Nova senha</span>
               <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" minLength={10} required />
