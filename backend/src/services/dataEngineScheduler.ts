@@ -5,7 +5,7 @@ import { DataTreatmentEngine } from '../modules/data-enrichment/dataTreatmentEng
 import { DataEngineOpsStore } from './dataEngineOpsStore.js';
 
 export class DataEngineScheduler {
-  private readonly repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+  private readonly repository = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
   private readonly captureEngine = new DataCaptureEngine();
   private readonly treatmentEngine = new DataTreatmentEngine();
   private readonly opsStore = new DataEngineOpsStore();

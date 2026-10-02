@@ -7,11 +7,11 @@ const ok = (data: unknown) => ({ status: 'real', generatedAt: new Date().toISOSt
 
 export const createHighSignalScraperRouter = () => {
   const router = Router();
-  const repo = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+  const repo = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
 
   router.get('/health', async (_req, res) => {
     const [companies, sources] = await Promise.all([repo.listCompanies(), repo.listSources()]);
-    res.json(ok({ companies: companies.length, sources: sources.length, mode: env.useSupabase ? 'supabase' : 'memory' }));
+    res.json(ok({ companies: companies.length, sources: sources.length, mode: env.usePersistentData ? 'database' : 'memory' }));
   });
 
   router.post('/company/:companyId/run', async (req, res) => {

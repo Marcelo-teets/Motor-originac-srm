@@ -106,7 +106,7 @@ export class PlatformService {
 
   async refreshMonitoring(companyId?: string) {
     const [companies, sources] = await Promise.all([this.hydrateCompanies(), this.repository.listSources()]);
-    const monitoringCompanies = env.useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies;
+    const monitoringCompanies = env.usePersistentData ? companies.filter(isCompanyMonitoringEligible) : companies;
     const targetCompanies = companyId ? monitoringCompanies.filter((item) => item.id === companyId) : monitoringCompanies;
     const collectedAt = isoNow();
     const ingestions = await Promise.all(targetCompanies.map(async (company) => {
@@ -235,7 +235,7 @@ export class PlatformService {
       this.repository.listMonitoringOutputs(),
     ]);
 
-    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const decisionCompanies = env.usePersistentData ? companies.filter(isCompanyDecisionEligible) : companies;
     const targetCompanies = companyId ? decisionCompanies.filter((item) => item.id === companyId) : decisionCompanies;
     const companyIds = new Set(targetCompanies.map((item) => item.id));
     const relevantOutputs = monitoringOutputs.filter((item) => companyIds.has(item.companyId));
@@ -254,7 +254,7 @@ export class PlatformService {
       this.repository.listQualificationSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
-    const decisionCompanies = env.useSupabase ? companies.filter(isCompanyDecisionEligible) : companies;
+    const decisionCompanies = env.usePersistentData ? companies.filter(isCompanyDecisionEligible) : companies;
     const decisionIds = new Set(decisionCompanies.map((company) => company.id));
     if (!decisionIds.size) return;
     const qualificationIds = new Set(qualifications.map((item) => item.companyId));

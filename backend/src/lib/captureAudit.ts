@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './supabase.js';
 
 export type CaptureAuditInput = {
   triggerType: 'cron' | 'manual';
@@ -16,7 +16,7 @@ export type CaptureAuditInput = {
 };
 
 export async function writeCaptureAudit(input: CaptureAuditInput): Promise<void> {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return;
   try {
     await client.insert('source_connector_runs', [{

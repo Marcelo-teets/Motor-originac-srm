@@ -56,7 +56,7 @@ export class FinepPublicIngestionService {
       return {
         status: 'failed' as const,
         generatedAt: new Date().toISOString(),
-        error: 'Supabase client is not configured for Finep ingestion.',
+        error: 'Persistent database client is not configured for Finep ingestion.',
         resources: [],
         totals: { rowsScanned: 0, recordsMatched: 0, recordsWritten: 0, outputsWritten: 0, signalsWritten: 0 },
       };
@@ -359,7 +359,7 @@ export class FinepPublicIngestionService {
       errors: [] as string[],
     };
     if (!companyIds.length) return result;
-    const platform = new PlatformService(createPlatformRepository('supabase'));
+    const platform = new PlatformService(createPlatformRepository('database'));
     for (const companyId of companyIds) {
       try {
         const recomputed = await platform.recomputeDerivedData(companyId);

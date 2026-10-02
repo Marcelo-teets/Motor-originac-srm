@@ -22,7 +22,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const repository = createPlatformRepository(env.useSupabase ? 'supabase' : 'memory');
+const repository = createPlatformRepository(env.usePersistentData ? 'database' : 'memory');
 const service = new PlatformService(repository);
 const abaService = new AbaService();
 const searchCaptureRuntime = new SearchProfileCaptureRuntime(repository);
@@ -31,8 +31,8 @@ const searchCaptureService = new SearchProfileCaptureService(searchCaptureRuntim
   recomputeDerivedData: async (companyId) => service.recomputeDerivedData(companyId),
 });
 const candidateDecisionQueueService = new CandidateDecisionQueueService();
-const platformMode = env.useSupabase ? 'real' : 'partial';
-const crmRuntimeMode: 'real' | 'mock' = env.useSupabase ? 'real' : 'mock';
+const platformMode = env.usePersistentData ? 'real' : 'partial';
+const crmRuntimeMode: 'real' | 'mock' = env.usePersistentData ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
 const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
 const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
@@ -53,6 +53,7 @@ await service.bootstrap().catch((error) => {
 app.get('/health', (_req, res) => res.json(ok(platformMode, {
   service: 'backend',
   mode: platformMode,
+  dataProvider: env.dataProvider,
   uptime: process.uptime(),
   build: getBuildInfo(),
 })));
@@ -522,7 +523,7 @@ app.get('/mvp-readiness', wrap(async (_req, res) => {
   const degradedSources = sources.filter((source) => source.health !== 'healthy').length;
   res.json(ok(platformMode, {
     auth: { status: 'real', provider: 'supabase' },
-    database: { status: env.useSupabase ? 'real' : 'partial', mode: env.useSupabase ? 'supabase' : 'memory_fallback' },
+    database: { status: env.usePersistentData ? 'real' : 'partial', mode: env.dataProvider },
     sources: { total: sources.length, degraded: degradedSources, status: degradedSources ? 'attention' : 'healthy' },
     monitoring: { outputs24h: dashboard.monitoring.outputs24h, triggers24h: dashboard.monitoring.triggers24h, status: dashboard.monitoring.outputs24h > 0 ? 'active' : 'idle' },
     qualification: { topLeads: dashboard.topLeads.length, status: dashboard.topLeads.length ? 'active' : 'empty' },
@@ -582,6 +583,6 @@ if (!process.env.VERCEL) {
   const port = env.port ?? 4000;
   app.listen(port, () => {
     console.log(`[motor-backend] listening on http://localhost:${port}`);
-    console.log(`[motor-backend] mode: ${platformMode} | supabase: ${env.useSupabase}`);
+    console.log(`[motor-backend] mode: ${platformMode} | dataProvider: ${env.dataProvider}`);
   });
 }
