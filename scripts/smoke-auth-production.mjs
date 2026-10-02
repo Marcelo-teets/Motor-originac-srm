@@ -15,16 +15,17 @@ const AUTH_ROUTES = [
 ];
 
 const REQUIRED_BUNDLE_MARKERS = [
-  '/forgot-password',
-  '/reset-password',
-  '/auth/callback',
-  '/auth/v1/settings',
-  'github',
-  'google',
+  '/auth/login',
+  '/auth/session',
+  '/auth/password/request',
+  '/auth/password/reset',
+  '/auth/profile',
   'god_mode',
 ];
 
 const FORBIDDEN_BUNDLE_MARKERS = [
+  '/auth/v1/settings',
+  '/auth/v1/token?grant_type=password',
   'gotrue_meta_security',
   'captcha_token',
   'CaptchaChallenge',
@@ -33,6 +34,17 @@ const FORBIDDEN_BUNDLE_MARKERS = [
   'VITE_HCAPTCHA_SITE_KEY',
   'challenges.cloudflare.com/turnstile',
   'js.hcaptcha.com',
+];
+
+const REQUIRED_NEON_AUTH_ENDPOINTS = [
+  '/sign-in/email',
+  '/sign-up/email',
+  '/get-session',
+  '/token',
+  '/sign-out',
+  '/request-password-reset',
+  '/reset-password',
+  '/change-password',
 ];
 
 const normalizeBaseUrl = (value) => value.replace(/\/+$/, '');
@@ -71,11 +83,7 @@ const extractModuleAssets = (html, baseUrl) => {
   const assets = [];
   const expression = /<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>/gi;
   let match;
-
-  while ((match = expression.exec(html)) !== null) {
-    assets.push(new URL(match[1], baseUrl).toString());
-  }
-
+  while ((match = expression.exec(html)) !== null) assets.push(new URL(match[1], baseUrl).toString());
   return [...new Set(assets)];
 };
 
@@ -104,16 +112,14 @@ const shaMatches = (actual, expected) => (
 export const runAuthProductionSmoke = async ({
   baseUrl,
   expectedSha,
-  expectedSupabaseUrl = canonicalPublicAuthConfig.supabaseUrl,
-  expectedSupabasePublishableKey = canonicalPublicAuthConfig.supabasePublishableKey,
+  expectedNeonAuthBaseUrl = canonicalPublicAuthConfig.neonAuthBaseUrl,
   fetchImpl = fetch,
 } = {}) => {
   assert.ok(baseUrl, 'baseUrl is required');
-  assert.ok(expectedSupabaseUrl, 'expectedSupabaseUrl is required');
-  assert.ok(expectedSupabasePublishableKey, 'expectedSupabasePublishableKey is required');
+  assert.ok(expectedNeonAuthBaseUrl, 'expectedNeonAuthBaseUrl is required');
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  const normalizedSupabaseUrl = normalizeBaseUrl(expectedSupabaseUrl);
+  const normalizedNeonAuthUrl = normalizeBaseUrl(expectedNeonAuthBaseUrl);
   const checks = [];
 
   const healthResponse = await fetchWithRetry(`${normalizedBaseUrl}/api/health`, {}, fetchImpl);
@@ -121,8 +127,9 @@ export const runAuthProductionSmoke = async ({
   const healthSha = resolveHealthSha(health);
   assert.equal(health?.status, 'real', 'Backend health must report status=real');
   assert.equal(health?.data?.mode, 'real', 'Backend health must report mode=real');
+  assert.equal(health?.data?.dataProvider, 'neon', 'Backend health must report dataProvider=neon');
   if (expectedSha) assert.ok(shaMatches(healthSha, expectedSha), `Production backend SHA ${healthSha ?? 'missing'} does not match expected SHA ${expectedSha}`);
-  checks.push({ check: 'backend-health', status: 'passed', detail: healthSha ?? 'sha unavailable' });
+  checks.push({ check: 'backend-health', status: 'passed', detail: `provider=neon; sha=${healthSha ?? 'unavailable'}` });
 
   const metadataResponse = await fetchWithRetry(`${normalizedBaseUrl}/build-meta.json`, {}, fetchImpl);
   const metadata = await readJson(metadataResponse, 'Frontend build metadata');
@@ -142,14 +149,19 @@ export const runAuthProductionSmoke = async ({
     checks.push({ check: `route:${route}`, status: 'passed', detail: `HTTP ${response.status}` });
   }
 
-  assert.equal(metadata?.auth?.mode, 'email_password_and_oauth', 'Auth mode must expose email/password and OAuth');
+  assert.equal(metadata?.auth?.provider, 'neon', 'Canonical Auth provider must be Neon');
+  assert.equal(metadata?.auth?.mode, 'email_password', 'Auth mode must use email/password through Neon');
   assert.equal(metadata?.auth?.emailPasswordConfigured, true, 'Email/password must be available');
-  assert.equal(metadata?.auth?.publicClient?.supabaseUrlConfigured, true, 'Supabase public URL must be configured');
-  assert.equal(metadata?.auth?.publicClient?.publishableKeyConfigured, true, 'Supabase publishable key must be configured');
-  assert.equal(metadata?.auth?.publicClient?.projectRef, canonicalPublicAuthConfig.supabaseProjectRef, 'Auth build points to the wrong Supabase project');
+  assert.equal(metadata?.auth?.registrationRequiresApproval, true, 'New registrations must require approval');
+  assert.equal(metadata?.auth?.publicClient?.neonProjectId, canonicalPublicAuthConfig.neonProjectId, 'Auth build points to the wrong Neon project');
+  assert.equal(metadata?.auth?.publicClient?.neonAuthUrlConfigured, true, 'Neon Auth URL must be configured');
   assert.equal(metadata?.auth?.captchaEnabled, false, 'CAPTCHA must be disabled');
-  assert.equal(metadata?.auth?.captcha, undefined, 'Legacy CAPTCHA metadata must not be emitted');
-  checks.push({ check: 'public-auth-config', status: 'passed', detail: `project=${canonicalPublicAuthConfig.supabaseProjectRef}; captcha=false` });
+  assert.equal(metadata?.auth?.oauthProviderDiscovery, false, 'Cross-origin OAuth discovery must remain disabled until first-party callback exists');
+  assert.deepEqual(metadata?.auth?.supportedOAuthProviders, [], 'OAuth providers must stay hidden during first-party cutover');
+  assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support is not declared in this build');
+  assert.equal(metadata?.auth?.privilegedBootstrapDefault, false, 'Privileged bootstrap must be disabled by default');
+  assert.equal(metadata?.auth?.sessionTransport, 'first_party_httponly_cookie_plus_short_lived_jwt', 'Unexpected Auth session transport');
+  checks.push({ check: 'neon-auth-build-config', status: 'passed', detail: `project=${canonicalPublicAuthConfig.neonProjectId}; approval=true; bootstrap=false` });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
   const loginHtml = await loginResponse.text();
@@ -167,37 +179,27 @@ export const runAuthProductionSmoke = async ({
     assert.ok(bundle.includes(marker), `Production bundle is missing Auth marker: ${marker}`);
   }
   for (const marker of FORBIDDEN_BUNDLE_MARKERS) {
-    assert.equal(bundle.includes(marker), false, `Production bundle still contains retired CAPTCHA marker: ${marker}`);
+    assert.equal(bundle.includes(marker), false, `Production bundle still contains retired Auth/CAPTCHA marker: ${marker}`);
   }
-  assert.ok(bundle.includes(normalizedSupabaseUrl), 'Production bundle does not contain the canonical Supabase URL');
-  assert.ok(bundle.includes(expectedSupabasePublishableKey), 'Production bundle does not contain the active Supabase publishable key');
-  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: 'routes, project URL and active publishable key embedded; CAPTCHA markers absent' });
+  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: 'first-party Auth routes present; direct Supabase Auth/CAPTCHA markers absent' });
 
-  const settingsResponse = await fetchWithRetry(`${normalizedSupabaseUrl}/auth/v1/settings`, {
-    headers: {
-      apikey: expectedSupabasePublishableKey,
-      Accept: 'application/json',
-    },
-  }, fetchImpl);
-  const settings = await readJson(settingsResponse, 'Supabase Auth settings');
-  assert.ok(settings && typeof settings === 'object', 'Supabase Auth settings payload is invalid');
-  assert.ok(settings.external && typeof settings.external === 'object', 'Supabase OAuth provider settings are unavailable');
-  checks.push({ check: 'supabase-auth-settings', status: 'passed', detail: 'HTTP 200 with active public client key' });
-
-  assert.equal(metadata?.auth?.oauthProviderDiscovery, true, 'OAuth provider discovery is not declared in this build');
-  assert.ok(metadata?.auth?.supportedOAuthProviders?.includes('github'), 'GitHub OAuth support is not declared in this build');
-  assert.ok(metadata?.auth?.supportedOAuthProviders?.includes('google'), 'Google OAuth support is not declared in this build');
-  assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support is not declared in this build');
-  checks.push({ check: 'oauth-and-god-mode', status: 'passed', detail: 'dynamic provider discovery; github/google supported; GOD-MODE declared' });
+  const openApiResponse = await fetchWithRetry(`${normalizedNeonAuthUrl}/open-api/generate-schema`, {}, fetchImpl);
+  const openApi = await readJson(openApiResponse, 'Neon Auth OpenAPI');
+  assert.ok(openApi?.paths && typeof openApi.paths === 'object', 'Neon Auth OpenAPI paths are unavailable');
+  for (const endpoint of REQUIRED_NEON_AUTH_ENDPOINTS) {
+    assert.ok(openApi.paths[endpoint], `Neon Auth OpenAPI is missing ${endpoint}`);
+  }
+  checks.push({ check: 'neon-auth-openapi', status: 'passed', detail: `${REQUIRED_NEON_AUTH_ENDPOINTS.length} required endpoints available` });
 
   return {
     status: 'passed',
     authMode: metadata.auth.mode,
+    authProvider: metadata.auth.provider,
     baseUrl: normalizedBaseUrl,
     expectedSha: expectedSha ?? null,
     deployedSha: metadata.commitSha,
     deploymentEnvironment: metadata.environment,
-    supabaseProjectRef: canonicalPublicAuthConfig.supabaseProjectRef,
+    neonProjectId: canonicalPublicAuthConfig.neonProjectId,
     checks,
   };
 };
@@ -214,9 +216,10 @@ const appendSummary = (report) => {
     '# Production Auth Smoke',
     '',
     `- Result: **${report.status}**`,
+    `- Auth provider: **${report.authProvider}**`,
     `- Auth mode: **${report.authMode}**`,
     `- URL: ${report.baseUrl}`,
-    `- Supabase project: \`${report.supabaseProjectRef}\``,
+    `- Neon project: \`${report.neonProjectId}\``,
     `- Deployed SHA: \`${report.deployedSha}\``,
     `- Expected SHA: \`${report.expectedSha ?? 'not provided'}\``,
     `- Environment: \`${report.deploymentEnvironment}\``,
@@ -232,10 +235,7 @@ const main = async () => {
   const report = await runAuthProductionSmoke({
     baseUrl: process.env.BASE_URL || 'https://motor-originac-srm.vercel.app',
     expectedSha: process.env.EXPECTED_SHA || undefined,
-    expectedSupabaseUrl: process.env.EXPECTED_SUPABASE_URL || canonicalPublicAuthConfig.supabaseUrl,
-    expectedSupabasePublishableKey: process.env.EXPECTED_SUPABASE_PUBLISHABLE_KEY
-      || process.env.EXPECTED_SUPABASE_ANON_KEY
-      || canonicalPublicAuthConfig.supabasePublishableKey,
+    expectedNeonAuthBaseUrl: process.env.EXPECTED_NEON_AUTH_BASE_URL || canonicalPublicAuthConfig.neonAuthBaseUrl,
   });
 
   console.log(JSON.stringify(report, null, 2));
