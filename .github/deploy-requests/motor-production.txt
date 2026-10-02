@@ -3,3 +3,5 @@ Motor Originação production deployment request
 Purpose: activate Neon/Postgres data plane after PR #521.
 Requested at: 2026-10-02
 Safety gates: exact main SHA, Vercel production env, Neon hostname/schema/growth guard, Auth smoke, provider-specific runtime health.
+
+Retry: 2 — dependency install added before Neon validation.
