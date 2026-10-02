@@ -48,7 +48,7 @@ export class PublicDataDownstreamService {
       return {
         ...summary,
         status: 'partial',
-        errors: ['Supabase client not configured for public-data downstream sync.'],
+        errors: ['Persistent database client not configured for public-data downstream sync.'],
       };
     }
 
@@ -62,7 +62,7 @@ export class PublicDataDownstreamService {
     summary.affectedCompanies = companyIds.length;
     if (!companyIds.length) return summary;
 
-    const repository = createPlatformRepository('supabase');
+    const repository = createPlatformRepository('database');
     const platform = new PlatformService(repository);
 
     for (const companyId of companyIds) {
