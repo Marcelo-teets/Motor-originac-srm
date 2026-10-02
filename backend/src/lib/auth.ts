@@ -284,7 +284,7 @@ export const signInWithPassword = async (email: string, password: string): Promi
   }), 'Falha ao autenticar.')
 );
 
-export const signUpInitialUser = async (
+export const signUpWithPassword = async (
   name: string,
   email: string,
   password: string,
