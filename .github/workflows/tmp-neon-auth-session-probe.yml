@@ -1,0 +1,24 @@
+name: Temporary Neon Auth Session Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-neon-auth-session-probe.yml'
+      - 'scripts/probe-neon-auth-session.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NEON_AUTH_BASE_URL: https://ep-fragrant-moon-b6o2wxmx.neonauth.c-2.sa-east-1.aws.neon.tech/neondb/auth
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/probe-neon-auth-session.mjs
