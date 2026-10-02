@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
 
 const RUNTIME = 'candidate-identity-review-v1';
 
