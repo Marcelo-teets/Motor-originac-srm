@@ -1,8 +1,7 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
-import { verifyActiveIdentity } from '../serverless/neon-auth.js';
-import { requireGodModeProfile } from '../backend/src/lib/userProfiles.js';
+import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -59,8 +58,8 @@ const isCronAuthorized = (req: FidcsRequest) => {
   return Boolean(secret && left.length === right.length && timingSafeEqual(left, right));
 };
 
-const requireGodMode = async (userId: string) => {
-  await requireGodModeProfile(userId);
+const requireGodMode = async (authorization: string) => {
+  await verifyGodModeIdentity(authorization.slice('Bearer '.length));
 }
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
@@ -212,7 +211,7 @@ export default async function handler(req: FidcsRequest, res: VercelResponse) {
       return writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data: result });
     }
     if (operation === 'run' && req.method === 'POST') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const result = await runBatch(source, 'manual', Number(requestValue(req.query.limit) ?? 3));
       return writeJson(res, result.status === 'completed' ? 200 : result.status === 'partial' ? 207 : 502, {
         status: result.status === 'completed' ? 'real' : 'partial', generatedAt: new Date().toISOString(), data: result,
