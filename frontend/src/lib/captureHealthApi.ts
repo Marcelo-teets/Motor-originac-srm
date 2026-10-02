@@ -15,6 +15,7 @@ export type CaptureHealth = {
   requestPath?: string;
   env?: Record<string, unknown>;
   captureRuntime?: {
+    canRunAgainstDatabase?: boolean;
     canRunAgainstSupabase?: boolean;
     canAuthorizeWorkflow?: boolean;
     coreTablesAccessible?: boolean;
@@ -26,6 +27,7 @@ const emptyCaptureHealth = (): CaptureHealth => ({
   status: 'partial',
   generatedAt: new Date().toISOString(),
   captureRuntime: {
+    canRunAgainstDatabase: false,
     canRunAgainstSupabase: false,
     canAuthorizeWorkflow: false,
     coreTablesAccessible: false,
