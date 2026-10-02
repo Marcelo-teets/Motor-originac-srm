@@ -91,6 +91,9 @@ jobs:
             --environment=production \
             --token="$VERCEL_TOKEN"
 
+      - name: Install dependencies for Neon cutover validation
+        run: npm ci --ignore-scripts
+
       - name: Validate Neon production data plane before build
         shell: bash
         run: |
