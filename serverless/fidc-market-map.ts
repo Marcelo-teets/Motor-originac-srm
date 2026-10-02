@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
 
 const RUNTIME = 'agentetome-fidc-market-map-v1';
 
@@ -51,13 +52,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   const accessToken = authorization.slice('Bearer '.length);
   try {
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-    });
-    if (!authResponse.ok) {
-      writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
-      return;
-    }
+    await verifyActiveIdentity(accessToken);
 
     // Vercel bundles this API entrypoint as CommonJS while the backend package is
     // ESM. Import only after the auth gate so missing/invalid bearer requests
