@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 const RUNTIME = 'dcm-daily-operating-loop-v1';
 
