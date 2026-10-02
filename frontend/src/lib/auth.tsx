@@ -7,7 +7,8 @@ import { supabaseAuth } from './supabaseAuth';
 import type { UserProfile } from './supabaseAuth';
 import type { SessionData } from './types';
 
-const SESSION_KEY = 'motor.supabase.session';
+const SESSION_KEY = 'motor.neon.session';
+const LEGACY_SESSION_KEY = 'motor.supabase.session';
 const REFRESH_WINDOW_MS = 90_000;
 
 const isInvalidSessionError = (error: unknown) => {
@@ -32,6 +33,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const readStoredSession = (): SessionData | null => {
+  window.localStorage.removeItem(LEGACY_SESSION_KEY);
   const raw = window.localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
@@ -50,15 +52,7 @@ const readStoredSession = (): SessionData | null => {
 
 const refreshIfNeeded = async (current: SessionData, force = false) => {
   if (!force && current.expires_at > Date.now() + REFRESH_WINDOW_MS) return current;
-  if (!current.refresh_token) {
-    if (current.expires_at <= Date.now()) throw new Error('Sua sessão expirou. Entre novamente.');
-    return current;
-  }
-  const refreshed = await supabaseAuth.refreshSession(current.refresh_token);
-  return {
-    ...refreshed,
-    refresh_token: refreshed.refresh_token ?? current.refresh_token,
-  };
+  return supabaseAuth.refreshSession();
 };
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -100,23 +94,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const syncSession = async () => {
       const current = readStoredSession();
-      if (!current?.access_token) {
-        if (!cancelled) {
-          setSession(null);
-          setProfile(null);
-          setError(null);
-          setLoading(false);
-        }
-        return;
-      }
 
       try {
-        const freshSession = await refreshIfNeeded(current);
+        const freshSession = current?.access_token
+          ? await refreshIfNeeded(current)
+          : await supabaseAuth.refreshSession();
         if (!cancelled) await hydrateSession(freshSession);
       } catch (syncError) {
         if (cancelled) return;
-        if (isInvalidSessionError(syncError)) clearLocalSession();
-        setError(syncError instanceof Error ? syncError.message : 'Não foi possível validar sua sessão.');
+        clearLocalSession();
+        // Ausência do cookie first-party é o estado normal antes do login.
+        // Só mostramos erro quando existia uma sessão local que deveria ser válida.
+        if (current?.access_token && !isInvalidSessionError(syncError)) {
+          setError(syncError instanceof Error ? syncError.message : 'Não foi possível validar sua sessão.');
+        } else {
+          setError(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -148,11 +141,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [clearLocalSession, hydrateSession, session]);
 
   useEffect(() => {
-    if (!session?.refresh_token) return;
+    if (!session?.access_token) return;
     const delay = Math.max(1_000, session.expires_at - Date.now() - REFRESH_WINDOW_MS);
     const timer = window.setTimeout(() => { void renewSession(true); }, delay);
     return () => window.clearTimeout(timer);
-  }, [renewSession, session?.expires_at, session?.refresh_token]);
+  }, [renewSession, session?.access_token, session?.expires_at]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -254,7 +247,7 @@ export const useAuth = () => {
 export function RequireAuth({ children }: PropsWithChildren) {
   const auth = useAuth();
 
-  if (auth.loading) return <LoadingState title="Autenticação" subtitle="Validando sessão Supabase antes de abrir a plataforma." />;
+  if (auth.loading) return <LoadingState title="Autenticação" subtitle="Validando sessão Neon antes de abrir a plataforma." />;
   if (auth.error && auth.session?.access_token && !auth.profile) {
     return <ErrorState title="Não foi possível validar a sessão" error={auth.error} action={<button type="button" onClick={auth.retry}>Tentar novamente</button>} />;
   }
@@ -265,7 +258,7 @@ export function RequireAuth({ children }: PropsWithChildren) {
 export function RequireGodMode({ children }: PropsWithChildren) {
   const auth = useAuth();
 
-  if (auth.loading) return <LoadingState title="Controle de acesso" subtitle="Validando privilégios GOD-MODE no Supabase." />;
+  if (auth.loading) return <LoadingState title="Controle de acesso" subtitle="Validando privilégios GOD-MODE no Neon." />;
   if (auth.error && auth.session?.access_token && !auth.profile) {
     return <ErrorState title="Não foi possível validar o acesso" error={auth.error} action={<button type="button" onClick={auth.retry}>Tentar novamente</button>} />;
   }
