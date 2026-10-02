@@ -42,19 +42,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/lib/boundedCapture.js'),
     ]);
-    const useSupabase = process.env.USE_SUPABASE === 'true';
+    const usePersistentData = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL || (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)));
     const cadence = cadenceFrom(req) as 'frequent' | 'daily' | 'weekly' | 'monthly' | 'all';
-    const repository = createPlatformRepository(useSupabase ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(usePersistentData ? 'database' : 'memory');
     const [allCompanies, allSources] = await Promise.all([
       repository.listCompanies(),
       repository.listSources(),
     ]);
-    const companies = selectMonitoringCompanies(allCompanies, useSupabase);
+    const companies = selectMonitoringCompanies(allCompanies, usePersistentData);
     const sources = selectCaptureSources(allSources, cadence);
-    const targets = buildBoundedCaptureTargets(allCompanies, allSources, useSupabase, cadence);
+    const targets = buildBoundedCaptureTargets(allCompanies, allSources, usePersistentData, cadence);
 
     writeJson(res, 200, {
-      status: useSupabase ? 'real' : 'partial',
+      status: usePersistentData ? 'real' : 'partial',
       generatedAt: new Date().toISOString(),
       data: {
         policy: {
@@ -62,7 +62,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           maxParallelism: 3,
           sourceHealth: 'healthy',
           cadence,
-          companyGate: useSupabase ? 'monitoring_eligible' : 'memory_fallback',
+          companyGate: usePersistentData ? 'monitoring_eligible' : 'memory_fallback',
         },
         companies: companies.map((company) => ({ id: company.id, name: company.tradeName })),
         sources: sources.map((source) => ({ id: source.id, name: source.name, category: source.category })),
