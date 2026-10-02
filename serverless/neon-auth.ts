@@ -1,12 +1,20 @@
 import { Pool } from 'pg';
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
-type NeonIdentity = {
+type NeonUser = {
   id: string;
   email?: string;
   role: string;
-  profileRole: 'god_mode' | 'common';
-  profileStatus: 'active' | 'invited' | 'disabled';
+};
+
+type NeonProfile = {
+  role: 'god_mode' | 'common';
+  status: 'active' | 'invited' | 'disabled';
+};
+
+type NeonIdentity = {
+  user: NeonUser;
+  profile: NeonProfile;
 };
 
 const encoder = new TextEncoder();
@@ -150,15 +158,17 @@ export const verifyActiveIdentity = async (accessToken: string): Promise<NeonIde
   if (profile.status !== 'active') throw Object.assign(new Error('User access is not active.'), { statusCode: 403 });
 
   return {
-    ...user,
-    profileRole: profile.role === 'god_mode' ? 'god_mode' : 'common',
-    profileStatus: 'active',
+    user,
+    profile: {
+      role: profile.role === 'god_mode' ? 'god_mode' : 'common',
+      status: 'active',
+    },
   };
 };
 
 export const verifyGodModeIdentity = async (accessToken: string) => {
   const identity = await verifyActiveIdentity(accessToken);
-  if (identity.profileRole !== 'god_mode') {
+  if (identity.profile.role !== 'god_mode') {
     throw Object.assign(new Error('GOD-MODE access required.'), { statusCode: 403 });
   }
   return identity;
