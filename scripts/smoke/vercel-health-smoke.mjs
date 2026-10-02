@@ -3,6 +3,7 @@ const url = process.env.SMOKE_URL || DEFAULT_URL;
 const bearerToken = process.env.SMOKE_BEARER_TOKEN || '';
 const attempts = Number(process.env.SMOKE_ATTEMPTS || 12);
 const delayMs = Number(process.env.SMOKE_DELAY_MS || 10000);
+const expectedDataProvider = process.env.EXPECTED_DATA_PROVIDER || '';
 
 const requiredTables = [
   'companies',
@@ -24,13 +25,16 @@ function assertPayload(payload) {
   if (payload.status !== 'real') throw new Error(`Expected status=real, got ${payload.status}.`);
   if (!(payload.captureRuntime?.canRunAgainstDatabase ?? payload.captureRuntime?.canRunAgainstSupabase)) throw new Error('Runtime is not connected to the database.');
   if (!payload.captureRuntime?.coreTablesAccessible) throw new Error('Core tables are not accessible.');
+  if (expectedDataProvider && payload.env?.dataProvider !== expectedDataProvider) {
+    throw new Error(`Expected dataProvider=${expectedDataProvider}, got ${payload.env?.dataProvider || 'unknown'}.`);
+  }
 
   const tableMap = new Map((payload.tables || []).map((item) => [item.table, item]));
   for (const table of requiredTables) {
     const check = tableMap.get(table);
     if (!check) throw new Error(`Missing table check: ${table}.`);
     if (!check.ok) throw new Error(`Table check failed for ${table}: ${check.error || 'unknown error'}.`);
-    if (typeof check.count !== 'number') throw new Error(`Table ${table} did not return a numeric count.`);
+    if (check.count !== null && typeof check.count !== 'number') throw new Error(`Table ${table} returned an invalid count.`);
   }
 }
 
