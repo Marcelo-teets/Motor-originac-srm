@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireGodModeProfile } from '../backend/src/lib/userProfiles.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
