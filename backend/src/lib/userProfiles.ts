@@ -102,6 +102,17 @@ export const requireGodModeProfile = async (userId: string) => {
   return profile;
 };
 
+export const hasActiveGodModeProfile = async () => {
+  const rows = await client().select('user_profiles', {
+    filters: [
+      { column: 'role', operator: 'eq', value: 'god_mode' },
+      { column: 'status', operator: 'eq', value: 'active' },
+    ],
+    limit: 1,
+  }) as Record<string, unknown>[];
+  return rows.length > 0;
+};
+
 export const listUserProfiles = async () => {
   const rows = await client().select('user_profiles', {
     orderBy: { column: 'created_at', ascending: true },
