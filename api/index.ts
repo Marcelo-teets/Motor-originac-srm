@@ -41,6 +41,11 @@ const isAuthorizedCron = (req: IncomingMessage) => {
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
+const hasPersistentDataCredentials = () => Boolean(
+  envFlag('MOTOR_NEON_DATABASE_URL')
+  || envFlag('DATABASE_URL')
+  || (envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'))),
+);
 
 const supabaseHost = () => {
   try {
@@ -229,7 +234,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/services/captureRuntimeService.js'),
     ]);
-    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(hasPersistentDataCredentials() ? 'database' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await runtime.run({
       companyId: requestedCompanyId ?? undefined,
@@ -371,7 +376,7 @@ async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) 
       import('../backend/src/services/searchProfileCaptureService.js'),
       import('../backend/src/services/searchProfileScheduledRunner.js'),
     ]);
-    const repository = createPlatformRepository(process.env.USE_SUPABASE === 'true' ? 'supabase' : 'memory');
+    const repository = createPlatformRepository(hasPersistentDataCredentials() ? 'database' : 'memory');
     const runtime = new SearchProfileCaptureRuntime(repository);
     const captureService = new SearchProfileCaptureService(runtime);
     const summary = await runScheduledSearchProfiles({
@@ -380,7 +385,7 @@ async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) 
       runCapture: (searchProfileId, triggerMode) => captureService.runCapture(searchProfileId, triggerMode),
     });
     writeJson(res, summary.failed > 0 ? 207 : 200, {
-      status: summary.failed > 0 ? 'partial' : process.env.USE_SUPABASE === 'true' ? 'real' : 'partial',
+      status: summary.failed > 0 ? 'partial' : hasPersistentDataCredentials() ? 'real' : 'partial',
       generatedAt: new Date().toISOString(),
       data: summary,
     });
