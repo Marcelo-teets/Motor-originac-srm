@@ -32,7 +32,7 @@ import { fetchWithPolicy, safeResponsePreview } from './http';
 import { buildApiUrl } from './runtimeConfig';
 
 const stateNote = (path: string, status: ApiEnvelope<unknown>['status']) => {
-  if (status === 'real') return `${path} carregado do backend oficial com Supabase/Auth reais.`;
+  if (status === 'real') return `${path} carregado do backend oficial com Neon/Postgres e Auth real.`;
   if (status === 'partial') return `${path} carregado parcialmente a partir das fontes reais disponíveis; dados ausentes permanecem explícitos.`;
   return `${path} está em modo de demonstração; este estado não deve alimentar decisões de originação.`;
 };
@@ -69,7 +69,7 @@ async function requestEnvelope<T>(path: string, session: SessionData | null, ini
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
 
-  const response = await fetchWithPolicy(url, { ...init, headers }, { timeoutMs: 25_000, retries: 1 });
+  const response = await fetchWithPolicy(url, { ...init, headers, credentials: 'include' }, { timeoutMs: 25_000, retries: 1 });
   const payload = await readJsonPayload<T>(response, path);
   if (response.status === 401) throw new Error('Sua sessão não foi aceita pelo backend. Atualize a página ou entre novamente.');
   if (!response.ok) throw new Error(payload.error ?? `${path} falhou com status ${response.status}`);
@@ -81,6 +81,7 @@ export const api = {
     const response = await fetchWithPolicy(buildApiUrl('/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     }, { timeoutMs: 15_000 });
     const payload = await readJsonPayload<SessionData>(response, '/auth/login');
