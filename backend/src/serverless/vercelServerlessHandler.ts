@@ -78,7 +78,7 @@ async function dataTableProbe(table: string) {
   }
 }
 
-async function insertCaptureRunasync function insertCaptureRun(input: CaptureRunInput) {
+async function insertCaptureRun(input: CaptureRunInput) {
   const row = {
     id: crypto.randomUUID(),
     company_id: asNullableUuid(input.companyId),
@@ -106,7 +106,7 @@ async function insertCaptureRunasync function insertCaptureRun(input: CaptureRun
   }
 }
 
-async function runScheduledDiscoveryasync function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
+async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
   if (!isAuthorizedRuntime(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized discovery runtime request.' });
     return;
