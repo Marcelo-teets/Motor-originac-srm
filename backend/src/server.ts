@@ -22,6 +22,7 @@ import {
 import {
   ensureUserProfile,
   getUserProfileById,
+  hasActiveGodModeProfile,
   listUserProfiles,
   requireGodModeProfile,
   setUserAccess,
@@ -91,17 +92,23 @@ app.get('/health', (_req, res) => res.json(ok(platformMode, {
 })));
 
 app.get('/auth/bootstrap-status', wrap(async (_req, res) => {
-  const available = env.authBootstrapEnabled
-    ? await isInitialAuthBootstrapAvailable()
-    : false;
+  const [available, initialized] = await Promise.all([
+    env.authBootstrapEnabled ? isInitialAuthBootstrapAvailable() : Promise.resolve(false),
+    hasActiveGodModeProfile(),
+  ]);
   res.json(ok('real', {
     provider: 'neon',
     enabled: env.authBootstrapEnabled,
     available,
+    initialized,
   }));
 }));
 
 app.post('/auth/register', wrap(async (req, res) => {
+  if (!(await hasActiveGodModeProfile())) {
+    throw Object.assign(new Error('O administrador inicial ainda não foi configurado.'), { statusCode: 409 });
+  }
+
   const name = String(req.body?.name ?? '').trim();
   const email = String(req.body?.email ?? '').trim();
   const password = String(req.body?.password ?? '');
