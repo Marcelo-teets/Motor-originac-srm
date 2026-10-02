@@ -12,6 +12,10 @@ on:
         required: true
         default: true
         type: boolean
+  push:
+    branches: [main]
+    paths:
+      - '.github/deploy-requests/motor-production.txt'
 
 permissions:
   contents: read
@@ -33,6 +37,7 @@ jobs:
       SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
       PRODUCTION_URL: https://motor-originac-srm.vercel.app
       VERCEL_CLI_VERSION: 50.28.0
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
     steps:
       - name: Checkout current main
@@ -50,7 +55,7 @@ jobs:
       - name: Validate production inputs
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN" || {
@@ -86,10 +91,57 @@ jobs:
             --environment=production \
             --token="$VERCEL_TOKEN"
 
+      - name: Validate Neon production data plane before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_FILE=".vercel/.env.production.local"
+          test -f "$ENV_FILE" || {
+            echo "Vercel production env file was not materialized."
+            exit 1
+          }
+          if ! grep -Eq '^(MOTOR_NEON_DATABASE_URL|DATABASE_URL)=' "$ENV_FILE"; then
+            echo "Neither MOTOR_NEON_DATABASE_URL nor DATABASE_URL is configured in Vercel production."
+            exit 1
+          fi
+          set -a
+          source "$ENV_FILE"
+          set +a
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const connectionString = process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL;
+          if (!connectionString) throw new Error('Neon connection string missing after Vercel pull.');
+          const host = new URL(connectionString).hostname;
+          if (!host.endsWith('.neon.tech')) throw new Error('Production database URL does not point to Neon.');
+          const pool = new pg.Pool({ connectionString, max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              select
+                current_database() as database_name,
+                to_regclass('public.companies') is not null as companies_ok,
+                to_regclass('public.source_catalog') is not null as sources_ok,
+                to_regclass('private.database_growth_guard_state') is not null as growth_guard_ok
+            `);
+            const row = rows[0] || {};
+            if (!row.companies_ok || !row.sources_ok || !row.growth_guard_ok) {
+              throw new Error('Neon production schema is incomplete.');
+            }
+            console.log(JSON.stringify({
+              provider: 'neon',
+              database: row.database_name,
+              companiesTable: row.companies_ok,
+              sourceCatalogTable: row.sources_ok,
+              growthGuard: row.growth_guard_ok,
+            }));
+          } finally {
+            await pool.end();
+          }
+          NODE
+
       - name: Build immutable production artifact
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           export GITHUB_SHA="$REQUESTED_SHA"
@@ -109,7 +161,7 @@ jobs:
         id: deployment
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           DEPLOYMENT_OUTPUT="$(npx --yes "vercel@$VERCEL_CLI_VERSION" deploy \
@@ -133,7 +185,7 @@ jobs:
       - name: Validate canonical production Auth rollout
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           BASE_URL="$PRODUCTION_URL" \
@@ -141,10 +193,26 @@ jobs:
           REQUIRE_CAPTCHA_SITE_KEY=false \
           node scripts/smoke-auth-production.mjs
 
+      - name: Validate production runtime is using Neon
+        shell: bash
+        env:
+          SMOKE_URL: https://motor-originac-srm.vercel.app/api/data-capture/health
+          SMOKE_BEARER_TOKEN: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DATA_PROVIDER: neon
+          SMOKE_ATTEMPTS: '12'
+          SMOKE_DELAY_MS: '10000'
+        run: |
+          set -euo pipefail
+          test -n "$SMOKE_BEARER_TOKEN" || {
+            echo "CRON_SECRET is missing; refusing unverified Neon production cutover."
+            exit 1
+          }
+          node scripts/smoke/vercel-health-smoke.mjs
+
       - name: Run strict CAPTCHA smoke when configured
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
         run: |
           set -euo pipefail
           SITE_KEY_CONFIGURED="$(node -e '
