@@ -9,6 +9,8 @@ const defaultConfig = JSON.parse(readFileSync(
 export const PUBLIC_AUTH_ENV_KEYS = [
   'NEON_AUTH_BASE_URL',
   'NEON_AUTH_JWKS_URL',
+  'MOTOR_AUTH_BOOTSTRAP_ENABLED',
+  'APP_BASE_URL',
   'VITE_NEON_AUTH_URL',
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_PUBLISHABLE_KEY',
@@ -119,6 +121,8 @@ export const syncPublicAuthEnvToVercel = async ({
   const values = new Map([
     ['NEON_AUTH_BASE_URL', publicConfig.neonAuthBaseUrl],
     ['NEON_AUTH_JWKS_URL', publicConfig.neonAuthJwksUrl],
+    ['MOTOR_AUTH_BOOTSTRAP_ENABLED', 'false'],
+    ['APP_BASE_URL', 'https://motor-originac-srm.vercel.app'],
     ['VITE_NEON_AUTH_URL', publicConfig.neonAuthBaseUrl],
     ['VITE_SUPABASE_URL', publicConfig.supabaseUrl],
     ['VITE_SUPABASE_PUBLISHABLE_KEY', publicConfig.publishableKey],
@@ -142,7 +146,7 @@ export const syncPublicAuthEnvToVercel = async ({
         value,
         type: 'encrypted',
         target: ['production', 'preview', 'development'],
-        comment: key.includes('NEON_AUTH')
+        comment: key.includes('NEON_AUTH') || key === 'MOTOR_AUTH_BOOTSTRAP_ENABLED' || key === 'APP_BASE_URL'
           ? 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.'
           : 'Legacy public Supabase runtime compatibility; not the canonical Auth provider.',
       }),
