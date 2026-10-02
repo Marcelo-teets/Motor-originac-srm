@@ -9,6 +9,7 @@ export function LoginPage() {
   const { login, acceptSession, loading, isAuthenticated } = useAuth();
   const [mode, setMode] = useState<AccessMode>('login');
   const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,7 +24,9 @@ export function LoginPage() {
       .then((status) => {
         if (cancelled) return;
         setBootstrapAvailable(status.available);
+        setInitialized(status.initialized);
         if (status.available) setMode('bootstrap');
+        else if (!status.initialized) setMode('login');
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
@@ -174,7 +177,7 @@ export function LoginPage() {
                   : 'Criar cadastro pendente'}
           </button>
 
-          {!bootstrapAvailable ? (
+          {!bootstrapAvailable && initialized ? (
             <button
               type="button"
               className="secondary"
@@ -187,6 +190,12 @@ export function LoginPage() {
             >
               {mode === 'login' ? 'Solicitar novo acesso' : 'Já tenho acesso'}
             </button>
+          ) : null}
+
+          {!bootstrapAvailable && !initialized ? (
+            <div className="auth-alert auth-alert-warning" role="status">
+              A plataforma ainda aguarda a configuração controlada do primeiro administrador.
+            </div>
           ) : null}
         </form>
       </main>
