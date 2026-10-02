@@ -1,7 +1,8 @@
 Motor Originação production deployment request
 
-Purpose: activate Neon/Postgres data plane after PR #521.
+Purpose: promote Neon Managed Auth cutover merged in PR #526 on top of the existing Neon/Postgres production data plane.
+Source main SHA before deploy-request commit: 718be823ebcaea9bf8213322841696ce839054c7
 Requested at: 2026-10-02
-Safety gates: exact main SHA, Vercel production env, Neon hostname/schema/growth guard, Auth smoke, provider-specific runtime health.
+Safety gates: exact main tip, controlled prebuilt Vercel deploy, Neon hostname/schema/growth guard, bootstrap disabled, Neon Auth smoke, provider-specific runtime health.
 
-Retry: 2 — dependency install added before Neon validation.
+Release: Neon Auth cutover — first-party HttpOnly session cookie, JWKS/Ed25519 JWT verification, Neon user_profiles RBAC, approval-pending registrations.
