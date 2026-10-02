@@ -1,6 +1,8 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
+import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { requireGodModeProfile } from '../backend/src/lib/userProfiles.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -44,12 +46,9 @@ const serviceHeaders = () => {
 const authenticate = async (req: FidcsRequest) => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
-  const { supabaseUrl, anonKey } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: anonKey, Authorization: authorization } });
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok || typeof payload.id !== 'string') throw new ApiError('Unauthorized.', 401);
-  return { id: payload.id, authorization };
-};
+  const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
+  return { id: user.id, authorization };
+}
 
 const isCronAuthorized = (req: FidcsRequest) => {
   const secret = process.env.CRON_SECRET ?? '';
@@ -61,17 +60,8 @@ const isCronAuthorized = (req: FidcsRequest) => {
 };
 
 const requireGodMode = async (userId: string) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/user_profiles`);
-  url.searchParams.set('select', 'id,role,status');
-  url.searchParams.set('id', `eq.${userId}`);
-  url.searchParams.set('limit', '1');
-  const response = await fetch(url, { headers: serviceHeaders() });
-  const rows = await response.json().catch(() => []) as Array<{ role?: string; status?: string }>;
-  if (!response.ok || rows[0]?.role !== 'god_mode' || rows[0]?.status !== 'active') {
-    throw new ApiError('GOD-MODE ativo é obrigatório para esta operação.', 403);
-  }
-};
+  await requireGodModeProfile(userId);
+}
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
   const { supabaseUrl } = runtimeConfig();
