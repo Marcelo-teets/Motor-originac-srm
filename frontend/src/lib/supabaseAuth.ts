@@ -83,7 +83,7 @@ const request = async <T>(
 
 export const supabaseAuth = {
   async getBootstrapStatus() {
-    return request<{ provider: 'neon'; enabled: boolean; available: boolean }>('/auth/bootstrap-status');
+    return request<{ provider: 'neon'; enabled: boolean; available: boolean; initialized: boolean }>('/auth/bootstrap-status');
   },
 
   async signUpWithPassword(name: string, email: string, password: string) {
