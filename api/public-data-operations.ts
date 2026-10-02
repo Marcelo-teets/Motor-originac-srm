@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
 
 const CANONICAL_MAIS_RETORNO_BASE = 'https://data.maisretorno.com/mr-data/v4/api';
 const CANONICAL_APP_BASE = 'https://motor-originac-srm.vercel.app';
@@ -231,23 +232,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey) {
-    writeJson(res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase authentication is not configured for public-data operations.' });
-    return;
-  }
-
-  const accessToken = authorization.slice('Bearer '.length);
   try {
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!authResponse.ok) {
-      writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized.' });
-      return;
-    }
+    await verifyActiveIdentity(authorization.slice('Bearer '.length));
 
     const { PublicDataOperationsService } = await import('../backend/src/services/publicDataOperationsService.js');
     const result = await new PublicDataOperationsService().getSnapshot();
