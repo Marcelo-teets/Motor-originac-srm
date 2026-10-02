@@ -35,9 +35,12 @@ test('CI uses current Node 24-native GitHub Actions without write access', () =>
   assert.doesNotMatch(ciSource, /contents:\s*write/);
 });
 
-test('capture diagnostics bound every Supabase table probe below the function timeout', () => {
+test('capture diagnostics bound every active-provider table probe below the function timeout', () => {
   assert.match(apiSource, /CAPTURE_HEALTH_QUERY_TIMEOUT_MS\s*=\s*4_000/);
-  assert.match(apiSource, /signal:\s*AbortSignal\.timeout\(CAPTURE_HEALTH_QUERY_TIMEOUT_MS\)/);
+  assert.match(apiSource, /Promise\.race\(\[/);
+  assert.match(apiSource, /timeout_after_\$\{CAPTURE_HEALTH_QUERY_TIMEOUT_MS\}ms/);
+  assert.match(apiSource, /setTimeout\([^\n]+CAPTURE_HEALTH_QUERY_TIMEOUT_MS/);
+  assert.match(apiSource, /getDataClient/);
   assert.ok(Number(vercelJson.functions?.['api/index.ts']?.maxDuration ?? 0) >= 15);
 });
 
