@@ -133,6 +133,14 @@
       "destination": "/api/task-ai"
     },
     {
+      "source": "/api/origination-ai",
+      "destination": "/api/task-ai?mode=origination-ai"
+    },
+    {
+      "source": "/api/origination-ai/:action",
+      "destination": "/api/task-ai?mode=origination-ai&action=:action"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index"
     },
