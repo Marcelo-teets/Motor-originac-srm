@@ -1,0 +1,42 @@
+name: Supabase Storage Direct Recovery Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-storage-direct-recovery-probe.yml'
+      - 'scripts/migration/supabase-storage-direct-recovery-probe.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-storage-direct-recovery-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RECOVERY_BUCKET: historical-excel-archive
+      RECOVERY_OBJECT_PATH: table=score-snapshots/dataset=all/cutoff=2026-07-24/run=485299a1-3ef2-4cf3-9245-40b331530301/score-snapshots_2026-07-24_part_001.xlsx
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Verify secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+
+      - name: Probe verified archive object
+        run: node scripts/migration/supabase-storage-direct-recovery-probe.mjs
