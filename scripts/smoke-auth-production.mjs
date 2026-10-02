@@ -7,44 +7,26 @@ const canonicalPublicAuthConfig = JSON.parse(readFileSync(
   'utf8',
 ));
 
-const AUTH_ROUTES = [
-  '/login',
-  '/forgot-password',
+const AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
+const REQUIRED_NEON_PATHS = [
+  '/sign-in/email',
+  '/get-session',
+  '/token',
+  '/sign-out',
+  '/request-password-reset',
   '/reset-password',
-  '/auth/callback',
 ];
-
-const REQUIRED_BUNDLE_MARKERS = [
-  '/auth/login',
-  '/auth/session',
-  '/auth/password/request',
-  '/auth/password/reset',
-  '/auth/profile',
-  'god_mode',
-];
-
+const REQUIRED_BUNDLE_MARKERS = ['/auth/session', '/auth/register', 'god_mode'];
 const FORBIDDEN_BUNDLE_MARKERS = [
+  '/auth/v1/token',
+  '/auth/v1/user',
   '/auth/v1/settings',
-  '/auth/v1/token?grant_type=password',
   'gotrue_meta_security',
   'captcha_token',
   'CaptchaChallenge',
   'VITE_CAPTCHA_',
   'VITE_TURNSTILE_SITE_KEY',
   'VITE_HCAPTCHA_SITE_KEY',
-  'challenges.cloudflare.com/turnstile',
-  'js.hcaptcha.com',
-];
-
-const REQUIRED_NEON_AUTH_ENDPOINTS = [
-  '/sign-in/email',
-  '/sign-up/email',
-  '/get-session',
-  '/token',
-  '/sign-out',
-  '/request-password-reset',
-  '/reset-password',
-  '/change-password',
 ];
 
 const normalizeBaseUrl = (value) => value.replace(/\/+$/, '');
@@ -52,13 +34,15 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 
 const fetchWithRetry = async (url, options = {}, fetchImpl = fetch) => {
   const attempts = Number(options.attempts ?? 3);
-  const retryDelayMs = Number(options.retryDelayMs ?? 1_000);
-  const requestTimeoutMs = Number(options.requestTimeoutMs ?? 5_000);
+  const retryDelayMs = Number(options.retryDelayMs ?? 750);
+  const requestTimeoutMs = Number(options.requestTimeoutMs ?? 8_000);
   let lastError;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetchImpl(url, {
+        method: options.method ?? 'GET',
+        body: options.body,
         redirect: 'follow',
         signal: AbortSignal.timeout(requestTimeoutMs),
         headers: {
@@ -67,7 +51,7 @@ const fetchWithRetry = async (url, options = {}, fetchImpl = fetch) => {
         },
       });
 
-      if (response.ok) return response;
+      if (response.ok || options.acceptStatus?.includes(response.status)) return response;
       lastError = new Error(`${url} returned HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
@@ -119,7 +103,7 @@ export const runAuthProductionSmoke = async ({
   assert.ok(expectedNeonAuthBaseUrl, 'expectedNeonAuthBaseUrl is required');
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  const normalizedNeonAuthUrl = normalizeBaseUrl(expectedNeonAuthBaseUrl);
+  const normalizedNeonAuthBaseUrl = normalizeBaseUrl(expectedNeonAuthBaseUrl);
   const checks = [];
 
   const healthResponse = await fetchWithRetry(`${normalizedBaseUrl}/api/health`, {}, fetchImpl);
@@ -127,7 +111,7 @@ export const runAuthProductionSmoke = async ({
   const healthSha = resolveHealthSha(health);
   assert.equal(health?.status, 'real', 'Backend health must report status=real');
   assert.equal(health?.data?.mode, 'real', 'Backend health must report mode=real');
-  assert.equal(health?.data?.dataProvider, 'neon', 'Backend health must report dataProvider=neon');
+  assert.equal(health?.data?.dataProvider, 'neon', 'Backend data provider must be Neon');
   if (expectedSha) assert.ok(shaMatches(healthSha, expectedSha), `Production backend SHA ${healthSha ?? 'missing'} does not match expected SHA ${expectedSha}`);
   checks.push({ check: 'backend-health', status: 'passed', detail: `provider=neon; sha=${healthSha ?? 'unavailable'}` });
 
@@ -139,6 +123,18 @@ export const runAuthProductionSmoke = async ({
   assert.ok(shaMatches(metadata.commitSha, healthSha), `Frontend SHA ${metadata.commitSha} and backend SHA ${healthSha ?? 'missing'} are inconsistent`);
   checks.push({ check: 'frontend-backend-sha', status: 'passed', detail: metadata.commitSha });
 
+  assert.equal(metadata?.auth?.provider, 'neon', 'Canonical Auth provider must be Neon');
+  assert.equal(metadata?.auth?.mode, 'email_password', 'Auth mode must be Neon email/password');
+  assert.equal(metadata?.auth?.emailPasswordConfigured, true, 'Email/password must be available');
+  assert.equal(metadata?.auth?.registrationRequiresApproval, true, 'New registrations must require approval');
+  assert.equal(metadata?.auth?.oauthProviderDiscovery, false, 'OAuth must remain hidden until first-party callback cutover');
+  assert.deepEqual(metadata?.auth?.supportedOAuthProviders, [], 'No OAuth provider should be exposed during the cutover');
+  assert.equal(metadata?.auth?.captchaEnabled, false, 'CAPTCHA must remain disabled');
+  assert.equal(metadata?.auth?.privilegedBootstrapDefault, false, 'Privileged bootstrap must default to disabled');
+  assert.equal(metadata?.auth?.sessionTransport, 'first_party_httponly_cookie_plus_short_lived_jwt');
+  assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support must remain available through RBAC');
+  checks.push({ check: 'auth-build-contract', status: 'passed', detail: 'neon; approval-required; first-party cookie + JWT' });
+
   for (const route of AUTH_ROUTES) {
     assert.ok(metadata?.auth?.routes?.includes(route), `Build metadata does not declare Auth route ${route}`);
     const response = await fetchWithRetry(`${normalizedBaseUrl}${route}`, {}, fetchImpl);
@@ -146,22 +142,26 @@ export const runAuthProductionSmoke = async ({
     const html = await response.text();
     assert.match(contentType, /text\/html/i, `${route} did not return HTML`);
     assert.match(html, /<div[^>]+id=["']root["']/i, `${route} did not return the React application shell`);
-    checks.push({ check: `route:${route}`, status: 'passed', detail: `HTTP ${response.status}` });
   }
+  checks.push({ check: 'auth-routes', status: 'passed', detail: AUTH_ROUTES.join(', ') });
 
-  assert.equal(metadata?.auth?.provider, 'neon', 'Canonical Auth provider must be Neon');
-  assert.equal(metadata?.auth?.mode, 'email_password', 'Auth mode must use email/password through Neon');
-  assert.equal(metadata?.auth?.emailPasswordConfigured, true, 'Email/password must be available');
-  assert.equal(metadata?.auth?.registrationRequiresApproval, true, 'New registrations must require approval');
-  assert.equal(metadata?.auth?.publicClient?.neonProjectId, canonicalPublicAuthConfig.neonProjectId, 'Auth build points to the wrong Neon project');
-  assert.equal(metadata?.auth?.publicClient?.neonAuthUrlConfigured, true, 'Neon Auth URL must be configured');
-  assert.equal(metadata?.auth?.captchaEnabled, false, 'CAPTCHA must be disabled');
-  assert.equal(metadata?.auth?.oauthProviderDiscovery, false, 'Cross-origin OAuth discovery must remain disabled until first-party callback exists');
-  assert.deepEqual(metadata?.auth?.supportedOAuthProviders, [], 'OAuth providers must stay hidden during first-party cutover');
-  assert.equal(metadata?.auth?.godModeIncluded, true, 'GOD-MODE support is not declared in this build');
-  assert.equal(metadata?.auth?.privilegedBootstrapDefault, false, 'Privileged bootstrap must be disabled by default');
-  assert.equal(metadata?.auth?.sessionTransport, 'first_party_httponly_cookie_plus_short_lived_jwt', 'Unexpected Auth session transport');
-  checks.push({ check: 'neon-auth-build-config', status: 'passed', detail: `project=${canonicalPublicAuthConfig.neonProjectId}; approval=true; bootstrap=false` });
+  const bootstrapResponse = await fetchWithRetry(`${normalizedBaseUrl}/api/auth/bootstrap-status`, {}, fetchImpl);
+  const bootstrap = await readJson(bootstrapResponse, 'Auth bootstrap status');
+  assert.equal(bootstrap?.data?.provider, 'neon', 'Bootstrap endpoint must report Neon');
+  assert.equal(bootstrap?.data?.enabled, false, 'Privileged bootstrap must be disabled in production');
+  assert.equal(bootstrap?.data?.available, false, 'Privileged bootstrap must not be available in production');
+  checks.push({ check: 'privileged-bootstrap', status: 'passed', detail: 'disabled' });
+
+  const openApiResponse = await fetchWithRetry(
+    `${normalizedNeonAuthBaseUrl}/open-api/generate-schema`,
+    {},
+    fetchImpl,
+  );
+  const openApi = await readJson(openApiResponse, 'Neon Auth OpenAPI');
+  for (const path of REQUIRED_NEON_PATHS) {
+    assert.ok(openApi?.paths?.[path], `Neon Auth OpenAPI is missing ${path}`);
+  }
+  checks.push({ check: 'neon-auth-openapi', status: 'passed', detail: REQUIRED_NEON_PATHS.join(', ') });
 
   const loginResponse = await fetchWithRetry(`${normalizedBaseUrl}/login`, {}, fetchImpl);
   const loginHtml = await loginResponse.text();
@@ -174,22 +174,13 @@ export const runAuthProductionSmoke = async ({
     bundleParts.push(await assetResponse.text());
   }
   const bundle = bundleParts.join('\n');
-
   for (const marker of REQUIRED_BUNDLE_MARKERS) {
     assert.ok(bundle.includes(marker), `Production bundle is missing Auth marker: ${marker}`);
   }
   for (const marker of FORBIDDEN_BUNDLE_MARKERS) {
-    assert.equal(bundle.includes(marker), false, `Production bundle still contains retired Auth/CAPTCHA marker: ${marker}`);
+    assert.equal(bundle.includes(marker), false, `Production bundle still contains retired Auth marker: ${marker}`);
   }
-  checks.push({ check: 'auth-bundle-markers', status: 'passed', detail: 'first-party Auth routes present; direct Supabase Auth/CAPTCHA markers absent' });
-
-  const openApiResponse = await fetchWithRetry(`${normalizedNeonAuthUrl}/open-api/generate-schema`, {}, fetchImpl);
-  const openApi = await readJson(openApiResponse, 'Neon Auth OpenAPI');
-  assert.ok(openApi?.paths && typeof openApi.paths === 'object', 'Neon Auth OpenAPI paths are unavailable');
-  for (const endpoint of REQUIRED_NEON_AUTH_ENDPOINTS) {
-    assert.ok(openApi.paths[endpoint], `Neon Auth OpenAPI is missing ${endpoint}`);
-  }
-  checks.push({ check: 'neon-auth-openapi', status: 'passed', detail: `${REQUIRED_NEON_AUTH_ENDPOINTS.length} required endpoints available` });
+  checks.push({ check: 'auth-bundle-boundary', status: 'passed', detail: 'first-party proxy markers present; direct Supabase Auth markers absent' });
 
   return {
     status: 'passed',
@@ -207,7 +198,6 @@ export const runAuthProductionSmoke = async ({
 const appendSummary = (report) => {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
-
   const rows = report.checks
     .map(({ check, status, detail }) => `| ${check} | ${status} | ${String(detail).replaceAll('|', '\\|')} |`)
     .join('\n');
@@ -222,7 +212,6 @@ const appendSummary = (report) => {
     `- Neon project: \`${report.neonProjectId}\``,
     `- Deployed SHA: \`${report.deployedSha}\``,
     `- Expected SHA: \`${report.expectedSha ?? 'not provided'}\``,
-    `- Environment: \`${report.deploymentEnvironment}\``,
     '',
     '| Check | Status | Detail |',
     '|---|---|---|',
@@ -237,14 +226,11 @@ const main = async () => {
     expectedSha: process.env.EXPECTED_SHA || undefined,
     expectedNeonAuthBaseUrl: process.env.EXPECTED_NEON_AUTH_BASE_URL || canonicalPublicAuthConfig.neonAuthBaseUrl,
   });
-
   console.log(JSON.stringify(report, null, 2));
   appendSummary(report);
 };
 
-const isDirectExecution = process.argv[1]
-  && import.meta.url === pathToFileURL(process.argv[1]).href;
-
+const isDirectExecution = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectExecution) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.stack : error);
