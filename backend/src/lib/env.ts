@@ -44,6 +44,7 @@ export const env = {
   authProvider: neonAuthBaseUrl ? 'neon' : 'none',
   neonAuthBaseUrl,
   neonAuthJwksUrl,
+  authBootstrapEnabled: process.env.MOTOR_AUTH_BOOTSTRAP_ENABLED === 'true',
   maisRetornoApiKey: process.env.MAIS_RETORNO_API_KEY ?? '',
   maisRetornoApiBaseUrl: process.env.MAIS_RETORNO_API_BASE_URL ?? '',
   maisRetornoApiPath: process.env.MAIS_RETORNO_API_PATH ?? '',
