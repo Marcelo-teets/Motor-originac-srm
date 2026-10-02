@@ -1,7 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import { verifyActiveIdentity } from '../serverless/neon-auth.js';
-import { requireGodModeProfile } from '../backend/src/lib/userProfiles.js';
+import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
 type AuthenticatedUser = { id: string; email?: string; authorization: string };
@@ -96,8 +95,8 @@ const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promi
   return payload as T;
 };
 
-const requireGodMode = async (userId: string) => {
-  await requireGodModeProfile(userId);
+const requireGodMode = async (authorization: string) => {
+  await verifyGodModeIdentity(authorization.slice('Bearer '.length));
 }
 
 const proxyXmlValidation = async (user: AuthenticatedUser, body: Record<string, unknown>) => {
@@ -153,7 +152,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
     }
 
     if (operation === 'admin-manifest' && req.method === 'GET') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const administrator = String(requestValue(req.query.admin) ?? 'oliveira trust').trim();
       const cut = String(requestValue(req.query.corte) ?? 'recente');
       const competence = requestValue(req.query.competencia) ?? null;
@@ -172,7 +171,7 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
     }
 
     if ((operation === 'admin-export' || operation === 'refresh') && req.method === 'POST') {
-      await requireGodMode(user.id);
+      await requireGodMode(user.authorization);
       const body = readBody(req);
       const administrator = String(body.admin ?? body.administrator ?? 'oliveira trust').trim();
       const cut = String(body.corte ?? body.cut ?? 'recente');
