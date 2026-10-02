@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 const CANONICAL_MAIS_RETORNO_BASE = 'https://data.maisretorno.com/mr-data/v4/api';
 const CANONICAL_APP_BASE = 'https://motor-originac-srm.vercel.app';
