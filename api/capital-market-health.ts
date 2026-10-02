@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
+import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
