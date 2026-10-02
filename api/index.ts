@@ -74,7 +74,7 @@ async function dataTableProbe(table: string) {
   }
 }
 
-type CaptureAuditRunInput =type CaptureAuditRunInput = {
+type CaptureAuditRunInput = {
   triggerType: 'cron' | 'manual';
   status: 'completed' | 'partial' | 'failed';
   startedAt: string;
@@ -118,7 +118,7 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
   }
 }
 
-async function captureHealthasync function captureHealth(req: IncomingMessage, res: ServerResponse) {
+async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   // Contrato 401 (issue #133 §12): diagnóstico só com bearer válido. Sem
   // CRON_SECRET configurado o endpoint permanece fechado (fail-closed) —
   // nunca expor env/tabelas sem credencial. Espelha o gate de
