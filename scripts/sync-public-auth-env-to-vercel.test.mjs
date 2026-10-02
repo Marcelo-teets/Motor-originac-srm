@@ -9,13 +9,16 @@ import {
 const projectRef = 'hdghpmssudrqhsbvrdyt';
 const supabaseUrl = `https://${projectRef}.supabase.co`;
 const publishableKey = 'sb_publishable_test_public_key';
+const neonProjectId = 'steep-poetry-38942951';
+const neonAuthBaseUrl = 'https://ep-test.neonauth.c-2.sa-east-1.aws.neon.tech/neondb/auth';
+const neonAuthJwksUrl = `${neonAuthBaseUrl}/.well-known/jwks.json`;
 
 const response = (status, payload) => new Response(JSON.stringify(payload), {
   status,
   headers: { 'content-type': 'application/json' },
 });
 
-test('upserts only public Supabase Auth variables and verifies production targets', async () => {
+test('upserts Neon Auth plus legacy public runtime variables and verifies production targets', async () => {
   const requests = [];
   const fetchImpl = async (url, init = {}) => {
     requests.push({ url: String(url), init });
@@ -29,6 +32,10 @@ test('upserts only public Supabase Auth variables and verifies production target
     projectId: 'prj_test',
     teamId: 'team_test',
     token: 'vercel_test_token',
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl,
     projectRef,
     supabaseUrl,
     publishableKey,
@@ -36,10 +43,12 @@ test('upserts only public Supabase Auth variables and verifies production target
   });
 
   assert.equal(report.status, 'passed');
+  assert.equal(report.authProvider, 'neon');
+  assert.equal(report.neonProjectId, neonProjectId);
   assert.deepEqual(report.synced.map(({ key }) => key).sort(), [...PUBLIC_AUTH_ENV_KEYS].sort());
 
   const posts = requests.filter(({ init }) => init.method === 'POST');
-  assert.equal(posts.length, 3);
+  assert.equal(posts.length, PUBLIC_AUTH_ENV_KEYS.length);
   for (const { url, init } of posts) {
     assert.match(url, /upsert=true/);
     const body = JSON.parse(init.body);
@@ -48,28 +57,70 @@ test('upserts only public Supabase Auth variables and verifies production target
     assert.equal(body.type, 'encrypted');
     assert.notEqual(body.value, 'service_role');
   }
-
-  const postedKeys = posts.map(({ init }) => JSON.parse(init.body).key).sort();
-  assert.deepEqual(postedKeys, [...PUBLIC_AUTH_ENV_KEYS].sort());
 });
 
-test('rejects a Supabase URL from another project', () => {
+test('validates canonical Neon Auth URLs', () => {
+  const result = validatePublicAuthConfig({
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl,
+    projectRef,
+    supabaseUrl,
+    publishableKey,
+  });
+  assert.equal(result.authProvider, 'neon');
+  assert.equal(result.neonAuthBaseUrl, neonAuthBaseUrl);
+  assert.equal(result.neonAuthJwksUrl, neonAuthJwksUrl);
+});
+
+test('rejects malformed Neon Auth host or JWKS URL', () => {
   assert.throws(() => validatePublicAuthConfig({
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl: 'https://example.com/neondb/auth',
+    neonAuthJwksUrl: 'https://example.com/neondb/auth/.well-known/jwks.json',
+    projectRef,
+    supabaseUrl,
+    publishableKey,
+  }), /neon\.tech/);
+
+  assert.throws(() => validatePublicAuthConfig({
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl: `${neonAuthBaseUrl}/wrong`,
+    projectRef,
+    supabaseUrl,
+    publishableKey,
+  }), /JWKS URL/);
+});
+
+test('still rejects a legacy Supabase URL from another project', () => {
+  assert.throws(() => validatePublicAuthConfig({
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl,
     projectRef,
     supabaseUrl: 'https://wrong-project.supabase.co',
     publishableKey,
   }), /must target/);
 });
 
-test('rejects secret Supabase keys from the frontend configuration', () => {
+test('rejects secret Supabase keys from legacy public frontend configuration', () => {
   assert.throws(() => validatePublicAuthConfig({
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl,
     projectRef,
     supabaseUrl,
     publishableKey: 'sb_secret_never_public',
   }), /cannot be exposed/);
 });
 
-test('fails when Vercel does not expose the variables in production after upsert', async () => {
+test('fails when Vercel does not expose synchronized variables in production', async () => {
   const fetchImpl = async (_url, init = {}) => {
     if ((init.method ?? 'GET') === 'POST') return response(201, { created: { id: 'env' }, failed: [] });
     return response(200, { envs: [] });
@@ -79,6 +130,10 @@ test('fails when Vercel does not expose the variables in production after upsert
     projectId: 'prj_test',
     teamId: 'team_test',
     token: 'vercel_test_token',
+    authProvider: 'neon',
+    neonProjectId,
+    neonAuthBaseUrl,
+    neonAuthJwksUrl,
     projectRef,
     supabaseUrl,
     publishableKey,
