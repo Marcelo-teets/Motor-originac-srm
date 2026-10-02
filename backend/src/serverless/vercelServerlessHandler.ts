@@ -63,48 +63,22 @@ const supabaseHost = () => {
   }
 };
 
-const supabaseKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const asNullableUuid = (value: string | null | undefined) => (value && uuidPattern.test(value) ? value : null);
 
-async function supabaseCount(table: string) {
-  const baseUrl = process.env.SUPABASE_URL;
-  const key = supabaseKey();
-  if (!baseUrl || !key) return { table, ok: false, count: null, error: 'missing_supabase_env' };
-
-  const url = new URL(`${baseUrl}/rest/v1/${table}`);
-  url.searchParams.set('select', 'id');
-
+async function dataTableProbe(table: string) {
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        Range: '0-0',
-        Prefer: 'count=exact',
-      },
-    });
-
-    const contentRange = response.headers.get('content-range');
-    const countValue = contentRange?.split('/').at(-1);
-    const count = countValue && countValue !== '*' ? Number(countValue) : null;
-
-    if (!response.ok) {
-      const body = await response.text();
-      return { table, ok: false, count, error: `${response.status} ${body.slice(0, 180)}` };
-    }
-
-    return { table, ok: true, count, error: null };
+    const { getDataClient } = await import('../lib/supabase.js');
+    const client = getDataClient();
+    if (!client) return { table, ok: false, count: null, error: 'missing_persistent_data_env' };
+    await client.select(table, { select: 'id', limit: 1 });
+    return { table, ok: true, count: null, error: null };
   } catch (error) {
     return { table, ok: false, count: null, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-async function insertCaptureRun(input: CaptureRunInput) {
-  const baseUrl = process.env.SUPABASE_URL;
-  const key = supabaseKey();
-  if (!baseUrl || !key) return;
-
+async function insertCaptureRunasync function insertCaptureRun(input: CaptureRunInput) {
   const row = {
     id: crypto.randomUUID(),
     company_id: asNullableUuid(input.companyId),
@@ -123,26 +97,16 @@ async function insertCaptureRun(input: CaptureRunInput) {
   };
 
   try {
-    const response = await fetch(`${baseUrl}/rest/v1/source_connector_runs`, {
-      method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify(row),
-    });
-
-    if (!response.ok) {
-      console.warn(`Serverless capture run insert failed: ${response.status} ${await response.text()}`);
-    }
+    const { getDataClient } = await import('../lib/supabase.js');
+    const client = getDataClient();
+    if (!client) return;
+    await client.insert('source_connector_runs', [row]);
   } catch (error) {
     console.warn('Serverless capture run insert failed:', error instanceof Error ? error.message : error);
   }
 }
 
-async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
+async function runScheduledDiscoveryasync function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
   if (!isAuthorizedRuntime(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized discovery runtime request.' });
     return;
@@ -201,21 +165,24 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
     'pipeline',
   ];
 
-  const checks = await Promise.all(tables.map((table) => supabaseCount(table)));
+  const checks = await Promise.all(tables.map((table) => dataTableProbe(table)));
   const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
+  const dataProvider = (envFlag('MOTOR_NEON_DATABASE_URL') || envFlag('DATABASE_URL')) ? 'neon' : hasSupabaseCredentials ? 'supabase' : 'memory';
+  const persistentDataConfigured = dataProvider !== 'memory';
   const canAccessCoreTables = checks
     .filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table))
     .every((check) => check.ok);
   const runtimeConfigured = envFlag('CRON_SECRET');
-  const useSupabase = process.env.USE_SUPABASE === 'true' || (!envFlag('USE_SUPABASE') && hasSupabaseCredentials);
 
-  writeJson(res, hasSupabaseCredentials && canAccessCoreTables ? 200 : 207, {
-    status: hasSupabaseCredentials && canAccessCoreTables ? 'real' : 'partial',
+  writeJson(res, persistentDataConfigured && canAccessCoreTables ? 200 : 207, {
+    status: persistentDataConfigured && canAccessCoreTables ? 'real' : 'partial',
     generatedAt: new Date().toISOString(),
     requestPath: parseUrl(req).pathname,
     env: {
       USE_SUPABASE: process.env.USE_SUPABASE ?? null,
-      resolvedUseSupabase: useSupabase,
+      dataProvider,
+      MOTOR_NEON_DATABASE_URL: envFlag('MOTOR_NEON_DATABASE_URL'),
+      DATABASE_URL: envFlag('DATABASE_URL'),
       SUPABASE_URL: envFlag('SUPABASE_URL'),
       SUPABASE_HOST: supabaseHost(),
       SUPABASE_ANON_KEY: envFlag('SUPABASE_ANON_KEY'),
@@ -223,7 +190,8 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
       CRON_SECRET: runtimeConfigured,
     },
     captureRuntime: {
-      canRunAgainstSupabase: hasSupabaseCredentials && useSupabase,
+      canRunAgainstDatabase: persistentDataConfigured,
+      canRunAgainstSupabase: persistentDataConfigured, // legacy compatibility alias
       canAuthorizeWorkflow: runtimeConfigured,
       coreTablesAccessible: canAccessCoreTables,
     },
