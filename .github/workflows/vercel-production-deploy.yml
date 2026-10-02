@@ -185,17 +185,6 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
           echo "Deployment URL: $DEPLOYMENT_URL"
 
-      - name: Validate canonical production Auth rollout
-        shell: bash
-        env:
-          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          BASE_URL="$PRODUCTION_URL" \
-          EXPECTED_SHA="$REQUESTED_SHA" \
-          REQUIRE_CAPTCHA_SITE_KEY=false \
-          node scripts/smoke-auth-production.mjs
-
       - name: Validate production runtime is using Neon
         shell: bash
         env:
@@ -211,6 +200,17 @@ jobs:
             exit 1
           }
           node scripts/smoke/vercel-health-smoke.mjs
+
+      - name: Validate canonical production Auth rollout
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="$PRODUCTION_URL" \
+          EXPECTED_SHA="$REQUESTED_SHA" \
+          REQUIRE_CAPTCHA_SITE_KEY=false \
+          node scripts/smoke-auth-production.mjs
 
       - name: Run strict CAPTCHA smoke when configured
         shell: bash
