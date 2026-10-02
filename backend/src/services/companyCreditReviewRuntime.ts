@@ -60,7 +60,7 @@ export class CompanyCreditReviewRuntime {
   private readonly client = getSupabaseClient();
 
   private requireClient() {
-    if (!this.client) throw new Error('Supabase is required for company credit review.');
+    if (!this.client) throw new Error('Persistent database is required for company credit review.');
     return this.client;
   }
 
@@ -269,7 +269,7 @@ export class CompanyCreditReviewRuntime {
         import('../repositories/platformRepository.js'),
         import('./platformService.js'),
       ]);
-      const service = new PlatformService(createPlatformRepository('supabase'));
+      const service = new PlatformService(createPlatformRepository('database'));
       const snapshots = await service.recomputeDerivedData(companyId);
       const pipeline = await this.alignPipeline(review);
       return {
