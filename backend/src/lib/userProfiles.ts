@@ -62,7 +62,7 @@ export const ensureUserProfile = async (user: AuthUser, defaults: { role?: UserR
     email: user.email ?? '',
     full_name: defaults.fullName ?? (typeof user.raw.name === 'string' ? user.raw.name : null),
     role: defaults.role ?? 'common',
-    status: defaults.status ?? 'active',
+    status: defaults.status ?? 'invited',
     timezone: 'America/Sao_Paulo',
     locale: 'pt-BR',
     metadata: {
