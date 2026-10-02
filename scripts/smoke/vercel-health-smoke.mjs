@@ -22,7 +22,7 @@ function sleep(ms) {
 function assertPayload(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('Health payload is not JSON object.');
   if (payload.status !== 'real') throw new Error(`Expected status=real, got ${payload.status}.`);
-  if (!payload.captureRuntime?.canRunAgainstSupabase) throw new Error('Runtime is not connected to the database.');
+  if (!(payload.captureRuntime?.canRunAgainstDatabase ?? payload.captureRuntime?.canRunAgainstSupabase)) throw new Error('Runtime is not connected to the database.');
   if (!payload.captureRuntime?.coreTablesAccessible) throw new Error('Core tables are not accessible.');
 
   const tableMap = new Map((payload.tables || []).map((item) => [item.table, item]));
