@@ -43,13 +43,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    writeJson(res, 503, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Supabase is not configured for the FIDC Market Map.' });
-    return;
-  }
-
   const accessToken = authorization.slice('Bearer '.length);
   try {
     await verifyActiveIdentity(accessToken);
