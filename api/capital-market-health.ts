@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { verifyActiveIdentity } from '../backend/src/lib/identityGate.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -117,22 +118,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const accessToken = authorization.slice('Bearer '.length);
 
   try {
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!authResponse.ok) {
-      const authBody = await authResponse.text();
-      writeJson(res, 401, {
-        status: 'partial',
-        generatedAt: new Date().toISOString(),
-        error: authBody.slice(0, 240) || 'Unauthorized.',
-      });
-      return;
-    }
+    await verifyActiveIdentity(accessToken);
 
     const healthUrl = new URL(`${supabaseUrl}/rest/v1/capital_market_ingestion_health`);
     healthUrl.searchParams.set('select', '*');
