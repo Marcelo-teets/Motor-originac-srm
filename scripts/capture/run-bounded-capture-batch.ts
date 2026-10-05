@@ -26,9 +26,9 @@ const asCadence = (value: string | undefined): CaptureCadence => {
 };
 
 const requireProductionPersistence = () => {
-  if (process.env.USE_SUPABASE !== 'true') throw new Error('USE_SUPABASE=true is required for scheduled capture.');
-  if (!process.env.SUPABASE_URL) throw new Error('SUPABASE_URL is required for scheduled capture.');
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for scheduled capture.');
+  if (!process.env.MOTOR_NEON_DATABASE_URL && !process.env.DATABASE_URL) {
+    throw new Error('MOTOR_NEON_DATABASE_URL or DATABASE_URL is required for scheduled capture.');
+  }
 };
 
 const diversifyBySource = (targets: BoundedCaptureTarget[]) => {
@@ -92,7 +92,7 @@ export const runDirectCaptureBatch = async () => {
   const targetCap = asPositiveInteger(process.env.MAX_CAPTURE_TARGETS, Number.MAX_SAFE_INTEGER, 10_000);
   const release = String(process.env.CAPTURE_RELEASE ?? 'direct-github-runner-v1');
 
-  const repository = createPlatformRepository('supabase');
+  const repository = createPlatformRepository('database');
   const runtime = new CaptureRuntimeService(repository);
   const [companies, sources] = await Promise.all([
     repository.listCompanies(),
