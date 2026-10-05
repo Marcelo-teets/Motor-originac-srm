@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -14,7 +14,7 @@ export function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      await supabaseAuth.sendPasswordRecovery(email.trim());
+      await neonAuth.sendPasswordRecovery(email.trim());
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível iniciar a recuperação.');

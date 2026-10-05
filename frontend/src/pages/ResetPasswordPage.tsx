@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 export function ResetPasswordPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token') ?? '', []);
@@ -34,7 +34,7 @@ export function ResetPasswordPage() {
 
     setLoading(true);
     try {
-      await supabaseAuth.resetPassword(token, password);
+      await neonAuth.resetPassword(token, password);
       setPassword('');
       setConfirmation('');
       setSuccess(true);

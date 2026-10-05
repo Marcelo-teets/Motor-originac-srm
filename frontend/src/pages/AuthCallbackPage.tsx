@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 export function AuthCallbackPage() {
   const { acceptSession } = useAuth();
@@ -12,7 +12,7 @@ export function AuthCallbackPage() {
     let cancelled = false;
     const complete = async () => {
       try {
-        const session = await supabaseAuth.sessionFromLocation();
+        const session = await neonAuth.sessionFromLocation();
         await acceptSession(session);
         window.history.replaceState({}, document.title, '/auth/callback');
         if (!cancelled) navigate('/', { replace: true });

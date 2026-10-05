@@ -3,8 +3,8 @@ import type { PropsWithChildren } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/UI';
 import { api } from './api';
-import { supabaseAuth } from './supabaseAuth';
-import type { UserProfile } from './supabaseAuth';
+import { neonAuth } from './neonAuth';
+import type { UserProfile } from './neonAuth';
 import type { SessionData } from './types';
 
 const SESSION_KEY = 'motor.neon.session';
@@ -52,7 +52,7 @@ const readStoredSession = (): SessionData | null => {
 
 const refreshIfNeeded = async (current: SessionData, force = false) => {
   if (!force && current.expires_at > Date.now() + REFRESH_WINDOW_MS) return current;
-  return supabaseAuth.refreshSession();
+  return neonAuth.refreshSession();
 };
 
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const hydrateSession = useCallback(async (current: SessionData) => {
     const liveUser = await api.getMe(current).catch(() => current.user);
     const baseSession = { ...current, user: liveUser };
-    const nextProfile = await supabaseAuth.getProfile(baseSession);
+    const nextProfile = await neonAuth.getProfile(baseSession);
     if (nextProfile.status !== 'active') {
       throw new Error('Este usuário está desativado. Procure o administrador GOD-MODE.');
     }
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const freshSession = current?.access_token
           ? await refreshIfNeeded(current)
-          : await supabaseAuth.refreshSession();
+          : await neonAuth.refreshSession();
         if (!cancelled) await hydrateSession(freshSession);
       } catch (syncError) {
         if (cancelled) return;
@@ -190,7 +190,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(true);
       setError(null);
       try {
-        const nextSession = await supabaseAuth.signInWithPassword(email, password);
+        const nextSession = await neonAuth.signInWithPassword(email, password);
         await hydrateSession(nextSession);
       } finally {
         setLoading(false);
@@ -207,7 +207,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
     async refreshProfile() {
       if (!session) return null;
-      const nextProfile = await supabaseAuth.getProfile(session);
+      const nextProfile = await neonAuth.getProfile(session);
       if (nextProfile.status !== 'active') {
         clearLocalSession();
         return nextProfile;

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Card, ErrorState, LoadingState, PageIntro, Pill } from '../components/UI';
 import { useAuth } from '../lib/auth';
-import { supabaseAuth } from '../lib/supabaseAuth';
-import type { UserProfile, UserStatus } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
+import type { UserProfile, UserStatus } from '../lib/neonAuth';
 
 const roleLabel = (role: UserProfile['role']) => role === 'god_mode' ? 'GOD-MODE' : 'Usuário comum';
 
@@ -18,7 +18,7 @@ export function UsersPage() {
     setLoading(true);
     setError(null);
     try {
-      setUsers(await supabaseAuth.listUsers(session));
+      setUsers(await neonAuth.listUsers(session));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível carregar os usuários.');
     } finally {
@@ -33,7 +33,7 @@ export function UsersPage() {
     setSavingId(user.id);
     setError(null);
     try {
-      const updated = await supabaseAuth.setUserAccess(session, user.id, 'common', status);
+      const updated = await neonAuth.setUserAccess(session, user.id, 'common', status);
       setUsers((current) => current?.map((item) => item.id === user.id ? { ...item, ...updated } : item) ?? current);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível atualizar o acesso.');

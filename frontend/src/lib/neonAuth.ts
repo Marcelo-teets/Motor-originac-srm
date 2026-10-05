@@ -81,7 +81,7 @@ const request = async <T>(
   return payload.data;
 };
 
-export const supabaseAuth = {
+export const neonAuth = {
   async getBootstrapStatus() {
     return request<{ provider: 'neon'; enabled: boolean; available: boolean; initialized: boolean }>('/auth/bootstrap-status');
   },
