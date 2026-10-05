@@ -9,8 +9,11 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then
     create role authenticated nologin;
   end if;
-  if not exists (select 1 from pg_roles where rolname = 'anonymous') then
-    create role anonymous nologin;
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
   end if;
 end
 $roles$;
@@ -54,10 +57,10 @@ as $$
 $$;
 
 revoke all on schema auth from public;
-grant usage on schema auth to authenticated;
-grant execute on function auth.uid() to authenticated;
-grant execute on function auth.jwt() to authenticated;
-grant execute on function auth.role() to authenticated;
+grant usage on schema auth to authenticated, service_role;
+grant execute on function auth.uid() to authenticated, service_role;
+grant execute on function auth.jwt() to authenticated, service_role;
+grant execute on function auth.role() to authenticated, service_role;
 
 comment on function auth.uid() is
   'Neon Auth compatibility shim. Reads the transaction-local verified subject injected by the Motor backend.';
