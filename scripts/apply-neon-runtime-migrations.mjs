@@ -7,6 +7,8 @@ if (!connectionString) throw new Error('MOTOR_NEON_DATABASE_URL or DATABASE_URL 
 const migrations = [
   'db/neon/20261005_neon_runtime_roles.sql',
   'db/migrations/035_capital_market_public_data.sql',
+  'db/migrations/036_capital_market_dataset_runs_source_index.sql',
+  'db/migrations/037_capital_market_incremental_checkpoints.sql',
   'db/migrations/044_capital_market_ingestion_health.sql',
   'db/migrations/060_origination_knowledge_vault.sql',
   'db/migrations/076_knowledge_company_workspace.sql',
