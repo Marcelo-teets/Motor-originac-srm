@@ -1,4 +1,6 @@
 import type { SessionData } from './types';
+import { fetchWithPolicy } from './http';
+import { buildApiUrl } from './runtimeConfig';
 import type {
   AdoptExistingActivityResult,
   CaptureExistingActivityOutcomeInput,
@@ -20,9 +22,6 @@ import type {
   OutcomeSuggestedHandling,
 } from './knowledgeOutcomeTypes';
 
-const env = import.meta.env;
-const supabaseUrl = String(env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const supabaseAnonKey = String(env.VITE_SUPABASE_ANON_KEY ?? '');
 
 const numberOrNull = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -209,26 +208,20 @@ const rpc = async <T>(
   functionName: string,
   args: Record<string, unknown>,
 ): Promise<T> => {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Outcome Intelligence requer VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.');
-  }
   if (!session?.access_token) throw new Error('Sessão autenticada necessária para Outcome Intelligence.');
-
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${functionName}`, {
+  const response = await fetchWithPolicy(buildApiUrl('/api/knowledge/rpc'), {
     method: 'POST',
     headers: {
-      apikey: supabaseAnonKey,
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(args),
-  });
-
+    body: JSON.stringify({ functionName, args }),
+  }, { timeoutMs: 20_000 });
   const raw = await response.text();
   const payload = raw ? JSON.parse(raw) as T | Record<string, unknown> : {};
   if (!response.ok) {
     const error = payload as Record<string, unknown>;
-    throw new Error(String(error.message ?? error.details ?? `${functionName} falhou com status ${response.status}.`));
+    throw new Error(String(error.error ?? error.message ?? error.details ?? `${functionName} falhou com status ${response.status}.`));
   }
   return payload as T;
 };
