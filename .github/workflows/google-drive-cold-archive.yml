@@ -25,7 +25,7 @@ on:
         default: '25'
         type: string
       delete_staging:
-        description: Delete Supabase Storage object after Drive migration
+        description: Delete legacy Supabase staging object after verified Drive migration
         required: false
         default: false
         type: boolean
@@ -67,15 +67,16 @@ jobs:
         id: config
         shell: bash
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+          LEGACY_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          LEGACY_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
           missing=()
-          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET GOOGLE_DRIVE_REFRESH_TOKEN; do
+          for name in MOTOR_NEON_DATABASE_URL LEGACY_SUPABASE_URL LEGACY_SUPABASE_SERVICE_ROLE_KEY GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET GOOGLE_DRIVE_REFRESH_TOKEN; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
 
@@ -132,8 +133,9 @@ jobs:
         id: archive_migration
         if: steps.config.outputs.configured == 'true' && steps.google_probe.outputs.oauth_valid == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+          LEGACY_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          LEGACY_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
