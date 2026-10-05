@@ -336,7 +336,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   private readonly fallback = new MemoryPlatformRepository();
 
   private ensureClient() {
-    if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL (preferred) or Supabase runtime credentials.');
+    if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL or DATABASE_URL.');
     return this.client;
   }
 
