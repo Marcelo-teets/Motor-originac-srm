@@ -1,10 +1,10 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { PriorityResult } from './abmTypes.js';
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, Math.round(value)));
 
 export class CommercialPriorityService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async compute(companyId: string): Promise<PriorityResult> {
     if (!this.client) {

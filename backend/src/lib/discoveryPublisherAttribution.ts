@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 import type { DiscoverySourceHit } from './discoveryCapture.js';
 
 export type PublisherCatalogEntry = {
@@ -130,7 +130,7 @@ export const attributePublisherFromCatalog = (
 export async function attributeDiscoveryPublishers(
   hits: DiscoverySourceHit[],
 ): Promise<PublisherAttributionResult> {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) {
     return { hits, attributed: 0, unresolved: 0, catalogLoaded: false };
   }

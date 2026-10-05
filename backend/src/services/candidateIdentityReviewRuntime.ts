@@ -3,11 +3,11 @@ import type {
   CandidateIdentityRejectionInput,
   CandidateIdentityReviewResult,
 } from '../lib/candidateIdentityReview.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { CandidateIdentityReviewExecutor } from './searchProfileCaptureService.js';
 
 export class CandidateIdentityReviewRuntime implements CandidateIdentityReviewExecutor {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async approve(input: CandidateIdentityApprovalInput): Promise<CandidateIdentityReviewResult> {
     if (!this.client) throw new Error('Supabase is required for candidate identity approval.');

@@ -1,5 +1,5 @@
 import { createPlatformRepository } from '../repositories/platformRepository.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { PlatformService } from './platformService.js';
 
 type PublicRecordCompanyRow = {
@@ -27,7 +27,7 @@ export const uniqueAffectedCompanyIds = (rows: PublicRecordCompanyRow[]) => Arra
 ));
 
 export class PublicDataDownstreamService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async sync(datasets: string[]): Promise<PublicDataDownstreamSummary> {
     const uniqueDatasets = [...new Set(datasets)];

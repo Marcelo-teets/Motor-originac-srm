@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   applyCandidateCommercialSemantics,
   classifyCandidateCommercialSemantics,
@@ -19,7 +19,7 @@ type CandidateRow = {
   updated_at: string | null;
 };
 
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 type Dependencies = {
   client?: SupabaseClient | null;
@@ -59,7 +59,7 @@ export class CandidateNewsSemanticsService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.now = dependencies.now ?? (() => new Date());
   }
 

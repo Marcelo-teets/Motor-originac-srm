@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 export const fidcMarketMapSorts = [
   'nav_desc',
@@ -193,7 +193,7 @@ export const normalizeFidcMarketMapSnapshot = (value: unknown): FidcMarketMapSna
 };
 
 export async function getFidcMarketMapSnapshot(query: FidcMarketMapQuery): Promise<FidcMarketMapSnapshot> {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) throw new FidcMarketMapUnavailableError('Supabase não está configurado para o Market Map FIDC.');
 
   const snapshot = await client.rpc<unknown>('agentetome_fidc_market_map_snapshot', buildFidcMarketMapRpcArgs(query));
