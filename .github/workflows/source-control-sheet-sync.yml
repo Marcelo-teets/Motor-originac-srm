@@ -16,7 +16,6 @@ on:
     paths:
       - 'backend/**'
       - 'api/**'
-      - 'supabase/functions/**'
       - 'db/migrations/**'
       - 'docs/data-sources/**'
       - 'scripts/source-control-sheet-sync.mjs'
