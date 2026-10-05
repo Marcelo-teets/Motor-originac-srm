@@ -93,6 +93,30 @@ jobs:
           done
           echo "Disabled heavy schedulers; failures=$failures" >> "$GITHUB_STEP_SUMMARY"
           test "$failures" -eq 0
+      - name: TEMP read-only Neon account inventory
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const base='https://console.neon.tech/api/v2';
+          const headers={Authorization:'Bearer '+process.env.NEON_API_KEY,Accept:'application/json'};
+          async function get(path){
+            const res=await fetch(base+path,{headers,signal:AbortSignal.timeout(15000)});
+            const text=await res.text();
+            let body=null; try{body=text?JSON.parse(text):null}catch{body={raw:text.slice(0,400)}}
+            return {ok:res.ok,status:res.status,body};
+          }
+          const pv=p=>({id:p?.id??null,name:p?.name??null,org_id:p?.org_id??null,region_id:p?.region_id??null,pg_version:p?.pg_version??null,created_at:p?.created_at??null,updated_at:p?.updated_at??null});
+          const bv=b=>({id:b?.id??null,project_id:b?.project_id??null,name:b?.name??null,parent_id:b?.parent_id??null,primary:b?.primary??null,protected:b?.protected??null,init_source:b?.init_source??null,created_at:b?.created_at??null,updated_at:b?.updated_at??null});
+          const projects=await get('/projects?limit=100');
+          console.log('NEON_PROJECTS_RESULT='+JSON.stringify({ok:projects.ok,status:projects.status,projects:Array.isArray(projects.body?.projects)?projects.body.projects.map(pv):[],pagination:projects.body?.pagination??null,error:projects.ok?null:projects.body}));
+          const ids=[...new Set([...(Array.isArray(projects.body?.projects)?projects.body.projects.map(p=>p.id):[]),'steep-poetry-38942951','little-hat-27601841','round-hat-79088822'].filter(Boolean))];
+          for(const id of ids){
+            const br=await get('/projects/'+encodeURIComponent(id)+'/branches?limit=100');
+            console.log('NEON_BRANCHES_RESULT='+JSON.stringify({project_id:id,ok:br.ok,status:br.status,branches:Array.isArray(br.body?.branches)?br.body.branches.map(bv):[],pagination:br.body?.pagination??null,error:br.ok?null:br.body}));
+          }
+          NODE
       - name: Publish status
         if: always()
         shell: bash
