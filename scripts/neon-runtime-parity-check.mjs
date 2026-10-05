@@ -47,7 +47,6 @@ const requiredRelations = [
 const requiredFunctions = [
   ['auth', 'uid'],
   ['auth', 'jwt'],
-  ['auth', 'role'],
   ['public', 'knowledge_list_nodes'],
   ['public', 'knowledge_get_node'],
   ['public', 'knowledge_save_node'],

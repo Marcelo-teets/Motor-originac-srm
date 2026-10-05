@@ -5,7 +5,6 @@ const connectionString = process.env.MOTOR_NEON_DATABASE_URL || process.env.DATA
 if (!connectionString) throw new Error('MOTOR_NEON_DATABASE_URL or DATABASE_URL is required.');
 
 const migrations = [
-  'db/neon/20261005_neon_auth_rls_compatibility.sql',
   'db/migrations/035_capital_market_public_data.sql',
   'db/migrations/044_capital_market_ingestion_health.sql',
   'db/migrations/060_origination_knowledge_vault.sql',
