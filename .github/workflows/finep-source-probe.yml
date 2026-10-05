@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Load Neon production connection from Vercel
+        run: bash scripts/load-neon-from-vercel.sh
+
       - name: Typecheck backend
         id: typecheck
         shell: bash
@@ -161,6 +164,7 @@ jobs:
     timeout-minutes: 120
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 REQUESTED_FORCE: ${{ inputs.force || false }}
       REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '100000' }}
     steps:
