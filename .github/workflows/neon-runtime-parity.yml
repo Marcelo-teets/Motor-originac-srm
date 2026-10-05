@@ -1,0 +1,35 @@
+name: Neon Runtime Parity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'backend/**'
+      - 'serverless/**'
+      - 'frontend/**'
+      - 'db/neon/**'
+      - 'scripts/neon-runtime-parity-check.mjs'
+      - '.github/workflows/neon-runtime-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verify Neon production secret is available
+        run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 2)
+      - name: Check required Neon runtime schema
+        run: node scripts/neon-runtime-parity-check.mjs
