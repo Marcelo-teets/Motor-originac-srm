@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../backend/src/lib/supabase.js';
+import { getDataClient } from '../backend/src/lib/dataClient.js';
 import { createPlatformRepository } from '../backend/src/repositories/platformRepository.js';
 import { PlatformService } from '../backend/src/services/platformService.js';
 
@@ -16,7 +16,7 @@ const metadataOf = (value: unknown) => typeof value === 'object' && value !== nu
   : {};
 
 async function syncApprovedReview() {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) throw new Error('Neon data client is unavailable.');
   const reviews = await client.select('company_credit_reviews', {
     select: '*',
@@ -96,7 +96,7 @@ async function syncApprovedReview() {
   return { client, review };
 }
 
-async function alignPipeline(client: NonNullable<ReturnType<typeof getSupabaseClient>>, review: ReviewRow) {
+async function alignPipeline(client: NonNullable<ReturnType<typeof getDataClient>>, review: ReviewRow) {
   const rows = await client.select('pipeline', {
     select: 'id,stage,notes',
     filters: [{ column: 'company_id', value: companyId }],

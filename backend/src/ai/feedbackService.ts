@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { AnalystFeedbackRecorder } from './types.js';
 
 const MAX_FEEDBACK_LENGTH = 4000;
 
 export class FeedbackService implements AnalystFeedbackRecorder {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async recordFeedback(conversationId: string, userId: string, text: string): Promise<void> {
     const content = text.trim();

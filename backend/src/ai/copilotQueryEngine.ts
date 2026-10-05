@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { AgentRegistry } from './agentRegistry.js';
 import type {
   AgentContext,
@@ -20,7 +20,7 @@ const buildConversationTitle = (question: string) => {
 };
 
 export class CopilotQueryEngine {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   constructor(
     private readonly aiGateway: LLMGateway,

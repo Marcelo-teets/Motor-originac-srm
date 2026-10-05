@@ -1,5 +1,5 @@
 import type { AuthUser } from './auth.js';
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 const syncCache = new Map<string, number>();
 const SYNC_TTL_MS = 300000;
@@ -17,7 +17,7 @@ export const ensureApplicationUser = async (user: AuthUser | undefined) => {
   const lastSyncedAt = syncCache.get(user.id) ?? 0;
   if (Date.now() - lastSyncedAt < SYNC_TTL_MS) return true;
 
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return false;
 
   await client.upsert('users', [{

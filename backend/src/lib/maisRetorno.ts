@@ -1,5 +1,5 @@
 import { env } from './env.js';
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 import type { CompanySeed, SourceCatalogEntry } from '../types/platform.js';
 
 const PROVIDER = 'mais_retorno';
@@ -106,7 +106,7 @@ const normalizeReservation = (value: any, fallbackMode: ReservationMode): MaisRe
 };
 
 export async function reserveMaisRetornoRequest(purpose: string, sourceCode = 'src_mais_retorno_api') {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return reservationFromMemory(purpose, 'supabase_not_configured_memory_quota');
 
   try {
@@ -125,7 +125,7 @@ export async function reserveMaisRetornoRequest(purpose: string, sourceCode = 's
 }
 
 export async function getMaisRetornoQuotaStatus() {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return statusFromMemory();
 
   try {

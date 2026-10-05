@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { VectorRetriever } from './types.js';
 
 export type VectorDocument = {
@@ -18,7 +18,7 @@ type LexicalSearchRow = {
 };
 
 export class VectorIndexService implements VectorRetriever {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
   private readonly memoryDocuments = new Map<string, VectorDocument>();
 
   async upsertDocuments(docs: VectorDocument[]): Promise<void> {
