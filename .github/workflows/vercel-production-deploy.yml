@@ -34,7 +34,6 @@ jobs:
       VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
       VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
       VERCEL_PROJECT_NAME: motor-originac-srm
-      SUPABASE_PROJECT_REF: hdghpmssudrqhsbvrdyt
       PRODUCTION_URL: https://motor-originac-srm.vercel.app
       VERCEL_CLI_VERSION: 50.28.0
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -75,7 +74,7 @@ jobs:
       - name: Confirm automatic Git deployments are paused
         run: node scripts/vercel-production-control.mjs status
 
-      - name: Synchronize canonical public Supabase Auth config
+      - name: Synchronize canonical public Neon Auth config
         run: node scripts/sync-public-auth-env-to-vercel.mjs
 
       - name: Link exact Vercel project
