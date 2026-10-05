@@ -209,6 +209,55 @@ export class NeonPostgresClient {
     return result.rows as T[];
   }
 
+  async rpcAsUser<T = unknown>(
+    fn: string,
+    args: Record<string, unknown>,
+    identity: { id: string; email?: string; role?: string },
+  ) {
+    const fnName = ident(fn);
+    const entries = Object.entries(args);
+    entries.forEach(([name]) => ident(name));
+    const values = entries.map(([, value]) => value);
+    const namedArgs = entries.map(([name], index) => `${ident(name)} => ${index + 1}`).join(', ');
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('begin');
+      await client.query(
+        `select
+           set_config('request.jwt.claim.sub', $1, true),
+           set_config('request.jwt.claim.role', $2, true),
+           set_config('request.jwt.claims', $3, true)`,
+        [
+          identity.id,
+          identity.role ?? 'authenticated',
+          JSON.stringify({
+            sub: identity.id,
+            email: identity.email ?? null,
+            role: identity.role ?? 'authenticated',
+          }),
+        ],
+      );
+      await client.query('set local role authenticated');
+      const result = await client.query(
+        `select * from public.${fnName}(${namedArgs})`,
+        values,
+      );
+      await client.query('commit');
+
+      if (result.fields.length === 1 && result.fields[0]?.name === fn) {
+        if (result.rows.length === 1) return result.rows[0][fn] as T;
+        return result.rows.map((row) => row[fn]) as T;
+      }
+      return result.rows as T;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>) {
     const fnName = ident(fn);
     const entries = Object.entries(args);
