@@ -34,12 +34,6 @@ export const env = {
   dataProvider,
   neonDatabaseUrl,
   usePersistentData: dataProvider !== 'memory',
-  supabaseUrl: process.env.SUPABASE_URL ?? '',
-  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? '',
-  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
-  // Legacy aliases kept temporarily for internal callers; Neon is the only persistent runtime.
-  useSupabase: dataProvider === 'neon',
-  bootstrapSupabase: false,
   appBaseUrl: (process.env.APP_BASE_URL ?? 'https://motor-originac-srm.vercel.app').replace(/\/$/, ''),
   authProvider: neonAuthBaseUrl ? 'neon' : 'none',
   neonAuthBaseUrl,
