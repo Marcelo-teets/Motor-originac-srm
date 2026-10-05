@@ -47,14 +47,6 @@ const hasPersistentDataCredentials = () => Boolean(
 
 );
 
-const supabaseHost = () => {
-  try {
-    return process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).host : null;
-  } catch {
-    return 'invalid-url';
-  }
-};
-
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const asNullableUuid = (value: string | null | undefined) => (value && uuidPattern.test(value) ? value : null);
 
@@ -159,19 +151,14 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
     generatedAt: new Date().toISOString(),
     requestPath: parseUrl(req).pathname,
     env: {
-      USE_SUPABASE: process.env.USE_SUPABASE ?? null,
       dataProvider,
       MOTOR_NEON_DATABASE_URL: envFlag('MOTOR_NEON_DATABASE_URL'),
       DATABASE_URL: envFlag('DATABASE_URL'),
-      SUPABASE_URL: envFlag('SUPABASE_URL'),
-      SUPABASE_HOST: supabaseHost(),
-      SUPABASE_ANON_KEY: envFlag('SUPABASE_ANON_KEY'),
-      SUPABASE_SERVICE_ROLE_KEY: envFlag('SUPABASE_SERVICE_ROLE_KEY'),
       CRON_SECRET: cronConfigured,
     },
     captureRuntime: {
       canRunAgainstDatabase: persistentDataConfigured,
-      canRunAgainstSupabase: persistentDataConfigured, // legacy compatibility alias
+      canRunAgainstSupabase: persistentDataConfigured, // deprecated compatibility alias; runtime is Neon
       canAuthorizeWorkflow: cronConfigured,
       coreTablesAccessible: canAccessCoreTables,
       queryTimeoutMs: CAPTURE_HEALTH_QUERY_TIMEOUT_MS,
