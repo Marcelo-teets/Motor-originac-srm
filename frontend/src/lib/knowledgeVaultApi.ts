@@ -1,4 +1,6 @@
 import type { SessionData } from './types';
+import { fetchWithPolicy } from './http';
+import { buildApiUrl } from './runtimeConfig';
 import type {
   CompleteKnowledgeExecutionInput,
   CreateKnowledgeExecutionInput,
@@ -18,9 +20,6 @@ import type {
   SaveKnowledgeViewInput,
 } from './knowledgeVaultTypes';
 
-const env = import.meta.env;
-const supabaseUrl = String(env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
-const supabaseAnonKey = String(env.VITE_SUPABASE_ANON_KEY ?? '');
 
 type RpcError = {
   message?: string;
@@ -88,34 +87,22 @@ type SavedViewRow = {
   can_edit: boolean;
 };
 
-const requireConfiguration = () => {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Knowledge Vault requer VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no frontend.');
-  }
-};
-
 const rpc = async <T>(session: SessionData | null, functionName: string, args: Record<string, unknown>): Promise<T> => {
-  requireConfiguration();
   if (!session?.access_token) throw new Error('Sessão autenticada necessária para acessar o Knowledge Vault.');
-
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${functionName}`, {
+  const response = await fetchWithPolicy(buildApiUrl('/api/knowledge/rpc'), {
     method: 'POST',
     headers: {
-      apikey: supabaseAnonKey,
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(args),
-  });
-
+    body: JSON.stringify({ functionName, args }),
+  }, { timeoutMs: 20_000 });
   const raw = await response.text();
   const payload = raw ? JSON.parse(raw) as T | RpcError : null;
-
   if (!response.ok) {
     const error = payload as RpcError | null;
-    throw new Error(error?.message ?? error?.details ?? `RPC ${functionName} falhou com status ${response.status}.`);
+    throw new Error(error?.message ?? error?.details ?? (error as { error?: string } | null)?.error ?? `RPC ${functionName} falhou com status ${response.status}.`);
   }
-
   return payload as T;
 };
 
