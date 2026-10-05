@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 10
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +30,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Verify Neon production secret is available
+      - name: Load Neon production connection from canonical vault
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Verify Neon production connection is available
         run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 2)
       - name: Check required Neon runtime schema
         run: node scripts/neon-runtime-parity-check.mjs
