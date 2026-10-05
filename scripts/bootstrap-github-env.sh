@@ -18,28 +18,24 @@ write_line() {
   printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
 }
 
-require_secret SUPABASE_URL
-require_secret SUPABASE_ANON_KEY
-require_secret SUPABASE_SERVICE_ROLE_KEY
+require_secret MOTOR_NEON_DATABASE_URL
+require_secret NEON_AUTH_BASE_URL
+require_secret NEON_AUTH_JWKS_URL
 
 : "${PORT:=4000}"
-: "${USE_SUPABASE:=true}"
-: "${BOOTSTRAP_SUPABASE:=true}"
+: "${MOTOR_DATA_PROVIDER:=neon}"
 : "${VITE_API_BASE_URL:=http://localhost:${PORT}}"
-: "${VITE_SUPABASE_URL:=$SUPABASE_URL}"
-: "${VITE_SUPABASE_ANON_KEY:=$SUPABASE_ANON_KEY}"
+: "${VITE_NEON_AUTH_URL:=$NEON_AUTH_BASE_URL}"
 
 mkdir -p "$(dirname "$ENV_FILE")"
 : > "$ENV_FILE"
 
 write_line PORT "$PORT"
-write_line USE_SUPABASE "$USE_SUPABASE"
-write_line BOOTSTRAP_SUPABASE "$BOOTSTRAP_SUPABASE"
-write_line SUPABASE_URL "$SUPABASE_URL"
-write_line SUPABASE_ANON_KEY "$SUPABASE_ANON_KEY"
-write_line SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"
+write_line MOTOR_DATA_PROVIDER "$MOTOR_DATA_PROVIDER"
+write_line MOTOR_NEON_DATABASE_URL "$MOTOR_NEON_DATABASE_URL"
+write_line NEON_AUTH_BASE_URL "$NEON_AUTH_BASE_URL"
+write_line NEON_AUTH_JWKS_URL "$NEON_AUTH_JWKS_URL"
 write_line VITE_API_BASE_URL "$VITE_API_BASE_URL"
-write_line VITE_SUPABASE_URL "$VITE_SUPABASE_URL"
-write_line VITE_SUPABASE_ANON_KEY "$VITE_SUPABASE_ANON_KEY"
+write_line VITE_NEON_AUTH_URL "$VITE_NEON_AUTH_URL"
 
 echo "[bootstrap-github-env] wrote $ENV_FILE"
