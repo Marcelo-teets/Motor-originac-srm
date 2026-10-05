@@ -43,6 +43,12 @@
     },
     "api/task-ai.ts": {
       "maxDuration": 30
+    },
+    "api/knowledge-rpc.ts": {
+      "maxDuration": 30
+    },
+    "api/knowledge-search.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -127,6 +133,14 @@
     {
       "source": "/api/integrations/microsoft/:operation",
       "destination": "/api/microsoft?operation=:operation"
+    },
+    {
+      "source": "/api/knowledge/rpc",
+      "destination": "/api/knowledge-rpc"
+    },
+    {
+      "source": "/api/knowledge/search",
+      "destination": "/api/knowledge-search"
     },
     {
       "source": "/api/integrations/task-ai",
