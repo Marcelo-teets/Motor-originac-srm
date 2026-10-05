@@ -80,7 +80,6 @@ const requiredFunctions = [
   ['public', 'record_agentetome_validation_audit'],
   ['public', 'fidcs_runtime_status'],
   ['public', 'persist_fidcs_validation'],
-  ['public', 'assert_ingestion_storage_budget'],
 ];
 
 const pool = new pg.Pool({

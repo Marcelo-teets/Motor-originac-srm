@@ -107,7 +107,7 @@ export function SourcesPage() {
       <AgentetomeOperationsPanel />
 
       {publicOperationsLoading ? (
-        <Card title="Operação das fontes públicas" subtitle="Carregando runs, checkpoints e sinais"><LoadingState title="Operação pública" subtitle="Consultando o control plane no Supabase." /></Card>
+        <Card title="Operação das fontes públicas" subtitle="Carregando runs, checkpoints e sinais"><LoadingState title="Operação pública" subtitle="Consultando o control plane no Neon." /></Card>
       ) : publicOperations ? (
         <>
           <Card title="Control plane · fontes públicas" subtitle="Estado real dos loaders oficiais targeted by CNPJ" className="dense-card">
@@ -194,13 +194,13 @@ export function SourcesPage() {
             <Stat label="Restante" value={String(quotaEnvelope.data.remaining)} helper={quotaEnvelope.data.warning ? 'Acima de 80% da quota' : 'Consumo saudável'} />
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-            <Pill tone={quotaEnvelope.status === 'real' ? 'success' : 'warning'}>{quotaEnvelope.status === 'real' ? 'quota persistida (supabase)' : 'quota parcial (fallback)'}</Pill>
+            <Pill tone={quotaEnvelope.status === 'real' ? 'success' : 'warning'}>{quotaEnvelope.status === 'real' ? 'quota persistida (neon)' : 'quota parcial (fallback)'}</Pill>
             {quotaEnvelope.data.warning ? <Pill tone="warning">alerta: uso ≥ 80%</Pill> : null}
             {!quotaEnvelope.data.allowed ? <Pill tone="warning">bloqueado: quota mensal esgotada</Pill> : null}
           </div>
-          {quotaEnvelope.data.mode !== 'supabase' ? (
+          {quotaEnvelope.data.mode !== 'neon' ? (
             <p className="table-helper" style={{ marginTop: 8 }}>
-              A contagem está em memória/fallback e não é persistida nem verificável no Supabase. Os números podem zerar a cada deploy — configure o Supabase para governança real da quota.
+              A contagem está em memória/fallback e não é persistida no Neon. Os números podem zerar a cada deploy — configure o Neon para governança real da quota.
             </p>
           ) : null}
         </Card>
@@ -260,7 +260,7 @@ export function SourcesPage() {
             })}</tbody>
           </table>
         ) : (
-          <EmptyState title="Nenhuma fonte retornada." description="Verifique source_catalog no Supabase e rode as migrations/seeds de fontes." />
+          <EmptyState title="Nenhuma fonte retornada." description="Verifique source_catalog no Neon e rode as migrations necessárias de fontes." />
         )}
       </Card>
 
