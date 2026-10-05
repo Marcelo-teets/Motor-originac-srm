@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { closeNeonPool, query } from './lib/neon-db.mjs';
 
 const required = (name) => {
   const value = process.env[name]?.trim();
@@ -6,8 +7,8 @@ const required = (name) => {
   return value;
 };
 
-const SUPABASE_URL = required('SUPABASE_URL').replace(/\/+$/, '');
-const SUPABASE_SERVICE_ROLE_KEY = required('SUPABASE_SERVICE_ROLE_KEY');
+const LEGACY_SUPABASE_URL = String(process.env.LEGACY_SUPABASE_URL ?? '').replace(/\/+$/, '');
+const LEGACY_SUPABASE_SERVICE_ROLE_KEY = String(process.env.LEGACY_SUPABASE_SERVICE_ROLE_KEY ?? '');
 const GOOGLE_DRIVE_CLIENT_ID = required('GOOGLE_DRIVE_CLIENT_ID');
 const GOOGLE_DRIVE_CLIENT_SECRET = required('GOOGLE_DRIVE_CLIENT_SECRET');
 const GOOGLE_DRIVE_REFRESH_TOKEN = required('GOOGLE_DRIVE_REFRESH_TOKEN');
@@ -34,19 +35,10 @@ const slug = (value) => String(value ?? 'all')
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-|-$/g, '') || 'all';
 
-const supabase = async (path, init = {}) => {
-  const response = await fetch(`${SUPABASE_URL}${path}`, {
-    ...init,
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      ...(init.headers ?? {}),
-    },
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`supabase_${response.status}:${text.replace(/\s+/g, ' ').slice(0, 800)}`);
-  if (!text) return null;
-  try { return JSON.parse(text); } catch { return text; }
+const requireLegacyStorage = () => {
+  if (!LEGACY_SUPABASE_URL || !LEGACY_SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('legacy_supabase_storage_credentials_missing');
+  }
 };
 
 let googleToken;
@@ -85,13 +77,13 @@ const google = async (url, init = {}) => {
 };
 
 const ensureFolder = async ({ name, parentId, properties = {} }) => {
-  const query = [
+  const q = [
     `'${escapeDriveQuery(parentId)}' in parents`,
     `name='${escapeDriveQuery(name)}'`,
     "mimeType='application/vnd.google-apps.folder'",
     'trashed=false',
   ].join(' and ');
-  const found = await google(`https://www.googleapis.com/drive/v3/files?spaces=drive&q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=10`);
+  const found = await google(`https://www.googleapis.com/drive/v3/files?spaces=drive&q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=10`);
   if (found.files?.[0]?.id) return found.files[0].id;
   if (DRY_RUN) return `dry-run:${slug(name)}`;
   const created = await google('https://www.googleapis.com/drive/v3/files?fields=id,name,parents', {
@@ -107,12 +99,18 @@ const ensureFolder = async ({ name, parentId, properties = {} }) => {
   return created.id;
 };
 
-const downloadStagingObject = async (part) => {
+const downloadLegacyStagingObject = async (part) => {
+  requireLegacyStorage();
   const response = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(part.storage_bucket)}/${encodeStoragePath(part.storage_path)}`,
-    { headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
+    `${LEGACY_SUPABASE_URL}/storage/v1/object/${encodeURIComponent(part.storage_bucket)}/${encodeStoragePath(part.storage_path)}`,
+    {
+      headers: {
+        apikey: LEGACY_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${LEGACY_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    },
   );
-  if (!response.ok) throw new Error(`storage_download_${response.status}:${(await response.text()).slice(0, 500)}`);
+  if (!response.ok) throw new Error(`legacy_storage_download_${response.status}:${(await response.text()).slice(0, 500)}`);
   return new Uint8Array(await response.arrayBuffer());
 };
 
@@ -192,52 +190,61 @@ const migratedMetadata = ({ part, file, stagingDeletedAt = null }) => ({
   ...(stagingDeletedAt ? { staging_deleted_at: stagingDeletedAt } : {}),
 });
 
-const patchPart = async ({ part, file, folderId }) => {
+const patchPart = async ({ part, file, folderId, stagingDeletedAt = null }) => {
   if (DRY_RUN) return;
   const externalUrl = file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`;
-  await supabase(`/rest/v1/data_archive_parts?id=eq.${encodeURIComponent(part.id)}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      storage_provider: 'google_drive',
-      storage_bucket: 'google-drive',
-      storage_path: `${folderId}/${file.id}`,
-      external_file_id: file.id,
-      external_folder_id: folderId,
-      external_url: externalUrl,
-      migrated_at: new Date().toISOString(),
-      metadata: migratedMetadata({ part, file }),
-    }),
-  });
+  await query(
+    `update public.data_archive_parts
+        set storage_provider='google_drive',
+            storage_bucket='google-drive',
+            storage_path=$1,
+            external_file_id=$2,
+            external_folder_id=$3,
+            external_url=$4,
+            migrated_at=coalesce(migrated_at, now()),
+            metadata=$5
+      where id=$6`,
+    [
+      `${folderId}/${file.id}`,
+      file.id,
+      folderId,
+      externalUrl,
+      migratedMetadata({ part, file, stagingDeletedAt }),
+      part.id,
+    ],
+  );
 };
 
-const deleteStagingObject = async ({ bucket, path }) => {
+const deleteLegacyStagingObject = async ({ bucket, path }) => {
   if (!DELETE_STAGING || DRY_RUN) return false;
+  requireLegacyStorage();
   const response = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStoragePath(path)}`,
-    { method: 'DELETE', headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` } },
+    `${LEGACY_SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStoragePath(path)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        apikey: LEGACY_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${LEGACY_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    },
   );
-  if (!response.ok && response.status !== 404) throw new Error(`storage_delete_${response.status}:${(await response.text()).slice(0, 500)}`);
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`legacy_storage_delete_${response.status}:${(await response.text()).slice(0, 500)}`);
+  }
   return true;
 };
 
-const markNewStagingDeleted = async ({ part, file }) => {
-  if (DRY_RUN) return;
-  await supabase(`/rest/v1/data_archive_parts?id=eq.${encodeURIComponent(part.id)}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      metadata: migratedMetadata({ part, file, stagingDeletedAt: new Date().toISOString() }),
-    }),
-  });
-};
-
-const cleanupMigratedStaging = async () => {
+const cleanupMigratedLegacyStaging = async () => {
   const summary = { scanned: 0, deleted: 0, skipped: 0, failed: 0, errors: [] };
   if (!DELETE_STAGING || DRY_RUN) return summary;
 
-  const migrated = await supabase(
-    `/rest/v1/data_archive_parts?storage_provider=eq.google_drive&select=id,metadata&order=migrated_at.asc&limit=${LIMIT}`,
+  const migrated = await query(
+    `select id, metadata
+       from public.data_archive_parts
+      where storage_provider='google_drive'
+      order by migrated_at asc nulls last
+      limit $1`,
+    [LIMIT],
   );
   summary.scanned = migrated.length;
 
@@ -250,15 +257,11 @@ const cleanupMigratedStaging = async () => {
         summary.skipped += 1;
         continue;
       }
-
-      if (await deleteStagingObject({ bucket, path })) {
-        await supabase(`/rest/v1/data_archive_parts?id=eq.${encodeURIComponent(part.id)}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            metadata: { ...metadata, staging_deleted_at: new Date().toISOString() },
-          }),
-        });
+      if (await deleteLegacyStagingObject({ bucket, path })) {
+        await query(
+          'update public.data_archive_parts set metadata=$1 where id=$2',
+          [{ ...metadata, staging_deleted_at: new Date().toISOString() }, part.id],
+        );
         summary.deleted += 1;
       }
     } catch (error) {
@@ -266,39 +269,48 @@ const cleanupMigratedStaging = async () => {
       summary.errors.push({ partId: part.id, message: error instanceof Error ? error.message : String(error) });
     }
   }
-
   return summary;
 };
 
 const finalizeRunProvider = async (run) => {
   if (DRY_RUN) return;
-  const remaining = await supabase(
-    `/rest/v1/data_archive_parts?run_id=eq.${encodeURIComponent(run.id)}&storage_provider=neq.google_drive&select=id&limit=1`,
+  const remaining = await query(
+    `select id from public.data_archive_parts
+      where run_id=$1 and storage_provider <> 'google_drive'
+      limit 1`,
+    [run.id],
   );
   if (remaining.length) return;
-  await supabase(`/rest/v1/data_archive_runs?id=eq.${encodeURIComponent(run.id)}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      storage_provider: 'google_drive',
-      storage_bucket: 'google-drive',
-      export_metadata: {
-        ...(run.export_metadata ?? {}),
-        final_storage_provider: 'google_drive',
-        google_migrated_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    }),
-  });
+
+  await query(
+    `update public.data_archive_runs
+        set storage_provider='google_drive',
+            storage_bucket='google-drive',
+            export_metadata=$1,
+            updated_at=now()
+      where id=$2`,
+    [{
+      ...(run.export_metadata ?? {}),
+      final_storage_provider: 'google_drive',
+      google_migrated_at: new Date().toISOString(),
+    }, run.id],
+  );
 };
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 const main = async () => {
-  const cleanup = await cleanupMigratedStaging();
-  const candidates = await supabase(
-    `/rest/v1/data_archive_parts?storage_provider=eq.supabase_storage&external_file_id=is.null&select=*&order=created_at.asc&limit=${LIMIT}`,
+  const cleanup = await cleanupMigratedLegacyStaging();
+  const candidates = await query(
+    `select *
+       from public.data_archive_parts
+      where storage_provider='supabase_storage'
+        and external_file_id is null
+      order by created_at asc
+      limit $1`,
+    [LIMIT],
   );
+
   const summary = {
     scanned: candidates.length,
     migrated: 0,
@@ -308,18 +320,21 @@ const main = async () => {
     cleanupScanned: cleanup.scanned,
     cleanupFailed: cleanup.failed,
     errors: [...cleanup.errors],
+    metadataProvider: 'neon',
+    finalStorageProvider: 'google_drive',
+    legacyStagingProvider: 'supabase_storage',
   };
 
   for (const part of candidates) {
     try {
-      const runs = await supabase(`/rest/v1/data_archive_runs?id=eq.${encodeURIComponent(part.run_id)}&select=*&limit=1`);
+      const runs = await query('select * from public.data_archive_runs where id=$1 limit 1', [part.run_id]);
       const run = runs[0];
       if (!run || !ALLOWED_RUN_STATUSES.has(run.status)) {
         summary.skipped += 1;
         continue;
       }
 
-      const bytes = await downloadStagingObject(part);
+      const bytes = await downloadLegacyStagingObject(part);
       const actualHash = sha256(bytes);
       if (actualHash !== part.sha256) throw new Error(`sha256_mismatch expected=${part.sha256} actual=${actualHash}`);
       if (Number(part.size_bytes) !== bytes.length) throw new Error(`size_mismatch expected=${part.size_bytes} actual=${bytes.length}`);
@@ -336,11 +351,13 @@ const main = async () => {
       });
       const file = await uploadDriveFile({ bytes, name: part.workbook_name, folderId: runFolder, run, part });
       await appendManifest({ run, part, file, folderId: runFolder });
-      await patchPart({ part, file, folderId: runFolder });
-      if (await deleteStagingObject({ bucket: part.storage_bucket, path: part.storage_path })) {
-        await markNewStagingDeleted({ part, file });
+
+      let stagingDeletedAt = null;
+      if (await deleteLegacyStagingObject({ bucket: part.storage_bucket, path: part.storage_path })) {
+        stagingDeletedAt = new Date().toISOString();
         summary.stagingDeleted += 1;
       }
+      await patchPart({ part, file, folderId: runFolder, stagingDeletedAt });
       await finalizeRunProvider(run);
       summary.migrated += 1;
     } catch (error) {
@@ -349,11 +366,20 @@ const main = async () => {
     }
   }
 
-  console.log(JSON.stringify({ generatedAt: new Date().toISOString(), dryRun: DRY_RUN, deleteStaging: DELETE_STAGING, ...summary }, null, 2));
+  console.log(JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    dryRun: DRY_RUN,
+    deleteStaging: DELETE_STAGING,
+    ...summary,
+  }, null, 2));
   if (summary.failed) process.exitCode = 1;
 };
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack : error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.stack : error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await closeNeonPool().catch(() => undefined);
+  });
