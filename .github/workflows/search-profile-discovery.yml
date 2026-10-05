@@ -55,6 +55,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Load Neon production connection from Vercel
+        run: bash scripts/load-neon-from-vercel.sh
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Test RSS entity, commercial semantics and BCB identity
@@ -105,6 +108,7 @@ jobs:
     timeout-minutes: 20
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 steps:
       - name: Checkout production main
         uses: actions/checkout@v4
