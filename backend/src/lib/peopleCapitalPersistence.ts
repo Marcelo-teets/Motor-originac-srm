@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 import { stableTextKey, type PeopleCapitalCapture } from './peopleCapitalSignals.js';
 
 export type PeopleCapitalCaptureEnvelope = {
@@ -35,7 +35,7 @@ export const persistPeopleCapitalCaptures = async (params: {
   companyId: string;
   captures: PeopleCapitalCaptureEnvelope[];
 }): Promise<PeopleCapitalPersistenceDiagnostics> => {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client || !params.captures.length) return {
     metricSnapshots: 0,
     jobOpenings: 0,

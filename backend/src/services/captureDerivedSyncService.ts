@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { computeLeadScore } from '../lib/scoring.js';
@@ -154,7 +154,7 @@ const qualificationRow = (qualification: ReturnType<typeof buildQualificationSna
 });
 
 export class CaptureDerivedSyncService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async sync(input: CaptureDerivedSyncInput): Promise<CaptureDerivedSyncSummary> {
     if (!this.client) {

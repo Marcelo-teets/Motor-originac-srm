@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { CompanyCreditReviewOutcome } from '../lib/companyCreditReview.js';
 
 type UserProfileRow = { id: string; role: string; status: string };
@@ -57,7 +57,7 @@ const asMetadata = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 export class CompanyCreditReviewRuntime {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   private requireClient() {
     if (!this.client) throw new Error('Persistent database is required for company credit review.');

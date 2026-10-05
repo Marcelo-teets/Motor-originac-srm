@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 import { sanitizePeopleCapitalText } from './peopleCapitalSignals.js';
 
 export type TechSignalsCandidate = {
@@ -160,7 +160,7 @@ export const syncTechSignalsDiscoveryCandidates = async (params: {
   feedUrl?: string;
   collectedAt?: string;
 } = {}): Promise<TechSignalsDiscoverySummary> => {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) throw new Error('Supabase service-role client unavailable for Tech Signals candidate discovery.');
   const feedUrl = params.feedUrl ?? 'https://pedrobmesquita.substack.com/feed';
   const collectedAt = params.collectedAt ?? new Date().toISOString();

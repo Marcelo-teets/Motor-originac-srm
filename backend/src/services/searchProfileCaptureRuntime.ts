@@ -1,11 +1,11 @@
 import type { PlatformRepository } from '../repositories/platformRepository.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { CompanySeed, SearchProfile } from '../types/platform.js';
 import type { ExistingCompanyMatchCandidate } from '../lib/companyDiscoveryMatching.js';
 import { buildRediscoveryCandidateUpdate } from '../lib/candidateRediscoveryLineage.js';
 import type { DiscoveredCandidateRecord, SearchProfileCaptureAdapter, SearchProfileRunRecord } from './searchProfileCaptureService.js';
 
-type SupabaseLike = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseLike = NonNullable<ReturnType<typeof getDataClient>>;
 
 export const discoveredCandidateToRow = (candidate: DiscoveredCandidateRecord) => ({
   id: candidate.id,
@@ -157,7 +157,7 @@ const mapCandidateRow = (row: any): DiscoveredCandidateRecord => ({
 });
 
 export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter {
-  private readonly client: SupabaseLike | null = getSupabaseClient();
+  private readonly client: SupabaseLike | null = getDataClient();
   private runs: SearchProfileRunRecord[] = [];
   private candidates: DiscoveredCandidateRecord[] = [];
 

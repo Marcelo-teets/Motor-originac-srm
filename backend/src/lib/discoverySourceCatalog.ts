@@ -1,5 +1,5 @@
 import type { SearchProfile } from '../types/platform.js';
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 export type DiscoveryCatalogSource = {
   code: string;
@@ -213,7 +213,7 @@ const mapUniverseCandidate = (row: any): DiscoveryUniverseCandidate | null => {
 };
 
 export async function loadDiscoveryCatalogContext(profile: SearchProfile): Promise<DiscoveryCatalogContext> {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) {
     return { sources: [], universe: [], sourceCatalogLoaded: false, candidateUniverseLoaded: false };
   }

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   fetchBcbRegulatedInstitutions,
   type BcbRegulatedInstitution,
@@ -131,7 +131,7 @@ type CandidateRow = {
 };
 
 type SourceRow = { id: string; metadata?: Record<string, unknown> | null };
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 type Dependencies = {
   client?: SupabaseClient | null;
@@ -158,7 +158,7 @@ export class CandidateBcbIdentityService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.fetchInstitutions = dependencies.fetchInstitutions ?? fetchBcbRegulatedInstitutions;
     this.now = dependencies.now ?? (() => new Date());
   }
