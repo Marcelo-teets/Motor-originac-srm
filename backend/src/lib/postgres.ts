@@ -204,6 +204,11 @@ export class NeonPostgresClient {
     return result.rows;
   }
 
+  async query<T extends Record<string, unknown> = Record<string, unknown>>(text: string, values: unknown[] = []) {
+    const result = await this.pool.query(text, values);
+    return result.rows as T[];
+  }
+
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>) {
     const fnName = ident(fn);
     const entries = Object.entries(args);
