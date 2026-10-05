@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
+import { isNeonDatabaseConfigured, requireNeonDataClient } from '../serverless/neon-data.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -55,8 +56,6 @@ const numberValue = (value: string | number | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
-
 const getBuildInfo = () => ({
   gitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown',
   environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'local',
@@ -77,9 +76,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (requestUrl(req).searchParams.get('mode') === 'platform') {
-    const neonConfigured = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL);
-    const legacySupabaseConfigured = Boolean(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY));
-    const dataProvider = neonConfigured ? 'neon' : legacySupabaseConfigured ? 'supabase' : 'memory';
+    const neonConfigured = isNeonDatabaseConfigured();
+    const dataProvider = neonConfigured ? 'neon' : 'memory';
     const mode = neonConfigured ? 'real' : 'partial';
     writeJson(res, 200, {
       status: mode,
@@ -106,41 +104,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || anonKey;
-
-  if (!supabaseUrl || !anonKey || !serviceKey) {
-    writeJson(res, 503, {
-      status: 'partial',
-      generatedAt: new Date().toISOString(),
-      error: 'Supabase is not configured for capital-market health.',
-    });
-    return;
-  }
-
   const accessToken = authorization.slice('Bearer '.length);
 
   try {
     await verifyActiveIdentity(accessToken);
-
-    const healthUrl = new URL(`${supabaseUrl}/rest/v1/capital_market_ingestion_health`);
-    healthUrl.searchParams.set('select', '*');
-    healthUrl.searchParams.set('order', 'dataset_code.asc');
-    healthUrl.searchParams.set('limit', '20');
-
-    const healthResponse = await fetch(healthUrl.toString(), {
-      headers: {
-        apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
-      },
-    });
-
-    if (!healthResponse.ok) {
-      throw new Error(`Supabase health query failed: ${healthResponse.status} ${(await healthResponse.text()).slice(0, 240)}`);
-    }
-
-    const rows = await healthResponse.json() as HealthRow[];
+    const rows = await requireNeonDataClient().select('capital_market_ingestion_health', {
+      orderBy: { column: 'dataset_code', ascending: true },
+      limit: 20,
+    }) as HealthRow[];
     const datasets = rows.map((row) => ({
       datasetCode: row.dataset_code,
       label: datasetLabels[row.dataset_code] ?? row.dataset_code,
