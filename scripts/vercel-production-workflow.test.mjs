@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 const workflow = readFileSync('.github/workflows/vercel-production-deploy.yml', 'utf8');
 
 assert.match(workflow, /VERCEL_CLI_VERSION:\s*50\.28\.0/, 'Vercel CLI must be pinned');
-assert.match(workflow, /sync-public-auth-env-to-vercel\.mjs/, 'Workflow must synchronize canonical public Supabase Auth config before the build');
-assert.match(workflow, /Synchronize canonical public Supabase Auth config[\s\S]*Link exact Vercel project/, 'Public Auth config must be synchronized before pulling Vercel production settings');
+assert.match(workflow, /sync-public-auth-env-to-vercel\.mjs/, 'Workflow must synchronize canonical public Neon Auth config before the build');
+assert.match(workflow, /Synchronize canonical public Neon Auth config[\s\S]*Link exact Vercel project/, 'Public Auth config must be synchronized before pulling Vercel production settings');
 assert.match(workflow, /vercel@\$VERCEL_CLI_VERSION" pull/, 'Workflow must pull production settings');
 assert.match(workflow, /vercel@\$VERCEL_CLI_VERSION" build[\s\S]*--prod/, 'Workflow must build a production artifact');
 assert.match(workflow, /vercel@\$VERCEL_CLI_VERSION" deploy[\s\S]*--prebuilt[\s\S]*--prod/, 'Workflow must deploy the prebuilt artifact');
