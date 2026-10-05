@@ -7,6 +7,3 @@ export const getDataClient = () => {
 };
 
 export const getDataProvider = () => env.dataProvider;
-
-// Temporary source-compatibility alias while callers are renamed in this PR.
-export const getSupabaseClient = getDataClient;
