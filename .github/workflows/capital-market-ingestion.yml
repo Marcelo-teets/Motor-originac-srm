@@ -88,8 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       CAPITAL_MARKET_API_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/capital-markets/run
       REQUESTED_DATASET: ${{ inputs.dataset || '' }}
@@ -113,10 +112,8 @@ jobs:
         if: github.event_name == 'push'
         run: test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1)
 
-      - name: Validate ingestion secrets
-        run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+      - name: Validate Neon ingestion secret
+        run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
 
       - name: Check storage budget for push canaries
         if: github.event_name == 'push'
@@ -135,42 +132,24 @@ jobs:
             echo '- Typecheck and connector tests still run; live writes are skipped until hot/cold storage recovers capacity.'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Probe Supabase REST access
+      - name: Probe Neon PostgreSQL access
         if: github.event_name != 'push'
         shell: bash
         run: |
-          HTTP_STATUS="000"
-          for ATTEMPT in $(seq 1 8); do
-            echo "Supabase REST probe attempt ${ATTEMPT}/8"
-            HTTP_STATUS=$(curl -sS \
-              --connect-timeout 10 \
-              --max-time 30 \
-              --retry 2 \
-              --retry-delay 2 \
-              --retry-all-errors \
-              -o /tmp/supabase-probe.json \
-              -w "%{http_code}" \
-              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              "${SUPABASE_URL}/rest/v1/source_catalog?select=id&limit=1" || true)
-            echo "Supabase REST probe status: ${HTTP_STATUS}"
-            if [ "$HTTP_STATUS" = "200" ]; then
-              exit 0
-            fi
-            sleep $((ATTEMPT * 5))
-          done
-
-          {
-            echo "## Supabase REST probe failed"
-            echo
-            echo "HTTP status after retries: ${HTTP_STATUS}"
-            echo
-            echo '```json'
-            head -c 2000 /tmp/supabase-probe.json 2>/dev/null || true
-            echo
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const { Pool } = pg;
+          const url = process.env.MOTOR_NEON_DATABASE_URL;
+          if (!url) throw new Error('MOTOR_NEON_DATABASE_URL is missing');
+          const pool = new Pool({ connectionString: url, max: 1, connectionTimeoutMillis: 10000 });
+          try {
+            const { rows } = await pool.query("select to_regclass('public.source_catalog') is not null as source_catalog_ok");
+            if (!rows[0]?.source_catalog_ok) throw new Error('source_catalog is missing in Neon');
+            console.log(JSON.stringify({ provider: 'neon', sourceCatalog: true }));
+          } finally {
+            await pool.end();
+          }
+          NODE
 
       - name: Typecheck backend
         if: github.event_name == 'push'
@@ -382,7 +361,7 @@ jobs:
           source = Path('/tmp/cvm-ingestion.raw.log')
           target = Path('/tmp/cvm-ingestion.log')
           text = source.read_text(encoding='utf-8', errors='replace') if source.exists() else ''
-          for name in ('SUPABASE_SERVICE_ROLE_KEY', 'CRON_SECRET', 'SUPABASE_URL'):
+          for name in ('MOTOR_NEON_DATABASE_URL', 'CRON_SECRET'):
               value = os.environ.get(name, '')
               if value:
                   text = text.replace(value, f'[{name}_REDACTED]')
