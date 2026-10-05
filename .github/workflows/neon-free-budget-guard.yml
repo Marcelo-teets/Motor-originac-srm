@@ -93,47 +93,6 @@ jobs:
           done
           echo "Disabled heavy schedulers; failures=$failures" >> "$GITHUB_STEP_SUMMARY"
           test "$failures" -eq 0
-      - name: TEMP guarded Neon branch cleanup
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          const projectId='steep-poetry-38942951';
-          const productionId='br-bold-pond-b6vde4xj';
-          const base='https://console.neon.tech/api/v2';
-          const headers={Authorization:'Bearer '+process.env.NEON_API_KEY,Accept:'application/json','Content-Type':'application/json'};
-          async function req(path,method='GET'){
-            const res=await fetch(base+path,{method,headers,signal:AbortSignal.timeout(15000)});
-            const text=await res.text();
-            let body=null; try{body=text?JSON.parse(text):null}catch{body={raw:text.slice(0,400)}}
-            if(!res.ok) throw new Error(method+' '+path+' HTTP '+res.status+' '+JSON.stringify(body));
-            return body;
-          }
-          const before=await req('/projects/'+projectId+'/branches?limit=100');
-          const branches=Array.isArray(before?.branches)?before.branches:[];
-          const prod=branches.find(b=>b.id===productionId && b.name==='production' && b.primary===true);
-          if(!prod) throw new Error('production branch guard failed');
-          const targets=[
-            {id:'br-cold-butterfly-b6eeow8y',name:'preview/ops/neon-inventory-20261005'},
-            {id:'br-wispy-math-b6y3br1c',name:'mcp-migration-2026-09-28T21-58-03'}
-          ];
-          for(const target of targets){
-            const b=branches.find(x=>x.id===target.id);
-            if(!b){ console.log('NEON_CLEANUP_SKIP='+JSON.stringify({...target,reason:'already_absent'})); continue; }
-            if(b.name!==target.name || b.primary===true || b.protected===true || b.parent_id!==productionId){
-              throw new Error('branch guard failed for '+target.id+' '+JSON.stringify({name:b.name,primary:b.primary,protected:b.protected,parent_id:b.parent_id}));
-            }
-            const ep=await req('/projects/'+projectId+'/endpoints');
-            const linked=(Array.isArray(ep?.endpoints)?ep.endpoints:[]).filter(e=>e.branch_id===target.id).map(e=>({id:e.id,state:e.current_state,type:e.type}));
-            console.log('NEON_CLEANUP_TARGET='+JSON.stringify({...target,endpoints:linked}));
-            await req('/projects/'+projectId+'/branches/'+encodeURIComponent(target.id),'DELETE');
-            console.log('NEON_CLEANUP_DELETED='+JSON.stringify(target));
-          }
-          await new Promise(r=>setTimeout(r,1200));
-          const after=await req('/projects/'+projectId+'/branches?limit=100');
-          console.log('NEON_CLEANUP_AFTER='+JSON.stringify((after.branches||[]).map(b=>({id:b.id,name:b.name,primary:b.primary,protected:b.protected,parent_id:b.parent_id}))));
-          NODE
       - name: Publish status
         if: always()
         shell: bash
