@@ -52,7 +52,7 @@ const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[
 const hasPersistentDataCredentials = () => Boolean(
   envFlag('MOTOR_NEON_DATABASE_URL')
   || envFlag('DATABASE_URL')
-  || (envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'))),
+
 );
 
 const supabaseHost = () => {
@@ -166,8 +166,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   ];
 
   const checks = await Promise.all(tables.map((table) => dataTableProbe(table)));
-  const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
-  const dataProvider = (envFlag('MOTOR_NEON_DATABASE_URL') || envFlag('DATABASE_URL')) ? 'neon' : hasSupabaseCredentials ? 'supabase' : 'memory';
+  const dataProvider = (envFlag('MOTOR_NEON_DATABASE_URL') || envFlag('DATABASE_URL')) ? 'neon' : 'memory';
   const persistentDataConfigured = dataProvider !== 'memory';
   const canAccessCoreTables = checks
     .filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table))
