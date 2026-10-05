@@ -46,7 +46,8 @@
     "typecheck:serverless": "tsc -p tsconfig.serverless.json",
     "typecheck": "npm -C backend run typecheck && npm -C frontend run typecheck && npm run typecheck:serverless",
     "test:database-growth-guard": "node --test scripts/database-growth-circuit-breaker-contract.test.mjs",
-    "test:neon-growth-guard": "node --test scripts/neon-database-growth-circuit-breaker-contract.test.mjs"
+    "test:neon-growth-guard": "node --test scripts/neon-database-growth-circuit-breaker-contract.test.mjs",
+    "test:no-supabase-runtime": "node --test scripts/no-supabase-runtime-contract.test.mjs"
   },
   "devDependencies": {
     "tsx": "4.19.3"

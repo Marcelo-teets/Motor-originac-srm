@@ -94,6 +94,9 @@ jobs:
       - name: Validate archive queue runtime hardening
         run: npm run test:archive-queue-runtime
 
+      - name: Prevent Supabase runtime reintroduction
+        run: npm run test:no-supabase-runtime
+
       - name: Validate Neon Free budget guard
         run: node --test scripts/neon-free-budget-guard.test.mjs
 
