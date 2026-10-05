@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${SUPABASE_URL:?SUPABASE_URL is missing}"
-: "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is missing}"
+if [[ -z "${MOTOR_NEON_DATABASE_URL:-}" && -z "${DATABASE_URL:-}" ]]; then
+  echo "MOTOR_NEON_DATABASE_URL or DATABASE_URL is missing" >&2
+  exit 1
+fi
 
-export USE_SUPABASE=true
 exec npx tsx scripts/capture/run-bounded-capture-batch.ts
