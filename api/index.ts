@@ -12,6 +12,9 @@ import candidateIdentityReviewHandler from '../serverless/candidate-identity-rev
 import companyCreditReviewHandler from '../serverless/company-credit-review.js';
 import companyDecisionReadinessHandler from '../serverless/company-decision-readiness.js';
 import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
+import historicalArchiveHandler from '../serverless/historical-archive.js';
+import knowledgeRpcHandler from '../serverless/knowledge-rpc.js';
+import knowledgeSearchHandler from '../serverless/knowledge-search.js';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
@@ -285,6 +288,12 @@ async function runConsolidatedHandler(pathname: string, req: IncomingMessage, re
     routeHandler = companyDecisionReadinessHandler;
   } else if (pathname === '/api/fidc-market-map') {
     routeHandler = fidcMarketMapHandler;
+  } else if (pathname === '/api/historical-archive') {
+    routeHandler = historicalArchiveHandler;
+  } else if (pathname === '/api/knowledge-rpc') {
+    routeHandler = knowledgeRpcHandler;
+  } else if (pathname === '/api/knowledge-search') {
+    routeHandler = knowledgeSearchHandler;
   }
 
   if (!routeHandler) return false;

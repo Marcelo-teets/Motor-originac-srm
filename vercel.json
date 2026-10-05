@@ -43,15 +43,6 @@
     },
     "api/task-ai.ts": {
       "maxDuration": 30
-    },
-    "api/knowledge-rpc.ts": {
-      "maxDuration": 30
-    },
-    "api/knowledge-search.ts": {
-      "maxDuration": 30
-    },
-    "api/historical-archive.ts": {
-      "maxDuration": 30
     }
   },
   "crons": [
