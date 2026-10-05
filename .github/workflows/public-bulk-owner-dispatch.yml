@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 180
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
-GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
       ISSUE_TITLE: ${{ github.event.issue.title }}
     steps:
       - name: Checkout production main

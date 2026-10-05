@@ -113,7 +113,7 @@ jobs:
       cancel-in-progress: false
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
-REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
     steps:
