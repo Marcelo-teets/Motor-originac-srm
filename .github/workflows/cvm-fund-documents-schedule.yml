@@ -95,9 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
       REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
@@ -108,10 +107,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Validate Supabase secrets
+      - name: Validate Neon database secret
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
 
       - name: Resolve document ingestion scope
         id: scope
@@ -149,7 +147,7 @@ jobs:
           echo "trigger=$TRIGGER" >> "$GITHUB_OUTPUT"
           echo "Resolved dataset=$DATASET max_rows=$MAX_ROWS trigger=$TRIGGER reference=$REFERENCE"
 
-      - name: Check Supabase storage budget
+      - name: Check Neon storage budget
         id: storage
         shell: bash
         run: |
