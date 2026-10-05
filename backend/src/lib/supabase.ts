@@ -276,20 +276,11 @@ class SupabaseRestClient {
   }
 }
 
+// Compatibility export: callers keep the historical function name while
+// the only persistent runtime is Neon PostgreSQL.
 export const getSupabaseClient = () => {
-  if (env.dataProvider === 'neon') {
-    return getNeonPostgresClient(env.neonDatabaseUrl);
-  }
-
-  if (!env.supabaseUrl || !(env.supabaseServiceRoleKey || env.supabaseAnonKey)) {
-    return null;
-  }
-
-  return new SupabaseRestClient(
-    env.supabaseUrl,
-    env.supabaseServiceRoleKey || env.supabaseAnonKey,
-    env.supabaseAnonKey || env.supabaseServiceRoleKey,
-  );
+  if (env.dataProvider !== 'neon' || !env.neonDatabaseUrl) return null;
+  return getNeonPostgresClient(env.neonDatabaseUrl);
 };
 
 export const getDataClient = getSupabaseClient;
