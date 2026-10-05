@@ -1,5 +1,5 @@
 import { fetchWithPolicy } from './http';
-import { supabaseRuntimeHeaders } from './supabaseRuntime';
+import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 import type { KnowledgeLearningRun, KnowledgeLearningStatus } from './knowledgeLearningTypes';
 
@@ -18,11 +18,14 @@ type RawStatus = {
 };
 
 const rpc = async <T>(session: SessionData | null, name: string, args: Record<string, unknown>): Promise<T> => {
-  const { runtime, headers } = supabaseRuntimeHeaders(session, 'Knowledge Learning Agent');
-  const response = await fetchWithPolicy(`${runtime.url}/rest/v1/rpc/${name}`, {
+  if (!session?.access_token) throw new Error('Sessão autenticada necessária para Knowledge Learning Agent.');
+  const response = await fetchWithPolicy(buildApiUrl('/api/knowledge/rpc'), {
     method: 'POST',
-    headers,
-    body: JSON.stringify(args),
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ functionName: name, args }),
   }, { timeoutMs: 20_000 });
   const raw = await response.text();
   let payload: T | RpcError | null = null;
@@ -32,8 +35,8 @@ const rpc = async <T>(session: SessionData | null, name: string, args: Record<st
     throw new Error(`RPC ${name} retornou uma resposta inválida (${response.status}).`);
   }
   if (!response.ok) {
-    const error = payload as RpcError | null;
-    throw new Error(error?.message ?? error?.details ?? `RPC ${name} falhou (${response.status}).`);
+    const error = payload as (RpcError & { error?: string }) | null;
+    throw new Error(error?.error ?? error?.message ?? error?.details ?? `RPC ${name} falhou (${response.status}).`);
   }
   return payload as T;
 };
