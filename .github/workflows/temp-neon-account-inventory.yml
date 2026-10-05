@@ -1,4 +1,4 @@
-name: TEMP Neon Known Project Audit
+name: TEMP Neon Safe Branch Cleanup
 
 on:
   push:
@@ -11,57 +11,59 @@ permissions:
   contents: read
 
 jobs:
-  inventory:
+  cleanup:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
     steps:
-      - name: Audit known Neon project IDs
+      - name: Delete only validated stale Motor Neon branches
         shell: bash
         run: |
           set -euo pipefail
           test -n "${NEON_API_KEY:-}" || { echo "NEON_API_KEY_MISSING"; exit 2; }
           node <<'NODE'
-          const ids = [
-            'steep-poetry-38942951',
-            'little-hat-27601841',
-            'flat-cherry-46110068',
-            'round-hat-79088822',
-            'long-sunset-74551465'
+          const projectId='steep-poetry-38942951';
+          const keep=new Set(['br-bold-pond-b6vde4xj','br-wispy-math-b6y3br1c','br-little-cherry-b6z5lec2']);
+          const targets=[
+            ['br-billowing-rain-b68674je','preview/agent/database-growth-circuit-breaker-20261001'],
+            ['br-small-wave-b6r4gpez','preview/agent/supabase-recovery-probe-20261001'],
+            ['br-wandering-pond-b6gpvdze','preview/feat/full-supabase-drive-export-20261001'],
+            ['br-frosty-glitter-b6l4bq3b','mcp-migration-2026-09-28T21-57-50'],
+            ['br-solitary-fog-b60d5tww','mcp-migration-2026-09-28T21-53-02'],
+            ['br-red-cloud-b6idc3mb','mcp-migration-2026-09-28T21-29-18'],
+            ['br-dry-queen-b6eri8zb','mcp-migration-2026-09-28T21-29-09']
           ];
-          const key = process.env.NEON_API_KEY;
-          const base = 'https://console.neon.tech/api/v2';
-          const headers = { Authorization: 'Bearer ' + key, Accept: 'application/json' };
-          for (const id of ids) {
-            const p = await fetch(base + '/projects/' + encodeURIComponent(id), { headers });
-            console.log('PROJECT_STATUS ' + id + ' ' + p.status);
-            if (!p.ok) continue;
-            const body = await p.json();
-            const project = body.project ?? body;
-            console.log('PROJECT ' + JSON.stringify({
-              id: project.id,
-              name: project.name,
-              org_id: project.org_id ?? null,
-              region_id: project.region_id ?? null,
-              created_at: project.created_at ?? null,
-              updated_at: project.updated_at ?? null
-            }));
-            const b = await fetch(base + '/projects/' + encodeURIComponent(id) + '/branches', { headers });
-            console.log('BRANCH_STATUS ' + id + ' ' + b.status);
-            if (!b.ok) continue;
-            const bj = await b.json();
-            const branches = Array.isArray(bj.branches) ? bj.branches : [];
-            console.log('BRANCH_COUNT ' + id + ' ' + branches.length);
-            for (const branch of branches) {
-              console.log('BRANCH ' + id + ' ' + JSON.stringify({
-                id: branch.id,
-                name: branch.name,
-                primary: branch.primary ?? false,
-                parent_id: branch.parent_id ?? null,
-                created_at: branch.created_at ?? null,
-                updated_at: branch.updated_at ?? null
-              }));
-            }
+          const base='https://console.neon.tech/api/v2';
+          const headers={Authorization:'Bearer '+process.env.NEON_API_KEY,Accept:'application/json'};
+          async function req(path,opts={}) {
+            const res=await fetch(base+path,{headers,...opts});
+            let body=null; try { body=await res.json(); } catch {}
+            return {res,body};
           }
+          const before=await req('/projects/'+projectId+'/branches');
+          if(!before.res.ok) throw new Error('branch list HTTP '+before.res.status);
+          const branches=before.body.branches||[];
+          const byId=new Map(branches.map(b=>[b.id,b]));
+          const primary=branches.filter(b=>b.primary);
+          if(primary.length!==1 || primary[0].id!=='br-bold-pond-b6vde4xj') throw new Error('unexpected primary branch');
+          for(const id of keep) if(!byId.has(id)) throw new Error('required keep branch missing: '+id);
+          for(const [id,name] of targets){
+            const b=byId.get(id);
+            if(!b) { console.log('ALREADY_ABSENT '+id); continue; }
+            if(b.primary) throw new Error('refusing primary '+id);
+            if(b.name!==name) throw new Error('name mismatch '+id+' expected='+name+' actual='+b.name);
+            if(keep.has(id)) throw new Error('target overlaps keep '+id);
+            const del=await req('/projects/'+projectId+'/branches/'+id,{method:'DELETE'});
+            console.log('DELETE_STATUS '+id+' '+del.res.status);
+            if(!del.res.ok && del.res.status!==404) throw new Error('delete failed '+id+' HTTP '+del.res.status);
+          }
+          const after=await req('/projects/'+projectId+'/branches');
+          if(!after.res.ok) throw new Error('post list HTTP '+after.res.status);
+          const remaining=after.body.branches||[];
+          console.log('REMAINING_COUNT='+remaining.length);
+          for(const b of remaining) console.log('REMAINING '+JSON.stringify({id:b.id,name:b.name,primary:b.primary}));
+          const remainingIds=new Set(remaining.map(b=>b.id));
+          for(const [id] of targets) if(remainingIds.has(id)) throw new Error('target still present '+id);
+          for(const id of keep) if(!remainingIds.has(id)) throw new Error('keep branch missing after cleanup '+id);
           NODE
