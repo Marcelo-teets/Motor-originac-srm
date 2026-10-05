@@ -22,9 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GH_TOKEN: ${{ github.token }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+GH_TOKEN: ${{ github.token }}
       ISSUE_TITLE: ${{ github.event.issue.title }}
     steps:
       - name: Checkout production main
@@ -42,8 +41,7 @@ jobs:
         id: secrets
         continue-on-error: true
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
       - name: Resolve owner dispatch scope
         id: scope
         shell: bash
