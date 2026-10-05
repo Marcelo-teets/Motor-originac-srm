@@ -58,7 +58,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     ]);
 
     assertBoundedCaptureScope(companyId, sourceId);
-    const usePersistentData = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL || (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)));
+    const usePersistentData = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL);
     const repository = createPlatformRepository(usePersistentData ? 'database' : 'memory');
     const runtime = new CaptureRuntimeService(repository);
     const result = await withBoundedExternalFetch(
