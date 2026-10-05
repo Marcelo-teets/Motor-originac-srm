@@ -42,7 +42,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       import('../backend/src/repositories/platformRepository.js'),
       import('../backend/src/lib/boundedCapture.js'),
     ]);
-    const usePersistentData = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL || (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)));
+    const usePersistentData = Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL);
     const cadence = cadenceFrom(req) as 'frequent' | 'daily' | 'weekly' | 'monthly' | 'all';
     const repository = createPlatformRepository(usePersistentData ? 'database' : 'memory');
     const [allCompanies, allSources] = await Promise.all([
