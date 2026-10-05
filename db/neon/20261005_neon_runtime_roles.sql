@@ -1,5 +1,5 @@
--- Compatibility roles used only inside Motor backend transactions.
--- They have NOLOGIN and do not represent external identity providers.
+-- Compatibility NOLOGIN roles referenced by historical RLS policies.
+-- Runtime authorization is enforced by Neon Auth plus transaction-local claims in the Motor backend.
 do $roles$
 begin
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then
@@ -14,10 +14,5 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'anonymous') then
     create role anonymous nologin;
   end if;
-
-  execute format('grant authenticated to %I', current_user);
-  execute format('grant service_role to %I', current_user);
-  execute format('grant anon to %I', current_user);
-  execute format('grant anonymous to %I', current_user);
 end
 $roles$;

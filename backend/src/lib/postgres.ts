@@ -238,7 +238,6 @@ export class NeonPostgresClient {
           }),
         ],
       );
-      await client.query('set local role authenticated');
       const result = await client.query(
         `select * from public.${fnName}(${namedArgs})`,
         values,
@@ -273,7 +272,6 @@ export class NeonPostgresClient {
            set_config('request.jwt.claim.role', 'service_role', true),
            set_config('request.jwt.claims', '{"role":"service_role"}', true)`,
       );
-      await client.query('set local role service_role');
       const result = await client.query(
         `select * from public.${fnName}(${namedArgs})`,
         values,
