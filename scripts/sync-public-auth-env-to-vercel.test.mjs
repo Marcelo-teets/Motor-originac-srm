@@ -6,9 +6,6 @@ import {
   validatePublicAuthConfig,
 } from './sync-public-auth-env-to-vercel.mjs';
 
-const projectRef = 'hdghpmssudrqhsbvrdyt';
-const supabaseUrl = `https://${projectRef}.supabase.co`;
-const publishableKey = 'sb_publishable_test_public_key';
 const neonProjectId = 'steep-poetry-38942951';
 const neonAuthBaseUrl = 'https://ep-test.neonauth.c-2.sa-east-1.aws.neon.tech/neondb/auth';
 const neonAuthJwksUrl = `${neonAuthBaseUrl}/.well-known/jwks.json`;
@@ -18,7 +15,7 @@ const response = (status, payload) => new Response(JSON.stringify(payload), {
   headers: { 'content-type': 'application/json' },
 });
 
-test('upserts Neon Auth plus legacy public runtime variables and verifies production targets', async () => {
+test('upserts only canonical Neon Auth variables and verifies production targets', async () => {
   const requests = [];
   const fetchImpl = async (url, init = {}) => {
     requests.push({ url: String(url), init });
@@ -36,9 +33,6 @@ test('upserts Neon Auth plus legacy public runtime variables and verifies produc
     neonProjectId,
     neonAuthBaseUrl,
     neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl,
-    publishableKey,
     fetchImpl,
   });
 
@@ -55,20 +49,12 @@ test('upserts Neon Auth plus legacy public runtime variables and verifies produc
     assert.ok(PUBLIC_AUTH_ENV_KEYS.includes(body.key));
     assert.deepEqual(body.target, ['production', 'preview', 'development']);
     assert.equal(body.type, 'encrypted');
-    assert.notEqual(body.value, 'service_role');
+    assert.doesNotMatch(body.key, /SUPABASE/);
   }
 });
 
 test('validates canonical Neon Auth URLs', () => {
-  const result = validatePublicAuthConfig({
-    authProvider: 'neon',
-    neonProjectId,
-    neonAuthBaseUrl,
-    neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl,
-    publishableKey,
-  });
+  const result = validatePublicAuthConfig({ authProvider: 'neon', neonProjectId, neonAuthBaseUrl, neonAuthJwksUrl });
   assert.equal(result.authProvider, 'neon');
   assert.equal(result.neonAuthBaseUrl, neonAuthBaseUrl);
   assert.equal(result.neonAuthJwksUrl, neonAuthJwksUrl);
@@ -80,9 +66,6 @@ test('rejects malformed Neon Auth host or JWKS URL', () => {
     neonProjectId,
     neonAuthBaseUrl: 'https://example.com/neondb/auth',
     neonAuthJwksUrl: 'https://example.com/neondb/auth/.well-known/jwks.json',
-    projectRef,
-    supabaseUrl,
-    publishableKey,
   }), /neon\.tech/);
 
   assert.throws(() => validatePublicAuthConfig({
@@ -90,34 +73,7 @@ test('rejects malformed Neon Auth host or JWKS URL', () => {
     neonProjectId,
     neonAuthBaseUrl,
     neonAuthJwksUrl: `${neonAuthBaseUrl}/wrong`,
-    projectRef,
-    supabaseUrl,
-    publishableKey,
   }), /JWKS URL/);
-});
-
-test('still rejects a legacy Supabase URL from another project', () => {
-  assert.throws(() => validatePublicAuthConfig({
-    authProvider: 'neon',
-    neonProjectId,
-    neonAuthBaseUrl,
-    neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl: 'https://wrong-project.supabase.co',
-    publishableKey,
-  }), /must target/);
-});
-
-test('rejects secret Supabase keys from legacy public frontend configuration', () => {
-  assert.throws(() => validatePublicAuthConfig({
-    authProvider: 'neon',
-    neonProjectId,
-    neonAuthBaseUrl,
-    neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl,
-    publishableKey: 'sb_secret_never_public',
-  }), /cannot be exposed/);
 });
 
 test('fails when Vercel does not expose synchronized variables in production', async () => {
@@ -134,9 +90,6 @@ test('fails when Vercel does not expose synchronized variables in production', a
     neonProjectId,
     neonAuthBaseUrl,
     neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl,
-    publishableKey,
     fetchImpl,
   }), /not configured for Vercel production/);
 });
