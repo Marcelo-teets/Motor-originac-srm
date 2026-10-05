@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
+import { requireNeonDataClient } from '../serverless/neon-data.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -29,19 +30,6 @@ const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) =>
   return res.status(statusCode).json(payload);
 };
 
-const runtimeConfig = () => {
-  const supabaseUrl = (process.env.SUPABASE_URL ?? '').replace(/\/+$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) throw new ApiError('Supabase runtime não está configurado.', 503);
-  return { supabaseUrl, anonKey, serviceRoleKey };
-};
-
-const serviceHeaders = () => {
-  const { serviceRoleKey } = runtimeConfig();
-  return { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json' };
-};
-
 const authenticate = async (req: FidcsRequest) => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
@@ -63,40 +51,35 @@ const requireGodMode = async (authorization: string) => {
 }
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
-  const { supabaseUrl } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
-    method: 'POST', headers: serviceHeaders(), body: JSON.stringify(body),
-  });
-  const raw = await response.text();
-  let payload: unknown;
-  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = raw; }
-  if (!response.ok) throw new ApiError(`RPC ${name} falhou (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    return await requireNeonDataClient().rpc<T>(name, body);
+  } catch (error) {
+    throw new ApiError(`RPC ${name} falhou no Neon: ${errorMessage(error)}`, 502);
+  }
 };
 
 const findSource = async (): Promise<SourceRow> => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/source_catalog`);
-  url.searchParams.set('select', 'id,name,status,health,metadata');
-  url.searchParams.set('metadata->>code', `eq.${SOURCE_CODE}`);
-  url.searchParams.set('limit', '1');
-  const response = await fetch(url, { headers: serviceHeaders() });
-  const rows = await response.json().catch(() => []) as SourceRow[];
-  if (!response.ok || !rows[0]) throw new ApiError('Fonte FIDCS.com.br não encontrada no catálogo.', 503);
+  const rows = await requireNeonDataClient().query<SourceRow>(
+    `select id, name, status, health, metadata
+       from public.source_catalog
+      where metadata->>'code' = $1
+      limit 1`,
+    [SOURCE_CODE],
+  );
+  if (!rows[0]) throw new ApiError('Fonte FIDCS.com.br não encontrada no catálogo Neon.', 503);
   return rows[0];
 };
 
 const updateSourceHealth = async (
   source: SourceRow, status: 'real' | 'partial', health: 'healthy' | 'degraded', details: Record<string, unknown>,
 ) => {
-  const { supabaseUrl } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/rest/v1/source_catalog?id=eq.${source.id}`, {
-    method: 'PATCH', headers: { ...serviceHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      status, health, metadata: { ...(source.metadata ?? {}), lastProbe: details }, updated_at: new Date().toISOString(),
-    }),
-  });
-  if (!response.ok) throw new ApiError(`Não foi possível atualizar a saúde do FIDCS.com.br (${response.status}).`, 502);
+  const rows = await requireNeonDataClient().update('source_catalog', {
+    status,
+    health,
+    metadata: { ...(source.metadata ?? {}), lastProbe: details },
+    updated_at: new Date().toISOString(),
+  }, [{ column: 'id', operator: 'eq', value: source.id }]);
+  if (!rows.length) throw new ApiError('Não foi possível atualizar a saúde do FIDCS.com.br no Neon.', 502);
 };
 
 const insertRun = async (input: {
@@ -104,31 +87,37 @@ const insertRun = async (input: {
   startedAt: string; finishedAt: string; itemsCollected: number; outputsWritten: number;
   errorMessage?: string | null; metadata: Record<string, unknown>;
 }) => {
-  const { supabaseUrl } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/rest/v1/source_connector_runs`, {
-    method: 'POST', headers: { ...serviceHeaders(), Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      id: randomUUID(), source_id: input.sourceId, scope_type: 'source', trigger_type: input.triggerType,
-      status: input.status, started_at: input.startedAt, finished_at: input.finishedAt,
-      items_collected: input.itemsCollected, outputs_written: input.outputsWritten,
-      signals_written: 0, enrichments_written: 0, error_message: input.errorMessage ?? null,
+  try {
+    await requireNeonDataClient().insert('source_connector_runs', [{
+      id: randomUUID(),
+      source_id: input.sourceId,
+      scope_type: 'source',
+      trigger_type: input.triggerType,
+      status: input.status,
+      started_at: input.startedAt,
+      finished_at: input.finishedAt,
+      items_collected: input.itemsCollected,
+      outputs_written: input.outputsWritten,
+      signals_written: 0,
+      enrichments_written: 0,
+      error_message: input.errorMessage ?? null,
       metadata: { sourceCode: SOURCE_CODE, runtime: RUNTIME, ...input.metadata },
-    }),
-  });
-  if (!response.ok) console.warn('[fidcs.com.br] source_connector_runs insert failed', response.status, await response.text());
+    }]);
+  } catch (error) {
+    console.warn('[fidcs.com.br] source_connector_runs insert failed', errorMessage(error));
+  }
 };
 
 const latestFidcCnpjs = async (limit: number) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/capital_market_events`);
-  url.searchParams.set('select', 'fund_cnpj,fund_name,reference_date');
-  url.searchParams.set('instrument_type', 'eq.FIDC');
-  url.searchParams.set('fund_cnpj', 'not.is.null');
-  url.searchParams.set('order', 'reference_date.desc.nullslast,observed_at.desc');
-  url.searchParams.set('limit', String(Math.min(limit * 10, 200)));
-  const response = await fetch(url, { headers: serviceHeaders() });
-  const rows = await response.json().catch(() => []) as Array<{ fund_cnpj?: string; fund_name?: string; reference_date?: string }>;
-  if (!response.ok) throw new ApiError(`Falha ao selecionar FIDCs canônicos (${response.status}).`, 502);
+  const rows = await requireNeonDataClient().query<{ fund_cnpj?: string; fund_name?: string; reference_date?: string }>(
+    `select fund_cnpj, fund_name, reference_date
+       from public.capital_market_events
+      where instrument_type = 'FIDC'
+        and fund_cnpj is not null
+      order by reference_date desc nulls last, observed_at desc
+      limit $1`,
+    [Math.min(limit * 10, 200)],
+  );
   const seen = new Set<string>();
   return rows.filter((row) => {
     const cnpj = String(row.fund_cnpj ?? '').replace(/\D/g, '');
