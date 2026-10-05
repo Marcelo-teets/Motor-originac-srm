@@ -1,5 +1,5 @@
 import { fetchWithPolicy } from './http';
-import { supabaseRuntimeHeaders } from './supabaseRuntime';
+import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 import type { KnowledgeEmbeddingCoverage, KnowledgeSearchResponse } from './knowledgeSearchTypes';
 
@@ -23,13 +23,13 @@ export const knowledgeSearchApi = {
     session: SessionData | null,
     input: KnowledgeSearchInput,
   ): Promise<KnowledgeSearchResponse> => {
-    const { runtime, headers } = supabaseRuntimeHeaders(session, 'Busca do Vault');
+    if (!session?.access_token) throw new Error('Sessão autenticada necessária para Busca do Vault.');
     const query = input.query.trim();
     if (query.length < 2) throw new Error('Digite ao menos dois caracteres para pesquisar.');
 
-    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/knowledge-hybrid-search`, {
+    const response = await fetchWithPolicy(buildApiUrl('/api/knowledge/search'), {
       method: 'POST',
-      headers,
+      headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query,
         companyId: input.companyId || null,
@@ -47,11 +47,11 @@ export const knowledgeSearchApi = {
   getEmbeddingCoverage: async (
     session: SessionData | null,
   ): Promise<KnowledgeEmbeddingCoverage> => {
-    const { runtime, headers } = supabaseRuntimeHeaders(session, 'Cobertura semântica');
-    const response = await fetchWithPolicy(`${runtime.url}/rest/v1/rpc/knowledge_embedding_coverage`, {
+    if (!session?.access_token) throw new Error('Sessão autenticada necessária para Cobertura semântica.');
+    const response = await fetchWithPolicy(buildApiUrl('/api/knowledge/rpc'), {
       method: 'POST',
-      headers,
-      body: '{}',
+      headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ functionName: 'knowledge_embedding_coverage', args: {} }),
     }, { timeoutMs: 15_000 });
 
     const payload = await readPayload(response, 'Cobertura semântica');
