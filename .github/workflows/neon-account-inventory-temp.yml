@@ -1,0 +1,125 @@
+name: Neon Account Inventory TEMP
+
+on:
+  push:
+    branches:
+      - ops/neon-inventory-20261005
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+    steps:
+      - name: Read-only Neon inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_API_KEY:-}" ]; then
+            echo "NEON_INVENTORY_ERROR=missing_api_key"
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          const base = 'https://console.neon.tech/api/v2';
+          const headers = { Authorization: 'Bearer ' + process.env.NEON_API_KEY, Accept: 'application/json' };
+
+          async function get(path) {
+            const res = await fetch(base + path, { headers, signal: AbortSignal.timeout(15000) });
+            const text = await res.text();
+            let body = null;
+            try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text.slice(0,500) }; }
+            if (!res.ok) {
+              return { ok:false, status:res.status, body };
+            }
+            return { ok:true, status:res.status, body };
+          }
+
+          function projectView(p) {
+            return {
+              id:p?.id ?? null,
+              name:p?.name ?? null,
+              org_id:p?.org_id ?? null,
+              region_id:p?.region_id ?? null,
+              pg_version:p?.pg_version ?? null,
+              created_at:p?.created_at ?? null,
+              updated_at:p?.updated_at ?? null,
+              default_endpoint_settings:p?.default_endpoint_settings ? {
+                autoscaling_limit_min_cu:p.default_endpoint_settings.autoscaling_limit_min_cu ?? null,
+                autoscaling_limit_max_cu:p.default_endpoint_settings.autoscaling_limit_max_cu ?? null,
+                suspend_timeout_seconds:p.default_endpoint_settings.suspend_timeout_seconds ?? null
+              } : null
+            };
+          }
+
+          function branchView(b) {
+            return {
+              id:b?.id ?? null,
+              project_id:b?.project_id ?? null,
+              name:b?.name ?? null,
+              parent_id:b?.parent_id ?? null,
+              parent_lsn:b?.parent_lsn ?? null,
+              parent_timestamp:b?.parent_timestamp ?? null,
+              primary:b?.primary ?? null,
+              protected:b?.protected ?? null,
+              init_source:b?.init_source ?? null,
+              created_at:b?.created_at ?? null,
+              updated_at:b?.updated_at ?? null,
+              created_by:b?.created_by ? {
+                name:b.created_by.name ?? null,
+                image:b.created_by.image ?? null
+              } : null
+            };
+          }
+
+          const projectsRes = await get('/projects?limit=100');
+          console.log('NEON_PROJECTS_RESULT=' + JSON.stringify({
+            ok:projectsRes.ok,
+            status:projectsRes.status,
+            projects:Array.isArray(projectsRes.body?.projects) ? projectsRes.body.projects.map(projectView) : [],
+            pagination:projectsRes.body?.pagination ?? null,
+            error:projectsRes.ok ? null : projectsRes.body
+          }));
+
+          const discovered = Array.isArray(projectsRes.body?.projects) ? projectsRes.body.projects.map(p=>p.id).filter(Boolean) : [];
+          const known = ['steep-poetry-38942951','little-hat-27601841','round-hat-79088822'];
+          const ids = [...new Set([...discovered, ...known])];
+
+          for (const id of ids) {
+            const br = await get('/projects/' + encodeURIComponent(id) + '/branches?limit=100');
+            console.log('NEON_BRANCHES_RESULT=' + JSON.stringify({
+              project_id:id,
+              ok:br.ok,
+              status:br.status,
+              branches:Array.isArray(br.body?.branches) ? br.body.branches.map(branchView) : [],
+              pagination:br.body?.pagination ?? null,
+              error:br.ok ? null : br.body
+            }));
+
+            if (br.ok) {
+              const ep = await get('/projects/' + encodeURIComponent(id) + '/endpoints');
+              console.log('NEON_ENDPOINTS_RESULT=' + JSON.stringify({
+                project_id:id,
+                ok:ep.ok,
+                status:ep.status,
+                endpoints:Array.isArray(ep.body?.endpoints) ? ep.body.endpoints.map(e=>({
+                  id:e?.id ?? null,
+                  project_id:e?.project_id ?? null,
+                  branch_id:e?.branch_id ?? null,
+                  host:e?.host ?? null,
+                  type:e?.type ?? null,
+                  current_state:e?.current_state ?? null,
+                  autoscaling_limit_min_cu:e?.autoscaling_limit_min_cu ?? null,
+                  autoscaling_limit_max_cu:e?.autoscaling_limit_max_cu ?? null,
+                  suspend_timeout_seconds:e?.suspend_timeout_seconds ?? null,
+                  created_at:e?.created_at ?? null,
+                  updated_at:e?.updated_at ?? null
+                })) : [],
+                error:ep.ok ? null : ep.body
+              }));
+            }
+          }
+          NODE
