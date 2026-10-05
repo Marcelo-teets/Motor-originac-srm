@@ -34,5 +34,8 @@ jobs:
         run: bash scripts/load-neon-from-vercel.sh
       - name: Verify Neon production connection is available
         run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 2)
+      - name: Apply tracked Neon runtime migrations for cutover PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/neon-db-cutover'
+        run: node scripts/apply-neon-runtime-migrations.mjs
       - name: Check required Neon runtime schema
         run: node scripts/neon-runtime-parity-check.mjs
