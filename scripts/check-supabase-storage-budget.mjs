@@ -7,40 +7,19 @@ const args = new Map(process.argv.slice(2).map((arg) => {
 
 const requestedRows = Math.max(0, Number.parseInt(args.get('requested-rows') || '0', 10) || 0);
 const triggerType = String(args.get('trigger') || 'manual').trim() || 'manual';
-const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
-
-if (!supabaseUrl || !serviceRoleKey) {
-  console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
-  process.exit(1);
-}
-
-const response = await fetch(`${supabaseUrl}/rest/v1/rpc/assert_ingestion_storage_budget`, {
-  method: 'POST',
-  headers: {
-    apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    p_operation: 'github_actions_preflight',
-    p_requested_rows: requestedRows,
-    p_trigger_type: triggerType,
-  }),
-  signal: AbortSignal.timeout(30_000),
-});
-
-const raw = await response.text();
+const { query, closeNeonPool } = await import('./lib/neon-db.mjs');
 let payload;
 try {
-  payload = raw ? JSON.parse(raw) : {};
-} catch {
-  payload = { raw };
-}
-
-if (!response.ok) {
-  console.error(`Storage budget preflight failed (${response.status}): ${raw.slice(0, 1200)}`);
+  const rows = await query(
+    'select public.assert_ingestion_storage_budget($1, $2, $3) as result',
+    ['github_actions_preflight', requestedRows, triggerType],
+  );
+  payload = rows[0]?.result ?? {};
+} catch (error) {
+  console.error(`Storage budget preflight failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
+} finally {
+  await closeNeonPool();
 }
 
 const state = String(payload?.state || 'unknown');
