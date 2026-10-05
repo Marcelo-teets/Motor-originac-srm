@@ -483,7 +483,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listSources() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<SourceCatalogEntry[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('source_catalog', { select: '*', orderBy: { column: 'name', ascending: true } });
       return (data ?? []).map((row: any) => ({
@@ -537,7 +537,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listCompanySignals() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<CompanySignal[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('company_signals', { select: '*', orderBy: { column: 'created_at', ascending: false } });
       return (data ?? []).map((row: any) => ({
@@ -555,7 +555,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listEnrichments() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<EnrichmentRecord[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('enrichments', { select: '*', orderBy: { column: 'created_at', ascending: false } });
       return (data ?? []).map((row: any) => ({
@@ -1003,10 +1003,6 @@ class DatabasePlatformRepository implements PlatformRepository {
         createdAt: company.monitoring.lastRunAt,
       })));
     }, () => this.fallback.seedBaseData());
-
-    if (env.bootstrapSupabase) {
-      await this.fallback.seedBaseData();
-    }
   }
 }
 

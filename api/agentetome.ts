@@ -106,7 +106,7 @@ const validateXml = async (user: AuthenticatedUser, body: Record<string, unknown
   const startedAt = Date.now();
 
   const form = new FormData();
-  form.append('arquivo', new Blob([bytes], { type: 'application/xml' }), 'informe.xml');
+  form.append('arquivo', new Blob([new Uint8Array(bytes)], { type: 'application/xml' }), 'informe.xml');
   const provider = await fetch('https://www.agentetome.com/api/v1/validar-xml', {
     method: 'POST',
     headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },

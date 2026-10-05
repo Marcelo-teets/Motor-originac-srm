@@ -52,7 +52,7 @@ const asNullableUuid = (value: string | null | undefined) => (value && uuidPatte
 
 async function dataTableProbe(table: string) {
   try {
-    const { getDataClient } = await import('../backend/src/lib/supabase.js');
+    const { getDataClient } = await import('../backend/src/lib/dataClient.js');
     const client = getDataClient();
     if (!client) return { table, ok: false, count: null, error: 'missing_persistent_data_env' };
 
@@ -101,7 +101,7 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
   };
 
   try {
-    const { getDataClient } = await import('../backend/src/lib/supabase.js');
+    const { getDataClient } = await import('../backend/src/lib/dataClient.js');
     const client = getDataClient();
     if (!client) return;
     await client.insert('source_connector_runs', [row]);
