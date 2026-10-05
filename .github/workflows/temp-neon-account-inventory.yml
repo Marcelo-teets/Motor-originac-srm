@@ -1,4 +1,4 @@
-name: TEMP Neon Account Inventory
+name: TEMP Neon Known Project Audit
 
 on:
   push:
@@ -17,50 +17,51 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
     steps:
-      - name: Inventory Neon projects and branches
+      - name: Audit known Neon project IDs
         shell: bash
         run: |
           set -euo pipefail
           test -n "${NEON_API_KEY:-}" || { echo "NEON_API_KEY_MISSING"; exit 2; }
           node <<'NODE'
+          const ids = [
+            'steep-poetry-38942951',
+            'little-hat-27601841',
+            'flat-cherry-46110068',
+            'round-hat-79088822',
+            'long-sunset-74551465'
+          ];
           const key = process.env.NEON_API_KEY;
           const base = 'https://console.neon.tech/api/v2';
           const headers = { Authorization: 'Bearer ' + key, Accept: 'application/json' };
-          async function get(path) {
-            const res = await fetch(base + path, { headers });
-            if (!res.ok) throw new Error(path + ' HTTP ' + res.status);
-            return res.json();
-          }
-          const p = await get('/projects?limit=100');
-          const projects = Array.isArray(p.projects) ? p.projects : [];
-          console.log('PROJECT_COUNT=' + projects.length);
-          for (const project of projects) {
-            const row = {
+          for (const id of ids) {
+            const p = await fetch(base + '/projects/' + encodeURIComponent(id), { headers });
+            console.log('PROJECT_STATUS ' + id + ' ' + p.status);
+            if (!p.ok) continue;
+            const body = await p.json();
+            const project = body.project ?? body;
+            console.log('PROJECT ' + JSON.stringify({
               id: project.id,
               name: project.name,
               org_id: project.org_id ?? null,
               region_id: project.region_id ?? null,
               created_at: project.created_at ?? null,
               updated_at: project.updated_at ?? null
-            };
-            console.log('PROJECT ' + JSON.stringify(row));
-            try {
-              const b = await get('/projects/' + encodeURIComponent(project.id) + '/branches?limit=100');
-              const branches = Array.isArray(b.branches) ? b.branches : [];
-              console.log('BRANCH_COUNT ' + project.id + ' ' + branches.length);
-              for (const branch of branches) {
-                console.log('BRANCH ' + project.id + ' ' + JSON.stringify({
-                  id: branch.id,
-                  name: branch.name,
-                  primary: branch.primary ?? false,
-                  default: branch.default ?? false,
-                  parent_id: branch.parent_id ?? null,
-                  created_at: branch.created_at ?? null,
-                  updated_at: branch.updated_at ?? null
-                }));
-              }
-            } catch (e) {
-              console.log('BRANCH_ERROR ' + project.id + ' ' + e.message);
+            }));
+            const b = await fetch(base + '/projects/' + encodeURIComponent(id) + '/branches', { headers });
+            console.log('BRANCH_STATUS ' + id + ' ' + b.status);
+            if (!b.ok) continue;
+            const bj = await b.json();
+            const branches = Array.isArray(bj.branches) ? bj.branches : [];
+            console.log('BRANCH_COUNT ' + id + ' ' + branches.length);
+            for (const branch of branches) {
+              console.log('BRANCH ' + id + ' ' + JSON.stringify({
+                id: branch.id,
+                name: branch.name,
+                primary: branch.primary ?? false,
+                parent_id: branch.parent_id ?? null,
+                created_at: branch.created_at ?? null,
+                updated_at: branch.updated_at ?? null
+              }));
             }
           }
           NODE
