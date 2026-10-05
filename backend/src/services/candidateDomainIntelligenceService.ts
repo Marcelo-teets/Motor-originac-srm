@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   extractCandidateDomains,
   isWebsiteIdentityRetryDue,
@@ -80,7 +80,7 @@ type OfficialEnrichmentRow = {
   data?: Record<string, unknown> | null;
   observed_at?: string | null;
 };
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 type Dependencies = { client?: SupabaseClient | null; fetchImpl?: typeof fetch; now?: () => Date };
 type ProbeMatch = {
   verified: boolean;
@@ -204,7 +204,7 @@ export class CandidateDomainIntelligenceService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.fetchImpl = dependencies.fetchImpl ?? fetch;
     this.now = dependencies.now ?? (() => new Date());
   }

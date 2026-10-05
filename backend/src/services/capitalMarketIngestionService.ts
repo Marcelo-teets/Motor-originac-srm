@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   CVM_DATASETS,
   discoverCvmResources,
@@ -183,7 +183,7 @@ const emptySummary = (datasetCode: CvmDatasetCode, error: string): CapitalMarket
 });
 
 export class CapitalMarketIngestionService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
   private persistenceBatchSize = INITIAL_BATCH_SIZE;
 
   async run(options: CapitalMarketIngestionOptions = {}) {

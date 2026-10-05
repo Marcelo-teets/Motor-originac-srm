@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   discoverPublicBulkResources,
   streamPublicBulkResource,
@@ -78,7 +78,7 @@ const blank = (datasetCode: PublicBulkDatasetCode): Summary => ({
 });
 
 export class PublicBulkIngestionService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async run(options: PublicBulkIngestionOptions) {
     if (!this.client) throw new Error('Supabase client not configured for public bulk ingestion.');

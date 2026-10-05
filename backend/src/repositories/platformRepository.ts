@@ -2,7 +2,7 @@ import { additionalCompanySeeds } from '../data/additionalCompanySeeds.js';
 import { companySeeds, patternCatalogSeeds, searchProfileFilterSeeds, searchProfileSeeds, sourceCatalogSeeds } from '../data/platformSeeds.js';
 import { env } from '../lib/env.js';
 import { attachCompanyDecisionMetadata } from '../lib/companyDecisionEligibility.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type {
   ActivityRecord,
   CompanyPattern,
@@ -332,7 +332,7 @@ class MemoryPlatformRepository implements PlatformRepository {
 }
 
 class DatabasePlatformRepository implements PlatformRepository {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
   private readonly fallback = new MemoryPlatformRepository();
 
   private ensureClient() {
@@ -365,7 +365,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   // por `config.model`, então uma falha aqui (tabela ausente) não pode abortar
   // a persistência do perfil em si.
   private async persistSearchProfileFilters(
-    client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    client: NonNullable<ReturnType<typeof getDataClient>>,
     profileIds: string[],
     filters: SearchProfileFilter[],
   ) {
