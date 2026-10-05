@@ -41,6 +41,7 @@ const forbidden = [
 test('active runtime contains no Supabase dependency or credentials', () => {
   const violations = [];
   for (const file of files) {
+    if (file.endsWith('no-supabase-runtime-contract.test.mjs')) continue;
     const content = readFileSync(file, 'utf8');
     for (const pattern of forbidden) {
       pattern.lastIndex = 0;
