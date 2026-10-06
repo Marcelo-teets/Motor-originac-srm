@@ -79,13 +79,14 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
-// null/'' clear the date; a parseable date is normalized to ISO; anything else
-// returns undefined so the route can answer 400 instead of a database 500.
+// null/'' clear the date; a parseable date string is kept as sent (numbers
+// become ISO); anything else returns undefined so the route can answer 400
+// instead of a database 500.
 const parseOptionalDate = (value: unknown): string | null | undefined => {
   if (value === null || value === undefined || value === '') return null;
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+  if (typeof value === 'number') return Number.isFinite(value) ? new Date(value).toISOString() : undefined;
+  if (typeof value !== 'string') return undefined;
+  return Number.isFinite(new Date(value.trim()).getTime()) ? value.trim() : undefined;
 };
 
 await service.bootstrap().catch((error) => {
