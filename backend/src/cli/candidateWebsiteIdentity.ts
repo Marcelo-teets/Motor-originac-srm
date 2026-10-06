@@ -1,7 +1,7 @@
 import { CandidateWebsiteIdentityService } from '../services/candidateWebsiteIdentityService.js';
 import { parseCliArgs } from './args.js';
 
-const { args, valueFor } = parseCliArgs();
+const { valueFor } = parseCliArgs();
 
 const parsedLimit = Number(valueFor('limit') ?? 30);
 const limit = Number.isFinite(parsedLimit) ? Math.trunc(parsedLimit) : 30;

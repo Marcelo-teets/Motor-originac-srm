@@ -5,7 +5,7 @@ import {
 } from '../modules/public-data/strategicPublicDatasetConnector.js';
 import { parseCliArgs } from './args.js';
 
-const { args, valueFor } = parseCliArgs();
+const { valueFor } = parseCliArgs();
 
 const dataset = (valueFor('dataset') ?? 'cvm_fre_capital_structure') as StrategicPublicDatasetCode;
 if (dataset !== 'cvm_fre_capital_structure') {
