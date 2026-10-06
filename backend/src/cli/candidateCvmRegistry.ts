@@ -1,11 +1,8 @@
 import { CandidateCvmRegistryService } from '../services/candidateCvmRegistryService.js';
+import { parseCliArgs } from './args.js';
 
-const args = process.argv.slice(2);
-const valueFor = (flag: string) => {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
-};
-const trigger = valueFor('--trigger');
+const { args, valueFor } = parseCliArgs();
+const trigger = valueFor('trigger');
 const triggerType = trigger === 'schedule' || trigger === 'backfill' ? trigger : 'manual';
 const force = args.includes('--force');
 

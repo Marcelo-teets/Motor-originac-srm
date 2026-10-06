@@ -4,22 +4,10 @@ import {
   streamStrategicPublicResource,
 } from '../modules/public-data/strategicPublicDatasetConnector.js';
 import { isValidCnpj, normalizeCnpj } from '../services/strategicPublicIngestionService.js';
+import { parseCliArgs } from './args.js';
 
 const DATASET = 'rfb_qsa' as const;
-const args = process.argv.slice(2);
-
-const valueFor = (name: string) => {
-  const inline = args.find((argument) => argument.startsWith(`--${name}=`));
-  if (inline) return inline.slice(name.length + 3);
-  const index = args.indexOf(`--${name}`);
-  return index >= 0 ? args[index + 1] : undefined;
-};
-
-const integerOption = (name: string, fallback: number, maximum: number) => {
-  const parsed = Number(valueFor(name) ?? fallback);
-  if (!Number.isFinite(parsed)) throw new Error(`Invalid --${name}: ${valueFor(name)}`);
-  return Math.max(1, Math.min(Math.trunc(parsed), maximum));
-};
+const { args, valueFor, integerOption } = parseCliArgs();
 
 const requestedCnpj = valueFor('cnpj');
 if (!requestedCnpj || !isValidCnpj(requestedCnpj)) {

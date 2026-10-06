@@ -195,7 +195,7 @@ export function CandidateDecisionQueuePage() {
         description="Prioriza emissores operacionais, separa veículos de mercado e mantém identidade e decisão de crédito em gates independentes. Nenhum registro é promovido automaticamente."
         actions={<div className="pill-row"><Pill tone="success">dados reais</Pill><Pill tone="warning">human-in-the-loop</Pill></div>}
       />
-      <DataStatusBanner source="real" note="A fila é calculada no Supabase com lineage, CNPJ, evento, recência, volume, identidade e semântica econômica da entidade." />
+      <DataStatusBanner source="real" note="A fila é calculada no Neon com lineage, CNPJ, evento, recência, volume, identidade e semântica econômica da entidade." />
       {error ? <Card title="Falha operacional" subtitle="Nenhuma decisão foi executada" tone="accent">{error}</Card> : null}
 
       <section className="grid cols-4">

@@ -18,7 +18,6 @@ import type {
   CompanySeed,
   CompanySignal,
   DashboardView,
-  EnrichmentRecord,
   LeadScoreSnapshot,
   MonitoringOutput,
   PatternCatalogEntry,

@@ -1,0 +1,76 @@
+name: Neon Scheduled Jobs
+
+# Replaces the legacy pg_cron jobs. Neon only allows pg_cron in the "postgres"
+# database, so the Motor runtime (database "neondb") is driven from here.
+# Each schedule string selects its own job (github.event.schedule).
+on:
+  schedule:
+    - cron: '*/5 * * * *'    # origination-derived-reprocessing
+    - cron: '*/15 * * * *'   # candidate-automatic-entity-resolution
+    - cron: '17 * * * *'     # agentetome-due-export-refresh
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Comma-separated jobs: reprocessing, entity-resolution, agentetome'
+        required: true
+        default: 'reprocessing,entity-resolution'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-scheduled-jobs-${{ github.event.schedule || inputs.jobs }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      MOTOR_API_BASE_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Resolve jobs for this trigger
+        id: jobs
+        shell: bash
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_JOBS: ${{ inputs.jobs }}
+        run: |
+          case "$SCHEDULE" in
+            '*/5 * * * *') JOBS='reprocessing' ;;
+            '*/15 * * * *') JOBS='entity-resolution' ;;
+            '17 * * * *') JOBS='agentetome' ;;
+            *) JOBS="$INPUT_JOBS" ;;
+          esac
+          if ! printf '%s' "$JOBS" | grep -Eq '^[a-z,-]+$'; then echo "Invalid jobs: $JOBS"; exit 1; fi
+          echo "jobs=${JOBS}" >> "$GITHUB_OUTPUT"
+          echo "Resolved jobs: ${JOBS}"
+
+      - name: Validate secrets
+        shell: bash
+        env:
+          JOBS: ${{ steps.jobs.outputs.jobs }}
+        run: |
+          case "$JOBS" in
+            *reprocessing*|*entity-resolution*) test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1) ;;
+          esac
+          case "$JOBS" in
+            *agentetome*) test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1) ;;
+          esac
+
+      - name: Run jobs
+        env:
+          JOBS: ${{ steps.jobs.outputs.jobs }}
+        run: node scripts/run-neon-scheduled-jobs.mjs "--jobs=$JOBS"

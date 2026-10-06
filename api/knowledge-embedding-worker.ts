@@ -1,6 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { isCronAuthorized } from '../serverless/http.js';
 
 const RUNTIME = 'knowledge-embedding-worker-v10-vercel';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -12,23 +12,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
     'Cache-Control': 'no-store',
   });
   res.end(JSON.stringify(payload));
-};
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const safeEqual = (left: string, right: string) => {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-};
-
-const isAuthorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET ?? '';
-  const authorization = getHeader(req, 'authorization') ?? '';
-  return Boolean(secret && safeEqual(authorization, `Bearer ${secret}`));
 };
 
 const deploymentMetadata = () => ({
@@ -141,7 +124,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  if (!isAuthorized(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, {
       status: 'error',
       error: 'unauthorized',

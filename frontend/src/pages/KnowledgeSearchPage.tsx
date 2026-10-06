@@ -132,7 +132,7 @@ export function KnowledgeSearchPage() {
         description="Recupere sinais, monitoramentos e evidências por palavra e significado. O resultado preserva empresa, fonte, natureza observada ou inferida e o registro de origem."
         actions={(
           <div className="page-intro-actions">
-            <Pill tone="success">Supabase real + RLS</Pill>
+            <Pill tone="success">Neon real</Pill>
             <Pill tone="info">RRF explicável</Pill>
             <Link to="/knowledge-vault" className="button secondary">Abrir Vault</Link>
           </div>
@@ -200,7 +200,7 @@ export function KnowledgeSearchPage() {
           <section className="mini-metric-grid knowledge-search-metrics" aria-live="polite">
             <Stat label="Resultados" value={String(data.results.length)} helper={`limite solicitado: ${data.matchCount}`} />
             <Stat label="Documentos no escopo" value={data.corpus.documents.toLocaleString('pt-BR')} helper={selectedCompany?.name ?? 'corpus completo'} />
-            <Stat label="Com embedding real" value={data.corpus.embeddedDocuments.toLocaleString('pt-BR')} helper="vetores persistidos no Supabase" />
+            <Stat label="Com embedding real" value={data.corpus.embeddedDocuments.toLocaleString('pt-BR')} helper="vetores persistidos no Neon" />
             <Stat label="Modo" value={data.mode === 'hybrid' ? 'Híbrido' : 'Lexical'} helper={data.semantic.model ?? 'fallback sem vetor sintético'} />
           </section>
 

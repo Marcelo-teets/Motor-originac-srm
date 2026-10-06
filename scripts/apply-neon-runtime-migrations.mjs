@@ -1,62 +1,14 @@
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
+import { findUnsupportedSql, toNeonSql } from './lib/neon-sql-compat.mjs';
+import { applyMigrationPatches } from './lib/neon-migration-patches.mjs';
+import { MIGRATIONS } from './lib/neon-migration-plan.mjs';
 
 const connectionString = process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL || '';
 if (!connectionString) throw new Error('MOTOR_NEON_DATABASE_URL or DATABASE_URL is required.');
 
-const migrations = [
-  'db/neon/20261005_neon_runtime_roles.sql',
-  'db/migrations/035_capital_market_public_data.sql',
-  'db/migrations/036_capital_market_dataset_runs_source_index.sql',
-  'db/migrations/037_capital_market_incremental_checkpoints.sql',
-  'db/migrations/044_capital_market_ingestion_health.sql',
-  'db/migrations/060_origination_knowledge_vault.sql',
-  'db/neon/20261005_neon_qualification_compatibility.sql',
-  'db/neon/20261005_neon_signal_compatibility.sql',
-  'db/neon/20261006_neon_pipeline_compatibility.sql',
-  'db/migrations/076_knowledge_company_workspace.sql',
-  'db/migrations/077_knowledge_vault_function_grants_hardening.sql',
-  'db/migrations/078_knowledge_capture_concurrency_lock.sql',
-  'db/migrations/082_knowledge_saved_views_bases.sql',
-  'db/migrations/083_knowledge_monitoring_output_capture.sql',
-  'db/neon/20261006_neon_crm_execution_compatibility.sql',
-  'db/migrations/085_knowledge_execution_actions.sql',
-  'db/migrations/086_knowledge_execution_reference_validation.sql',
-  'db/migrations/087_knowledge_execution_completion_guard.sql',
-  'db/migrations/088_knowledge_execution_result_lineage.sql',
-  'db/migrations/089_knowledge_execution_context.sql',
-  'db/migrations/090_knowledge_execution_outcome_views.sql',
-  'db/migrations/092_knowledge_outcome_intelligence_rpc.sql',
-  'db/migrations/093_knowledge_outcome_operations.sql',
-  'db/migrations/094_knowledge_outcome_workbench.sql',
-  'db/neon/20261006_neon_vector_corpus_compatibility.sql',
-  'db/migrations/097_knowledge_hybrid_search_v9.sql',
-  'db/migrations/098_knowledge_embedding_coverage_v10.sql',
-  'db/migrations/099_knowledge_embedding_budget_baseline_fix.sql',
-  'db/migrations/100_knowledge_embedding_vector_comparison_fix.sql',
-  'db/migrations/101_knowledge_embedding_security_hardening.sql',
-  'db/migrations/104_knowledge_learning_agent.sql',
-  'db/migrations/105_knowledge_learning_agent_link_fix.sql',
-  'db/migrations/106_knowledge_learning_agent_enqueue_rls.sql',
-  'db/migrations/107_knowledge_learning_agent_pgcrypto_schema.sql',
-  'db/migrations/117_govern_knowledge_learning_queue.sql',
-  'db/migrations/118_circuit_break_knowledge_provider_billing.sql',
-  'db/migrations/108_dcm_daily_outreach_operating_loop.sql',
-  'db/neon/20261005_neon_microsoft_runtime.sql',
-  'db/neon/20261005_neon_archive_metadata.sql',
-  'db/migrations/20260727173000_source_control_sheet_sync.sql',
-  'db/migrations/132_fidcs_source_and_catalog_governance.sql',
-  'db/neon/20261006_neon_bronze_historical_compatibility.sql',
-  'db/neon/20261006_neon_agentetome_base_compatibility.sql',
-  'db/migrations/128_agentetome_production_control_plane.sql',
-  'db/migrations/129_agentetome_current_snapshot_lineage.sql',
-  'db/migrations/130_agentetome_runtime_current_vs_history.sql',
-  'db/migrations/133_cvm_fund_documents_and_source_schedules.sql',
-];
+const migrations = MIGRATIONS;
 
-const cleanSql = (sql) => sql
-  .replace(/^\s*begin;\s*$/gim, '')
-  .replace(/^\s*commit;\s*$/gim, '');
 
 const pool = new pg.Pool({
   connectionString,
@@ -88,7 +40,14 @@ try {
       continue;
     }
 
-    const sql = cleanSql(readFileSync(file, 'utf8'));
+    const source = applyMigrationPatches(file, readFileSync(file, 'utf8'));
+    const unsupported = findUnsupportedSql(source);
+    if (unsupported.length) {
+      console.error('failed', file, `unsupported on Neon: ${unsupported.join('; ')}`);
+      process.exitCode = 1;
+      break;
+    }
+    const sql = toNeonSql(source);
     console.log('apply', file);
     try {
       await client.query('begin');

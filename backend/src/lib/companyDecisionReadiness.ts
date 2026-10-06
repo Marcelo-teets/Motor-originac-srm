@@ -80,7 +80,7 @@ export function normalizeCompanyDecisionReadiness(value: unknown): CompanyDecisi
 
 export async function getCompanyDecisionReadiness(): Promise<CompanyDecisionReadiness> {
   const client = getDataClient();
-  if (!client) throw new CompanyDecisionReadinessUnavailableError('Supabase não está configurado para o Company Master quality gate.');
+  if (!client) throw new CompanyDecisionReadinessUnavailableError('Neon não está configurado para o Company Master quality gate.');
   const snapshot = await client.rpc<unknown>('company_decision_readiness_snapshot', {});
   return normalizeCompanyDecisionReadiness(snapshot);
 }

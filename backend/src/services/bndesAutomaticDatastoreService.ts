@@ -29,7 +29,7 @@ const toStringRecord = (row: Record<string, unknown>) => Object.fromEntries(
     .map(([key, value]) => [key, value === null || value === undefined ? '' : String(value)]),
 );
 
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type CheckpointRow = {
   status: 'completed' | 'partial' | 'failed';
@@ -72,7 +72,7 @@ export type BndesAutomaticDatastoreResult = {
 };
 
 type Dependencies = {
-  client?: SupabaseClient | null;
+  client?: DataClient | null;
   discoverResource?: typeof discoverBndesAutomaticResource;
   fetchPage?: typeof fetchBndesAutomaticPage;
   now?: () => Date;
@@ -86,7 +86,7 @@ type PersistSummary = {
 };
 
 export class BndesAutomaticDatastoreService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly discoverResource: typeof discoverBndesAutomaticResource;
   private readonly fetchPage: typeof fetchBndesAutomaticPage;
   private readonly now: () => Date;
@@ -99,7 +99,7 @@ export class BndesAutomaticDatastoreService {
   }
 
   async run(options: BndesAutomaticDatastoreOptions = {}): Promise<BndesAutomaticDatastoreResult> {
-    if (!this.client) throw new Error('Supabase client not configured for BNDES automatic ingestion.');
+    if (!this.client) throw new Error('Neon data client not configured for BNDES automatic ingestion.');
 
     const targetBatchSize = Math.max(1, Math.min(options.targetBatchSize ?? 25, 250));
     const maxTargetBatches = Math.max(1, Math.min(options.maxTargetBatches ?? 100, 10_000));

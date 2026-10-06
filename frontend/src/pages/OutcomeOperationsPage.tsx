@@ -14,7 +14,7 @@ export function OutcomeOperationsPage() {
         description="Fila diária priorizada para confirmar resultados reais, instrumentar histórico relevante e atualizar tarefas e pipeline com lineage — sem alterar scores ou inferir decisões."
         actions={(
           <div className="pill-row">
-            <Pill tone="success">Supabase real</Pill>
+            <Pill tone="success">Neon real</Pill>
             <Pill tone="info">prioridade explicável</Pill>
             <Pill tone="warning">sem outcome sintético</Pill>
           </div>

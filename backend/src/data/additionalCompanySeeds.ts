@@ -70,7 +70,7 @@ const makeCompanySeed = ({
     concentrationRisk: 'medium',
     delinquencySignal: 'low',
     sourceConfidence,
-    sourceNotes: ['Seed complementar para acelerar carga inicial no Supabase com dados realistas.'],
+    sourceNotes: ['Seed complementar para acelerar carga inicial no Neon com dados realistas.'],
   },
   sourceRecords: [
     { sourceId: 'src_brasilapi_cnpj', externalId: cnpj, observedAt: '2026-03-20T08:00:00Z', payload: { seeded: true } },

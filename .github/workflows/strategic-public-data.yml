@@ -119,7 +119,7 @@ REQUESTED_DATASET: ${{ inputs.dataset || '' }}
         run: |
           if [ -n "$MOTOR_NEON_DATABASE_URL" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "Supabase ingestion credentials are configured."
+            echo "Neon ingestion credentials are configured."
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning title=QSA ingestion blocked::Configure MOTOR_NEON_DATABASE_URL as GitHub Actions secrets. The source remains visible as waiting/degraded in the Sources control plane."

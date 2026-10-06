@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isCronAuthorized } from './http.js';
 
 const RUNTIME = 'bounded-capture-targets-v2';
 
@@ -12,16 +13,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(payload));
 };
 
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const authorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
-};
-
 const cadenceFrom = (req: IncomingMessage) => {
   const value = new URL(req.url ?? '/', 'https://runtime.local').searchParams.get('cadence') ?? 'all';
   return new Set(['frequent', 'daily', 'weekly', 'monthly', 'all']).has(value) ? value : 'all';
@@ -32,7 +23,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
     return;
   }
-  if (!authorized(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized capture target request.' });
     return;
   }

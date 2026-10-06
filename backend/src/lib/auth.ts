@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response as ExpressResponse } from 'express';
 import { env } from './env.js';
+import { decodeBase64Url, verifyNeonAccessToken } from './neonJwt.js';
 
-type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 export type AuthUser = { id: string; email?: string; role?: string; raw: Record<string, unknown> };
 export type AuthSession = {
   access_token: string;
@@ -24,19 +24,11 @@ declare global {
 
 export const AUTH_SESSION_COOKIE_NAME = 'motor_neon_session';
 const NEON_UPSTREAM_COOKIE_NAME = '__Secure-neon-auth.session_token';
-const encoder = new TextEncoder();
-let jwksCache: { expiresAt: number; keys: Jwk[] } | null = null;
 
 const requireAuthEnv = () => {
   if (!env.neonAuthBaseUrl || !env.neonAuthJwksUrl) {
     throw new Error('Neon Managed Auth environment is not configured. Set NEON_AUTH_BASE_URL.');
   }
-};
-
-const decodeBase64Url = (value: string) => {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '==='.slice((normalized.length + 3) % 4);
-  return Buffer.from(padded, 'base64');
 };
 
 const readJsonObject = async (response: globalThis.Response): Promise<Record<string, any>> => {
@@ -128,70 +120,13 @@ const buildSession = (
   };
 };
 
-const getNeonJwks = async () => {
-  requireAuthEnv();
-  if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
-  const response = await fetch(env.neonAuthJwksUrl, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) throw new Error(`Unable to load Neon Auth JWKS: ${response.status}`);
-  const payload = await readJsonObject(response) as { keys?: Jwk[] };
-  const keys = Array.isArray(payload.keys) ? payload.keys : [];
-  if (!keys.length) throw new Error('Neon Auth JWKS is empty.');
-  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys };
-  return keys;
-};
-
-const importVerificationKey = async (jwk: Jwk) => {
-  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['verify']);
-  }
-  if (jwk.kty === 'RSA') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-  }
-  if (jwk.kty === 'EC') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-  }
-  throw new Error(`Unsupported JWT key type: ${jwk.kty ?? 'unknown'}`);
-};
-
 export const verifyNeonJwt = async (token: string): Promise<AuthUser> => {
   requireAuthEnv();
-  const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
-  if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('Malformed token');
-
-  const header = JSON.parse(decodeBase64Url(encodedHeader).toString('utf8')) as { alg?: string; kid?: string };
-  const payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
-  const expectedOrigin = new URL(env.neonAuthBaseUrl).origin;
-
-  if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) throw new Error('Token expired');
-  if (payload.iss && payload.iss !== expectedOrigin) throw new Error('Invalid issuer');
-  if (payload.aud) {
-    const audiences = Array.isArray(payload.aud) ? payload.aud.map(String) : [String(payload.aud)];
-    if (!audiences.includes(expectedOrigin)) throw new Error('Invalid audience');
-  }
-
-  const jwks = await getNeonJwks();
-  const jwk = jwks.find((item) => item.kid === header.kid) ?? jwks[0];
-  if (!jwk) throw new Error('No JWKS available for verification');
-  if (header.alg === 'EdDSA' && !(jwk.kty === 'OKP' && jwk.crv === 'Ed25519')) {
-    throw new Error('JWT algorithm/key mismatch');
-  }
-
-  const key = await importVerificationKey(jwk);
-  const data = encoder.encode(`${encodedHeader}.${encodedPayload}`);
-  const signature = decodeBase64Url(encodedSignature);
-  const verified = jwk.kty === 'OKP'
-    ? await crypto.subtle.verify('Ed25519', key, signature, data)
-    : jwk.kty === 'EC'
-      ? await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, data)
-      : await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
-
-  if (!verified) throw new Error('Invalid token signature');
-  const user = mapAuthUser(payload);
-  if (!user.id) throw new Error('JWT subject is missing');
-  return user;
+  const claims = await verifyNeonAccessToken(token, {
+    authBaseUrl: env.neonAuthBaseUrl,
+    jwksUrl: env.neonAuthJwksUrl,
+  });
+  return { id: claims.id, email: claims.email, role: claims.role, raw: claims.payload };
 };
 
 export const readAuthSessionCookie = (req: Pick<Request, 'headers'>) => {

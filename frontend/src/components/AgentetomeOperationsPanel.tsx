@@ -62,8 +62,10 @@ export function AgentetomeOperationsPanel() {
     try {
       const result = await queueAgentetomeRefresh(session);
       setRefreshMessage(result.status === 'failed'
-        ? `Falha ao enfileirar: ${result.error ?? 'erro desconhecido'}`
-        : 'Refresh real enfileirado. O control plane validará o pacote e atualizará o Market Map automaticamente.');
+        ? `Falha na exportação (${result.stage ?? 'etapa desconhecida'}): ${result.error ?? 'erro desconhecido'}`
+        : result.mode === 'idempotent_existing_package'
+          ? 'Pacote já processado anteriormente; bronze e Market Map reconciliados.'
+          : `Pacote validado e promovido ao Market Map (${result.bronzeRowsWritten ?? 0} linhas em bronze).`);
       await loadRuntime();
     } catch (currentError) {
       setRefreshMessage(currentError instanceof Error ? currentError.message : String(currentError));
@@ -88,7 +90,7 @@ export function AgentetomeOperationsPanel() {
     }
   };
 
-  if (loading) return <Card title="Agentetome" subtitle="Carregando control plane, ingestão e Market Map">Consultando runtime seguro no Supabase...</Card>;
+  if (loading) return <Card title="Agentetome" subtitle="Carregando control plane, ingestão e Market Map">Consultando runtime seguro no Neon...</Card>;
   if (error || !runtime) {
     return (
       <Card title="Agentetome" subtitle="Falha controlada ao consultar a integração" actions={<Pill tone="warning">atenção</Pill>}>

@@ -187,7 +187,7 @@ export class CapitalMarketIngestionService {
   private persistenceBatchSize = INITIAL_BATCH_SIZE;
 
   async run(options: CapitalMarketIngestionOptions = {}) {
-    if (!this.client) throw new Error('Supabase client not configured for capital-market ingestion.');
+    if (!this.client) throw new Error('Neon data client not configured for capital-market ingestion.');
     const datasets = options.datasets?.length ? [...new Set(options.datasets)] : allDatasets;
     const maxRows = Math.max(1, Math.min(options.maxRows ?? DEFAULT_MAX_ROWS, MAX_ROWS));
     const summaries: CapitalMarketDatasetSummary[] = [];

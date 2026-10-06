@@ -161,7 +161,7 @@ export const syncTechSignalsDiscoveryCandidates = async (params: {
   collectedAt?: string;
 } = {}): Promise<TechSignalsDiscoverySummary> => {
   const client = getDataClient();
-  if (!client) throw new Error('Supabase service-role client unavailable for Tech Signals candidate discovery.');
+  if (!client) throw new Error('Neon data client unavailable for Tech Signals candidate discovery.');
   const feedUrl = params.feedUrl ?? 'https://pedrobmesquita.substack.com/feed';
   const collectedAt = params.collectedAt ?? new Date().toISOString();
   const discovery = await discoverTechSignalsCandidates(feedUrl);

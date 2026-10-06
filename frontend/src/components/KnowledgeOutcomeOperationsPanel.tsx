@@ -212,7 +212,7 @@ export function KnowledgeOutcomeOperationsPanel({
       onChanged?.();
       setNotice(result.status === 'already_instrumented'
         ? 'A atividade já estava instrumentada e foi reutilizada sem duplicidade.'
-        : 'Atividade instrumentada: nota histórica, lineage e tarefa de resultado criados no Supabase.');
+        : 'Atividade instrumentada: nota histórica, lineage e tarefa de resultado criados no Neon.');
       setActiveTab('outcomes');
     } catch (adoptionError) {
       setError(adoptionError instanceof Error ? adoptionError.message : 'Falha ao instrumentar a atividade histórica.');

@@ -12,6 +12,12 @@ const roots = [
   '.github/workflows',
 ];
 const standalone = ['package.json', 'package-lock.json', '.env.example', 'vercel.json'];
+// Temporary legacy-data recovery (manual dispatch only). Delete together with
+// migration/supabase-recovery/ once the import into Neon is validated.
+const RECOVERY_ALLOWLIST = new Set([
+  '.github/workflows/legacy-data-recovery.yml',
+  'scripts/no-supabase-runtime-contract.test.mjs',
+]);
 const textExtensions = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.yml', '.yaml', '.md', '.sh']);
 
 const files = [];
@@ -41,7 +47,7 @@ const forbidden = [
 test('active runtime contains no Supabase dependency or credentials', () => {
   const violations = [];
   for (const file of files) {
-    if (file.endsWith('no-supabase-runtime-contract.test.mjs')) continue;
+    if (RECOVERY_ALLOWLIST.has(file.split(path.sep).join('/'))) continue;
     const content = readFileSync(file, 'utf8');
     for (const pattern of forbidden) {
       pattern.lastIndex = 0;
@@ -53,4 +59,16 @@ test('active runtime contains no Supabase dependency or credentials', () => {
 
 test('legacy Supabase runtime directory is absent', () => {
   assert.equal(existsSync('supabase'), false);
+});
+
+test('legacy recovery stays quarantined and manual-only', () => {
+  const workflow = readFileSync('.github/workflows/legacy-data-recovery.yml', 'utf8');
+  assert.match(workflow, /on:\n  workflow_dispatch:\n/);
+  assert.doesNotMatch(workflow, /schedule:|push:|pull_request:/);
+  assert.match(workflow, /node migration\/supabase-recovery\//);
+  for (const root of ['api', 'backend/src', 'frontend/src', 'serverless', 'scripts']) {
+    for (const file of files.filter((entry) => entry.startsWith(root) && !RECOVERY_ALLOWLIST.has(entry))) {
+      assert.doesNotMatch(readFileSync(file, 'utf8'), /migration\/supabase-recovery/, `${file} must not import the recovery tooling`);
+    }
+  }
 });

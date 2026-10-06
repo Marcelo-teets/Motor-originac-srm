@@ -332,7 +332,7 @@ export function CompanyCreditReviewPage() {
         eyebrow="GOD-MODE · Qualification Gate"
         title="Revisão de crédito do Company Master"
         description="Valide produto de crédito, recebíveis, funding, fit FIDC/DCM e timing antes de liberar qualification, score, ranking e pipeline. Identidade real não implica lead decisório."
-        actions={<div className="pill-row"><Pill tone="success">Supabase real</Pill><Pill tone="warning">aprovação humana</Pill></div>}
+        actions={<div className="pill-row"><Pill tone="success">Neon real</Pill><Pill tone="warning">aprovação humana</Pill></div>}
       />
       <DataStatusBanner source="real" note="Revisões são versionadas, exigem evidência por dimensão e somente o outcome elegível abre as superfícies decisórias." />
       {error ? <div className="auth-alert auth-alert-error">{error}</div> : null}

@@ -26,7 +26,7 @@ export class CandidateDecisionQueueService {
   private readonly client = getDataClient();
 
   async list(query: CandidateDecisionQueueQuery = {}) {
-    if (!this.client) throw new Error('Supabase client not configured for Candidate Decision Queue.');
+    if (!this.client) throw new Error('Neon data client not configured for Candidate Decision Queue.');
     const normalized = normalizeCandidateDecisionQueueQuery(query);
     return this.client.rpc('list_candidate_decision_queue', {
       p_queue: normalized.queue,

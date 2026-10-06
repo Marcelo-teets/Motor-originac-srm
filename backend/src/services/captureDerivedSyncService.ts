@@ -165,7 +165,7 @@ export class CaptureDerivedSyncService {
         scoreSnapshotsWritten: 0,
         leadScoreSnapshotsWritten: 0,
         pipelineRowsTouched: 0,
-        errors: ['Supabase client not configured.'],
+        errors: ['Neon data client not configured.'],
       };
     }
 

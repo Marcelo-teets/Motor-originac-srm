@@ -134,7 +134,7 @@ export function HistoricalArchivePage() {
       <PageIntro
         eyebrow="Governança / GOD-MODE"
         title="Arquivo histórico em Excel"
-        description="Camada secundária, privada e auditável para consultar dados frios sem pressionar o Supabase operacional. Cada parte possui manifesto, contagem e SHA-256."
+        description="Camada secundária, privada e auditável para consultar dados frios sem pressionar o Neon operacional. Cada parte possui manifesto, contagem e SHA-256."
         actions={(
           <div className="pill-row">
             <Pill tone="success">bucket privado</Pill>
@@ -248,7 +248,7 @@ export function HistoricalArchivePage() {
         </Card>
       ) : null}
 
-      <Card title="Políticas de retenção" subtitle="O que fica no Supabase e o que pode migrar para Excel" className="dense-card">
+      <Card title="Políticas de retenção" subtitle="O que fica no Neon e o que pode migrar para Excel" className="dense-card">
         <div className="table-wrap">
           <table className="dense-table">
             <thead><tr><th>Tabela</th><th>Dataset</th><th>Modo</th><th>Janela quente</th><th>Prune permitido</th><th>Regra</th></tr></thead>

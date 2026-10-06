@@ -22,7 +22,7 @@ const timestamp = (value: unknown) => {
 const booleanValue = (value: unknown) => value === true || String(value ?? '').toLowerCase() === 'true';
 const normalizedNameKey = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type TargetRow = { id: string; cnpj: string | null };
 type CandidateRow = {
@@ -64,14 +64,14 @@ export type CandidateCvmRegistryResult = {
 };
 
 type Dependencies = {
-  client?: SupabaseClient | null;
+  client?: DataClient | null;
   discoverResource?: typeof discoverCvmOpenCompanyRegistry;
   streamResource?: typeof streamCvmOpenCompanyRegistry;
   now?: () => Date;
 };
 
 export class CandidateCvmRegistryService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly discoverResource: typeof discoverCvmOpenCompanyRegistry;
   private readonly streamResource: typeof streamCvmOpenCompanyRegistry;
   private readonly now: () => Date;
@@ -152,7 +152,7 @@ export class CandidateCvmRegistryService {
   }
 
   async run(options: CandidateCvmRegistryOptions = {}): Promise<CandidateCvmRegistryResult> {
-    if (!this.client) throw new Error('Supabase client not configured for CVM candidate enrichment.');
+    if (!this.client) throw new Error('Neon data client not configured for CVM candidate enrichment.');
     const triggerType = options.triggerType ?? 'manual';
     const resource = await this.discoverResource();
     const targetRows = await this.loadReviewableTargets();

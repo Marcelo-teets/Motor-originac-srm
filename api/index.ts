@@ -15,6 +15,7 @@ import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
 import historicalArchiveHandler from '../serverless/historical-archive.js';
 import knowledgeRpcHandler from '../serverless/knowledge-rpc.js';
 import knowledgeSearchHandler from '../serverless/knowledge-search.js';
+import { isCronAuthorized, parseRequestUrl } from '../serverless/http.js';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
@@ -25,22 +26,6 @@ const CAPTURE_HEALTH_QUERY_TIMEOUT_MS = 4_000;
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-};
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const parseUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL(req.url ?? '/', `https://${host}`);
-};
-
-const isAuthorizedCron = (req: IncomingMessage) => {
-  const cronSecret = process.env.CRON_SECRET;
-  const auth = getHeader(req, 'authorization');
-  return Boolean(cronSecret && auth === `Bearer ${cronSecret}`);
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
@@ -59,10 +44,16 @@ async function dataTableProbe(table: string) {
     const client = getDataClient();
     if (!client) return { table, ok: false, count: null, error: 'missing_persistent_data_env' };
 
-    await Promise.race([
-      client.select(table, { select: 'id', limit: 1 }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout_after_${CAPTURE_HEALTH_QUERY_TIMEOUT_MS}ms`)), CAPTURE_HEALTH_QUERY_TIMEOUT_MS)),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        client.select(table, { select: 'id', limit: 1 }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`timeout_after_${CAPTURE_HEALTH_QUERY_TIMEOUT_MS}ms`)), CAPTURE_HEALTH_QUERY_TIMEOUT_MS); }),
+      ]);
+    } finally {
+      // Do not leave a pending 4s timer behind for every probed table.
+      if (timer) clearTimeout(timer);
+    }
     return { table, ok: true, count: null, error: null };
   } catch (error) {
     return { table, ok: false, count: null, error: error instanceof Error ? error.message : String(error) };
@@ -116,9 +107,9 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   // Contrato 401 (issue #133 §12): diagnóstico só com bearer válido. Sem
   // CRON_SECRET configurado o endpoint permanece fechado (fail-closed) —
-  // nunca expor env/tabelas sem credencial. Espelha o gate de
-  // backend/src/serverless/vercelServerlessHandler.ts (captureHealth).
-  if (!isAuthorizedCron(req)) {
+  // nunca expor env/tabelas sem credencial (isCronAuthorized em
+  // serverless/http.ts; contrato coberto por serverless/api-index.test.ts).
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
@@ -152,7 +143,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   writeJson(res, persistentDataConfigured && canAccessCoreTables ? 200 : 207, {
     status: persistentDataConfigured && canAccessCoreTables ? 'real' : 'partial',
     generatedAt: new Date().toISOString(),
-    requestPath: parseUrl(req).pathname,
+    requestPath: parseRequestUrl(req).pathname,
     env: {
       dataProvider,
       MOTOR_NEON_DATABASE_URL: envFlag('MOTOR_NEON_DATABASE_URL'),
@@ -161,7 +152,6 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
     },
     captureRuntime: {
       canRunAgainstDatabase: persistentDataConfigured,
-      canRunAgainstSupabase: persistentDataConfigured, // deprecated compatibility alias; runtime is Neon
       canAuthorizeWorkflow: cronConfigured,
       coreTablesAccessible: canAccessCoreTables,
       queryTimeoutMs: CAPTURE_HEALTH_QUERY_TIMEOUT_MS,
@@ -171,13 +161,13 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
 }
 
 async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, triggerType: 'cron' | 'manual') {
-  if (!isAuthorizedCron(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized capture runtime request.' });
     return;
   }
 
   const startedAt = new Date().toISOString();
-  const url = parseUrl(req);
+  const url = parseRequestUrl(req);
   const requestedCompanyId = url.searchParams.get('companyId');
   const requestedSourceId = url.searchParams.get('sourceId');
 
@@ -252,7 +242,7 @@ async function runCaptureRuntime(req: IncomingMessage, res: ServerResponse, trig
 }
 
 async function originationRuntime(req: IncomingMessage, res: ServerResponse) {
-  const pathname = parseUrl(req).pathname.replace(/^\/api/, '');
+  const pathname = parseRequestUrl(req).pathname.replace(/^\/api/, '');
   const mod = await import('../backend/src/modules/originationOperatingSystem.js');
   const payload = (() => {
     if (pathname === '/origination/os') return mod.getOriginationOperatingSystem();
@@ -316,13 +306,20 @@ async function ensureApp(): Promise<void> {
         'Adicione "export { app };" no final do arquivo.'
       );
     }
-  })();
+  })().catch((error: unknown) => {
+    // Do not memoize a failed initialization in this loader: otherwise one
+    // transient failure answers 503 for the rest of the warm instance's life.
+    // (An ES module whose evaluation throws stays errored in Node's own module
+    // cache; this only stops our wrapper from pinning the rejection.)
+    loadingPromise = null;
+    throw error;
+  });
 
   return loadingPromise;
 }
 
 async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) {
-  if (!isAuthorizedCron(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized discovery runtime request.' });
     return;
   }
@@ -358,7 +355,7 @@ async function runScheduledDiscovery(req: IncomingMessage, res: ServerResponse) 
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   const originalUrl = req.url ?? '/';
-  const pathname = parseUrl(req).pathname;
+  const pathname = parseRequestUrl(req).pathname;
 
   if (pathname === '/api/search-profiles/cron/run') {
     await runScheduledDiscovery(req, res);

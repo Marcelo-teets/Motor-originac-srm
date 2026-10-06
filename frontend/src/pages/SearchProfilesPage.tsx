@@ -84,7 +84,7 @@ export function SearchProfilesPage() {
       const refreshed = await api.getSearchProfiles(session);
       setData(refreshed);
       setSelectedProfileId(saved.id);
-      setFeedback({ tone: 'success', message: `Perfil salvo no Supabase: ${saved.name}.` });
+      setFeedback({ tone: 'success', message: `Perfil salvo no Neon: ${saved.name}.` });
       setWorkspaceTab('saved');
     } catch (saveError) {
       setFeedback({ tone: 'error', message: saveError instanceof Error ? saveError.message : 'Falha ao salvar perfil.' });

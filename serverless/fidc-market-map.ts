@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from './neon-auth.js';
+import { getHeader } from './http.js';
 
 const RUNTIME = 'agentetome-fidc-market-map-v1';
 
@@ -11,13 +12,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   });
   res.end(JSON.stringify(payload));
 };
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
 const queryRecord = (req: IncomingMessage): Record<string, unknown> => {
   const host = getHeader(req, 'host') ?? 'localhost';
