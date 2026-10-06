@@ -37,6 +37,26 @@ export const PATCHES = {
     // The probe text was copied from the live function layout; 150 in the repository is formatted differently.
     ["  v_old text := $old$or (c.raw_payload#>>'{website_identity_capture,matchType}'='name_and_domain' and coalesce(nullif(c.raw_payload#>>'{website_identity_capture,confidence}','')::numeric,0)>=0.92))$old$;\n  v_new text := $new$or (c.raw_payload#>>'{website_identity_capture,matchType}'='name_and_domain' and (\n          coalesce(nullif(c.raw_payload#>>'{website_identity_capture,confidence}','')::numeric,0)>=0.92\n          or (\n            c.candidate_role='operating_issuer'\n            and c.cvm_code is not null\n            and nullif(btrim(coalesce(c.cvm_registration_situation,'')),'') is not null\n            and coalesce(nullif(c.raw_payload#>>'{website_identity_capture,confidence}','')::numeric,0)>=0.90\n          )\n        )))$new$;", "  -- neon: matched against the repository text of 150 (the live function had a different layout)\n  v_old text := $old$(c.raw_payload #>> '{website_identity_capture,matchType}'='name_and_domain'\n          and coalesce(nullif(c.raw_payload #>> '{website_identity_capture,confidence}','')::numeric,0)>=0.92)$old$;\n  v_new text := $new$(c.raw_payload #>> '{website_identity_capture,matchType}'='name_and_domain' and (\n          coalesce(nullif(c.raw_payload #>> '{website_identity_capture,confidence}','')::numeric,0)>=0.92\n          or (\n            c.candidate_role='operating_issuer'\n            and c.cvm_code is not null\n            and nullif(btrim(coalesce(c.cvm_registration_situation,'')),'') is not null\n            and coalesce(nullif(c.raw_payload #>> '{website_identity_capture,confidence}','')::numeric,0)>=0.90\n          )\n        ))$new$;"],
   ],
+  // Agentetome: HTTP/vault/pg_net/storage pieces are replaced by api/agentetome.ts +
+  // serverless/agentetome-pipeline.ts (Vercel) and db/neon/20261006_neon_agentetome_runtime.sql.
+  'db/migrations/079_agentetome_source_integration.sql': [
+    ['requested_by uuid references auth.users(id) on delete set null,', 'requested_by uuid references public.user_profiles(id) on delete set null,'],
+  ],
+  'db/migrations/089_agentetome_export_ingestion.sql': [
+    { removeFrom: "insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)", removeThrough: "  allowed_mime_types=excluded.allowed_mime_types;" },
+    { removeFrom: "create or replace function private.request_agentetome_admin_export(", removeThrough: "grant execute on function private.run_agentetome_export_ingestion(text,text,text,text)\n  to service_role;" },
+    { removeFrom: "create or replace function private.queue_agentetome_package_recovery(p_package_id uuid)", removeThrough: "grant execute on function private.queue_agentetome_package_recovery(uuid)\n  to service_role;" },
+  ],
+  'db/migrations/128_agentetome_production_control_plane.sql': [
+    { removeFrom: "create or replace function public.agentetome_admin_manifest_secure(", removeThrough: "grant execute on function public.agentetome_runtime_status() to service_role;" },
+    { removeFrom: "create or replace function public.queue_agentetome_admin_export(", removeThrough: "grant execute on function private.run_agentetome_due_exports() to service_role;" },
+    { removeFrom: "select private.refresh_agentetome_source_status();", removeThrough: "select private.refresh_agentetome_source_status();" },
+  ],
+  'db/migrations/104_knowledge_learning_agent.sql': [
+    // Local variables node_id/reference_type/reference_id shadow the conflict-target columns:
+    // "column reference node_id is ambiguous" whenever references are applied (plpgsql_check).
+    ['    on conflict (node_id, reference_type, reference_id) do update set label = excluded.label, snapshot = excluded.snapshot;', '    on conflict on constraint knowledge_references_node_id_reference_type_reference_id_key do update set label = excluded.label, snapshot = excluded.snapshot;'],
+  ],
   'db/migrations/113_reclassify_empty_successful_capture_runs.sql': [
     // The diagnostics view only existed as a dashboard object in the legacy provider and is not used by the runtime.
     ["comment on view public.gold_source_connector_run_diagnostics is\n  'Connector run diagnostics. Completed runs with zero outputs are valid empty results and resolve to needs_review, not failed.';", '-- neon: gold_source_connector_run_diagnostics is not part of the Neon runtime'],
@@ -52,7 +72,8 @@ const applyPatch = (file, current, patch) => {
   const start = current.indexOf(patch.removeFrom);
   const end = start < 0 ? -1 : current.indexOf(patch.removeThrough, start);
   if (start < 0 || end < 0) throw new Error(`Neon removal for ${file} no longer matches: ${patch.removeFrom}`);
-  return `${current.slice(0, start)}-- neon: removed block "${patch.removeFrom.slice(0, 60)}"${current.slice(end + patch.removeThrough.length)}`;
+  const label = patch.removeFrom.split('\n')[0].slice(0, 60);
+  return `${current.slice(0, start)}-- neon: removed block "${label}"${current.slice(end + patch.removeThrough.length)}`;
 };
 
 export const applyMigrationPatches = (file, sql) => (PATCHES[file] ?? [])

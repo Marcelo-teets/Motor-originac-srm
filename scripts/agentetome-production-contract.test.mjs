@@ -7,6 +7,8 @@ const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), '
 const api = read('api/agentetome.ts');
 const neonAuth = read('serverless/neon-auth.ts');
 const panel = read('frontend/src/components/AgentetomeOperationsPanel.tsx');
+const pipeline = read('backend/src/services/agentetomePipeline.ts');
+const controlPlane = read('db/neon/20261006_neon_agentetome_runtime.sql');
 
 test('Agentetome secret is server-side and the runtime is Neon-authenticated', () => {
   assert.match(api, /process\.env\.AGENTETOME_API_KEY/);
@@ -16,11 +18,28 @@ test('Agentetome secret is server-side and the runtime is Neon-authenticated', (
   assert.match(neonAuth, /NEON_AUTH_/);
 });
 
-test('admin operations require GOD-MODE and execute through the canonical Neon RPC layer', () => {
+test('admin operations require GOD-MODE and run the Vercel pipeline against Neon', () => {
   assert.match(api, /requireGodMode\(user\.authorization\)/);
-  assert.match(api, /queue_agentetome_admin_export/);
-  assert.match(api, /agentetome_admin_manifest_secure/);
+  assert.match(api, /runAdminExport\(/);
+  assert.match(api, /record_agentetome_admin_manifest/);
   assert.match(api, /requireNeonDataClient/);
+  assert.match(api, /operation === 'due-exports'[\s\S]*authenticateCron\(req\)/);
+});
+
+test('the pipeline keeps the provider contract and never persists the signed link or the raw ZIP', () => {
+  assert.match(pipeline, /\/api\/v1\/export\/admin\/manifest/);
+  assert.match(pipeline, /name: 'exportar_admin'/);
+  assert.match(pipeline, /url\.hostname !== 'www\.agentetome\.com'/);
+  assert.match(pipeline, /finalize_agentetome_direct_package_v2/);
+  assert.match(pipeline, /refresh_agentetome_existing_package/);
+  assert.match(pipeline, /raw_download_link_persisted: false/);
+  assert.doesNotMatch(pipeline, /link_download:\s*payload/);
+});
+
+test('the Neon control plane has no vault, pg_net, http or pg_cron dependency', () => {
+  assert.doesNotMatch(controlPlane, /vault\.|net\.http|extensions\.http|cron\.(schedule|job)/);
+  assert.match(controlPlane, /function public\.claim_due_agentetome_targets/);
+  assert.match(controlPlane, /'secretMode', 'vercel_env'/);
 });
 
 test('XML validation follows the official Agentetome privacy and upload contract', () => {

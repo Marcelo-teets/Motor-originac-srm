@@ -243,6 +243,20 @@ alter table public.tasks
   add column if not exists owner_name text,
   add column if not exists pipeline_id uuid references public.pipeline(id) on delete set null;
 
+-- Columns referenced by PL/pgSQL bodies (found with plpgsql_check on the replay).
+alter table public.lead_score_snapshots
+  add column if not exists priority_tier text,
+  add column if not exists suggested_structure text,
+  add column if not exists commercial_angle text;
+alter table public.source_documents
+  add column if not exists confidence numeric;
+alter table public.monitoring_outputs
+  add column if not exists search_profile_id text;
+alter table public.tasks
+  add column if not exists completed_at timestamptz;
+alter table public.pipeline
+  add column if not exists last_contact_at timestamptz;
+
 -- qualification_snapshots columns written by captureDerivedSyncService and read by 141-143.
 alter table public.qualification_snapshots
   add column if not exists snapshot_version text,

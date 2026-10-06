@@ -17,7 +17,7 @@ export class CommercialPriorityService {
 
     const [lead, ranking, trigger, company, stakeholders, touchpoints, objections] = await Promise.all([
       this.client.select('lead_score_snapshots', { select: '*', filters: [{ column: 'company_id', value: companyId }], orderBy: { column: 'created_at', ascending: false }, limit: 1 }).catch(() => []),
-      this.client.select('ranking_snapshots', { select: '*', filters: [{ column: 'company_id', value: companyId }], orderBy: { column: 'created_at', ascending: false }, limit: 1 }).catch(() => []),
+      this.client.select('ranking_v2', { select: '*', filters: [{ column: 'company_id', value: companyId }], orderBy: { column: 'created_at', ascending: false }, limit: 1 }).catch(() => []),
       this.client.select('trigger_events', { select: '*', filters: [{ column: 'company_id', value: companyId }], orderBy: { column: 'created_at', ascending: false }, limit: 5 }).catch(() => []),
       this.client.select('companies', { select: 'id,estimated_ticket_size,next_step_due_at,priority_reason', filters: [{ column: 'id', value: companyId }], limit: 1 }).catch(() => []),
       this.client.select('account_stakeholders', { select: '*', filters: [{ column: 'company_id', value: companyId }] }).catch(() => []),

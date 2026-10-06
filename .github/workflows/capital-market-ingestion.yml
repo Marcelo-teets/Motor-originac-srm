@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/capital-market-ingestion.yml
-      - scripts/check-supabase-storage-budget.mjs
+      - scripts/check-neon-storage-budget.mjs
       - api/capital-market-run.ts
       - vercel.json
       - backend/src/cli/capitalMarkets.ts
@@ -118,7 +118,7 @@ jobs:
       - name: Check storage budget for push canaries
         if: github.event_name == 'push'
         id: storage_push
-        run: node scripts/check-supabase-storage-budget.mjs --requested-rows=500 --trigger=manual
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=500 --trigger=manual
 
       - name: Publish paused push summary
         if: github.event_name == 'push' && steps.storage_push.outputs.blocked == 'true'
@@ -237,7 +237,7 @@ jobs:
             exit 0
           fi
 
-          PREFLIGHT="$(node scripts/check-supabase-storage-budget.mjs --requested-rows=20000 --trigger=backfill)"
+          PREFLIGHT="$(node scripts/check-neon-storage-budget.mjs --requested-rows=20000 --trigger=backfill)"
           echo "$PREFLIGHT" | jq .
           if [ "$(echo "$PREFLIGHT" | jq -r '.blocked')" = "true" ]; then
             echo "Backfill paused by storage budget; no write attempted."
@@ -321,7 +321,7 @@ jobs:
         id: storage
         shell: bash
         run: |
-          node scripts/check-supabase-storage-budget.mjs \
+          node scripts/check-neon-storage-budget.mjs \
             --requested-rows="${{ steps.scope.outputs.max_rows }}" \
             --trigger="${{ steps.scope.outputs.trigger }}"
 
@@ -399,6 +399,5 @@ jobs:
           name: capital-market-ingestion-diagnostics-${{ github.run_id }}
           path: |
             /tmp/cvm-ingestion.log
-            /tmp/supabase-probe.json
           if-no-files-found: ignore
           retention-days: 7
