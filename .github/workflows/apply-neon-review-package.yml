@@ -142,8 +142,10 @@ jobs:
                               # drop only that stale patch rule so drift detection stays strict.
                               patches = pathlib.Path('scripts/lib/neon-migration-patches.mjs')
                               patch_body = patches.read_text(encoding='utf-8')
-                              stale = '    { removeFrom: "create or replace function public.get_agentetome_runtime_secret()", removeThrough: "grant execute on function public.get_agentetome_runtime_secret() to service_role;" },\\n'
-                              patch_body = patch_body.replace(stale, '')
+                              patch_body = ''.join(
+                                  line for line in patch_body.splitlines(keepends=True)
+                                  if 'get_agentetome_runtime_secret()' not in line
+                              )
                               patches.write_text(patch_body, encoding='utf-8')
 
                               run(['git','add','scripts/apply-neon-runtime-migrations.mjs','scripts/lib/neon-migration-plan.mjs','scripts/lib/neon-migration-patches.mjs'], check=True)
