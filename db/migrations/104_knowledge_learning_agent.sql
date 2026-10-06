@@ -206,7 +206,7 @@ returns jsonb language sql security invoker stable set search_path = public as $
     then jsonb_build_object('error', 'service_role_required')
     else jsonb_build_object(
       'company', jsonb_build_object('id', c.id, 'name', coalesce(c.trade_name, c.legal_name), 'legalName', c.legal_name,
-        'cnpj', c.cnpj, 'sector', coalesce(c.sector, c.segment), 'subSector', coalesce(c.sub_sector, c.subsegment),
+        'cnpj', c.cnpj, 'sector', c.segment, 'subSector', c.subsegment,
         'stage', c.stage, 'description', c.description, 'creditProduct', c.credit_product,
         'hasReceivables', c.has_receivables, 'hasFidc', c.has_fidc, 'hasStructuredDebt', c.has_structured_debt,
         'fundingGap', c.funding_gap, 'fitFidc', c.fit_fidc, 'fitDcm', c.fit_dcm,
