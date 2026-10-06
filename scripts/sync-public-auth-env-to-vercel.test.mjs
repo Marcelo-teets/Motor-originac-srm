@@ -45,7 +45,7 @@ test('upserts only canonical Neon Auth variables and verifies production targets
   assert.equal(posts.length, PUBLIC_AUTH_ENV_KEYS.length);
   for (const { url, init } of posts) {
     assert.match(url, /upsert=true/);
-    const body = JSON.parse(init.body);
+    const [body] = JSON.parse(init.body);
     assert.ok(PUBLIC_AUTH_ENV_KEYS.includes(body.key));
     assert.deepEqual(body.target, ['production', 'preview', 'development']);
     assert.equal(body.type, 'encrypted');

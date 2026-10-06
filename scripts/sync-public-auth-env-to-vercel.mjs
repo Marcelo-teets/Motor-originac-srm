@@ -93,13 +93,13 @@ export const syncPublicAuthEnvToVercel = async ({
     await readJson(await fetchImpl(createUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
+      body: JSON.stringify([{
         key,
         value,
         type: 'encrypted',
         target: ['production', 'preview', 'development'],
         comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
-      }),
+      }]),
     }), `Vercel environment upsert for ${key}`);
   }
 
