@@ -39,9 +39,13 @@ test('Neon guard covers raw-heavy surfaces and not decision layers', () => {
   }
 });
 
-test('Neon guard supports shrinking cleanup and cron refresh', () => {
+test('Neon guard supports shrinking cleanup and trigger-driven refresh without pg_cron', () => {
   assert.match(sql, /v_new_bytes <= v_old_bytes/);
-  assert.match(sql, /create extension if not exists pg_cron/);
-  assert.match(sql, /database-growth-guard-refresh/);
-  assert.match(sql, /'11,41 \* \* \* \*'/);
+  // Neon only allows pg_cron in the `postgres` database, so the guard refreshes its
+  // cached measurement from the trigger itself when it is older than 30 minutes.
+  const executableSql = sql.replace(/--[^\n]*/g, '');
+  assert.doesNotMatch(executableSql, /create extension if not exists pg_cron/i);
+  assert.doesNotMatch(executableSql, /\bcron\.schedule\b/i);
+  assert.match(sql, /checked_at < now\(\) - interval '30 minutes'/);
+  assert.match(sql, /select private\.refresh_database_growth_guard\(\);/);
 });

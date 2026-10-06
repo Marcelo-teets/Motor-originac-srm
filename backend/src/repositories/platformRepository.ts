@@ -3,6 +3,7 @@ import { companySeeds, patternCatalogSeeds, searchProfileFilterSeeds, searchProf
 import { env } from '../lib/env.js';
 import { attachCompanyDecisionMetadata } from '../lib/companyDecisionEligibility.js';
 import { getDataClient } from '../lib/dataClient.js';
+import { asOwner, isActivityStatus, isPipelineStage } from '../lib/crm.js';
 import type {
   ActivityRecord,
   CompanyPattern,
@@ -19,7 +20,6 @@ import type {
   SearchProfile,
   SearchProfileFilter,
   SourceCatalogEntry,
-  Owner,
   ActivityStatus,
   TaskRecord,
 } from '../types/platform.js';
@@ -136,18 +136,8 @@ export const searchProfileToRow = (profile: SearchProfile) => ({
   },
   updated_at: new Date().toISOString(),
 });
-const asPipelineStage = (value: string): PipelineStage => {
-  const allowed: PipelineStage[] = ['Identified', 'Qualified', 'Approach', 'Structuring', 'Mandated', 'ClosedWon', 'ClosedLost', 'Recycled'];
-  return allowed.includes(value as PipelineStage) ? value as PipelineStage : 'Identified';
-};
-const asOwner = (value: string): Owner => {
-  const allowed: Owner[] = ['Origination', 'Coverage', 'Analytics', 'Intelligence', 'Credit', 'Unknown'];
-  return allowed.includes(value as Owner) ? value as Owner : 'Unknown';
-};
-const asActivityStatus = (value: string): ActivityStatus => {
-  const allowed: ActivityStatus[] = ['open', 'done', 'cancelled'];
-  return allowed.includes(value as ActivityStatus) ? value as ActivityStatus : 'open';
-};
+const asPipelineStage = (value: string): PipelineStage => (isPipelineStage(value) ? value : 'Identified');
+const asActivityStatus = (value: string): ActivityStatus => (isActivityStatus(value) ? value : 'open');
 
 class MemoryPlatformRepository implements PlatformRepository {
   private companies = structuredClone(seededCompanies);
@@ -757,11 +747,8 @@ class DatabasePlatformRepository implements PlatformRepository {
     return profile;
   }
 
-  async listPipelineRows() {
-    if (this.shouldUseFallbackForRuntime()) return this.fallback.listPipelineRows();
-    const client = this.ensureClient();
-    const data = await client.select('pipeline', { select: '*', orderBy: { column: 'updated_at', ascending: false } });
-    return (data ?? []).map((row: any) => ({
+  private mapPipelineRow(row: any): PipelineRow {
+    return {
       id: row.id,
       companyId: row.company_id,
       stage: asPipelineStage(row.stage),
@@ -769,12 +756,25 @@ class DatabasePlatformRepository implements PlatformRepository {
       nextAction: row.next_action ?? '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    } satisfies PipelineRow));
+    };
+  }
+
+  async listPipelineRows() {
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.listPipelineRows();
+    const client = this.ensureClient();
+    const data = await client.select('pipeline', { select: '*', orderBy: { column: 'updated_at', ascending: false } });
+    return (data ?? []).map((row: any) => this.mapPipelineRow(row));
   }
 
   async getPipelineByCompany(companyId: string) {
-    const rows = await this.listPipelineRows();
-    return rows.find((item: PipelineRow) => item.companyId === companyId) ?? null;
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.getPipelineByCompany(companyId);
+    // Single-row lookup instead of loading and scanning the whole pipeline table.
+    const rows = await this.ensureClient().select('pipeline', {
+      select: '*',
+      filters: [{ column: 'company_id', operator: 'eq', value: companyId }],
+      limit: 1,
+    });
+    return rows?.[0] ? this.mapPipelineRow(rows[0]) : null;
   }
 
   async savePipelineRow(row: Omit<PipelineRow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
@@ -866,11 +866,8 @@ class DatabasePlatformRepository implements PlatformRepository {
     return saved;
   }
 
-  async listTasks(companyId?: string) {
-    if (this.shouldUseFallbackForRuntime()) return this.fallback.listTasks(companyId);
-    const client = this.ensureClient();
-    const data = await client.select('tasks', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
-    return (data ?? []).map((row: any) => ({
+  private mapTaskRow(row: any): TaskRecord {
+    return {
       id: row.id,
       companyId: row.company_id,
       title: row.title,
@@ -880,7 +877,14 @@ class DatabasePlatformRepository implements PlatformRepository {
       dueDate: row.due_date ?? row.payload?.due_date ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at ?? row.created_at,
-    } satisfies TaskRecord));
+    };
+  }
+
+  async listTasks(companyId?: string) {
+    if (this.shouldUseFallbackForRuntime()) return this.fallback.listTasks(companyId);
+    const client = this.ensureClient();
+    const data = await client.select('tasks', { select: '*', ...(companyId ? { filters: [{ column: 'company_id', operator: 'eq', value: companyId }] } : {}), orderBy: { column: 'created_at', ascending: false } });
+    return (data ?? []).map((row: any) => this.mapTaskRow(row));
   }
 
   async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
@@ -906,7 +910,8 @@ class DatabasePlatformRepository implements PlatformRepository {
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) {
     if (this.shouldUseFallbackForRuntime()) return this.fallback.updateTask(taskId, updates);
     const client = this.ensureClient();
-    await client.update('tasks', {
+    // `update ... returning *` already yields the row; no need to reload every task.
+    const rows = await client.update('tasks', {
       ...(updates.title !== undefined ? { title: updates.title } : {}),
       ...(updates.description !== undefined ? { description: updates.description } : {}),
       ...(updates.owner !== undefined ? { owner: updates.owner } : {}),
@@ -914,8 +919,7 @@ class DatabasePlatformRepository implements PlatformRepository {
       ...(updates.dueDate !== undefined ? { due_date: updates.dueDate } : {}),
       updated_at: new Date().toISOString(),
     }, [{ column: 'id', operator: 'eq', value: taskId }]);
-    const allTasks = await this.listTasks();
-    return allTasks.find((item: TaskRecord) => item.id === taskId) ?? null;
+    return Array.isArray(rows) && rows[0] ? this.mapTaskRow(rows[0]) : null;
   }
 
   async seedBaseData() {

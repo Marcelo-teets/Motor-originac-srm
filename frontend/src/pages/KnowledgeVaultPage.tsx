@@ -291,7 +291,7 @@ export function KnowledgeVaultPage() {
     setDetail(null);
     setDraft(emptyDraft(nodeType));
     setTagText('');
-    setNotice('Nova nota iniciada. Preencha o título e salve para persistir no Supabase.');
+    setNotice('Nova nota iniciada. Preencha o título e salve para persistir no Neon.');
     setRightPanel('preview');
   };
 
@@ -331,7 +331,7 @@ export function KnowledgeVaultPage() {
       setDetail(null);
       setDraft(emptyDraft());
       setTagText('');
-      setNotice('Nota arquivada. O registro permanece auditável no Supabase.');
+      setNotice('Nota arquivada. O registro permanece auditável no Neon.');
       await loadWorkspace(null);
     } catch (archiveError) {
       setError(archiveError instanceof Error ? archiveError.message : 'Falha ao arquivar a nota.');
@@ -368,7 +368,7 @@ export function KnowledgeVaultPage() {
       const saved = await knowledgeVaultApi.saveView(session, input);
       const refreshed = await loadSavedViews();
       setActiveViewId(saved.id);
-      setNotice(`Base “${saved.name}” ${input.id ? 'atualizada' : 'criada'} no Supabase.`);
+      setNotice(`Base “${saved.name}” ${input.id ? 'atualizada' : 'criada'} no Neon.`);
       return refreshed.find((view) => view.id === saved.id) ?? saved;
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Falha ao salvar a Base.';
@@ -408,7 +408,7 @@ export function KnowledgeVaultPage() {
         description="Workspace interno inspirado no Obsidian: Markdown, WikiLinks, backlinks, grafo e Bases operacionais — conectado a empresas, teses, sinais, reuniões, fontes e estruturas de crédito."
         actions={(
           <div className="page-intro-actions">
-            <Pill tone="success">Supabase real + RLS</Pill>
+            <Pill tone="success">Neon real</Pill>
             <button type="button" onClick={() => startNew('note')}>+ Nova nota</button>
           </div>
         )}

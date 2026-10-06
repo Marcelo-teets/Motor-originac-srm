@@ -190,7 +190,7 @@ type OfficialEnrichmentRow = {
 };
 
 type SourceRow = { id: string; metadata?: Record<string, unknown> | null };
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 export type CandidateWebsiteIdentityOptions = { limit?: number };
 export type CandidateWebsiteIdentityResult = {
@@ -208,7 +208,7 @@ export type CandidateWebsiteIdentityResult = {
 };
 
 type Dependencies = {
-  client?: SupabaseClient | null;
+  client?: DataClient | null;
   fetchImpl?: typeof fetch;
   now?: () => Date;
 };
@@ -244,7 +244,7 @@ const buildReviewEvidenceSummary = (
 };
 
 export class CandidateWebsiteIdentityService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => Date;
 
@@ -255,7 +255,7 @@ export class CandidateWebsiteIdentityService {
   }
 
   async run(options: CandidateWebsiteIdentityOptions = {}): Promise<CandidateWebsiteIdentityResult> {
-    if (!this.client) throw new Error('Supabase client not configured for candidate website identity capture.');
+    if (!this.client) throw new Error('Neon data client not configured for candidate website identity capture.');
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
     const now = this.now();
     const poolLimit = Math.min(TARGET_POOL_LIMIT, Math.max(limit * 4, limit));

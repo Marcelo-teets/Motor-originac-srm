@@ -19,10 +19,10 @@ type CandidateRow = {
   updated_at: string | null;
 };
 
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 type Dependencies = {
-  client?: SupabaseClient | null;
+  client?: DataClient | null;
   now?: () => Date;
 };
 
@@ -55,7 +55,7 @@ const signalCounterKey = (signalClass: CandidateCommercialSignalClass) => {
 };
 
 export class CandidateNewsSemanticsService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
@@ -64,7 +64,7 @@ export class CandidateNewsSemanticsService {
   }
 
   async run(options: CandidateNewsSemanticsOptions = {}): Promise<CandidateNewsSemanticsResult> {
-    if (!this.client) throw new Error('Supabase client not configured for candidate news semantics.');
+    if (!this.client) throw new Error('Neon data client not configured for candidate news semantics.');
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
     const rows = await this.client.select('discovered_company_candidates', {
       select: 'id,company_name,source_ref,evidence_summary,candidate_status,raw_payload,updated_at',

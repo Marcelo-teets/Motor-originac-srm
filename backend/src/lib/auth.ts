@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response as ExpressResponse } from 'express';
 import { env } from './env.js';
+import { decodeBase64Url, verifyNeonAccessToken } from './neonJwt.js';
 
-type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 export type AuthUser = { id: string; email?: string; role?: string; raw: Record<string, unknown> };
 export type AuthSession = {
   access_token: string;
@@ -24,19 +24,11 @@ declare global {
 
 export const AUTH_SESSION_COOKIE_NAME = 'motor_neon_session';
 const NEON_UPSTREAM_COOKIE_NAME = '__Secure-neon-auth.session_token';
-const encoder = new TextEncoder();
-let jwksCache: { expiresAt: number; keys: Jwk[] } | null = null;
 
 const requireAuthEnv = () => {
   if (!env.neonAuthBaseUrl || !env.neonAuthJwksUrl) {
     throw new Error('Neon Managed Auth environment is not configured. Set NEON_AUTH_BASE_URL.');
   }
-};
-
-const decodeBase64Url = (value: string) => {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '==='.slice((normalized.length + 3) % 4);
-  return Buffer.from(padded, 'base64');
 };
 
 const readJsonObject = async (response: globalThis.Response): Promise<Record<string, any>> => {
@@ -134,96 +126,13 @@ const buildSession = (
   };
 };
 
-// Forced refreshes (unknown kid) are throttled so tokens with random kids
-// cannot turn every request into a JWKS fetch.
-const JWKS_FORCED_REFRESH_INTERVAL_MS = 60_000;
-let lastForcedJwksRefreshAt = 0;
-
-const getNeonJwks = async (forceRefresh = false) => {
-  requireAuthEnv();
-  const now = Date.now();
-  const canForce = forceRefresh && now - lastForcedJwksRefreshAt >= JWKS_FORCED_REFRESH_INTERVAL_MS;
-  if (!canForce && jwksCache && now < jwksCache.expiresAt) return jwksCache.keys;
-  if (canForce) lastForcedJwksRefreshAt = now;
-  const response = await fetch(env.neonAuthJwksUrl, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) throw new Error(`Unable to load Neon Auth JWKS: ${response.status}`);
-  const payload = await readJsonObject(response) as { keys?: Jwk[] };
-  const keys = Array.isArray(payload.keys) ? payload.keys : [];
-  if (!keys.length) throw new Error('Neon Auth JWKS is empty.');
-  jwksCache = { expiresAt: Date.now() + 60 * 60 * 1000, keys };
-  return keys;
-};
-
-const importVerificationKey = async (jwk: Jwk) => {
-  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['verify']);
-  }
-  if (jwk.kty === 'RSA') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-  }
-  if (jwk.kty === 'EC') {
-    return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-  }
-  throw new Error(`Unsupported JWT key type: ${jwk.kty ?? 'unknown'}`);
-};
-
-const JWT_CLOCK_SKEW_MS = 60_000;
-
-// A kid missing from the cached JWKS usually means the issuer rotated keys, so
-// refetch once before rejecting. Only kid-less tokens fall back to the first key.
-const findVerificationKey = async (kid: string | undefined) => {
-  if (!kid) {
-    const [first] = await getNeonJwks();
-    if (!first) throw new Error('No JWKS available for verification');
-    return first;
-  }
-  const cached = (await getNeonJwks()).find((item) => item.kid === kid);
-  if (cached) return cached;
-  const refreshed = (await getNeonJwks(true)).find((item) => item.kid === kid);
-  if (!refreshed) throw new Error('Unknown JWT signing key');
-  return refreshed;
-};
-
 export const verifyNeonJwt = async (token: string): Promise<AuthUser> => {
   requireAuthEnv();
-  const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
-  if (!encodedHeader || !encodedPayload || !encodedSignature) throw new Error('Malformed token');
-
-  const header = JSON.parse(decodeBase64Url(encodedHeader).toString('utf8')) as { alg?: string; kid?: string };
-  const payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
-  const expectedOrigin = new URL(env.neonAuthBaseUrl).origin;
-
-  const now = Date.now();
-  if (typeof payload.exp !== 'number') throw new Error('Token has no expiry');
-  if (payload.exp * 1000 < now) throw new Error('Token expired');
-  if (typeof payload.nbf === 'number' && payload.nbf * 1000 > now + JWT_CLOCK_SKEW_MS) throw new Error('Token not yet valid');
-  if (payload.iss && payload.iss !== expectedOrigin) throw new Error('Invalid issuer');
-  if (payload.aud) {
-    const audiences = Array.isArray(payload.aud) ? payload.aud.map(String) : [String(payload.aud)];
-    if (!audiences.includes(expectedOrigin)) throw new Error('Invalid audience');
-  }
-
-  const jwk = await findVerificationKey(header.kid);
-  if (header.alg === 'EdDSA' && !(jwk.kty === 'OKP' && jwk.crv === 'Ed25519')) {
-    throw new Error('JWT algorithm/key mismatch');
-  }
-
-  const key = await importVerificationKey(jwk);
-  const data = encoder.encode(`${encodedHeader}.${encodedPayload}`);
-  const signature = decodeBase64Url(encodedSignature);
-  const verified = jwk.kty === 'OKP'
-    ? await crypto.subtle.verify('Ed25519', key, signature, data)
-    : jwk.kty === 'EC'
-      ? await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, data)
-      : await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, signature, data);
-
-  if (!verified) throw new Error('Invalid token signature');
-  const user = mapAuthUser(payload);
-  if (!user.id) throw new Error('JWT subject is missing');
-  return user;
+  const claims = await verifyNeonAccessToken(token, {
+    authBaseUrl: env.neonAuthBaseUrl,
+    jwksUrl: env.neonAuthJwksUrl,
+  });
+  return { id: claims.id, email: claims.email, role: claims.role, raw: claims.payload };
 };
 
 export const readAuthSessionCookie = (req: Pick<Request, 'headers'>) => {

@@ -30,8 +30,6 @@ import {
 } from './lib/userProfiles.js';
 import { env } from './lib/env.js';
 import { getBuildInfo } from './lib/buildInfo.js';
-import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
-import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { getMaisRetornoQuotaStatus, quotaEnvelopeStatus } from './lib/maisRetorno.js';
@@ -63,50 +61,33 @@ const crmRuntimeMode: 'real' | 'mock' = env.usePersistentData ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
 const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
 const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
-// Honors `statusCode` (our errors) or `status` (body-parser and other
-// middleware) when it is a valid HTTP error status; defaults to 500.
-const errorStatus = (error: unknown) => {
-  const source = error && typeof error === 'object' ? error as { statusCode?: unknown; status?: unknown } : {};
-  const candidate = Number(source.statusCode ?? source.status);
-  return Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
-};
-const sendError = (res: express.Response, error: unknown) => {
-  const statusCode = errorStatus(error);
-  if (statusCode >= 500) console.error(error);
-  res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
-};
 const wrap = (handler: express.Handler): express.Handler => async (req, res, next) => {
   try {
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
-    sendError(res, error);
+    const candidateStatus = error && typeof error === 'object' && 'statusCode' in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : 500;
+    const statusCode = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus <= 599
+      ? candidateStatus
+      : 500;
+    // Expected 4xx rejections (auth, validation) are not server faults; keep the
+    // logs for real failures.
+    if (statusCode >= 500) console.error(error);
+    else console.warn(`[motor-backend] ${req.method} ${req.path} -> ${statusCode}: ${error instanceof Error ? error.message : String(error)}`);
+    res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
-const inactiveAccessError = () => Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
-
-// A valid Neon JWT only proves identity: invited or disabled users can still
-// obtain one straight from Neon Auth. Every protected route therefore also
-// requires an active application profile. Lookups are cached briefly so a
-// burst of requests costs one query; access changes apply within the TTL.
-const ACTIVE_PROFILE_CACHE_TTL_MS = 30_000;
-const activeProfileCache = new Map<string, number>();
-const requireActiveProfile: express.Handler = wrap(async (req, _res, next) => {
-  const userId = req.authUser!.id;
-  const cachedUntil = activeProfileCache.get(userId);
-  if (cachedUntil && cachedUntil > Date.now()) {
-    next();
-    return;
-  }
-  const profile = await getUserProfileById(userId);
-  if (profile?.status !== 'active') {
-    activeProfileCache.delete(userId);
-    throw inactiveAccessError();
-  }
-  if (activeProfileCache.size > 1_000) activeProfileCache.clear();
-  activeProfileCache.set(userId, Date.now() + ACTIVE_PROFILE_CACHE_TTL_MS);
-  next();
-});
+// null/'' clear the date; a parseable date string is kept as sent (numbers
+// become ISO); anything else returns undefined so the route can answer 400
+// instead of a database 500.
+const parseOptionalDate = (value: unknown): string | null | undefined => {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? new Date(value).toISOString() : undefined;
+  if (typeof value !== 'string') return undefined;
+  return Number.isFinite(new Date(value.trim()).getTime()) ? value.trim() : undefined;
+};
 
 await service.bootstrap({ refreshMonitoring: !process.env.VERCEL }).catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
@@ -200,8 +181,9 @@ app.post('/auth/login', wrap(async (req, res) => {
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
+    // Do not leave a live upstream session behind for a rejected login.
     await signOutAuth(flow.sessionToken).catch(() => undefined);
-    throw inactiveAccessError();
+    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
@@ -219,7 +201,7 @@ app.post('/auth/session', wrap(async (req, res) => {
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
     clearAuthSessionCookie(res);
-    throw inactiveAccessError();
+    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
@@ -253,7 +235,35 @@ app.post('/auth/logout', wrap(async (req, res) => {
 }));
 
 app.use(authMiddleware);
-app.use(requireActiveProfile);
+
+// A valid Neon Auth JWT only proves identity. Access to platform data also
+// requires an *active* application profile — otherwise an invited or disabled
+// user could mint a token directly at Neon Auth and call every route below.
+// Mirrors serverless/neon-auth.ts (verifyActiveIdentity). Positive results are
+// cached briefly per warm instance to avoid a profile lookup on every request.
+const ACTIVE_PROFILE_CACHE_MS = 30_000;
+const activeProfileCache = new Map<string, number>();
+app.use(wrap(async (req, _res, next) => {
+  if (!env.usePersistentData) {
+    next();
+    return;
+  }
+  const userId = req.authUser!.id;
+  const now = Date.now();
+  if ((activeProfileCache.get(userId) ?? 0) > now) {
+    next();
+    return;
+  }
+  const profile = await getUserProfileById(userId);
+  if (!profile || profile.status !== 'active') {
+    activeProfileCache.delete(userId);
+    throw Object.assign(new Error('Este acesso está desativado ou ainda não foi aprovado.'), { statusCode: 403 });
+  }
+  if (activeProfileCache.size > 1_000) activeProfileCache.clear();
+  activeProfileCache.set(userId, now + ACTIVE_PROFILE_CACHE_MS);
+  next();
+}));
+
 app.use('/ai', createAiRouter(service));
 app.use('/abm', createAbmWarRoomRouter());
 app.use('/watchlists', createWatchlistRouter(repository));
@@ -261,7 +271,7 @@ app.use('/candidate-decision-queue', createCandidateDecisionQueueRouter(candidat
 
 app.get('/auth/me', wrap(async (req, res) => {
   const profile = await ensureUserProfile(req.authUser!);
-  if (profile.status !== 'active') throw inactiveAccessError();
+  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   res.json(ok('real', {
     id: req.authUser!.id,
     email: profile.email ?? req.authUser!.email,
@@ -271,13 +281,13 @@ app.get('/auth/me', wrap(async (req, res) => {
 
 app.get('/auth/profile', wrap(async (req, res) => {
   const profile = await ensureUserProfile(req.authUser!);
-  if (profile.status !== 'active') throw inactiveAccessError();
+  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   res.json(ok('real', profile));
 }));
 
 app.patch('/auth/profile', wrap(async (req, res) => {
   const current = await ensureUserProfile(req.authUser!);
-  if (current.status !== 'active') throw inactiveAccessError();
+  if (current.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   const profile = await updateOwnUserProfile(req.authUser!.id, {
     full_name: typeof req.body?.full_name === 'string' && req.body.full_name.trim() ? req.body.full_name.trim() : null,
     job_title: typeof req.body?.job_title === 'string' && req.body.job_title.trim() ? req.body.job_title.trim() : null,
@@ -298,6 +308,7 @@ app.patch('/auth/users/:id/access', wrap(async (req, res) => {
   const role = req.body?.role === 'god_mode' ? 'god_mode' : 'common';
   const status = req.body?.status === 'disabled' ? 'disabled' : req.body?.status === 'invited' ? 'invited' : 'active';
   const profile = await setUserAccess(req.authUser!.id, param(req.params.id), role, status);
+  // Apply the change now instead of after the active-profile cache TTL.
   activeProfileCache.delete(profile.id);
   res.json(ok('real', profile));
 }));
@@ -369,7 +380,7 @@ app.get('/search-profiles/discovery-health', wrap(async (_req, res) => {
     searchCaptureRuntime.listRuns(),
     searchCaptureRuntime.listCandidates(),
   ]);
-  // Normaliza runs/candidatos: memória devolve camelCase, Supabase snake_case.
+  // Normaliza runs/candidatos: memória devolve camelCase, Neon snake_case.
   const runs = (runRows as any[]).map((row) => ({
     id: row.id,
     searchProfileId: row.searchProfileId ?? row.search_profile_id,
@@ -646,6 +657,8 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
   const companyId = param(req.params.id);
   let updated = await service.updateNextAction(companyId, nextAction);
   if (!updated) {
+    // null means either "no pipeline row yet" or "company not decision-eligible";
+    // only the former may create a row.
     const company = await service.isDecisionCompany(companyId) ? await service.getCompanyDetail(companyId) : null;
     if (!company) {
       res.status(403).json(fail(403, 'Company is not eligible for pipeline decisions.'));
@@ -681,6 +694,11 @@ app.post('/activities', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid activity status: ${rawStatus}`));
     return;
   }
+  const activityDueDate = parseOptionalDate(req.body?.dueDate ?? req.body?.due_date);
+  if (activityDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const created = await service.saveActivity({
     companyId,
     type: rawType,
@@ -688,7 +706,7 @@ app.post('/activities', wrap(async (req, res) => {
     description: String(req.body?.description ?? ''),
     owner: asOwner(req.body?.owner ?? 'Unknown'),
     status: rawStatus,
-    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+    dueDate: activityDueDate,
   });
   res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
@@ -711,13 +729,18 @@ app.post('/tasks', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid task status: ${rawStatus}`));
     return;
   }
+  const taskDueDate = parseOptionalDate(req.body?.dueDate ?? req.body?.due_date);
+  if (taskDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const created = await service.saveTask({
     companyId,
     title,
     description: String(req.body?.description ?? ''),
     owner: asOwner(req.body?.owner ?? 'Unknown'),
     status: rawStatus,
-    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+    dueDate: taskDueDate,
   });
   res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
@@ -730,12 +753,19 @@ app.patch('/tasks/:id', wrap(async (req, res) => {
     res.status(400).json(fail(400, 'title cannot be empty.'));
     return;
   }
+  // `in` instead of `??`: an explicit `dueDate: null` must clear the date.
+  const rawDueDate = req.body && 'dueDate' in req.body ? req.body.dueDate : req.body?.due_date;
+  const patchedDueDate = rawDueDate === undefined ? undefined : parseOptionalDate(rawDueDate);
+  if (rawDueDate !== undefined && patchedDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const updated = await service.updateTask(param(req.params.id), {
     title: req.body?.title,
     description: req.body?.description,
     owner: req.body?.owner ? asOwner(req.body.owner) : undefined,
     status: req.body?.status,
-    dueDate: req.body?.dueDate ?? req.body?.due_date,
+    dueDate: patchedDueDate,
   });
   if (!updated) {
     res.status(404).json(fail(404, 'Task not found.'));
@@ -753,7 +783,7 @@ app.get('/mvp-readiness', wrap(async (_req, res) => {
   const [dashboard, sources, pipelineRows] = await Promise.all([service.getDashboard(), service.listSources(), service.listPipelineRows()]);
   const degradedSources = sources.filter((source) => source.health !== 'healthy').length;
   res.json(ok(platformMode, {
-    auth: { status: env.authProvider === 'neon' ? 'real' : 'partial', provider: env.authProvider },
+    auth: { status: env.authProvider === 'none' ? 'partial' : 'real', provider: env.authProvider },
     database: { status: env.usePersistentData ? 'real' : 'partial', mode: env.dataProvider },
     sources: { total: sources.length, degraded: degradedSources, status: degradedSources ? 'attention' : 'healthy' },
     monitoring: { outputs24h: dashboard.monitoring.outputs24h, triggers24h: dashboard.monitoring.triggers24h, status: dashboard.monitoring.outputs24h > 0 ? 'active' : 'idle' },
@@ -805,14 +835,36 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   persistence: platformMode,
 }))));
 
-// Routers without their own try/catch (e.g. /abm) still answer JSON instead of
-// Express's default HTML error page.
-app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+// Final error handler: malformed JSON bodies (express.json) and any error that
+// escapes a route must still produce the platform JSON envelope, never
+// Express' default HTML page.
+app.use(((error, _req, res, next) => {
   if (res.headersSent) {
     next(error);
     return;
   }
-  sendError(res, error);
+  const candidate = Number((error as { statusCode?: unknown; status?: unknown })?.statusCode ?? (error as { status?: unknown })?.status);
+  const statusCode = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+  if (statusCode >= 500) console.error(error);
+  const message = statusCode === 400 && (error as { type?: unknown })?.type === 'entity.parse.failed'
+    ? 'Invalid JSON body.'
+    : error instanceof Error ? error.message : 'Unexpected error';
+  res.status(statusCode).json(fail(statusCode, message));
+}) as express.ErrorRequestHandler);
+
+// Routers without their own try/catch (e.g. /abm) and body-parser failures
+// still answer JSON instead of Express's default HTML error page.
+app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  const source = error && typeof error === 'object' ? error as { statusCode?: unknown; status?: unknown } : {};
+  const candidate = Number(source.statusCode ?? source.status);
+  const statusCode = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+  if (statusCode >= 500) console.error(error);
+  else console.warn(`[motor-backend] ${req.method} ${req.path} -> ${statusCode}: ${error instanceof Error ? error.message : String(error)}`);
+  res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
 });
 
 // ── Exportação para Vercel serverless ──────────────────────────────────────

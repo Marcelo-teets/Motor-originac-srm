@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
-import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
+import { isCronAuthorized } from '../serverless/http.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
 type AuthenticatedUser = { id: string; email?: string; authorization: string };
@@ -18,7 +18,10 @@ class ApiError extends Error {
   }
 }
 
-const RUNTIME = 'agentetome-v2';
+// backend/ is an ES module package; load it lazily from this CommonJS function.
+const loadPipeline = () => import('../backend/src/services/agentetomePipeline.js');
+
+const RUNTIME = 'agentetome-v3';
 const ZERO_COST_POLICY = 'locked';
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected error.';
@@ -61,7 +64,7 @@ const authenticate = async (req: AgentetomeRequest): Promise<AuthenticatedUser> 
 }
 
 const authenticateCron = (req: AgentetomeRequest) => {
-  if (!isCronSecretAuthorized(req.headers.authorization)) throw new ApiError('Unauthorized learning worker.', 401);
+  if (!isCronAuthorized(req)) throw new ApiError('Unauthorized scheduler request.', 401);
 };
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
@@ -175,10 +178,23 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
       });
     }
 
+    if (operation === 'due-exports' && ['GET', 'POST'].includes(req.method ?? '')) {
+      authenticateCron(req);
+      const pipeline = await loadPipeline();
+      const summary = await pipeline.runDueExports(pipeline.requirePipelineDeps(), 1);
+      return writeJson(res, summary.status === 'blocked' ? 503 : 200, {
+        status: summary.status === 'completed' ? 'real' : 'partial',
+        generatedAt: new Date().toISOString(),
+        data: summary,
+      });
+    }
+
     const user = await authenticate(req);
 
     if (operation === 'status' && req.method === 'GET') {
-      const runtimeStatus = await serviceRpc<Record<string, unknown>>('agentetome_runtime_status', {});
+      const runtimeStatus = await serviceRpc<Record<string, unknown>>('agentetome_runtime_status', {
+        p_secret_configured: Boolean(process.env.AGENTETOME_API_KEY),
+      });
       return writeJson(res, 200, {
         status: runtimeStatus.status ?? 'partial',
         generatedAt: new Date().toISOString(),
@@ -188,14 +204,22 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
 
     if (operation === 'admin-manifest' && req.method === 'GET') {
       await requireGodMode(user.authorization);
-      const administrator = String(requestValue(req.query.admin) ?? 'oliveira trust').trim();
-      const cut = String(requestValue(req.query.corte) ?? 'recente');
-      const competence = requestValue(req.query.competencia) ?? null;
-      const result = await serviceRpc<Record<string, any>>('agentetome_admin_manifest_secure', {
-        p_admin: administrator,
-        p_cut: cut,
-        p_competence: competence,
+      const pipeline = await loadPipeline();
+      const request = pipeline.validateExportRequest({
+        admin: String(requestValue(req.query.admin) ?? 'oliveira trust'),
+        cut: String(requestValue(req.query.corte) ?? 'recente'),
+        competence: requestValue(req.query.competencia) ?? null,
+        format: 'csv',
+      });
+      const probe = await pipeline.probeAdminManifest(request, { apiKey: process.env.AGENTETOME_API_KEY ?? '' });
+      const result = await serviceRpc<Record<string, any>>('record_agentetome_admin_manifest', {
+        p_admin: request.admin,
+        p_cut: request.cut,
+        p_competence: request.competence,
         p_requested_by: user.id,
+        p_http_status: probe.httpStatus,
+        p_duration_ms: probe.durationMs,
+        p_payload: probe.payload,
       });
       const providerError = result.provider_error === true || Number(result.http_status ?? 0) >= 400;
       return writeJson(res, providerError ? 502 : 200, {
@@ -208,24 +232,25 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
     if ((operation === 'admin-export' || operation === 'refresh') && req.method === 'POST') {
       await requireGodMode(user.authorization);
       const body = readBody(req);
-      const administrator = String(body.admin ?? body.administrator ?? 'oliveira trust').trim();
-      const cut = String(body.corte ?? body.cut ?? 'recente');
-      const competence = typeof (body.competencia ?? body.competence) === 'string' ? String(body.competencia ?? body.competence) : null;
-      const format = String(body.formato ?? body.format ?? 'csv');
-      const result = await serviceRpc<Record<string, any>>('queue_agentetome_admin_export', {
-        p_admin: administrator,
-        p_cut: cut,
-        p_competence: competence,
-        p_format: format,
-        p_requested_by: user.id,
-        p_trigger_type: 'manual',
-      });
-      const failed = result.status === 'failed' || result.provider_error === true;
-      return writeJson(res, failed ? 502 : 202, {
+      const pipeline = await loadPipeline();
+      const result = await pipeline.runAdminExport({
+        admin: String(body.admin ?? body.administrator ?? 'oliveira trust'),
+        cut: String(body.corte ?? body.cut ?? 'recente'),
+        competence: typeof (body.competencia ?? body.competence) === 'string' ? String(body.competencia ?? body.competence) : null,
+        format: String(body.formato ?? body.format ?? 'csv'),
+        requestedBy: user.id,
+        triggerType: 'manual',
+      }, pipeline.requirePipelineDeps());
+      const failed = result.status === 'failed';
+      // 200 even on provider failure: the run was executed and its diagnosis recorded;
+      // the UI shows data.stage/data.error instead of a generic transport error.
+      return writeJson(res, 200, {
         status: failed ? 'partial' : 'real',
         generatedAt: new Date().toISOString(),
         data: result,
-        note: failed ? 'O refresh não foi enfileirado.' : 'Refresh real enfileirado no Neon. O pacote será validado, persistido e promovido ao Market Map.',
+        note: failed
+          ? 'A exportação não foi concluída; a falha foi registrada no control plane.'
+          : 'Pacote validado, persistido no Neon (bronze) e promovido ao Market Map.',
       });
     }
 

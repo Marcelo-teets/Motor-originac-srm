@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from './neon-auth.js';
-import { readJsonObjectBody } from './http-body.js';
+import { getHeader, parseRequestUrl, readJsonBody } from './http.js';
 
 const RUNTIME = 'company-credit-review-v1';
 
@@ -13,20 +13,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   });
   res.end(JSON.stringify(payload));
 };
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
-
-const parseUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL((req as IncomingMessage & { url?: string }).url ?? '/', `https://${host}`);
-};
-
-const readJsonBody = (req: IncomingMessage) => readJsonObjectBody(req, 128_000);
 
 const authenticate = async (req: IncomingMessage) => {
   const authorization = getHeader(req, 'authorization');
@@ -58,7 +44,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const runtime = new CompanyCreditReviewRuntime();
 
     if (method === 'GET') {
-      const url = parseUrl(req);
+      const url = parseRequestUrl(req);
       const companyId = url.searchParams.get('companyId');
       const limit = Number(url.searchParams.get('limit') ?? 100);
       const data = companyId
@@ -68,9 +54,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(req, 128_000);
     const {
-      CompanyCreditReviewValidationError,
       normalizeCompanyCreditReviewAction,
       normalizeCompanyCreditReviewApproval,
       normalizeCompanyCreditReviewDraft,
@@ -108,6 +93,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ? (error as { blockers?: unknown }).blockers
       : [];
 
+    if (statusCode === 400 || statusCode === 413) {
+      writeJson(res, statusCode, { status: 'partial', generatedAt: new Date().toISOString(), error: message });
+      return;
+    }
     if (message === 'god_mode_required' || statusCode === 403) {
       writeJson(res, 403, { status: 'partial', generatedAt: new Date().toISOString(), error: 'god_mode_required' });
       return;

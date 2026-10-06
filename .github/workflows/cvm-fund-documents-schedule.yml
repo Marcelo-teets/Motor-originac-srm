@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/cvm-fund-documents-schedule.yml
-      - scripts/check-supabase-storage-budget.mjs
+      - scripts/check-neon-storage-budget.mjs
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/cli/capitalMarkets.ts
@@ -14,7 +14,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/cvm-fund-documents-schedule.yml
-      - scripts/check-supabase-storage-budget.mjs
+      - scripts/check-neon-storage-budget.mjs
       - backend/src/modules/capital-markets/**
       - backend/src/services/capitalMarketIngestionService.ts
       - backend/src/cli/capitalMarkets.ts
@@ -151,7 +151,7 @@ SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
         id: storage
         shell: bash
         run: |
-          node scripts/check-supabase-storage-budget.mjs \
+          node scripts/check-neon-storage-budget.mjs \
             --requested-rows="${{ steps.scope.outputs.max_rows }}" \
             --trigger="${{ steps.scope.outputs.trigger }}"
 

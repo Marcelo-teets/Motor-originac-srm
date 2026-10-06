@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -6,6 +5,18 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import {
+  clean,
+  fetchText,
+  hash,
+  linksFromHtml,
+  normalizeHeader,
+  parseDate,
+  parseNumber,
+  pick,
+  rowObject,
+  targetMatch,
+} from './publicDataParsing.js';
 
 export type PublicBulkDatasetCode =
   | 'rfb_cnpj'
@@ -69,50 +80,7 @@ const RFB_ESTABLISHMENT_HEADERS = [
   'ddd_fax', 'fax', 'correio_eletronico', 'situacao_especial', 'data_situacao_especial',
 ];
 
-const normalizeHeader = (value: string) => value
-  .replace(/^\uFEFF/, '')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, '_')
-  .replace(/^_+|_+$/g, '');
 export const digits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
-const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
-const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const parseNumber = (value: unknown) => {
-  const text = clean(value);
-  if (!text) return null;
-  const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text.replace(/[^0-9.-]/g, '');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-const parseDate = (value: unknown) => {
-  const text = clean(value);
-  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
-  const br = text.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : null;
-};
-const pick = (row: Record<string, string>, aliases: string[]) => {
-  for (const alias of aliases) {
-    const value = row[normalizeHeader(alias)];
-    if (value !== undefined && clean(value)) return clean(value);
-  }
-  return '';
-};
-const linksFromHtml = (html: string, base: string) => [...html.matchAll(/href=["']([^"']+)["']/gi)]
-  .map((match) => { try { return new URL(match[1], base).toString(); } catch { return null; } })
-  .filter((value): value is string => Boolean(value));
-const fetchText = async (url: string) => {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'OriginationIntelligencePlatform/1.0' },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error(`Discovery failed: ${response.status} ${url}`);
-  return response.text();
-};
 
 async function probeResource(url: string) {
   const headers = { 'User-Agent': 'OriginationIntelligencePlatform/1.0' };
@@ -378,11 +346,7 @@ const commandOutput = (command: string, args: string[]) => new Promise<string>((
   child.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`${command} exited ${code}: ${err}`)));
 });
 const nodeRows = (stream: NodeJS.ReadableStream, encoding: string, delimiter: string) => parseDelimitedText(decodeNode(stream, encoding), delimiter);
-const rowObject = (headers: string[], values: string[]) => Object.fromEntries(headers.map((header, index) => [normalizeHeader(header), clean(values[index] ?? '')]));
 const rfbHeaders = (name: string) => /(Estabelecimentos|ESTABELE)/i.test(name) ? RFB_ESTABLISHMENT_HEADERS : RFB_COMPANY_HEADERS;
-const targetMatch = (cnpj: string, targets: Set<string>, roots: Set<string>) => cnpj.length === 14
-  ? targets.has(cnpj) || roots.has(cnpj.slice(0, 8))
-  : roots.has(cnpj.slice(0, 8));
 
 export function normalizePublicBulkRow(input: {
   datasetCode: PublicBulkDatasetCode;

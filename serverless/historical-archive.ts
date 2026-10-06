@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
-import { readJsonObjectBody } from './http-body.js';
+import { getHeader, parseRequestUrl, readJsonBody } from './http.js';
 
 const RUNTIME = 'historical-archive-neon-drive-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,17 +15,8 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(payload));
 };
 
-const header = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const requestUrl = (req: IncomingMessage) => new URL(req.url ?? '/', `https://${header(req, 'host') ?? 'localhost'}`);
-
-const readBody = (req: IncomingMessage) => readJsonObjectBody(req, 256_000);
-
 const requireGodMode = async (req: IncomingMessage) => {
-  const authorization = header(req, 'authorization') ?? '';
+  const authorization = getHeader(req, 'authorization') ?? '';
   if (!authorization.startsWith('Bearer ')) throw Object.assign(new Error('authentication_required'), { statusCode: 401 });
   return verifyGodModeIdentity(authorization.slice('Bearer '.length));
 };
@@ -259,7 +250,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const method = (req.method ?? 'GET').toUpperCase();
 
     if (method === 'GET') {
-      writeJson(res, 200, await listCatalog(requestUrl(req)));
+      writeJson(res, 200, await listCatalog(parseRequestUrl(req)));
       return;
     }
     if (method !== 'POST') {
@@ -267,7 +258,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const body = await readBody(req);
+    const body = await readJsonBody(req);
     const action = String(body.action ?? '');
     if (action === 'download') {
       writeJson(res, 200, await downloadInfo(String(body.partId ?? '')));

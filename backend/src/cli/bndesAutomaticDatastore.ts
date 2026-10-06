@@ -1,19 +1,8 @@
 import { BndesAutomaticDatastoreService } from '../services/bndesAutomaticDatastoreService.js';
 import { PublicDataDownstreamService } from '../services/publicDataDownstreamService.js';
+import { parseCliArgs } from './args.js';
 
-const args = process.argv.slice(2);
-const valueFor = (name: string) => {
-  const inline = args.find((argument) => argument.startsWith(`--${name}=`));
-  if (inline) return inline.slice(name.length + 3);
-  const index = args.indexOf(`--${name}`);
-  return index >= 0 ? args[index + 1] : undefined;
-};
-const positiveNumber = (name: string, fallback: number) => {
-  const value = Number(valueFor(name) ?? fallback);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`--${name} must be a positive number.`);
-  return value;
-};
-
+const { args, valueFor, positiveNumber } = parseCliArgs();
 const ingestion = await new BndesAutomaticDatastoreService().run({
   targetBatchSize: positiveNumber('target-batch-size', 25),
   maxTargetBatches: positiveNumber('max-target-batches', 100),

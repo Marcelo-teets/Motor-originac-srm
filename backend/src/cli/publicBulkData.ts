@@ -3,6 +3,7 @@ import {
 } from '../modules/public-data/publicBulkDatasetConnector.js';
 import { PublicBulkIngestionService } from '../services/publicBulkIngestionService.js';
 import { PublicDataDownstreamService } from '../services/publicDataDownstreamService.js';
+import { parseCliArgs } from './args.js';
 
 const DATASETS: PublicBulkDatasetCode[] = [
   'rfb_cnpj',
@@ -13,13 +14,7 @@ const DATASETS: PublicBulkDatasetCode[] = [
   'compras_contracts',
 ];
 
-const args = process.argv.slice(2);
-const valueFor = (name: string) => {
-  const inline = args.find((argument) => argument.startsWith(`--${name}=`));
-  if (inline) return inline.slice(name.length + 3);
-  const index = args.indexOf(`--${name}`);
-  return index >= 0 ? args[index + 1] : undefined;
-};
+const { args, valueFor, positiveNumber } = parseCliArgs();
 
 const datasetArgument = valueFor('dataset') ?? 'all';
 const datasets = datasetArgument === 'all'
@@ -27,12 +22,6 @@ const datasets = datasetArgument === 'all'
   : datasetArgument.split(',').map((value) => value.trim()).filter(Boolean) as PublicBulkDatasetCode[];
 const invalid = datasets.filter((dataset) => !DATASETS.includes(dataset));
 if (invalid.length) throw new Error(`Invalid dataset(s): ${invalid.join(', ')}.`);
-
-const positiveNumber = (name: string, fallback: number) => {
-  const value = Number(valueFor(name) ?? fallback);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`--${name} must be a positive number.`);
-  return value;
-};
 
 const discoverOnly = args.includes('--discover-only');
 const ingestion = await new PublicBulkIngestionService().run({

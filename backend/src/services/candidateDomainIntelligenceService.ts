@@ -80,8 +80,8 @@ type OfficialEnrichmentRow = {
   data?: Record<string, unknown> | null;
   observed_at?: string | null;
 };
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
-type Dependencies = { client?: SupabaseClient | null; fetchImpl?: typeof fetch; now?: () => Date };
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
+type Dependencies = { client?: DataClient | null; fetchImpl?: typeof fetch; now?: () => Date };
 type ProbeMatch = {
   verified: boolean;
   probes: number;
@@ -199,7 +199,7 @@ const acceptsMatch = (strategy: DomainHintStrategy, score: WebsiteIdentityScore)
 };
 
 export class CandidateDomainIntelligenceService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => Date;
 
@@ -255,7 +255,7 @@ export class CandidateDomainIntelligenceService {
   }
 
   async run(options: CandidateDomainIntelligenceOptions = {}): Promise<CandidateDomainIntelligenceResult> {
-    if (!this.client) throw new Error('Supabase client not configured for candidate domain intelligence.');
+    if (!this.client) throw new Error('Neon data client not configured for candidate domain intelligence.');
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
     const tiers = [...new Set((options.tiers?.length ? options.tiers : ['P1', 'P2', 'P3']).map(String))];
     const candidateIds = [...new Set((options.candidateIds ?? []).map(String).filter(Boolean))].slice(0, MAX_LIMIT);

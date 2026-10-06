@@ -139,7 +139,7 @@ export async function getPublicDataOperations(session: SessionData | null): Prom
 
     return {
       source: asStatus(payload.status),
-      note: payload.note ?? 'Operação das fontes públicas carregada do Supabase.',
+      note: payload.note ?? 'Operação das fontes públicas carregada do Neon.',
       data: payload.data,
     };
   } catch (error) {

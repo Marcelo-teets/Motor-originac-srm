@@ -205,7 +205,7 @@ export function CandidateIdentityReviewPage() {
         description="Valide razão social, CNPJ, domínio e evidência oficial. Veículos FIDC/CRI/CRA ficam no mapa de estruturas e não entram nesta fila. Crédito e fit permanecem sem classificação até análise separada."
         actions={<div className="pill-row"><Pill tone="success">fila paginada</Pill><Pill tone="warning">sem inferência de crédito</Pill></div>}
       />
-      <DataStatusBanner source="real" note="A fila reúne apenas candidatas comerciais ou de identidade. Aprovação e rejeição são persistidas no Supabase com usuário, evidência, data e motivo." />
+      <DataStatusBanner source="real" note="A fila reúne apenas candidatas comerciais ou de identidade. Aprovação e rejeição são persistidas no Neon com usuário, evidência, data e motivo." />
       {error ? <Card title="Revisão bloqueada" subtitle="Nenhuma alteração parcial foi persistida" tone="accent">{error}</Card> : null}
       {success ? <Card title="Revisão concluída" subtitle="Resultado persistido com lineage" tone="success">{success}</Card> : null}
 

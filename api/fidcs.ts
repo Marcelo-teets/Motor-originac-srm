@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
-import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
+import { isCronAuthorized } from '../serverless/http.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -37,8 +37,6 @@ const authenticate = async (req: FidcsRequest) => {
   const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
   return { id: user.id, authorization };
 }
-
-const isCronAuthorized = (req: FidcsRequest) => isCronSecretAuthorized(req.headers.authorization);
 
 const requireGodMode = async (authorization: string) => {
   await verifyGodModeIdentity(authorization.slice('Bearer '.length));

@@ -18,7 +18,6 @@ import type {
   CompanySeed,
   CompanySignal,
   DashboardView,
-  EnrichmentRecord,
   LeadScoreSnapshot,
   MonitoringOutput,
   PatternCatalogEntry,
@@ -60,6 +59,10 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
 const MONITORING_CONCURRENCY = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const isWithinLastDay = (value: string | undefined, now: number) => {
+  const at = Date.parse(value ?? '');
+  return Number.isFinite(at) && at >= now - DAY_MS;
+};
 // assembleViews loads every view table; routes often need it several times per
 // request, so concurrent callers share one load and results live briefly.
 const VIEWS_CACHE_TTL_MS = 5_000;
@@ -90,6 +93,7 @@ export class PlatformService {
     const signalsByCompany = groupByCompany(signals);
     const enrichmentsByCompany = groupByCompany(enrichments);
     const outputsByCompany = groupByCompany(monitoringOutputs);
+    const now = Date.now();
 
     return companies.map((company) => {
       const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -106,8 +110,8 @@ export class PlatformService {
           ...company.monitoring,
           status: companyOutputs.some((item) => item.connectorStatus === 'real') ? 'active' : company.monitoring.status,
           lastRunAt: companyOutputs[0]?.collectedAt ?? company.monitoring.lastRunAt,
-          outputs24h: companyOutputs.length,
-          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65).length,
+          outputs24h: companyOutputs.filter((item) => isWithinLastDay(item.collectedAt, now)).length,
+          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65 && isWithinLastDay(signal.createdAt, now)).length,
           websiteChanges: websiteChanges.length ? websiteChanges : company.monitoring.websiteChanges,
           feedHighlights: feedHighlights.length ? feedHighlights : company.monitoring.feedHighlights,
         },
@@ -426,8 +430,8 @@ export class PlatformService {
   async getDashboard(): Promise<DashboardView> {
     const { companyViews, rankingRows, patterns, allMonitoringOutputs, agents } = await this.assembleViews();
     const allPatterns = Array.from(patterns.values()).flat();
-    const since24h = Date.now() - DAY_MS;
-    const outputs24h = allMonitoringOutputs.filter((item) => Date.parse(item.collectedAt) >= since24h).length;
+    const now = Date.now();
+    const outputs24h = allMonitoringOutputs.filter((item) => isWithinLastDay(item.collectedAt, now)).length;
 
     return {
       summary: [

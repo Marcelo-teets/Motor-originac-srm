@@ -14,7 +14,7 @@ export type AgentetomeRuntimeStatus = {
   status: 'real' | 'partial';
   health: 'healthy' | 'degraded';
   configured: boolean;
-  secretMode: 'supabase_vault';
+  secretMode: 'vercel_env';
   automaticRefresh: boolean;
   activeTargets: number;
   parsedPackages: number;
@@ -29,20 +29,21 @@ export type AgentetomeRuntimeStatus = {
   marketMapReady: boolean;
   scoreImpact: false;
   capabilities: string[];
-  edgeFunctions: Record<string, string>;
+  runtime: Record<string, string | boolean>;
   blockers: AgentetomeBlocker[];
   generatedAt: string;
 };
 
 export type AgentetomeRefreshResult = {
-  status: 'queued' | 'failed' | 'real';
-  provider?: string;
-  operation?: string;
-  pg_net_request_id?: number | string;
-  token_expires_at?: string;
-  trigger_type?: string;
+  status: 'real' | 'failed';
+  mode?: 'idempotent_existing_package';
+  packageId?: string;
+  packageHash?: string;
+  bronzeRowsWritten?: number;
+  bronzeRowsReconciled?: number;
+  stage?: string;
   administrator?: string;
-  raw_download_link_persisted?: false;
+  rawDownloadLinkPersisted?: false;
   error?: string;
 };
 
@@ -102,7 +103,9 @@ export async function queueAgentetomeRefresh(
       competencia: input.competence,
       formato: input.format ?? 'csv',
     }),
-  }, { timeoutMs: 28_000 });
+  }, { timeoutMs: 290_000 });
+  // The export runs synchronously (download, validation, bronze, Market Map) within the
+  // function's 300 s budget; a failed run still returns its recorded diagnosis.
   return (await parseEnvelope<AgentetomeRefreshResult>(response)).data!;
 }
 

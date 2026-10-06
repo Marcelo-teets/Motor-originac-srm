@@ -1,5 +1,5 @@
 import { qualificationWeights } from '../../../config/scoring.js';
-import type { ApprovedCompanyCreditReview, DecisionAwareCompany } from './companyDecisionEligibility.js';
+import type { DecisionAwareCompany } from './companyDecisionEligibility.js';
 import { average, clamp, levelFromScore } from './helpers.js';
 import { qualificationWeightTotal } from './scoring.js';
 import { computeSourceTreatmentImpact } from './sourceTreatment.js';

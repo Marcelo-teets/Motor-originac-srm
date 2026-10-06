@@ -139,7 +139,7 @@ export class CapturePersistenceService {
         treatmentResultsWritten: 0,
         learningEventsWritten: 0,
         decisionGate: emptyDecisionGate(),
-        errors: ['Supabase client not configured.'],
+        errors: ['Neon data client not configured.'],
       };
     }
 

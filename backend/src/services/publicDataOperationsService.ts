@@ -203,7 +203,7 @@ export class PublicDataOperationsService {
       return {
         status: 'partial',
         snapshot: emptyPublicDataOperationsSnapshot(),
-        note: 'Supabase não configurado no backend; snapshot operacional indisponível.',
+        note: 'Neon não configurado no backend; snapshot operacional indisponível.',
       };
     }
 

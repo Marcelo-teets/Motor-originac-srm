@@ -435,6 +435,8 @@ export async function runSearchProfileDiscovery(profile: SearchProfile): Promise
 
   diagnostics.push({
     id: 'persisted-universe',
+    // Historical lineage identifier persisted on candidate rows; kept as-is so imported
+    // legacy data keeps matching (candidateRediscoveryLineage/discoveryEntityNormalization).
     sourceRef: 'supabase-discovery-universe',
     status: context.candidateUniverseLoaded ? 'fulfilled' : 'rejected',
     candidates: internalHits.length,

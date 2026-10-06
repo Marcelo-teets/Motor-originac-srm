@@ -63,7 +63,7 @@ export class VectorIndexService implements VectorRetriever {
           return rows.map((row) => ({ id: row.id, content: row.content }));
         }
       } catch {
-        // Local text fallback remains available when Supabase retrieval is unavailable.
+        // Local text fallback remains available when Neon retrieval is unavailable.
       }
     }
 

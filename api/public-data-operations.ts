@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
-import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
+import { getHeader, isCronAuthorized, normalizeBaseUrl } from '../serverless/http.js';
 
 const CANONICAL_MAIS_RETORNO_BASE = 'https://data.maisretorno.com/mr-data/v4/api';
 const CANONICAL_APP_BASE = 'https://motor-originac-srm.vercel.app';
@@ -17,12 +17,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(payload));
 };
 
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240);
 const extractText = (payload: Record<string, any>) => {
   const content = payload?.choices?.[0]?.message?.content;
@@ -30,8 +24,6 @@ const extractText = (payload: Record<string, any>) => {
   if (Array.isArray(content)) return content.map((item) => typeof item?.text === 'string' ? item.text : '').join('\n').trim();
   return '';
 };
-
-const isCronAuthorized = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
 
 const paidProviderStatus = (name: 'openai' | 'anthropic' | 'vercel-ai-gateway') => ({
   provider: name,

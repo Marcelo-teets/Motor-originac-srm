@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
-import { readJsonObjectBody } from './http-body.js';
+import { getHeader, readJsonBody } from './http.js';
 
 const RUNTIME = 'knowledge-hybrid-search-neon-v1';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -15,13 +15,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   });
   res.end(JSON.stringify(payload));
 };
-
-const header = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const readBody = (req: IncomingMessage) => readJsonObjectBody(req, 64_000);
 
 const parseLimit = (value: unknown) => {
   const parsed = Number(value ?? 12);
@@ -67,12 +60,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    const authorization = header(req, 'authorization') ?? '';
+    const authorization = getHeader(req, 'authorization') ?? '';
     if (!authorization.startsWith('Bearer ')) {
       throw Object.assign(new Error('authentication_required'), { statusCode: 401 });
     }
     const identity = await verifyActiveIdentity(authorization.slice('Bearer '.length));
-    const body = await readBody(req);
+    const body = await readJsonBody(req);
     const query = String(body.query ?? '').trim();
     const companyId = body.companyId ? String(body.companyId).trim() : null;
     const limit = parseLimit(body.limit);

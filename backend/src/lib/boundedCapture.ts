@@ -21,8 +21,8 @@ export class CaptureRuntimeDeadlineError extends Error {
   }
 }
 
-export const selectMonitoringCompanies = (companies: CompanySeed[], useSupabase: boolean) => (
-  useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies
+export const selectMonitoringCompanies = (companies: CompanySeed[], usePersistentData: boolean) => (
+  usePersistentData ? companies.filter(isCompanyMonitoringEligible) : companies
 );
 
 const schedulePolicy = (source: SourceCatalogEntry) => {
@@ -49,10 +49,10 @@ export const selectCaptureSources = (sources: SourceCatalogEntry[], cadence: Cap
 export const buildBoundedCaptureTargets = (
   companies: CompanySeed[],
   sources: SourceCatalogEntry[],
-  useSupabase: boolean,
+  usePersistentData: boolean,
   cadence: CaptureCadence = 'all',
 ): BoundedCaptureTarget[] => {
-  const eligibleCompanies = selectMonitoringCompanies(companies, useSupabase);
+  const eligibleCompanies = selectMonitoringCompanies(companies, usePersistentData);
   const eligibleSources = selectCaptureSources(sources, cadence);
   return eligibleCompanies.flatMap((company) => eligibleSources.map((source) => ({
     companyId: company.id,
@@ -73,11 +73,13 @@ export const assertBoundedCaptureScope = (companyId?: string | null, sourceId?: 
 export async function withCaptureDeadline<T>(task: Promise<T>, budgetMs = CAPTURE_RUNTIME_BUDGET_MS): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
+    // The deadline timer must keep the event loop alive: an unref'd timer lets the
+    // process exit while a hung capture is still pending, so the deadline never
+    // fires and the caller never receives the controlled 504. The finally block
+    // clears it as soon as the task settles, so it never outlives the capture.
     return await Promise.race([
       task,
       new Promise<never>((_, reject) => {
-        // Not unref'd: the deadline must keep the event loop alive so a task
-        // that hangs without pending I/O still settles; `finally` clears it.
         timer = setTimeout(() => reject(new CaptureRuntimeDeadlineError(budgetMs)), budgetMs);
       }),
     ]);

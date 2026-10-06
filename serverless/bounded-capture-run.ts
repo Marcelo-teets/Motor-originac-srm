@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isCronSecretAuthorized } from './cron-auth.js';
+import { isCronAuthorized, parseRequestUrl } from './http.js';
 
 const RUNTIME = 'bounded-capture-run-v2';
 
@@ -13,24 +13,12 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(payload));
 };
 
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const authorized = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
-
-const parseRequestUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL((req as { url?: string }).url ?? '/', `https://${host}`);
-};
-
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
     writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
     return;
   }
-  if (!authorized(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Unauthorized bounded capture request.' });
     return;
   }
