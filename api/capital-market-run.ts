@@ -1,18 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isCronAuthorized, parseRequestUrl } from '../serverless/http.js';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-};
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const isAuthorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
 };
 
 const deploymentMetadata = () => ({
@@ -22,7 +13,7 @@ const deploymentMetadata = () => ({
 });
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (!isAuthorized(req)) {
+  if (!isCronAuthorized(req)) {
     writeJson(res, 401, {
       status: 'partial',
       generatedAt: new Date().toISOString(),
@@ -32,8 +23,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const host = getHeader(req, 'host') ?? 'localhost';
-  const url = new URL((req as any).url ?? '/', `https://${host}`);
+  const url = parseRequestUrl(req);
   const requestedDataset = String(url.searchParams.get('dataset') ?? 'cvm_offers');
   const mode = String(url.searchParams.get('mode') ?? 'run');
 

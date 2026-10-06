@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
+import { getHeader, parseRequestUrl } from '../serverless/http.js';
 
 const RUNTIME = 'dcm-daily-operating-loop-v1';
 
@@ -12,18 +13,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   });
   res.end(JSON.stringify(payload));
 };
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const parseUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL((req as { url?: string }).url ?? '/', `https://${host}`);
-};
-
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
@@ -40,7 +29,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     await verifyActiveIdentity(authorization.slice('Bearer '.length));
 
-    const view = parseUrl(req).searchParams.get('view') ?? 'loop';
+    const view = parseRequestUrl(req).searchParams.get('view') ?? 'loop';
     const module = await import('../backend/src/modules/dcmDailyOperatingLoop.js');
     const data = view === 'business-analyst'
       ? module.getBusinessAnalystAgent()

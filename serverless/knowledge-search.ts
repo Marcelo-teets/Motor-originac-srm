@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { getHeader, readJsonBody } from './http.js';
 
 const RUNTIME = 'knowledge-hybrid-search-neon-v1';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -13,23 +14,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
     'X-Origination-Runtime': RUNTIME,
   });
   res.end(JSON.stringify(payload));
-};
-
-const header = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const readBody = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > 64_000) throw Object.assign(new Error('Request body exceeds 64 KB.'), { statusCode: 413 });
-    chunks.push(buffer);
-  }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> : {};
 };
 
 const parseLimit = (value: unknown) => {
@@ -76,12 +60,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    const authorization = header(req, 'authorization') ?? '';
+    const authorization = getHeader(req, 'authorization') ?? '';
     if (!authorization.startsWith('Bearer ')) {
       throw Object.assign(new Error('authentication_required'), { statusCode: 401 });
     }
     const identity = await verifyActiveIdentity(authorization.slice('Bearer '.length));
-    const body = await readBody(req);
+    const body = await readJsonBody(req);
     const query = String(body.query ?? '').trim();
     const companyId = body.companyId ? String(body.companyId).trim() : null;
     const limit = parseLimit(body.limit);

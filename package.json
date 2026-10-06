@@ -17,6 +17,8 @@
     "build:frontend": "npm -C frontend run build",
     "build:backend": "npm -C backend run build",
     "lint": "npm -C backend run lint && npm -C frontend run lint",
+    "test:backend": "npm -C backend test",
+    "test:serverless": "tsx --test \"serverless/**/*.test.ts\"",
     "test:frontend-quality": "node --test scripts/frontend-quality-contract.test.mjs",
     "test:search-discovery-quality": "tsx --test backend/src/lib/searchDiscoveryQuality.test.ts backend/src/lib/candidateRediscoveryLineage.test.ts backend/src/lib/discoverySourceRouting.test.ts backend/src/services/searchProfileRunMapping.test.ts backend/src/services/searchProfileScheduledRunner.test.ts",
     "test:people-capital": "tsx --test backend/src/lib/peopleCapitalSignals.test.ts backend/src/lib/techSignalsDiscovery.test.ts backend/src/lib/originationBriefThesis.test.ts && node --test scripts/origination-brief-migration-contract.test.mjs scripts/universal-origination-reasoning-contract.test.mjs",

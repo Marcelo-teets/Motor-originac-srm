@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { isNeonDatabaseConfigured, requireNeonDataClient } from '../serverless/neon-data.js';
+import { getHeader } from '../serverless/http.js';
 
 type HealthStatus = 'healthy' | 'stale' | 'failed' | 'partial' | 'stale_running' | 'never_succeeded' | 'never_run';
 
@@ -44,11 +45,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
     'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
   });
   res.end(JSON.stringify(payload));
-};
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
 };
 
 const numberValue = (value: string | number | null | undefined) => {

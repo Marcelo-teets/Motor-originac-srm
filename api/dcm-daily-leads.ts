@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { getHeader, parseRequestUrl, readJsonBody } from '../serverless/http.js';
 
 const RUNTIME = 'dcm-daily-leads-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,37 +26,12 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
   res.end(JSON.stringify(payload));
 };
 
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
-
-const parseUrl = (req: IncomingMessage) => {
-  const host = getHeader(req, 'host') ?? 'localhost';
-  return new URL((req as { url?: string }).url ?? '/', `https://${host}`);
-};
-
 const asObject = (value: unknown): JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
   ? value as JsonObject
   : {};
 const text = (...values: unknown[]) => String(values.find((value) => typeof value === 'string' && value.trim()) ?? '').trim();
 const nullableText = (...values: unknown[]) => text(...values) || null;
 const asArray = (value: unknown) => Array.isArray(value) ? value : [];
-
-const readJsonBody = async (req: IncomingMessage): Promise<JsonObject> => {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.length;
-    if (bytes > 256_000) throw new Error('Request body exceeds 256 KB.');
-    chunks.push(buffer);
-  }
-  if (!chunks.length) return {};
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('JSON body must be an object.');
-  return parsed as JsonObject;
-};
 
 const requireAuth = async (req: IncomingMessage): Promise<DataContext> => {
   const authorization = getHeader(req, 'authorization');
@@ -110,7 +86,7 @@ const buildBriefing = (items: JsonObject[]) => {
 };
 
 const listQueue = async (_context: DataContext, req: IncomingMessage) => {
-  const url = parseUrl(req);
+  const url = parseRequestUrl(req);
   const date = url.searchParams.get('date') ?? new Date().toISOString().slice(0, 10);
   if (!DATE_PATTERN.test(date)) throw Object.assign(new Error('Invalid date. Use YYYY-MM-DD.'), { statusCode: 400 });
   const requestedStatus = url.searchParams.get('status');
@@ -270,7 +246,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (method === 'POST') {
-      const body = await readJsonBody(req);
+      const body = await readJsonBody(req, 256_000);
       const action = text(body.action, 'create');
       const data = action === 'send' ? await sendLead(context, body) : action === 'create' ? await createLead(context, body) : null;
       if (!data) throw Object.assign(new Error('Unsupported action.'), { statusCode: 400 });
@@ -279,7 +255,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (method === 'PATCH') {
-      const body = await readJsonBody(req);
+      const body = await readJsonBody(req, 256_000);
       const data = await updateLead(context, body);
       writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data });
       return;

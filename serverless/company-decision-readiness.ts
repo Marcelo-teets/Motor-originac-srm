@@ -1,12 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from './neon-auth.js';
+import { getHeader } from './http.js';
 
 const RUNTIME = 'company-decision-readiness-v1';
-
-const getHeader = (req: IncomingMessage, key: string) => {
-  const value = req.headers[key.toLowerCase()];
-  return Array.isArray(value) ? value[0] : value;
-};
 
 const corsHeaders = (req: IncomingMessage) => ({
   'Access-Control-Allow-Origin': getHeader(req, 'origin') ?? '*',
@@ -34,8 +30,6 @@ const writeNoContent = (req: IncomingMessage, res: ServerResponse) => {
   });
   res.end();
 };
-
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
 const statusCodeFromError = (error: unknown) => {
   if (typeof error !== 'object' || error === null || !('statusCode' in error)) return null;
