@@ -73,11 +73,14 @@ export const assertBoundedCaptureScope = (companyId?: string | null, sourceId?: 
 export async function withCaptureDeadline<T>(task: Promise<T>, budgetMs = CAPTURE_RUNTIME_BUDGET_MS): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
+    // The deadline timer must keep the event loop alive: an unref'd timer lets the
+    // process exit while a hung capture is still pending, so the deadline never
+    // fires and the caller never receives the controlled 504. The finally block
+    // clears it as soon as the task settles, so it never outlives the capture.
     return await Promise.race([
       task,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new CaptureRuntimeDeadlineError(budgetMs)), budgetMs);
-        timer.unref?.();
       }),
     ]);
   } finally {
