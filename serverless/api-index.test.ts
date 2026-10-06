@@ -5,7 +5,7 @@ import test, { before } from 'node:test';
 // Contract tests for the real Vercel dispatcher (api/index.ts). They replace the
 // tests of the removed backend/src/serverless/vercelServerlessHandler.ts copy.
 // Lives outside api/ because every api/*.ts file is a billable Vercel Function.
-for (const key of ['MOTOR_NEON_DATABASE_URL', 'DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY']) {
+for (const key of ['MOTOR_NEON_DATABASE_URL', 'DATABASE_URL']) {
   delete process.env[key];
 }
 process.env.CRON_SECRET = 'test-secret';
