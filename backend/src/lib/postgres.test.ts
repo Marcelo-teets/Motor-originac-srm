@@ -30,3 +30,10 @@ test('postgres adapter deduplicates conflict keys with last row winning', () => 
   ], ['id']);
   assert.deepEqual(rows, [{ id: '1', value: 'new' }]);
 });
+
+test('postgres adapter binds RPC named arguments as positional placeholders', () => {
+  const built = __test.functionCallSql('approve_review', { p_company_id: 'abc', p_notes: null });
+  assert.equal(built.sql, 'select * from public."approve_review"("p_company_id" => $1, "p_notes" => $2)');
+  assert.deepEqual(built.values, ['abc', null]);
+  assert.throws(() => __test.functionCallSql('approve_review', { 'p_x); drop table x; --': 1 }));
+});
