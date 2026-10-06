@@ -50,5 +50,9 @@
   },
   "devDependencies": {
     "tsx": "4.19.3"
+  },
+  "overrides": {
+    "proxy-addr": "2.0.8",
+    "qs": "6.16.0"
   }
 }
