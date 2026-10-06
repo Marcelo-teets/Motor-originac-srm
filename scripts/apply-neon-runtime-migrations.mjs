@@ -46,6 +46,7 @@ const migrations = [
   'db/neon/20261005_neon_archive_metadata.sql',
   'db/migrations/20260727173000_source_control_sheet_sync.sql',
   'db/migrations/132_fidcs_source_and_catalog_governance.sql',
+  'db/neon/20261006_neon_agentetome_base_compatibility.sql',
   'db/migrations/128_agentetome_production_control_plane.sql',
   'db/migrations/130_agentetome_runtime_current_vs_history.sql',
   'db/migrations/133_cvm_fund_documents_and_source_schedules.sql',
