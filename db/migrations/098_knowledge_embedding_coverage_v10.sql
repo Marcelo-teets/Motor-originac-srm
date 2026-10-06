@@ -50,7 +50,7 @@ immutable
 strict
 set search_path = public
 as $$
-  select encode(extensions.digest(convert_to(p_content, 'UTF8'), 'sha256'), 'hex');
+  select encode(public.digest(convert_to(p_content, 'UTF8'), 'sha256'), 'hex');
 $$;
 
 create or replace function public.knowledge_embedding_jobs_touch_updated_at()
