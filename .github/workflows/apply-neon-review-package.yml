@@ -74,9 +74,46 @@ jobs:
                   else:
                       merge = run(['git','apply','--3way','--index','--whitespace=nowarn',str(patch_path)], capture_output=True)
                       if merge.returncode != 0:
-                          print(merge.stdout)
-                          print(merge.stderr, file=sys.stderr)
-                          raise SystemExit(f'task {num}: git apply --3way failed')
+                          conflicts = run(['git','diff','--name-only','--diff-filter=U'], capture_output=True).stdout.splitlines()
+                          if num == '15' and conflicts == ['scripts/apply-neon-runtime-migrations.mjs']:
+                              # The merged PR #528 added five Neon compatibility waves after
+                              # the review base. Keep task 15's complete 199-file plan while
+                              # preserving those newer main-only dependencies.
+                              run(['git','checkout','--theirs','--','scripts/apply-neon-runtime-migrations.mjs'], check=True)
+                              migrator = pathlib.Path('scripts/apply-neon-runtime-migrations.mjs')
+                              body = migrator.read_text(encoding='utf-8')
+                              additions = [
+                                  ("  'db/migrations/076_knowledge_company_workspace.sql',",
+                                   "  'db/neon/20261006_neon_pipeline_compatibility.sql',"),
+                                  ("  'db/migrations/085_knowledge_execution_actions.sql',",
+                                   "  'db/neon/20261006_neon_crm_execution_compatibility.sql',"),
+                                  ("  'db/migrations/103_separate_entity_and_decision_eligibility.sql',",
+                                   "  'db/neon/20261006_neon_vector_corpus_compatibility.sql',"),
+                                  ("  'db/migrations/133_cvm_fund_documents_and_source_schedules.sql',",
+                                   "  'db/neon/20261006_neon_bronze_historical_compatibility.sql',\n"
+                                   "  'db/neon/20261006_neon_agentetome_base_compatibility.sql',\n"
+                                   "  'db/migrations/128_agentetome_production_control_plane.sql',\n"
+                                   "  'db/migrations/129_agentetome_current_snapshot_lineage.sql',\n"
+                                   "  'db/migrations/130_agentetome_runtime_current_vs_history.sql',"),
+                              ]
+                              for anchor, extra in additions:
+                                  for line in extra.splitlines():
+                                      if line.strip().strip("',") in body:
+                                          continue
+                                  if extra.splitlines()[0] not in body:
+                                      if anchor not in body:
+                                          raise SystemExit(f'task 15: compatibility anchor missing: {anchor}')
+                                      body = body.replace(anchor, extra + '\n' + anchor, 1)
+                              migrator.write_text(body, encoding='utf-8')
+                              run(['git','add','scripts/apply-neon-runtime-migrations.mjs'], check=True)
+                              unresolved = run(['git','diff','--name-only','--diff-filter=U'], capture_output=True).stdout.strip()
+                              if unresolved:
+                                  raise SystemExit(f'task 15: unresolved conflict remains: {unresolved}')
+                              print('task 15: reconciled full review migration plan with current main compatibility waves')
+                          else:
+                              print(merge.stdout)
+                              print(merge.stderr, file=sys.stderr)
+                              raise SystemExit(f'task {num}: git apply --3way failed')
 
               run(['git','add','-A'], check=True)
               staged = run(['git','diff','--cached','--quiet'])
