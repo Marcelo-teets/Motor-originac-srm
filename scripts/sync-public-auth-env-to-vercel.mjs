@@ -86,20 +86,22 @@ export const syncPublicAuthEnvToVercel = async ({
     'Content-Type': 'application/json',
   };
 
-  const createUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
-  createUrl.searchParams.set('teamId', teamId);
-  createUrl.searchParams.set('upsert', 'true');
-  await readJson(await fetchImpl(createUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify([...values].map(([key, value]) => ({
-      key,
-      value,
-      type: 'encrypted',
-      target: ['production', 'preview', 'development'],
-      comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
-    }))),
-  }), 'Vercel environment batch upsert');
+  for (const [key, value] of values) {
+    const createUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
+    createUrl.searchParams.set('teamId', teamId);
+    createUrl.searchParams.set('upsert', 'true');
+    await readJson(await fetchImpl(createUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify([{
+        key,
+        value,
+        type: 'encrypted',
+        target: ['production', 'preview', 'development'],
+        comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
+      }]),
+    }), `Vercel environment upsert for ${key}`);
+  }
 
   const listUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
   listUrl.searchParams.set('teamId', teamId);
