@@ -68,10 +68,18 @@ const readJson = async (response: Response) => {
   }
 };
 
-const getJwks = async () => {
+// Forced refreshes (unknown kid) are throttled so tokens with random kids
+// cannot turn every request into a JWKS fetch.
+const JWKS_FORCED_REFRESH_INTERVAL_MS = 60_000;
+let lastForcedJwksRefreshAt = 0;
+
+const getJwks = async (forceRefresh = false) => {
   const url = jwksUrl();
   if (!url) throw Object.assign(new Error('Neon Auth JWKS is not configured.'), { statusCode: 503 });
-  if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
+  const now = Date.now();
+  const canForce = forceRefresh && now - lastForcedJwksRefreshAt >= JWKS_FORCED_REFRESH_INTERVAL_MS;
+  if (!canForce && jwksCache && now < jwksCache.expiresAt) return jwksCache.keys;
+  if (canForce) lastForcedJwksRefreshAt = now;
 
   const response = await fetch(url, {
     headers: { Accept: 'application/json' },
@@ -98,20 +106,50 @@ const importVerificationKey = async (jwk: Jwk) => {
   throw Object.assign(new Error(`Unsupported JWT key type: ${jwk.kty ?? 'unknown'}`), { statusCode: 401 });
 };
 
+const JWT_CLOCK_SKEW_MS = 60_000;
+
+// A kid missing from the cached JWKS usually means the issuer rotated keys, so
+// refetch once before rejecting. Only kid-less tokens fall back to the first key.
+const findVerificationKey = async (kid: string | undefined) => {
+  if (!kid) {
+    const [first] = await getJwks();
+    if (!first) throw Object.assign(new Error('No Auth verification key is available.'), { statusCode: 503 });
+    return first;
+  }
+  const cached = (await getJwks()).find((item) => item.kid === kid);
+  if (cached) return cached;
+  const refreshed = (await getJwks(true)).find((item) => item.kid === kid);
+  if (!refreshed) throw Object.assign(new Error('Unknown token signing key.'), { statusCode: 401 });
+  return refreshed;
+};
+
 const verifyJwt = async (token: string) => {
   const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
   if (!encodedHeader || !encodedPayload || !encodedSignature) {
     throw Object.assign(new Error('Malformed token.'), { statusCode: 401 });
   }
 
-  const header = JSON.parse(decodeBase64Url(encodedHeader).toString('utf8')) as { alg?: string; kid?: string };
-  const payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
+  let header: { alg?: string; kid?: string };
+  let payload: Record<string, unknown>;
+  try {
+    header = JSON.parse(decodeBase64Url(encodedHeader).toString('utf8'));
+    payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8'));
+  } catch {
+    throw Object.assign(new Error('Malformed token.'), { statusCode: 401 });
+  }
   const base = authBaseUrl();
   if (!base) throw Object.assign(new Error('Neon Auth is not configured.'), { statusCode: 503 });
   const expectedOrigin = new URL(base).origin;
 
-  if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) {
+  const now = Date.now();
+  if (typeof payload.exp !== 'number') {
+    throw Object.assign(new Error('Token has no expiry.'), { statusCode: 401 });
+  }
+  if (payload.exp * 1000 < now) {
     throw Object.assign(new Error('Token expired.'), { statusCode: 401 });
+  }
+  if (typeof payload.nbf === 'number' && payload.nbf * 1000 > now + JWT_CLOCK_SKEW_MS) {
+    throw Object.assign(new Error('Token not yet valid.'), { statusCode: 401 });
   }
   if (payload.iss && payload.iss !== expectedOrigin) {
     throw Object.assign(new Error('Invalid token issuer.'), { statusCode: 401 });
@@ -123,9 +161,7 @@ const verifyJwt = async (token: string) => {
     }
   }
 
-  const keys = await getJwks();
-  const jwk = keys.find((item) => item.kid === header.kid) ?? keys[0];
-  if (!jwk) throw Object.assign(new Error('No Auth verification key is available.'), { statusCode: 503 });
+  const jwk = await findVerificationKey(header.kid);
 
   const key = await importVerificationKey(jwk);
   const data = encoder.encode(`${encodedHeader}.${encodedPayload}`);

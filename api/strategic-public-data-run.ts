@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 // Node 24 emits DEP0169 from a legacy transitive dependency during ZIP discovery.
 // The handler and connectors use WHATWG URL; filter only that known warning code.
@@ -18,12 +19,7 @@ const ALLOWED_MODES = ['run', 'probe', 'qsa-fallback'] as const;
 const requestValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const booleanValue = (value: string | undefined) => ['1', 'true', 'yes'].includes(String(value ?? '').toLowerCase());
 
-const isAuthorized = (req: VercelRequest) => {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const authorization = req.headers.authorization;
-  return authorization === `Bearer ${secret}`;
-};
+const isAuthorized = (req: VercelRequest) => isCronSecretAuthorized(req.headers.authorization);
 
 const isProtectedPreviewProbe = (mode: string) => mode === 'probe' && process.env.VERCEL_ENV === 'preview';
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);

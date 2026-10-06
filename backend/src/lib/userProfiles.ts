@@ -31,7 +31,8 @@ const normalizedProfile = (row: Record<string, unknown>): UserProfileRecord => (
   email: typeof row.email === 'string' ? row.email : null,
   full_name: typeof row.full_name === 'string' ? row.full_name : null,
   role: row.role === 'god_mode' ? 'god_mode' : 'common',
-  status: row.status === 'disabled' ? 'disabled' : row.status === 'invited' ? 'invited' : 'active',
+  // Fail closed: only an explicit 'active' grants access.
+  status: row.status === 'active' ? 'active' : row.status === 'invited' ? 'invited' : 'disabled',
   job_title: typeof row.job_title === 'string' ? row.job_title : null,
   phone: typeof row.phone === 'string' ? row.phone : null,
   avatar_url: typeof row.avatar_url === 'string' ? row.avatar_url : null,

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from './neon-auth.js';
+import { readJsonObjectBody } from './http-body.js';
 
 const RUNTIME = 'company-credit-review-v1';
 
@@ -25,20 +26,7 @@ const parseUrl = (req: IncomingMessage) => {
   return new URL((req as IncomingMessage & { url?: string }).url ?? '/', `https://${host}`);
 };
 
-const readJsonBody = async (req: IncomingMessage): Promise<Record<string, unknown>> => {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.length;
-    if (bytes > 128_000) throw new Error('Request body exceeds 128 KB.');
-    chunks.push(buffer);
-  }
-  if (!chunks.length) return {};
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('JSON body must be an object.');
-  return parsed as Record<string, unknown>;
-};
+const readJsonBody = (req: IncomingMessage) => readJsonObjectBody(req, 128_000);
 
 const authenticate = async (req: IncomingMessage) => {
   const authorization = getHeader(req, 'authorization');

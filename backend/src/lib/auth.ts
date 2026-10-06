@@ -61,12 +61,18 @@ const upstreamCookie = (sessionToken: string) => (
   `${NEON_UPSTREAM_COOKIE_NAME}=${safeSessionToken(sessionToken)}`
 );
 
-const authError = (payload: Record<string, any>, fallback: string) => {
+const withStatus = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
+
+// Upstream 4xx answers are the caller's problem (bad credentials, expired
+// session, throttling) and keep their status; anything else is a 502 gateway
+// failure instead of an opaque 500.
+const authError = (payload: Record<string, any>, fallback: string, upstreamStatus = 502) => {
   const message = String(payload.message ?? payload.error_description ?? payload.error ?? fallback);
-  if (/invalid email or password|invalid credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
-  if (/too many|rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
-  if (/session|token/i.test(message) && /invalid|expired|missing/i.test(message)) return new Error('Sua sessão expirou. Entre novamente.');
-  return new Error(message || fallback);
+  const statusCode = upstreamStatus >= 400 && upstreamStatus < 500 ? upstreamStatus : 502;
+  if (/invalid email or password|invalid credentials/i.test(message)) return withStatus('E-mail ou senha inválidos.', 401);
+  if (/too many|rate limit/i.test(message)) return withStatus('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.', 429);
+  if (/session|token/i.test(message) && /invalid|expired|missing/i.test(message)) return withStatus('Sua sessão expirou. Entre novamente.', 401);
+  return withStatus(message || fallback, statusCode);
 };
 
 const neonAuthRequest = async (
@@ -128,9 +134,17 @@ const buildSession = (
   };
 };
 
-const getNeonJwks = async () => {
+// Forced refreshes (unknown kid) are throttled so tokens with random kids
+// cannot turn every request into a JWKS fetch.
+const JWKS_FORCED_REFRESH_INTERVAL_MS = 60_000;
+let lastForcedJwksRefreshAt = 0;
+
+const getNeonJwks = async (forceRefresh = false) => {
   requireAuthEnv();
-  if (jwksCache && Date.now() < jwksCache.expiresAt) return jwksCache.keys;
+  const now = Date.now();
+  const canForce = forceRefresh && now - lastForcedJwksRefreshAt >= JWKS_FORCED_REFRESH_INTERVAL_MS;
+  if (!canForce && jwksCache && now < jwksCache.expiresAt) return jwksCache.keys;
+  if (canForce) lastForcedJwksRefreshAt = now;
   const response = await fetch(env.neonAuthJwksUrl, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(8_000),
@@ -156,6 +170,23 @@ const importVerificationKey = async (jwk: Jwk) => {
   throw new Error(`Unsupported JWT key type: ${jwk.kty ?? 'unknown'}`);
 };
 
+const JWT_CLOCK_SKEW_MS = 60_000;
+
+// A kid missing from the cached JWKS usually means the issuer rotated keys, so
+// refetch once before rejecting. Only kid-less tokens fall back to the first key.
+const findVerificationKey = async (kid: string | undefined) => {
+  if (!kid) {
+    const [first] = await getNeonJwks();
+    if (!first) throw new Error('No JWKS available for verification');
+    return first;
+  }
+  const cached = (await getNeonJwks()).find((item) => item.kid === kid);
+  if (cached) return cached;
+  const refreshed = (await getNeonJwks(true)).find((item) => item.kid === kid);
+  if (!refreshed) throw new Error('Unknown JWT signing key');
+  return refreshed;
+};
+
 export const verifyNeonJwt = async (token: string): Promise<AuthUser> => {
   requireAuthEnv();
   const [encodedHeader, encodedPayload, encodedSignature] = token.split('.');
@@ -165,16 +196,17 @@ export const verifyNeonJwt = async (token: string): Promise<AuthUser> => {
   const payload = JSON.parse(decodeBase64Url(encodedPayload).toString('utf8')) as Record<string, unknown>;
   const expectedOrigin = new URL(env.neonAuthBaseUrl).origin;
 
-  if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) throw new Error('Token expired');
+  const now = Date.now();
+  if (typeof payload.exp !== 'number') throw new Error('Token has no expiry');
+  if (payload.exp * 1000 < now) throw new Error('Token expired');
+  if (typeof payload.nbf === 'number' && payload.nbf * 1000 > now + JWT_CLOCK_SKEW_MS) throw new Error('Token not yet valid');
   if (payload.iss && payload.iss !== expectedOrigin) throw new Error('Invalid issuer');
   if (payload.aud) {
     const audiences = Array.isArray(payload.aud) ? payload.aud.map(String) : [String(payload.aud)];
     if (!audiences.includes(expectedOrigin)) throw new Error('Invalid audience');
   }
 
-  const jwks = await getNeonJwks();
-  const jwk = jwks.find((item) => item.kid === header.kid) ?? jwks[0];
-  if (!jwk) throw new Error('No JWKS available for verification');
+  const jwk = await findVerificationKey(header.kid);
   if (header.alg === 'EdDSA' && !(jwk.kty === 'OKP' && jwk.crv === 'Ed25519')) {
     throw new Error('JWT algorithm/key mismatch');
   }
@@ -249,8 +281,8 @@ export const refreshAuthSession = async (sessionToken: string): Promise<AuthFlow
 
   const sessionPayload = await readJsonObject(sessionResponse);
   const jwtPayload = await readJsonObject(jwtResponse);
-  if (!sessionResponse.ok) throw authError(sessionPayload, 'Não foi possível restaurar sua sessão.');
-  if (!jwtResponse.ok) throw authError(jwtPayload, 'Não foi possível emitir o token da sessão.');
+  if (!sessionResponse.ok) throw authError(sessionPayload, 'Não foi possível restaurar sua sessão.', sessionResponse.status);
+  if (!jwtResponse.ok) throw authError(jwtPayload, 'Não foi possível emitir o token da sessão.', jwtResponse.status);
 
   const jwt = String(jwtPayload.token ?? '');
   const user = sessionPayload.user && typeof sessionPayload.user === 'object'
@@ -267,7 +299,7 @@ const establishSession = async (
   fallback: string,
 ): Promise<AuthFlowResult> => {
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, fallback);
+  if (!response.ok) throw authError(payload, fallback, response.status);
   const sessionToken = String(payload.token ?? '');
   if (!sessionToken) throw new Error('Neon Auth did not return a session token.');
   return refreshAuthSession(sessionToken);
@@ -309,7 +341,7 @@ export const requestPasswordReset = async (email: string, redirectTo: string) =>
     }),
   });
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível iniciar a recuperação de senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível iniciar a recuperação de senha.', response.status);
 };
 
 export const resetPassword = async (token: string, newPassword: string) => {
@@ -318,7 +350,7 @@ export const resetPassword = async (token: string, newPassword: string) => {
     body: JSON.stringify({ token, newPassword }),
   });
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível redefinir a senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível redefinir a senha.', response.status);
   return payload;
 };
 
@@ -336,7 +368,7 @@ export const changePassword = async (
     }),
   }, sessionToken);
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.', response.status);
   return payload;
 };
 
@@ -347,7 +379,7 @@ export const signOutAuth = async (sessionToken: string) => {
   }, sessionToken);
   if (!response.ok && response.status !== 401) {
     const payload = await readJsonObject(response);
-    throw authError(payload, 'Não foi possível encerrar a sessão remota.');
+    throw authError(payload, 'Não foi possível encerrar a sessão remota.', response.status);
   }
 };
 

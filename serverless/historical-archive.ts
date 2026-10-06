@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { readJsonObjectBody } from './http-body.js';
 
 const RUNTIME = 'historical-archive-neon-drive-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -21,11 +22,7 @@ const header = (req: IncomingMessage, key: string) => {
 
 const requestUrl = (req: IncomingMessage) => new URL(req.url ?? '/', `https://${header(req, 'host') ?? 'localhost'}`);
 
-const readBody = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> : {};
-};
+const readBody = (req: IncomingMessage) => readJsonObjectBody(req, 256_000);
 
 const requireGodMode = async (req: IncomingMessage) => {
   const authorization = header(req, 'authorization') ?? '';

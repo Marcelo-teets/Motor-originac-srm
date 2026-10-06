@@ -1,8 +1,9 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 type FidcsRequest = VercelRequest & { body?: unknown };
 type SourceRow = { id: string; name: string; status: string; health: string | null; metadata?: Record<string, unknown> };
@@ -37,14 +38,7 @@ const authenticate = async (req: FidcsRequest) => {
   return { id: user.id, authorization };
 }
 
-const isCronAuthorized = (req: FidcsRequest) => {
-  const secret = process.env.CRON_SECRET ?? '';
-  const received = requestValue(req.headers.authorization) ?? '';
-  const expected = `Bearer ${secret}`;
-  const left = Buffer.from(received);
-  const right = Buffer.from(expected);
-  return Boolean(secret && left.length === right.length && timingSafeEqual(left, right));
-};
+const isCronAuthorized = (req: FidcsRequest) => isCronSecretAuthorized(req.headers.authorization);
 
 const requireGodMode = async (authorization: string) => {
   await verifyGodModeIdentity(authorization.slice('Bearer '.length));

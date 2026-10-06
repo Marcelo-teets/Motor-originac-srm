@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, DataStatusBanner, EmptyState, PageIntro, Pill, Stat } from '../components/UI';
 import { useAuth } from '../lib/auth';
+import { safeExternalUrl } from '../lib/safeUrl';
 import { buildApiUrl } from '../lib/runtimeConfig';
 
 type SearchProfileRun = {
@@ -245,7 +246,7 @@ export function CaptureInboxPage() {
                   <td>
                     <strong>{candidate.sourceRef || 'capture'}</strong>
                     <div className="table-helper">{candidate.evidenceSummary || 'evidência não registrada'}</div>
-                    {candidate.sourceUrl ? <a href={candidate.sourceUrl} target="_blank" rel="noreferrer" className="table-helper">Abrir fonte</a> : null}
+                    {safeExternalUrl(candidate.sourceUrl) ? <a href={safeExternalUrl(candidate.sourceUrl)} target="_blank" rel="noreferrer" className="table-helper">Abrir fonte</a> : null}
                   </td>
                   <td>
                     <Pill tone={candidate.promotionReady ? 'success' : 'warning'}>{candidate.promotionReady ? 'pronta' : 'bloqueada'}</Pill>

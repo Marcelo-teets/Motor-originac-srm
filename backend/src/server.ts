@@ -63,23 +63,52 @@ const crmRuntimeMode: 'real' | 'mock' = env.usePersistentData ? 'real' : 'mock';
 const ok = (status: 'real' | 'partial' | 'mock', data: unknown) => ({ status, generatedAt: new Date().toISOString(), data });
 const fail = (status: number, error: string) => ({ statusCode: status, generatedAt: new Date().toISOString(), error });
 const param = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
+// Honors `statusCode` (our errors) or `status` (body-parser and other
+// middleware) when it is a valid HTTP error status; defaults to 500.
+const errorStatus = (error: unknown) => {
+  const source = error && typeof error === 'object' ? error as { statusCode?: unknown; status?: unknown } : {};
+  const candidate = Number(source.statusCode ?? source.status);
+  return Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+};
+const sendError = (res: express.Response, error: unknown) => {
+  const statusCode = errorStatus(error);
+  if (statusCode >= 500) console.error(error);
+  res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
+};
 const wrap = (handler: express.Handler): express.Handler => async (req, res, next) => {
   try {
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
-    console.error(error);
-    const candidateStatus = error && typeof error === 'object' && 'statusCode' in error
-      ? Number((error as { statusCode?: unknown }).statusCode)
-      : 500;
-    const statusCode = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus <= 599
-      ? candidateStatus
-      : 500;
-    res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
+    sendError(res, error);
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+const inactiveAccessError = () => Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
 
-await service.bootstrap().catch((error) => {
+// A valid Neon JWT only proves identity: invited or disabled users can still
+// obtain one straight from Neon Auth. Every protected route therefore also
+// requires an active application profile. Lookups are cached briefly so a
+// burst of requests costs one query; access changes apply within the TTL.
+const ACTIVE_PROFILE_CACHE_TTL_MS = 30_000;
+const activeProfileCache = new Map<string, number>();
+const requireActiveProfile: express.Handler = wrap(async (req, _res, next) => {
+  const userId = req.authUser!.id;
+  const cachedUntil = activeProfileCache.get(userId);
+  if (cachedUntil && cachedUntil > Date.now()) {
+    next();
+    return;
+  }
+  const profile = await getUserProfileById(userId);
+  if (profile?.status !== 'active') {
+    activeProfileCache.delete(userId);
+    throw inactiveAccessError();
+  }
+  if (activeProfileCache.size > 1_000) activeProfileCache.clear();
+  activeProfileCache.set(userId, Date.now() + ACTIVE_PROFILE_CACHE_TTL_MS);
+  next();
+});
+
+await service.bootstrap({ refreshMonitoring: !process.env.VERCEL }).catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
 });
 
@@ -171,7 +200,8 @@ app.post('/auth/login', wrap(async (req, res) => {
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
-    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+    await signOutAuth(flow.sessionToken).catch(() => undefined);
+    throw inactiveAccessError();
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
@@ -188,7 +218,8 @@ app.post('/auth/session', wrap(async (req, res) => {
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
-    throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+    clearAuthSessionCookie(res);
+    throw inactiveAccessError();
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
@@ -222,6 +253,7 @@ app.post('/auth/logout', wrap(async (req, res) => {
 }));
 
 app.use(authMiddleware);
+app.use(requireActiveProfile);
 app.use('/ai', createAiRouter(service));
 app.use('/abm', createAbmWarRoomRouter());
 app.use('/watchlists', createWatchlistRouter(repository));
@@ -229,7 +261,7 @@ app.use('/candidate-decision-queue', createCandidateDecisionQueueRouter(candidat
 
 app.get('/auth/me', wrap(async (req, res) => {
   const profile = await ensureUserProfile(req.authUser!);
-  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  if (profile.status !== 'active') throw inactiveAccessError();
   res.json(ok('real', {
     id: req.authUser!.id,
     email: profile.email ?? req.authUser!.email,
@@ -239,13 +271,13 @@ app.get('/auth/me', wrap(async (req, res) => {
 
 app.get('/auth/profile', wrap(async (req, res) => {
   const profile = await ensureUserProfile(req.authUser!);
-  if (profile.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  if (profile.status !== 'active') throw inactiveAccessError();
   res.json(ok('real', profile));
 }));
 
 app.patch('/auth/profile', wrap(async (req, res) => {
   const current = await ensureUserProfile(req.authUser!);
-  if (current.status !== 'active') throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  if (current.status !== 'active') throw inactiveAccessError();
   const profile = await updateOwnUserProfile(req.authUser!.id, {
     full_name: typeof req.body?.full_name === 'string' && req.body.full_name.trim() ? req.body.full_name.trim() : null,
     job_title: typeof req.body?.job_title === 'string' && req.body.job_title.trim() ? req.body.job_title.trim() : null,
@@ -266,6 +298,7 @@ app.patch('/auth/users/:id/access', wrap(async (req, res) => {
   const role = req.body?.role === 'god_mode' ? 'god_mode' : 'common';
   const status = req.body?.status === 'disabled' ? 'disabled' : req.body?.status === 'invited' ? 'invited' : 'active';
   const profile = await setUserAccess(req.authUser!.id, param(req.params.id), role, status);
+  activeProfileCache.delete(profile.id);
   res.json(ok('real', profile));
 }));
 
@@ -461,7 +494,7 @@ app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMod
 app.get('/agents/runs', wrap(async (_req, res) => res.json(ok('partial', { runs: [], note: 'Execuções duráveis de agentes ainda não são persistidas (fila engine_requests/ai_agent_runs vazia).' }))));
 app.get('/agents/runs/:id', wrap((req, res) => res.status(404).json(fail(404, `Agent run não encontrado: ${param(req.params.id)}. Execuções duráveis ainda não são persistidas.`))));
 app.get('/agents/validations', wrap((_req, res) => res.json(ok('partial', { validations: [], note: 'Validações de agentes ainda não são persistidas; nada a reportar.' }))));
-app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Supabase/Auth real.' }]))));
+app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Neon/Auth real.' }]))));
 app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPatternCatalog()))));
 app.post('/agents/run/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), scope: 'global', started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id para recalcular uma empresa.' }))));
 app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), companyId: param(req.params.id), started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id.' }))));
@@ -593,7 +626,9 @@ app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
   const companyId = param(req.params.id);
   let moved = await service.movePipelineStage(companyId, stage);
   if (!moved) {
-    const company = await service.getCompanyDetail(companyId);
+    // null means either "no pipeline row yet" or "company not decision-eligible";
+    // only the former may create a row.
+    const company = await service.isDecisionCompany(companyId) ? await service.getCompanyDetail(companyId) : null;
     if (!company) {
       res.status(403).json(fail(403, 'Company is not eligible for pipeline decisions.'));
       return;
@@ -611,7 +646,7 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
   const companyId = param(req.params.id);
   let updated = await service.updateNextAction(companyId, nextAction);
   if (!updated) {
-    const company = await service.getCompanyDetail(companyId);
+    const company = await service.isDecisionCompany(companyId) ? await service.getCompanyDetail(companyId) : null;
     if (!company) {
       res.status(403).json(fail(403, 'Company is not eligible for pipeline decisions.'));
       return;
@@ -718,7 +753,7 @@ app.get('/mvp-readiness', wrap(async (_req, res) => {
   const [dashboard, sources, pipelineRows] = await Promise.all([service.getDashboard(), service.listSources(), service.listPipelineRows()]);
   const degradedSources = sources.filter((source) => source.health !== 'healthy').length;
   res.json(ok(platformMode, {
-    auth: { status: 'real', provider: 'supabase' },
+    auth: { status: env.authProvider === 'neon' ? 'real' : 'partial', provider: env.authProvider },
     database: { status: env.usePersistentData ? 'real' : 'partial', mode: env.dataProvider },
     sources: { total: sources.length, degraded: degradedSources, status: degradedSources ? 'attention' : 'healthy' },
     monitoring: { outputs24h: dashboard.monitoring.outputs24h, triggers24h: dashboard.monitoring.triggers24h, status: dashboard.monitoring.outputs24h > 0 ? 'active' : 'idle' },
@@ -769,6 +804,16 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   frontendDataFallback: 'partial',
   persistence: platformMode,
 }))));
+
+// Routers without their own try/catch (e.g. /abm) still answer JSON instead of
+// Express's default HTML error page.
+app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  sendError(res, error);
+});
 
 // ── Exportação para Vercel serverless ──────────────────────────────────────
 export { app };

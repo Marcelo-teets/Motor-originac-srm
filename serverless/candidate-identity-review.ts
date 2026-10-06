@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from './neon-auth.js';
+import { readJsonObjectBody } from './http-body.js';
 
 const RUNTIME = 'candidate-identity-review-v1';
 
@@ -20,20 +21,7 @@ const getHeader = (req: IncomingMessage, key: string) => {
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
-const readJsonBody = async (req: IncomingMessage): Promise<Record<string, unknown>> => {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.length;
-    if (bytes > 64_000) throw new Error('Request body exceeds 64 KB.');
-    chunks.push(buffer);
-  }
-  if (!chunks.length) return {};
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('JSON body must be an object.');
-  return parsed as Record<string, unknown>;
-};
+const readJsonBody = (req: IncomingMessage) => readJsonObjectBody(req, 64_000);
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
@@ -88,6 +76,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ? (error as { blockers?: unknown }).blockers
           : [],
       });
+      return;
+    }
+    const requestStatus = typeof error === 'object' && error !== null && 'statusCode' in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : 500;
+    if (requestStatus === 400 || requestStatus === 413) {
+      writeJson(res, requestStatus, { status: 'partial', generatedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
       return;
     }
     console.error('[candidate-identity-review]', error);

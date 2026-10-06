@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isCronSecretAuthorized } from './cron-auth.js';
 
 const RUNTIME = 'bounded-capture-run-v2';
 
@@ -17,10 +18,7 @@ const getHeader = (req: IncomingMessage, key: string) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const authorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
-};
+const authorized = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
 
 const parseRequestUrl = (req: IncomingMessage) => {
   const host = getHeader(req, 'host') ?? 'localhost';

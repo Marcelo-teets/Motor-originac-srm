@@ -5,7 +5,7 @@ import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
 import { isCompanyDecisionEligible, isCompanyMonitoringEligible } from '../lib/companyDecisionEligibility.js';
 import { getDataClient } from '../lib/dataClient.js';
-import { isoNow } from '../lib/helpers.js';
+import { isoNow, mapWithConcurrency } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { buildRankingRow } from '../lib/ranking.js';
@@ -58,12 +58,19 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 });
 
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
+const MONITORING_CONCURRENCY = 4;
 
 export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
 
-  async bootstrap() {
+  /**
+   * `refreshMonitoring` scrapes every eligible company, so serverless cold
+   * starts skip it (capture runs on its own schedule) and rely on reads to
+   * recompute derived data lazily via `ensureDerivedData`.
+   */
+  async bootstrap({ refreshMonitoring = true }: { refreshMonitoring?: boolean } = {}) {
     await this.repository.seedBaseData();
+    if (!refreshMonitoring) return;
     await this.refreshMonitoring();
     await this.recomputeDerivedData();
   }
@@ -109,7 +116,8 @@ export class PlatformService {
     const monitoringCompanies = env.usePersistentData ? companies.filter(isCompanyMonitoringEligible) : companies;
     const targetCompanies = companyId ? monitoringCompanies.filter((item) => item.id === companyId) : monitoringCompanies;
     const collectedAt = isoNow();
-    const ingestions = await Promise.all(targetCompanies.map(async (company) => {
+    // Each company fans out to several external fetches; cap the parallelism.
+    const ingestions = await mapWithConcurrency(targetCompanies, MONITORING_CONCURRENCY, async (company) => {
       const raw = await ingestCompanyMonitoring(company, sources);
       const treatment = treatCaptureOutputs(company, raw.outputs, collectedAt);
       return {
@@ -118,7 +126,7 @@ export class PlatformService {
         enrichments: [...raw.enrichments, ...treatment.enrichments],
         diagnostics: treatment.diagnostics,
       };
-    }));
+    });
     await this.repository.saveMonitoringOutputs(ingestions.flatMap((item) => item.outputs));
     await this.repository.saveCompanySignals(ingestions.flatMap((item) => item.signals));
     await this.repository.saveEnrichments(ingestions.flatMap((item) => item.enrichments));
@@ -674,9 +682,12 @@ export class PlatformService {
     }, new Map<string, number>());
     return PIPELINE_STAGES.map((stage) => ({ stage, count: grouped.get(stage) ?? 0 }));
   }
-  private async isDecisionCompany(companyId: string) {
-    if (!env.usePersistentData) return true;
-    return (await this.hydrateCompanies()).some((company) => company.id === companyId && isCompanyDecisionEligible(company));
+  // Memory (demo) mode only requires the company to exist; persistent mode also
+  // enforces the decision-eligibility gate.
+  async isDecisionCompany(companyId: string) {
+    return (await this.hydrateCompanies()).some((company) => (
+      company.id === companyId && (!env.usePersistentData || isCompanyDecisionEligible(company))
+    ));
   }
   async getPipelineByCompany(companyId: string) {
     if (!(await this.isDecisionCompany(companyId))) return null;
@@ -698,7 +709,9 @@ export class PlatformService {
     return rows.filter((row) => ids.has(row.companyId));
   }
   async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-    if (!(await this.isDecisionCompany(activity.companyId))) throw new Error('Company is not eligible for decision activity.');
+    if (!(await this.isDecisionCompany(activity.companyId))) {
+      throw Object.assign(new Error('Company is not eligible for decision activity.'), { statusCode: 403 });
+    }
     return this.repository.saveActivity(activity);
   }
   async listTasks(companyId?: string) {
@@ -709,7 +722,9 @@ export class PlatformService {
     return rows.filter((row) => ids.has(row.companyId));
   }
   async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-    if (!(await this.isDecisionCompany(task.companyId))) throw new Error('Company is not eligible for decision task.');
+    if (!(await this.isDecisionCompany(task.companyId))) {
+      throw Object.assign(new Error('Company is not eligible for decision task.'), { statusCode: 403 });
+    }
     return this.repository.saveTask(task);
   }
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) { return this.repository.updateTask(taskId, updates); }

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { readJsonObjectBody } from '../serverless/http-body.js';
 
 const RUNTIME = 'dcm-daily-leads-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,20 +43,7 @@ const text = (...values: unknown[]) => String(values.find((value) => typeof valu
 const nullableText = (...values: unknown[]) => text(...values) || null;
 const asArray = (value: unknown) => Array.isArray(value) ? value : [];
 
-const readJsonBody = async (req: IncomingMessage): Promise<JsonObject> => {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    bytes += buffer.length;
-    if (bytes > 256_000) throw new Error('Request body exceeds 256 KB.');
-    chunks.push(buffer);
-  }
-  if (!chunks.length) return {};
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('JSON body must be an object.');
-  return parsed as JsonObject;
-};
+const readJsonBody = (req: IncomingMessage) => readJsonObjectBody(req, 256_000);
 
 const requireAuth = async (req: IncomingMessage): Promise<DataContext> => {
   const authorization = getHeader(req, 'authorization');

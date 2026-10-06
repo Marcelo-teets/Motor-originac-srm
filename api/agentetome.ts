@@ -1,7 +1,8 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
 type AuthenticatedUser = { id: string; email?: string; authorization: string };
@@ -60,13 +61,7 @@ const authenticate = async (req: AgentetomeRequest): Promise<AuthenticatedUser> 
 }
 
 const authenticateCron = (req: AgentetomeRequest) => {
-  const expected = `Bearer ${process.env.CRON_SECRET ?? ''}`;
-  const received = requestValue(req.headers.authorization) ?? '';
-  const expectedBuffer = Buffer.from(expected);
-  const receivedBuffer = Buffer.from(received);
-  if (!process.env.CRON_SECRET || expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
-    throw new ApiError('Unauthorized learning worker.', 401);
-  }
+  if (!isCronSecretAuthorized(req.headers.authorization)) throw new ApiError('Unauthorized learning worker.', 401);
 };
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {

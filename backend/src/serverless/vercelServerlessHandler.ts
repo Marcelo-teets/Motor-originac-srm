@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
@@ -44,8 +45,10 @@ const normalizePathname = (pathname: string) => pathname.replace(/^\/api(?=\/|$)
 
 const isAuthorizedRuntime = (req: IncomingMessage) => {
   const runtimeSecret = process.env.CRON_SECRET;
-  const auth = getHeader(req, 'authorization');
-  return Boolean(runtimeSecret && auth === `Bearer ${runtimeSecret}`);
+  if (!runtimeSecret) return false;
+  const received = Buffer.from(getHeader(req, 'authorization') ?? '');
+  const expected = Buffer.from(`Bearer ${runtimeSecret}`);
+  return received.length === expected.length && timingSafeEqual(received, expected);
 };
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
@@ -293,7 +296,12 @@ async function ensureApp(): Promise<void> {
     if (!expressApp) {
       throw new Error('backend/src/server.ts não exporta `app`. Adicione "export { app };" no final do arquivo.');
     }
-  })();
+  })().catch((error) => {
+    // Let the next request retry instead of caching the failure for the
+    // lifetime of the warm instance.
+    loadingPromise = null;
+    throw error;
+  });
 
   return loadingPromise;
 }

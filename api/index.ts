@@ -15,6 +15,7 @@ import fidcMarketMapHandler from '../serverless/fidc-market-map.js';
 import historicalArchiveHandler from '../serverless/historical-archive.js';
 import knowledgeRpcHandler from '../serverless/knowledge-rpc.js';
 import knowledgeSearchHandler from '../serverless/knowledge-search.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 type ExpressLike = (req: IncomingMessage, res: ServerResponse, next?: () => void) => void;
 
@@ -37,11 +38,7 @@ const parseUrl = (req: IncomingMessage) => {
   return new URL(req.url ?? '/', `https://${host}`);
 };
 
-const isAuthorizedCron = (req: IncomingMessage) => {
-  const cronSecret = process.env.CRON_SECRET;
-  const auth = getHeader(req, 'authorization');
-  return Boolean(cronSecret && auth === `Bearer ${cronSecret}`);
-};
+const isAuthorizedCron = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
 
 const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[key]).trim().length > 0);
 const hasPersistentDataCredentials = () => Boolean(
@@ -316,7 +313,12 @@ async function ensureApp(): Promise<void> {
         'Adicione "export { app };" no final do arquivo.'
       );
     }
-  })();
+  })().catch((error) => {
+    // Let the next request retry instead of caching the failure for the
+    // lifetime of the warm instance.
+    loadingPromise = null;
+    throw error;
+  });
 
   return loadingPromise;
 }

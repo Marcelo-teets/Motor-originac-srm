@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -10,10 +11,7 @@ const getHeader = (req: IncomingMessage, key: string) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const isAuthorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(secret && getHeader(req, 'authorization') === `Bearer ${secret}`);
-};
+const isAuthorized = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
 
 const deploymentMetadata = () => ({
   deploymentCommitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,

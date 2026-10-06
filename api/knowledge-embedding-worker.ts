@@ -1,6 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 const RUNTIME = 'knowledge-embedding-worker-v10-vercel';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -19,17 +19,7 @@ const getHeader = (req: IncomingMessage, key: string) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const safeEqual = (left: string, right: string) => {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-};
-
-const isAuthorized = (req: IncomingMessage) => {
-  const secret = process.env.CRON_SECRET ?? '';
-  const authorization = getHeader(req, 'authorization') ?? '';
-  return Boolean(secret && safeEqual(authorization, `Bearer ${secret}`));
-};
+const isAuthorized = (req: IncomingMessage) => isCronSecretAuthorized(getHeader(req, 'authorization'));
 
 const deploymentMetadata = () => ({
   deploymentCommitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,

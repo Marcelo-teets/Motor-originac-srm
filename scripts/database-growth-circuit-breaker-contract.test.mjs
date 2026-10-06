@@ -49,7 +49,9 @@ test('state refresh is bounded and cron-driven', () => {
 });
 
 test('guard remains non-destructive', () => {
-  assert.doesNotMatch(sql, /\bdelete\s+from\b/i);
-  assert.doesNotMatch(sql, /\btruncate\b/i);
-  assert.doesNotMatch(sql, /vacuum\s+full/i);
+  // Ignore `--` comments: the header documents "no DELETE/TRUNCATE/VACUUM FULL".
+  const statements = sql.replace(/--[^\n]*/g, '');
+  assert.doesNotMatch(statements, /\bdelete\s+from\b/i);
+  assert.doesNotMatch(statements, /\btruncate\b/i);
+  assert.doesNotMatch(statements, /vacuum\s+full/i);
 });

@@ -10,6 +10,7 @@ import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
 import type { FilterDefinition } from '../backend/src/lib/postgres.js';
+import { isCronSecretAuthorized } from '../serverless/cron-auth.js';
 
 type MicrosoftRequest = VercelRequest & { body?: Record<string, unknown> };
 type JsonRecord = Record<string, any>;
@@ -103,14 +104,7 @@ const authenticate = async (req: MicrosoftRequest) => {
   return { id: user.id, email: user.email };
 }
 
-const isCronAuthorized = (req: MicrosoftRequest) => {
-  const secret = process.env.CRON_SECRET ?? '';
-  const received = requestValue(req.headers.authorization) ?? '';
-  const expected = `Bearer ${secret}`;
-  const left = Buffer.from(received);
-  const right = Buffer.from(expected);
-  return Boolean(secret && left.length === right.length && timingSafeEqual(left, right));
-};
+const isCronAuthorized = (req: MicrosoftRequest) => isCronSecretAuthorized(req.headers.authorization);
 
 const encodeBase64Url = (value: Buffer | string) => Buffer.from(value).toString('base64url');
 const decodeBase64Url = (value: string) => Buffer.from(value, 'base64url');

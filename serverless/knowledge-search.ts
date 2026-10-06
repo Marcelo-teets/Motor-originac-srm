@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { readJsonObjectBody } from './http-body.js';
 
 const RUNTIME = 'knowledge-hybrid-search-neon-v1';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -20,17 +21,7 @@ const header = (req: IncomingMessage, key: string) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const readBody = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > 64_000) throw Object.assign(new Error('Request body exceeds 64 KB.'), { statusCode: 413 });
-    chunks.push(buffer);
-  }
-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> : {};
-};
+const readBody = (req: IncomingMessage) => readJsonObjectBody(req, 64_000);
 
 const parseLimit = (value: unknown) => {
   const parsed = Number(value ?? 12);

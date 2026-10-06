@@ -76,8 +76,9 @@ export async function withCaptureDeadline<T>(task: Promise<T>, budgetMs = CAPTUR
     return await Promise.race([
       task,
       new Promise<never>((_, reject) => {
+        // Not unref'd: the deadline must keep the event loop alive so a task
+        // that hangs without pending I/O still settles; `finally` clears it.
         timer = setTimeout(() => reject(new CaptureRuntimeDeadlineError(budgetMs)), budgetMs);
-        timer.unref?.();
       }),
     ]);
   } finally {

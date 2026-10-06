@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, DataStatusBanner, EmptyState, PageIntro, Pill, Stat } from '../components/UI';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { safeExternalUrl } from '../lib/safeUrl';
 import { buildApiUrl } from '../lib/runtimeConfig';
 import type { CompanyListItem } from '../lib/types';
 
@@ -429,7 +430,7 @@ export function DcmDailyOutreachPage() {
           {selected ? (
             <div className="stack-blocks">
               <div className="dcm-thesis-block">
-                <div className="row-between"><Pill tone="warning">tese</Pill>{selected.linkedinUrl ? <a href={selected.linkedinUrl} target="_blank" rel="noreferrer" className="button secondary compact-button">Abrir LinkedIn</a> : null}</div>
+                <div className="row-between"><Pill tone="warning">tese</Pill>{safeExternalUrl(selected.linkedinUrl) ? <a href={safeExternalUrl(selected.linkedinUrl)} target="_blank" rel="noreferrer" className="button secondary compact-button">Abrir LinkedIn</a> : null}</div>
                 <p>{selected.thesis}</p>
               </div>
               <label>Mensagem gerada<textarea rows={8} value={composer.generatedMessage} onChange={(event) => setComposer((current) => ({ ...current, generatedMessage: event.target.value }))} /></label>

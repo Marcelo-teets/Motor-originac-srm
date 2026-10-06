@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
+import { readJsonObjectBody } from './http-body.js';
 
 const RUNTIME = 'knowledge-rpc-neon-v1';
 
@@ -43,22 +44,7 @@ const getHeader = (req: IncomingMessage, name: string) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const readBody = async (req: IncomingMessage) => {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > 256_000) throw Object.assign(new Error('Request body exceeds 256 KB.'), { statusCode: 413 });
-    chunks.push(buffer);
-  }
-  if (!chunks.length) return {} as Record<string, unknown>;
-  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw Object.assign(new Error('JSON body must be an object.'), { statusCode: 400 });
-  }
-  return parsed as Record<string, unknown>;
-};
+const readBody = (req: IncomingMessage) => readJsonObjectBody(req, 256_000);
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if ((req.method ?? 'GET').toUpperCase() !== 'POST') {

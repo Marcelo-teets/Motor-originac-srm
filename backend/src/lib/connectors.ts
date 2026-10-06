@@ -159,10 +159,29 @@ const dedupeRssSources = (sources: Array<{ source: RuntimeSource; url: string }>
   });
 };
 
+const CONNECTOR_FETCH_TIMEOUT_MS = 8_000;
+const MAX_CONNECTOR_BODY_BYTES = 2_000_000;
+
+// External sources are untrusted: never wait forever or buffer an unbounded body.
+const connectorFetch = (url: string, accept: string) => fetch(url, {
+  headers: { accept },
+  signal: AbortSignal.timeout(CONNECTOR_FETCH_TIMEOUT_MS),
+});
+
+const readCappedText = async (response: Response) => {
+  const declared = Number(response.headers.get('content-length') ?? 0);
+  if (declared > MAX_CONNECTOR_BODY_BYTES) {
+    await response.body?.cancel();
+    throw new Error(`Response body exceeds ${MAX_CONNECTOR_BODY_BYTES} bytes`);
+  }
+  const text = await response.text();
+  return text.length > MAX_CONNECTOR_BODY_BYTES ? text.slice(0, MAX_CONNECTOR_BODY_BYTES) : text;
+};
+
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
   try {
-    const response = await fetch(endpoint, { headers: { accept: 'application/json' } });
+    const response = await connectorFetch(endpoint, 'application/json');
     if (!response.ok) throw new Error(`BrasilAPI status ${response.status}`);
     return { status: 'real' as const, data: await response.json(), endpoint };
   } catch (error) {
@@ -176,9 +195,9 @@ export async function fetchBrasilApiCompany(cnpj: string) {
 
 export async function fetchRssFeed(feedUrl: string) {
   try {
-    const response = await fetch(feedUrl, { headers: { accept: 'application/rss+xml, application/xml, text/xml' } });
+    const response = await connectorFetch(feedUrl, 'application/rss+xml, application/xml, text/xml');
     if (!response.ok) throw new Error(`RSS status ${response.status}`);
-    const xml = await response.text();
+    const xml = await readCappedText(response);
     const items = [...xml.matchAll(/<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?(?:<pubDate>(.*?)<\/pubDate>)?[\s\S]*?<description>(.*?)<\/description>/g)]
       .slice(0, 3)
       .map((match) => ({
@@ -204,9 +223,9 @@ export async function fetchRssFeed(feedUrl: string) {
 
 export async function monitorCompanyWebsite(url: string) {
   try {
-    const response = await fetch(url, { headers: { accept: 'text/html' } });
+    const response = await connectorFetch(url, 'text/html');
     if (!response.ok) throw new Error(`Website status ${response.status}`);
-    const html = await response.text();
+    const html = await readCappedText(response);
     const title = sanitizeText(html.match(/<title>(.*?)<\/title>/i)?.[1] ?? 'homepage');
     const headings = [...html.matchAll(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/gi)]
       .slice(0, 6)
