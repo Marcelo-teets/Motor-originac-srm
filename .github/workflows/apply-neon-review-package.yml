@@ -119,7 +119,7 @@ jobs:
                               plan = pathlib.Path('scripts/lib/neon-migration-plan.mjs')
                               body = plan.read_text(encoding='utf-8')
                               additions = [
-                                  ("  'db/neon/20261005_neon_signal_compatibility.sql',",
+                                  ("  ...PRODUCTION_APPLIED,",
                                    "  'db/neon/20261006_neon_pipeline_compatibility.sql',"),
                                   ("  'db/neon/20261006_neon_legacy_runtime_objects.sql',",
                                    "  'db/neon/20261006_neon_bronze_historical_compatibility.sql',"),
@@ -136,7 +136,17 @@ jobs:
                                           raise SystemExit(f'task 16: migration-plan anchor missing: {anchor}')
                                       body = body.replace(anchor, anchor + '\n' + extra, 1)
                               plan.write_text(body, encoding='utf-8')
-                              run(['git','add','scripts/apply-neon-runtime-migrations.mjs','scripts/lib/neon-migration-plan.mjs'], check=True)
+
+                              # Current main already removed get_agentetome_runtime_secret()
+                              # from migration 128. Keep the remaining targeted removals, but
+                              # drop only that stale patch rule so drift detection stays strict.
+                              patches = pathlib.Path('scripts/lib/neon-migration-patches.mjs')
+                              patch_body = patches.read_text(encoding='utf-8')
+                              stale = '    { removeFrom: "create or replace function public.get_agentetome_runtime_secret()", removeThrough: "grant execute on function public.get_agentetome_runtime_secret() to service_role;" },\\n'
+                              patch_body = patch_body.replace(stale, '')
+                              patches.write_text(patch_body, encoding='utf-8')
+
+                              run(['git','add','scripts/apply-neon-runtime-migrations.mjs','scripts/lib/neon-migration-plan.mjs','scripts/lib/neon-migration-patches.mjs'], check=True)
                               unresolved = run(['git','diff','--name-only','--diff-filter=U'], capture_output=True).stdout.strip()
                               if unresolved:
                                   raise SystemExit(f'task 16: unresolved conflict remains: {unresolved}')
