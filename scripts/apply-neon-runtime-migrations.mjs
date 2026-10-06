@@ -29,6 +29,7 @@ const migrations = [
   'db/migrations/092_knowledge_outcome_intelligence_rpc.sql',
   'db/migrations/093_knowledge_outcome_operations.sql',
   'db/migrations/094_knowledge_outcome_workbench.sql',
+  'db/neon/20261006_neon_vector_corpus_compatibility.sql',
   'db/migrations/097_knowledge_hybrid_search_v9.sql',
   'db/migrations/098_knowledge_embedding_coverage_v10.sql',
   'db/migrations/099_knowledge_embedding_budget_baseline_fix.sql',
