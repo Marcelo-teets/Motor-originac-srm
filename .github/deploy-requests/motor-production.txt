@@ -1,8 +1,8 @@
 Motor Originação production deployment request
 
-Purpose: promote Neon Managed Auth cutover merged in PR #526 on top of the existing Neon/Postgres production data plane.
-Source main SHA before deploy-request commit: 718be823ebcaea9bf8213322841696ce839054c7
-Requested at: 2026-10-02
-Safety gates: exact main tip, controlled prebuilt Vercel deploy, Neon hostname/schema/growth guard, bootstrap disabled, Neon Auth smoke, provider-specific runtime health.
+Purpose: publish the post-cutover Vercel serverless Neon module-loading fix from PR #529.
+Source main SHA before deploy-request commit: e5264398e1e8bfb95c93eb0e112828c9ac911ba9
+Requested at: 2026-10-06
+Safety gates: exact main tip, controlled prebuilt Vercel deploy, Neon hostname/schema/growth guard, runtime health smoke, canonical Auth smoke, automatic Git deploys disabled.
 
-Release: Neon Auth cutover — first-party HttpOnly session cookie, JWKS/Ed25519 JWT verification, Neon user_profiles RBAC, approval-pending registrations.
+Release: Neon runtime cutover health fix — serverless-local Neon client removes the Vercel CommonJS -> backend ESM loading failure observed on /api/health.
