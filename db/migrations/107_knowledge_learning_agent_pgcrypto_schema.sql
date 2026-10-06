@@ -19,7 +19,7 @@ begin
   if lower(coalesce(new.connector_status, '')) in ('mock', 'failed', 'error') then return new; end if;
   if lower(coalesce(new.status, '')) in ('failed', 'error', 'discarded') then return new; end if;
 
-  fingerprint := encode(extensions.digest(concat_ws('|',
+  fingerprint := encode(public.digest(concat_ws('|',
     new.id::text,
     new.company_id::text,
     coalesce(new.title, ''),
@@ -75,7 +75,7 @@ begin
   );
   if normalized_confidence < 0.50 then return new; end if;
 
-  fingerprint := encode(extensions.digest(concat_ws('|',
+  fingerprint := encode(public.digest(concat_ws('|',
     new.id::text,
     new.company_id::text,
     coalesce(new.signal_type, ''),
@@ -150,7 +150,7 @@ begin
     p_company_id,
     'manual',
     p_company_id,
-    encode(extensions.digest(p_company_id::text || ':' || clock_timestamp()::text, 'sha256'), 'hex'),
+    encode(public.digest(p_company_id::text || ':' || clock_timestamp()::text, 'sha256'), 'hex'),
     90,
     'pending',
     0,
