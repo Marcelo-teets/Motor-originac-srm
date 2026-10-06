@@ -155,7 +155,7 @@ begin
     ) values (
       v_source_id,p_requested_by,'admin_manifest',case when v_ok then 'completed' else 'failed' end,
       trim(p_admin),p_competence,
-      encode(extensions.digest(jsonb_build_object(
+      encode(public.digest(jsonb_build_object(
         'administrator',trim(p_admin),'cut',p_cut,'competence',p_competence
       )::text,'sha256'),'hex'),
       jsonb_build_object(
@@ -468,7 +468,7 @@ begin
     response_summary,http_status,duration_ms
   ) values (
     v_source_id,'admin_export','completed',v_package.administrator,v_package.competence,v_package.format,
-    encode(extensions.digest(jsonb_build_object(
+    encode(public.digest(jsonb_build_object(
       'administrator',v_package.administrator,'package_hash',v_package.content_hash,'mode','idempotent'
     )::text,'sha256'),'hex'),
     jsonb_build_object(
