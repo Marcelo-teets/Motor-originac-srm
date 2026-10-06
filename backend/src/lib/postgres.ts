@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, type QueryResult } from 'pg';
 
 export type QueryOptions = {
   select?: string;
@@ -74,8 +74,32 @@ const buildWhere = (filters: FilterDefinition[] = [], startAt = 1) => {
   };
 };
 
-const unionColumns = (rows: Record<string, unknown>[]) => (
-  [...new Set(rows.flatMap((row) => Object.keys(row)))].sort()
+// JSON semantics (what PostgREST received): a key whose value is `undefined` is
+// absent, so the column keeps its database default on insert and is left
+// untouched on update/upsert instead of being forced to NULL.
+const withoutUndefined = (row: Record<string, unknown>) => Object.fromEntries(
+  Object.entries(row).filter(([, value]) => value !== undefined),
+);
+
+const shapeKey = (row: Record<string, unknown>) => Object.keys(row).sort().join(',');
+
+// Rows with different key sets are written in separate statements so a column
+// missing from one row never becomes an explicit NULL (which breaks NOT NULL
+// DEFAULT columns and, on upsert, would wipe the stored value).
+const groupByShape = (rows: Record<string, unknown>[]) => {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const key = shapeKey(row);
+    if (!key) continue;
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+  return [...groups.values()];
+};
+
+const isPlainRow = (row: unknown): row is Record<string, unknown> => (
+  Boolean(row && typeof row === 'object' && !Array.isArray(row))
 );
 
 const dedupeByConflict = (rows: Record<string, unknown>[], conflictColumns: string[]) => {
@@ -92,17 +116,92 @@ const dedupeByConflict = (rows: Record<string, unknown>[], conflictColumns: stri
   return [...map.values()];
 };
 
-export class NeonPostgresClient {
-  private readonly pool: Pool;
+type QueryClient = Pick<Pool, 'query'>;
+type Queryable = QueryClient & {
+  connect?: () => Promise<QueryClient & { release: (error?: Error | boolean) => void }>;
+  end?: () => Promise<void>;
+};
 
-  constructor(connectionString: string) {
-    this.pool = new Pool({
+/**
+ * node-postgres serializes JS arrays as Postgres array literals (`{a,b}`) and
+ * passes strings through untouched. Both are wrong for json/jsonb targets:
+ * `['a']` becomes the invalid JSON `{"a"}`, `[]` silently becomes the object
+ * `{}` and a plain string such as `FIDC` is rejected as invalid JSON. PostgREST
+ * (the previous Supabase data plane) always sent JSON, so callers rely on JSON
+ * semantics. Values bound to json/jsonb columns or RPC parameters are therefore
+ * JSON-encoded explicitly; everything else (text[], uuid[], scalars) keeps the
+ * native node-postgres encoding.
+ */
+const toParam = (value: unknown, json: boolean) => {
+  if (value === undefined || value === null) return null;
+  return json ? JSON.stringify(value) : value;
+};
+
+const JSON_COLUMNS_SQL = `
+  select column_name
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = $1
+    and data_type in ('json', 'jsonb')`;
+
+const JSON_PARAMS_SQL = `
+  select distinct p.parameter_name
+  from information_schema.routines r
+  join information_schema.parameters p
+    on p.specific_schema = r.specific_schema
+   and p.specific_name = r.specific_name
+  where r.routine_schema = 'public'
+    and r.routine_name = $1
+    and p.parameter_mode in ('IN', 'INOUT')
+    and p.parameter_name is not null
+    and p.data_type in ('json', 'jsonb')`;
+
+export class NeonPostgresClient {
+  private readonly pool: Queryable;
+  private readonly jsonColumnCache = new Map<string, Promise<Set<string>>>();
+  private readonly jsonParamCache = new Map<string, Promise<Set<string>>>();
+
+  constructor(connectionString: string, pool?: Queryable) {
+    this.pool = pool ?? new Pool({
       connectionString,
       max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
       application_name: 'motor-originacao-backend',
     });
+  }
+
+  private cachedNameSet(cache: Map<string, Promise<Set<string>>>, key: string, sql: string, column: string) {
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const loading = this.pool.query(sql, [key])
+      .then((result) => new Set(result.rows.map((row) => String(row[column]))))
+      .catch((error: unknown) => {
+        // Never cache a failed catalog lookup; the next call retries it.
+        cache.delete(key);
+        throw error;
+      });
+    cache.set(key, loading);
+    return loading;
+  }
+
+  // A failed catalog lookup degrades to the native encoding (the pre-existing
+  // behaviour) instead of failing the write itself; the real statement still
+  // surfaces any connectivity error.
+  /** json/jsonb column names of `public.<table>` (cached per table for the pool lifetime). */
+  private jsonColumns(table: string) {
+    return this.cachedNameSet(this.jsonColumnCache, table, JSON_COLUMNS_SQL, 'column_name')
+      .catch(() => new Set<string>());
+  }
+
+  /** json/jsonb IN parameter names of `public.<fn>` across all overloads. */
+  private jsonParams(fn: string) {
+    return this.cachedNameSet(this.jsonParamCache, fn, JSON_PARAMS_SQL, 'parameter_name')
+      .catch(() => new Set<string>());
+  }
+
+  async close() {
+    await this.pool.end?.();
   }
 
   async select(table: string, options: QueryOptions = {}) {
@@ -119,32 +218,71 @@ export class NeonPostgresClient {
     return result.rows;
   }
 
-  async insert(table: string, inputRows: unknown[]) {
-    const rows = inputRows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object' && !Array.isArray(row)));
-    if (!rows.length) return [];
-    const columns = unionColumns(rows);
-    if (!columns.length) return [];
+  private async writeRows(table: string, rows: Record<string, unknown>[], conflictColumns: string[] | null) {
+    const groups = groupByShape(rows);
+    if (!groups.length) return [];
+    const jsonColumns = await this.jsonColumns(table);
 
-    const values: unknown[] = [];
-    const tuples = rows.map((row) => {
-      const placeholders = columns.map((column) => {
-        values.push(row[column] ?? null);
-        return `$${values.length}`;
+    const statements = groups.map((group) => {
+      const columns = Object.keys(group[0]).sort();
+      const values: unknown[] = [];
+      const tuples = group.map((row) => {
+        const placeholders = columns.map((column) => {
+          values.push(toParam(row[column], jsonColumns.has(column)));
+          return `$${values.length}`;
+        });
+        return `(${placeholders.join(', ')})`;
       });
-      return `(${placeholders.join(', ')})`;
+
+      let conflictSql = '';
+      if (conflictColumns?.length) {
+        const updateColumns = columns.filter((column) => !conflictColumns.includes(column));
+        conflictSql = ` on conflict (${conflictColumns.map(ident).join(', ')}) ${updateColumns.length
+          ? `do update set ${updateColumns.map((column) => `${ident(column)} = excluded.${ident(column)}`).join(', ')}`
+          : 'do nothing'}`;
+      }
+
+      return {
+        sql: `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
+       values ${tuples.join(', ')}${conflictSql}
+       returning *`,
+        values,
+      };
     });
 
-    const result = await this.pool.query(
-      `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
-       values ${tuples.join(', ')}
-       returning *`,
-      values,
-    );
-    return result.rows;
+    if (statements.length === 1 || !this.pool.connect) {
+      const output: Record<string, unknown>[] = [];
+      for (const statement of statements) {
+        output.push(...(await this.pool.query(statement.sql, statement.values)).rows);
+      }
+      return output;
+    }
+
+    // Several shapes: keep the call atomic, as a single multi-row INSERT was.
+    const connection = await this.pool.connect();
+    try {
+      await connection.query('begin');
+      const output: Record<string, unknown>[] = [];
+      for (const statement of statements) {
+        output.push(...(await connection.query(statement.sql, statement.values)).rows);
+      }
+      await connection.query('commit');
+      return output;
+    } catch (error) {
+      await connection.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async insert(table: string, inputRows: unknown[]) {
+    const rows = inputRows.filter(isPlainRow).map(withoutUndefined);
+    return this.writeRows(table, rows, null);
   }
 
   async upsert(table: string, inputRows: unknown[], onConflict?: string) {
-    const rows = inputRows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object' && !Array.isArray(row)));
+    const rows = inputRows.filter(isPlainRow).map(withoutUndefined);
     if (!rows.length) return [];
 
     const conflictColumns = String(onConflict ?? '')
@@ -153,38 +291,15 @@ export class NeonPostgresClient {
       .filter(Boolean);
     conflictColumns.forEach(ident);
 
-    const deduped = dedupeByConflict(rows, conflictColumns);
-    const columns = unionColumns(deduped);
-    const values: unknown[] = [];
-    const tuples = deduped.map((row) => {
-      const placeholders = columns.map((column) => {
-        values.push(row[column] ?? null);
-        return `$${values.length}`;
-      });
-      return `(${placeholders.join(', ')})`;
-    });
-
-    const updateColumns = columns.filter((column) => !conflictColumns.includes(column));
-    const conflictSql = conflictColumns.length
-      ? ` on conflict (${conflictColumns.map(ident).join(', ')}) ${updateColumns.length
-          ? `do update set ${updateColumns.map((column) => `${ident(column)} = excluded.${ident(column)}`).join(', ')}`
-          : 'do nothing'}`
-      : '';
-
-    const result = await this.pool.query(
-      `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
-       values ${tuples.join(', ')}
-       ${conflictSql}
-       returning *`,
-      values,
-    );
-    return result.rows;
+    return this.writeRows(table, dedupeByConflict(rows, conflictColumns), conflictColumns);
   }
 
   async update(table: string, payload: Record<string, unknown>, filters: FilterDefinition[]) {
-    const columns = Object.keys(payload).sort();
+    const defined = withoutUndefined(payload);
+    const columns = Object.keys(defined).sort();
     if (!columns.length) return [];
-    const values = columns.map((column) => payload[column]);
+    const jsonColumns = await this.jsonColumns(table);
+    const values = columns.map((column) => toParam(defined[column], jsonColumns.has(column)));
     const setSql = columns.map((column, index) => `${ident(column)} = $${index + 1}`).join(', ');
     const where = buildWhere(filters, values.length + 1);
     const result = await this.pool.query(
@@ -209,86 +324,66 @@ export class NeonPostgresClient {
     return result.rows as T[];
   }
 
+  /**
+   * Calls `public.<fn>` inside a transaction with request.jwt.* claims set, so
+   * functions ported from Supabase that read `auth.uid()`/role claims keep
+   * working. Arguments are bound as `$n` placeholders (never interpolated) and
+   * json/jsonb parameters are JSON-encoded.
+   */
+  private async callFunction<T>(fn: string, args: Record<string, unknown>, claims: Record<string, string | null>) {
+    const fnName = ident(fn);
+    const entries = Object.entries(args);
+    entries.forEach(([name]) => ident(name));
+    const jsonParams = entries.length ? await this.jsonParams(fn) : new Set<string>();
+    const values = entries.map(([name, value]) => toParam(value, jsonParams.has(name)));
+    const namedArgs = entries.map(([name], index) => `${ident(name)} => $${index + 1}`).join(', ');
+
+    const runInTransaction = async (connection: QueryClient): Promise<QueryResult> => {
+      await connection.query(
+        `select
+           set_config('request.jwt.claim.sub', $1, true),
+           set_config('request.jwt.claim.role', $2, true),
+           set_config('request.jwt.claims', $3, true)`,
+        [claims.sub ?? '', claims.role ?? '', JSON.stringify(claims)],
+      );
+      return connection.query(`select * from public.${fnName}(${namedArgs})`, values);
+    };
+
+    let result: QueryResult;
+    if (!this.pool.connect) {
+      result = await runInTransaction(this.pool);
+    } else {
+      const connection = await this.pool.connect();
+      try {
+        await connection.query('begin');
+        result = await runInTransaction(connection);
+        await connection.query('commit');
+      } catch (error) {
+        await connection.query('rollback').catch(() => undefined);
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+
+    if (result.fields.length === 1 && result.fields[0]?.name === fn) {
+      if (result.rows.length === 1) return result.rows[0][fn] as T;
+      return result.rows.map((row) => row[fn]) as T;
+    }
+    return result.rows as T;
+  }
+
   async rpcAsUser<T = unknown>(
     fn: string,
     args: Record<string, unknown>,
     identity: { id: string; email?: string; role?: string },
   ) {
-    const fnName = ident(fn);
-    const entries = Object.entries(args);
-    entries.forEach(([name]) => ident(name));
-    const values = entries.map(([, value]) => value);
-    const namedArgs = entries.map(([name], index) => `${ident(name)} => ${index + 1}`).join(', ');
-    const client = await this.pool.connect();
-
-    try {
-      await client.query('begin');
-      await client.query(
-        `select
-           set_config('request.jwt.claim.sub', $1, true),
-           set_config('request.jwt.claim.role', $2, true),
-           set_config('request.jwt.claims', $3, true)`,
-        [
-          identity.id,
-          identity.role ?? 'authenticated',
-          JSON.stringify({
-            sub: identity.id,
-            email: identity.email ?? null,
-            role: identity.role ?? 'authenticated',
-          }),
-        ],
-      );
-      const result = await client.query(
-        `select * from public.${fnName}(${namedArgs})`,
-        values,
-      );
-      await client.query('commit');
-
-      if (result.fields.length === 1 && result.fields[0]?.name === fn) {
-        if (result.rows.length === 1) return result.rows[0][fn] as T;
-        return result.rows.map((row) => row[fn]) as T;
-      }
-      return result.rows as T;
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
+    const role = identity.role ?? 'authenticated';
+    return this.callFunction<T>(fn, args, { sub: identity.id, email: identity.email ?? null, role });
   }
 
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>) {
-    const fnName = ident(fn);
-    const entries = Object.entries(args);
-    entries.forEach(([name]) => ident(name));
-    const values = entries.map(([, value]) => value);
-    const namedArgs = entries.map(([name], index) => `${ident(name)} => ${index + 1}`).join(', ');
-    const client = await this.pool.connect();
-
-    try {
-      await client.query('begin');
-      await client.query(
-        `select
-           set_config('request.jwt.claim.role', 'service_role', true),
-           set_config('request.jwt.claims', '{"role":"service_role"}', true)`,
-      );
-      const result = await client.query(
-        `select * from public.${fnName}(${namedArgs})`,
-        values,
-      );
-      await client.query('commit');
-
-      if (result.fields.length === 1 && result.fields[0]?.name === fn) {
-        if (result.rows.length === 1) return result.rows[0][fn] as T;
-        return result.rows.map((row) => row[fn]) as T;
-      }
-      return result.rows as T;
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
+    return this.callFunction<T>(fn, args, { sub: null, role: 'service_role' });
   }
 
   async health() {
@@ -309,4 +404,4 @@ export const getNeonPostgresClient = (connectionString: string) => {
   return singleton;
 };
 
-export const __test = { ident, selectList, buildWhere, dedupeByConflict };
+export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined };
