@@ -1,0 +1,113 @@
+name: Apply Neon Review Package
+
+on:
+  push:
+    branches:
+      - claude/revisao-neon-2026-10-06-v2
+    paths:
+      - .github/workflows/apply-neon-review-package.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout review branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: claude/revisao-neon-2026-10-06-v2
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Apply tasks 01-17 on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, subprocess, sys
+
+          doc = pathlib.Path('.github/review/MOTOR-REVISAO-NEON-2026-10-06.md').read_text(encoding='utf-8')
+          heads = list(re.finditer(r'^### Tarefa (\d\d)\b', doc, flags=re.M))
+          if len(heads) != 17:
+              raise SystemExit(f'expected 17 tasks, found {len(heads)}')
+
+          def run(args, **kwargs):
+              return subprocess.run(args, text=True, **kwargs)
+
+          for i, head in enumerate(heads):
+              num = head.group(1)
+              end = heads[i+1].start() if i+1 < len(heads) else doc.find('\n## 5.', head.end())
+              section = doc[head.start(): end if end != -1 else len(doc)]
+
+              patch_match = re.search(r'^`````patch tarefa-' + num + r'\n(.*?)^`````$', section, flags=re.S | re.M)
+              if not patch_match:
+                  raise SystemExit(f'task {num}: patch block not found')
+
+              prefix = section[:patch_match.start()]
+              rm_pos = prefix.find('git rm -q --')
+              if rm_pos >= 0:
+                  rm_block = prefix[rm_pos:]
+                  fence = rm_block.find('\n```')
+                  if fence >= 0:
+                      rm_block = rm_block[:fence]
+                  paths = re.findall(r"'([^']+)'", rm_block)
+                  if paths:
+                      run(['git','rm','-q','--ignore-unmatch','--',*paths], check=True)
+
+              patch_path = pathlib.Path(f'/tmp/tarefa-{num}.patch')
+              patch_path.write_text(patch_match.group(1), encoding='utf-8')
+
+              check = run(['git','apply','--check','--whitespace=nowarn',str(patch_path)], capture_output=True)
+              if check.returncode == 0:
+                  run(['git','apply','--index','--whitespace=nowarn',str(patch_path)], check=True)
+              else:
+                  reverse = run(['git','apply','--reverse','--check','--whitespace=nowarn',str(patch_path)], capture_output=True)
+                  if reverse.returncode == 0:
+                      print(f'task {num}: patch already present')
+                  else:
+                      merge = run(['git','apply','--3way','--index','--whitespace=nowarn',str(patch_path)], capture_output=True)
+                      if merge.returncode != 0:
+                          print(merge.stdout)
+                          print(merge.stderr, file=sys.stderr)
+                          raise SystemExit(f'task {num}: git apply --3way failed')
+
+              run(['git','add','-A'], check=True)
+              staged = run(['git','diff','--cached','--quiet'])
+              if staged.returncode == 0:
+                  print(f'task {num}: no net changes')
+                  continue
+              run(['git','commit','-m',f'fix(review): apply Neon revision task {num}'], check=True)
+          PY
+
+      - name: Validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run build
+          npm run test:backend
+          npm run test:serverless
+          npm run test:no-supabase-runtime
+          npm run test:neon-migration
+          npm run test:legacy-recovery
+          npm run audit:production
+
+      - name: Remove temporary transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f .github/review/MOTOR-REVISAO-NEON-2026-10-06.md
+          git rm -f .github/workflows/apply-neon-review-package.yml
+          git commit -m "chore(review): remove temporary review transport"
+
+      - name: Push final review branch
+        run: git push origin HEAD:claude/revisao-neon-2026-10-06-v2
