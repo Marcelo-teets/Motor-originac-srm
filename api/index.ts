@@ -107,8 +107,8 @@ async function insertCaptureAuditRun(input: CaptureAuditRunInput) {
 async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   // Contrato 401 (issue #133 §12): diagnóstico só com bearer válido. Sem
   // CRON_SECRET configurado o endpoint permanece fechado (fail-closed) —
-  // nunca expor env/tabelas sem credencial. Espelha o gate de
-  // backend/src/serverless/vercelServerlessHandler.ts (captureHealth).
+  // nunca expor env/tabelas sem credencial (isCronAuthorized em
+  // serverless/http.ts; contrato coberto por serverless/api-index.test.ts).
   if (!isCronAuthorized(req)) {
     writeJson(res, 401, {
       status: 'partial',

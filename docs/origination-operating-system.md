@@ -12,20 +12,16 @@ A implementação transforma o documento operacional em uma camada versionada e 
    - Arquivo: `backend/src/modules/originationOperatingSystem.ts`
    - Função: centraliza produtos, estruturas SRM, skills, fluxos, scorecard, templates, comandos, rotinas, backlog e plano de execução.
 
-2. **Rotas Express preparadas**
-   - Arquivo: `backend/src/routes/originationRouter.ts`
-   - Função: expõe o Operating System em rotas internas reaproveitáveis.
+2. **Rotas serverless de produção**
+   - Arquivo: `api/index.ts` (`originationRuntime`), com o loop diário em `api/dcm-daily-operating-loop.ts`.
+   - Função: expõe o Operating System em `/api/origination/*` no único projeto Vercel (raiz do repositório).
+   - O router Express (`originationRouter.ts`) e o shim `backend/frontend/` foram removidos em 05/10/2026: eram cópias não montadas destas rotas.
 
-3. **Rotas serverless de produção**
-   - Arquivo raiz: `api/index.ts`
-   - Arquivo backend-root: `backend/frontend/api/index.ts`
-   - Função: garante que o framework esteja disponível em Vercel nos dois formatos de deploy usados no projeto.
-
-4. **Migration Supabase**
+3. **Migration Supabase**
    - Arquivo: `db/migrations/020_origination_operating_system.sql`
    - Função: cria a tabela `origination_os_artifacts` para persistir artefatos do framework.
 
-5. **Documentação operacional**
+4. **Documentação operacional**
    - Arquivo: `docs/origination-operating-system.md`
    - Função: orientar uso, endpoints e próximos passos.
 
