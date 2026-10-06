@@ -149,9 +149,9 @@ jobs:
                               adapted = []
                               for line in patch_body.splitlines(keepends=True):
                                   if "removeFrom: \"create or replace function public.queue_agentetome_admin_export(" in line:
-                                      adapted.append('    { removeFrom: "create or replace function public.queue_agentetome_admin_export(", removeThrough: "grant execute on function private.run_agentetome_due_exports() to service_role;" },\\n')
+                                      adapted.append('    { removeFrom: "create or replace function public.queue_agentetome_admin_export(", removeThrough: "grant execute on function private.run_agentetome_due_exports() to service_role;" },' + chr(10))
                                   elif "removeFrom: \"select private.refresh_agentetome_source_status();" in line:
-                                      adapted.append('    { removeFrom: "select private.refresh_agentetome_source_status();", removeThrough: "select private.refresh_agentetome_source_status();" },\\n')
+                                      adapted.append('    { removeFrom: "select private.refresh_agentetome_source_status();", removeThrough: "select private.refresh_agentetome_source_status();" },' + chr(10))
                                   else:
                                       adapted.append(line)
                               patch_body = ''.join(adapted)
