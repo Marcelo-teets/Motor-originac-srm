@@ -30,8 +30,6 @@ import {
 } from './lib/userProfiles.js';
 import { env } from './lib/env.js';
 import { getBuildInfo } from './lib/buildInfo.js';
-import { discoveryHitToCandidateDraft } from './lib/candidatePromotion.js';
-import { runSearchProfileDiscovery } from './lib/discoveryCapture.js';
 import { createPlatformRepository } from './repositories/platformRepository.js';
 import { asOwner, isActivityStatus, isActivityType, isPipelineStage, isTaskStatus } from './lib/crm.js';
 import { getMaisRetornoQuotaStatus, quotaEnvelopeStatus } from './lib/maisRetorno.js';
@@ -67,17 +65,28 @@ const wrap = (handler: express.Handler): express.Handler => async (req, res, nex
   try {
     await Promise.resolve(handler(req, res, next));
   } catch (error) {
-    console.error(error);
     const candidateStatus = error && typeof error === 'object' && 'statusCode' in error
       ? Number((error as { statusCode?: unknown }).statusCode)
       : 500;
     const statusCode = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus <= 599
       ? candidateStatus
       : 500;
+    // Expected 4xx rejections (auth, validation) are not server faults; keep the
+    // logs for real failures.
+    if (statusCode >= 500) console.error(error);
+    else console.warn(`[motor-backend] ${req.method} ${req.path} -> ${statusCode}: ${error instanceof Error ? error.message : String(error)}`);
     res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
   }
 };
 const assertNonEmpty = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+// null/'' clear the date; a parseable date is normalized to ISO; anything else
+// returns undefined so the route can answer 400 instead of a database 500.
+const parseOptionalDate = (value: unknown): string | null | undefined => {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+};
 
 await service.bootstrap().catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
@@ -222,6 +231,35 @@ app.post('/auth/logout', wrap(async (req, res) => {
 }));
 
 app.use(authMiddleware);
+
+// A valid Neon Auth JWT only proves identity. Access to platform data also
+// requires an *active* application profile — otherwise an invited or disabled
+// user could mint a token directly at Neon Auth and call every route below.
+// Mirrors serverless/neon-auth.ts (verifyActiveIdentity). Positive results are
+// cached briefly per warm instance to avoid a profile lookup on every request.
+const ACTIVE_PROFILE_CACHE_MS = 30_000;
+const activeProfileCache = new Map<string, number>();
+app.use(wrap(async (req, _res, next) => {
+  if (!env.usePersistentData) {
+    next();
+    return;
+  }
+  const userId = req.authUser!.id;
+  const now = Date.now();
+  if ((activeProfileCache.get(userId) ?? 0) > now) {
+    next();
+    return;
+  }
+  const profile = await getUserProfileById(userId);
+  if (!profile || profile.status !== 'active') {
+    activeProfileCache.delete(userId);
+    throw Object.assign(new Error('Este acesso está desativado ou ainda não foi aprovado.'), { statusCode: 403 });
+  }
+  if (activeProfileCache.size > 1_000) activeProfileCache.clear();
+  activeProfileCache.set(userId, now + ACTIVE_PROFILE_CACHE_MS);
+  next();
+}));
+
 app.use('/ai', createAiRouter(service));
 app.use('/abm', createAbmWarRoomRouter());
 app.use('/watchlists', createWatchlistRouter(repository));
@@ -646,6 +684,11 @@ app.post('/activities', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid activity status: ${rawStatus}`));
     return;
   }
+  const activityDueDate = parseOptionalDate(req.body?.dueDate ?? req.body?.due_date);
+  if (activityDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const created = await service.saveActivity({
     companyId,
     type: rawType,
@@ -653,7 +696,7 @@ app.post('/activities', wrap(async (req, res) => {
     description: String(req.body?.description ?? ''),
     owner: asOwner(req.body?.owner ?? 'Unknown'),
     status: rawStatus,
-    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+    dueDate: activityDueDate,
   });
   res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
@@ -676,13 +719,18 @@ app.post('/tasks', wrap(async (req, res) => {
     res.status(400).json(fail(400, `Invalid task status: ${rawStatus}`));
     return;
   }
+  const taskDueDate = parseOptionalDate(req.body?.dueDate ?? req.body?.due_date);
+  if (taskDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const created = await service.saveTask({
     companyId,
     title,
     description: String(req.body?.description ?? ''),
     owner: asOwner(req.body?.owner ?? 'Unknown'),
     status: rawStatus,
-    dueDate: req.body?.dueDate ?? req.body?.due_date ?? null,
+    dueDate: taskDueDate,
   });
   res.status(201).json(ok(crmRuntimeMode, { mode: crmRuntimeMode, item: created }));
 }));
@@ -695,12 +743,19 @@ app.patch('/tasks/:id', wrap(async (req, res) => {
     res.status(400).json(fail(400, 'title cannot be empty.'));
     return;
   }
+  // `in` instead of `??`: an explicit `dueDate: null` must clear the date.
+  const rawDueDate = req.body && 'dueDate' in req.body ? req.body.dueDate : req.body?.due_date;
+  const patchedDueDate = rawDueDate === undefined ? undefined : parseOptionalDate(rawDueDate);
+  if (rawDueDate !== undefined && patchedDueDate === undefined) {
+    res.status(400).json(fail(400, 'dueDate must be a valid ISO date.'));
+    return;
+  }
   const updated = await service.updateTask(param(req.params.id), {
     title: req.body?.title,
     description: req.body?.description,
     owner: req.body?.owner ? asOwner(req.body.owner) : undefined,
     status: req.body?.status,
-    dueDate: req.body?.dueDate ?? req.body?.due_date,
+    dueDate: patchedDueDate,
   });
   if (!updated) {
     res.status(404).json(fail(404, 'Task not found.'));
@@ -718,7 +773,7 @@ app.get('/mvp-readiness', wrap(async (_req, res) => {
   const [dashboard, sources, pipelineRows] = await Promise.all([service.getDashboard(), service.listSources(), service.listPipelineRows()]);
   const degradedSources = sources.filter((source) => source.health !== 'healthy').length;
   res.json(ok(platformMode, {
-    auth: { status: 'real', provider: 'supabase' },
+    auth: { status: env.authProvider === 'none' ? 'partial' : 'real', provider: env.authProvider },
     database: { status: env.usePersistentData ? 'real' : 'partial', mode: env.dataProvider },
     sources: { total: sources.length, degraded: degradedSources, status: degradedSources ? 'attention' : 'healthy' },
     monitoring: { outputs24h: dashboard.monitoring.outputs24h, triggers24h: dashboard.monitoring.triggers24h, status: dashboard.monitoring.outputs24h > 0 ? 'active' : 'idle' },
@@ -769,6 +824,23 @@ app.get('/platform/status', wrap(async (_req, res) => res.json(ok(platformMode, 
   frontendDataFallback: 'partial',
   persistence: platformMode,
 }))));
+
+// Final error handler: malformed JSON bodies (express.json) and any error that
+// escapes a route must still produce the platform JSON envelope, never
+// Express' default HTML page.
+app.use(((error, _req, res, next) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  const candidate = Number((error as { statusCode?: unknown; status?: unknown })?.statusCode ?? (error as { status?: unknown })?.status);
+  const statusCode = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+  if (statusCode >= 500) console.error(error);
+  const message = statusCode === 400 && (error as { type?: unknown })?.type === 'entity.parse.failed'
+    ? 'Invalid JSON body.'
+    : error instanceof Error ? error.message : 'Unexpected error';
+  res.status(statusCode).json(fail(statusCode, message));
+}) as express.ErrorRequestHandler);
 
 // ── Exportação para Vercel serverless ──────────────────────────────────────
 export { app };
