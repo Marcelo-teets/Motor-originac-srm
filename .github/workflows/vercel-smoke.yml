@@ -19,6 +19,9 @@ on:
       - scripts/smoke/vercel-health-smoke.mjs
       - .github/workflows/vercel-smoke.yml
 
+permissions:
+  contents: read
+
 jobs:
   vercel-health-smoke:
     runs-on: ubuntu-latest

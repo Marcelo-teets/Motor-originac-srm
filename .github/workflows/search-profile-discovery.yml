@@ -43,6 +43,9 @@ on:
     - cron: "30 8 * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   validate_news_semantics:
     if: github.event_name == 'pull_request'

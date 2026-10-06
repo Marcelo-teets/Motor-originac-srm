@@ -37,3 +37,11 @@ test('postgres adapter binds RPC named arguments as positional placeholders', ()
   assert.deepEqual(built.values, ['abc', null]);
   assert.throws(() => __test.functionCallSql('approve_review', { 'p_x); drop table x; --': 1 }));
 });
+
+test('postgres adapter splits large writes under the bind-parameter limit', () => {
+  const rows = Array.from({ length: 10_001 }, (_, id) => ({ id }));
+  const chunks = __test.chunkForParameters(rows, 10);
+  assert.ok(chunks.every((chunk) => chunk.length * 10 <= 65_535));
+  assert.equal(chunks.flat().length, rows.length);
+  assert.deepEqual(__test.chunkForParameters([], 4), []);
+});

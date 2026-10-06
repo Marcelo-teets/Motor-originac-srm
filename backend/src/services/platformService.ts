@@ -59,6 +59,10 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
 const MONITORING_CONCURRENCY = 4;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// assembleViews loads every view table; routes often need it several times per
+// request, so concurrent callers share one load and results live briefly.
+const VIEWS_CACHE_TTL_MS = 5_000;
 
 export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
@@ -130,6 +134,7 @@ export class PlatformService {
     await this.repository.saveMonitoringOutputs(ingestions.flatMap((item) => item.outputs));
     await this.repository.saveCompanySignals(ingestions.flatMap((item) => item.signals));
     await this.repository.saveEnrichments(ingestions.flatMap((item) => item.enrichments));
+    this.invalidateViews();
     return {
       companyCount: targetCompanies.length,
       outputCount: ingestions.reduce((sum, item) => sum + item.outputs.length, 0),
@@ -253,6 +258,7 @@ export class PlatformService {
     await this.repository.saveCompanyPatterns(snapshots.patterns);
     await this.repository.saveScoreSnapshots(snapshots.scoreSnapshots);
     await this.repository.saveLeadScoreSnapshots(snapshots.leadScoreSnapshots);
+    this.invalidateViews();
     return snapshots;
   }
 
@@ -271,7 +277,25 @@ export class PlatformService {
     if (missing) await this.recomputeDerivedData();
   }
 
-  private async assembleViews() {
+  private viewsCache: { expiresAt: number; promise: ReturnType<PlatformService['loadViews']> } | null = null;
+
+  private invalidateViews() {
+    this.viewsCache = null;
+  }
+
+  private assembleViews() {
+    const now = Date.now();
+    if (this.viewsCache && now < this.viewsCache.expiresAt) return this.viewsCache.promise;
+    const promise = this.loadViews();
+    const entry = { expiresAt: now + VIEWS_CACHE_TTL_MS, promise };
+    this.viewsCache = entry;
+    promise.catch(() => {
+      if (this.viewsCache === entry) this.viewsCache = null;
+    });
+    return promise;
+  }
+
+  private async loadViews() {
     await this.ensureDerivedData();
 
     const [allCompanies, sources, patternCatalog, allMonitoringOutputsRaw, allQualificationSnapshots, allCompanyPatterns, allScoreSnapshots, allLeadScoreSnapshots] = await Promise.all([
@@ -402,18 +426,20 @@ export class PlatformService {
   async getDashboard(): Promise<DashboardView> {
     const { companyViews, rankingRows, patterns, allMonitoringOutputs, agents } = await this.assembleViews();
     const allPatterns = Array.from(patterns.values()).flat();
+    const since24h = Date.now() - DAY_MS;
+    const outputs24h = allMonitoringOutputs.filter((item) => Date.parse(item.collectedAt) >= since24h).length;
 
     return {
       summary: [
         { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base real persistida em Neon; fallback local existe apenas fora de produção.' },
         { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
         { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
-        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
+        { label: 'Outputs recentes', value: String(outputs24h), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
       ],
       topLeads: rankingRows.slice(0, 5),
       monitoring: {
         activeSources: 3,
-        outputs24h: allMonitoringOutputs.length,
+        outputs24h,
         triggers24h: companyViews.reduce((sum, company) => sum + Math.round(company.triggerStrength / 25), 0),
         websiteChecks: allMonitoringOutputs.filter((item) => item.sourceId === 'src_company_website').length,
       },

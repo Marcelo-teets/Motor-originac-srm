@@ -78,6 +78,26 @@ const unionColumns = (rows: Record<string, unknown>[]) => (
   [...new Set(rows.flatMap((row) => Object.keys(row)))].sort()
 );
 
+// Postgres accepts at most 65535 bind parameters per statement; stay well below
+// so large batches are written as several statements instead of failing.
+const MAX_BIND_PARAMETERS = 30_000;
+
+const chunkForParameters = <T>(rows: T[], columnCount: number) => {
+  const size = Math.max(1, Math.floor(MAX_BIND_PARAMETERS / Math.max(1, columnCount)));
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+};
+
+const valuesSql = (rows: Record<string, unknown>[], columns: string[]) => {
+  const values: unknown[] = [];
+  const tuples = rows.map((row) => `(${columns.map((column) => {
+    values.push(row[column] ?? null);
+    return `$${values.length}`;
+  }).join(', ')})`).join(', ');
+  return { tuples, values };
+};
+
 const dedupeByConflict = (rows: Record<string, unknown>[], conflictColumns: string[]) => {
   if (!conflictColumns.length || rows.length < 2) return rows;
   const map = new Map<string, Record<string, unknown>>();
@@ -134,22 +154,18 @@ export class NeonPostgresClient {
     const columns = unionColumns(rows);
     if (!columns.length) return [];
 
-    const values: unknown[] = [];
-    const tuples = rows.map((row) => {
-      const placeholders = columns.map((column) => {
-        values.push(row[column] ?? null);
-        return `$${values.length}`;
-      });
-      return `(${placeholders.join(', ')})`;
-    });
-
-    const result = await this.pool.query(
-      `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
-       values ${tuples.join(', ')}
-       returning *`,
-      values,
-    );
-    return result.rows;
+    const returned: Record<string, unknown>[] = [];
+    for (const chunk of chunkForParameters(rows, columns.length)) {
+      const { tuples, values } = valuesSql(chunk, columns);
+      const result = await this.pool.query(
+        `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
+         values ${tuples}
+         returning *`,
+        values,
+      );
+      returned.push(...result.rows);
+    }
+    return returned;
   }
 
   async upsert(table: string, inputRows: unknown[], onConflict?: string) {
@@ -164,14 +180,6 @@ export class NeonPostgresClient {
 
     const deduped = dedupeByConflict(rows, conflictColumns);
     const columns = unionColumns(deduped);
-    const values: unknown[] = [];
-    const tuples = deduped.map((row) => {
-      const placeholders = columns.map((column) => {
-        values.push(row[column] ?? null);
-        return `$${values.length}`;
-      });
-      return `(${placeholders.join(', ')})`;
-    });
 
     const updateColumns = columns.filter((column) => !conflictColumns.includes(column));
     const conflictSql = conflictColumns.length
@@ -180,14 +188,19 @@ export class NeonPostgresClient {
           : 'do nothing'}`
       : '';
 
-    const result = await this.pool.query(
-      `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
-       values ${tuples.join(', ')}
-       ${conflictSql}
-       returning *`,
-      values,
-    );
-    return result.rows;
+    const returned: Record<string, unknown>[] = [];
+    for (const chunk of chunkForParameters(deduped, columns.length)) {
+      const { tuples, values } = valuesSql(chunk, columns);
+      const result = await this.pool.query(
+        `insert into public.${ident(table)} (${columns.map(ident).join(', ')})
+         values ${tuples}
+         ${conflictSql}
+         returning *`,
+        values,
+      );
+      returned.push(...result.rows);
+    }
+    return returned;
   }
 
   async update(table: string, payload: Record<string, unknown>, filters: FilterDefinition[]) {
@@ -289,4 +302,4 @@ export const getNeonPostgresClient = (connectionString: string) => {
   return singleton;
 };
 
-export const __test = { ident, selectList, buildWhere, dedupeByConflict, functionCallSql };
+export const __test = { ident, selectList, buildWhere, dedupeByConflict, functionCallSql, chunkForParameters };
