@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Card, PageIntro, Pill } from '../components/UI';
 import { useAuth } from '../lib/auth';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 const roleLabel = (role?: string) => role === 'god_mode' ? 'GOD-MODE' : 'Usuário comum';
 
@@ -42,7 +42,7 @@ export function ProfilePage() {
     setError(null);
     setSuccess(null);
     try {
-      await supabaseAuth.updateProfile(session, {
+      await neonAuth.updateProfile(session, {
         full_name: form.full_name.trim() || null,
         job_title: form.job_title.trim() || null,
         phone: form.phone.trim() || null,

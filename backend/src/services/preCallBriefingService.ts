@@ -1,10 +1,10 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { AccountStakeholderService } from './accountStakeholderService.js';
 import { ObjectionIntelligenceService } from './objectionIntelligenceService.js';
 import { TouchpointService } from './touchpointService.js';
 
 export class PreCallBriefingService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
   private readonly stakeholders = new AccountStakeholderService();
   private readonly touchpoints = new TouchpointService();
   private readonly objections = new ObjectionIntelligenceService();

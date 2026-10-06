@@ -93,7 +93,7 @@ test('lead list avoids the company-detail N+1 request pattern', () => {
 
 test('session renewal uses the first-party Neon cookie and synchronizes browser contexts', () => {
   assert.match(auth, /refreshIfNeeded/);
-  assert.match(auth, /return supabaseAuth\.refreshSession\(\)/);
+  assert.match(auth, /return neonAuth\.refreshSession\(\)/);
   assert.match(auth, /motor\.neon\.session/);
   assert.match(auth, /motor\.supabase\.session/);
   assert.doesNotMatch(auth, /refresh_token: refreshed\.refresh_token/);

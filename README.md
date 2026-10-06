@@ -15,7 +15,7 @@ O projeto `motor-originac-srm-backend` continua existindo como deploy separado, 
 ## Estrutura oficial consolidada
 - `frontend/`: web app React/Vite.
 - `backend/`: API interna consolidada em Node/Express.
-- `db/`: DDL canônico e migrations para Supabase/Postgres.
+- `db/`: DDL canônico e migrations para Neon/Postgres.
 - `config/`: catálogos, scoring, heurísticas e source seeds versionados.
 - `connectors/`: base e adaptadores de fontes (`http`, `rss`, `sitemap`, `scraper`, `normalizers`).
 - `agents/`: documentação de agentes obrigatórios.
@@ -44,7 +44,7 @@ A camada operacional de originação agora está versionada no repositório e ex
 O backlog ORIG-001 a ORIG-020 foi convertido em contrato operacional versionado, cobrindo Company Master, templates, scorecard, pipeline, fontes, ranking semanal, tese, dashboard, triggers, one-pager, sequências de e-mail, hooks, reciclagem, VC/PE monitoring, relatório setorial, copiloto, bases externas, histórico de score e comparáveis.
 
 ## O que esta PR torna real
-- Neon Postgres como data plane primário de leitura/escrita para o runtime institucional; Supabase permanece apenas em superfícies legadas ainda explicitamente sinalizadas.
+- Neon Postgres é o único data plane persistente do runtime institucional; Google Sheets é a superfície auxiliar de controle e integração.
 - Neon Managed Auth real no backend (`/auth/register`, `/auth/login`, `/auth/session`, `/auth/logout`, `/auth/me`) com cookie HttpOnly first-party, JWT curto verificado por JWKS/Ed25519 e `public.user_profiles` como fonte de RBAC.
 - Dashboard, companies, qualification, patterns e sources servidos pelo backend real, com fallback controlado apenas quando o banco não retornar dados.
 - Connectors reproduzíveis para BrasilAPI CNPJ, RSS públicos e monitoramento básico de website, gravando `monitoring_outputs`, `company_signals` e `enrichments`.
@@ -61,19 +61,19 @@ O backlog ORIG-001 a ORIG-020 foi convertido em contrato operacional versionado,
    ```bash
    cp .env.example .env
    ```
-2. Preencha **obrigatoriamente** as variáveis abaixo com o projeto Supabase real:
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+2. Preencha **obrigatoriamente** as variáveis do runtime real:
+   - `MOTOR_NEON_DATABASE_URL`
+   - `NEON_AUTH_BASE_URL`
+   - `NEON_AUTH_JWKS_URL`
+   - `MOTOR_AUTH_BOOTSTRAP_ENABLED=false`
+   - credenciais Google OAuth/Sheets quando o sync de planilhas estiver ativo
 3. Instale dependências e suba os apps.
    ```bash
    npm install
    npm run dev:backend
    npm run dev:frontend
    ```
-4. Se quiser popular o banco automaticamente com a base inicial, mantenha `BOOTSTRAP_SUPABASE=true`.
+4. O banco de produção é migration-managed no Neon; não habilite bootstrap automático de dados demo.
 
 Backend padrão: `http://localhost:4000`
 Frontend padrão: `http://localhost:5173`
@@ -100,4 +100,4 @@ Frontend padrão: `http://localhost:5173`
 Consulte `docs/architecture.md`, `docs/status-matrix.md` e `docs/origination-operating-system.md` para distinguir o que está real, parcial, hardcoded, mockado e planejado.
 
 ## Estratégia de merge atualizada
-A implementação continua **em cima da `main` atual**, preservando a arquitetura oficial React/Vite + Node/Express e reduzindo o escopo visual ao mínimo necessário para ativar Supabase/Auth/DB reais e o Operating System de originação.
+A implementação continua **em cima da `main` atual**, preservando a arquitetura oficial React/Vite + Node/Express e mantendo Neon/Postgres + Neon Managed Auth como infraestrutura canônica e Google Sheets como camada auxiliar operacional.

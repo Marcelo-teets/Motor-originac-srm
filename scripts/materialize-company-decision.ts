@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../backend/src/lib/supabase.js';
+import { getDataClient } from '../backend/src/lib/dataClient.js';
 import { createPlatformRepository } from '../backend/src/repositories/platformRepository.js';
 import { PlatformService } from '../backend/src/services/platformService.js';
 
@@ -16,8 +16,8 @@ const metadataOf = (value: unknown) => typeof value === 'object' && value !== nu
   : {};
 
 async function syncApprovedReview() {
-  const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase client is unavailable.');
+  const client = getDataClient();
+  if (!client) throw new Error('Neon data client is unavailable.');
   const reviews = await client.select('company_credit_reviews', {
     select: '*',
     filters: [
@@ -96,7 +96,7 @@ async function syncApprovedReview() {
   return { client, review };
 }
 
-async function alignPipeline(client: NonNullable<ReturnType<typeof getSupabaseClient>>, review: ReviewRow) {
+async function alignPipeline(client: NonNullable<ReturnType<typeof getDataClient>>, review: ReviewRow) {
   const rows = await client.select('pipeline', {
     select: 'id,stage,notes',
     filters: [{ column: 'company_id', value: companyId }],
@@ -117,15 +117,12 @@ async function alignPipeline(client: NonNullable<ReturnType<typeof getSupabaseCl
 
 async function main() {
   if (!uuidPattern.test(companyId)) throw new Error('COMPANY_ID must be a valid UUID.');
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
-  }
-  if (process.env.USE_SUPABASE !== 'true') {
-    throw new Error('USE_SUPABASE=true is required to prevent local-memory materialization.');
+  if (!process.env.MOTOR_NEON_DATABASE_URL && !process.env.DATABASE_URL) {
+    throw new Error('MOTOR_NEON_DATABASE_URL or DATABASE_URL is required.');
   }
 
   const { client, review } = await syncApprovedReview();
-  const service = new PlatformService(createPlatformRepository('supabase'));
+  const service = new PlatformService(createPlatformRepository('database'));
   const snapshots = await service.recomputeDerivedData(companyId);
   const pipeline = await alignPipeline(client, review);
   const summary = {

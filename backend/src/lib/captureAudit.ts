@@ -1,4 +1,4 @@
-import { getDataClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 export type CaptureAuditInput = {
   triggerType: 'cron' | 'manual';

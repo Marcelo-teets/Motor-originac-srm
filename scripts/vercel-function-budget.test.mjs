@@ -23,6 +23,9 @@ const consolidatedRoutes = [
   'company-credit-review',
   'company-decision-readiness',
   'fidc-market-map',
+  'historical-archive',
+  'knowledge-rpc',
+  'knowledge-search',
 ];
 
 const dispatcher = readFileSync('api/index.ts', 'utf8');

@@ -1,12 +1,12 @@
 import { env } from './env.js';
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 import type { CompanySeed, SourceCatalogEntry } from '../types/platform.js';
 
 const PROVIDER = 'mais_retorno';
 const HARD_MONTHLY_CAP = 500;
 const DEFAULT_TIMEOUT_MS = 12_000;
 
-type ReservationMode = 'supabase' | 'memory';
+type ReservationMode = 'neon' | 'memory';
 
 export type MaisRetornoQuotaSnapshot = {
   provider: string;
@@ -43,9 +43,9 @@ const softTarget = () => Math.min(monthlyQuota(), clampQuota(env.maisRetornoMont
 
 export const getMaisRetornoMonthKey = (date = new Date()) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 
-// Contrato de evidência: quota persistida no Supabase é `real`; contagem em
+// Contrato de evidência: quota persistida no Neon é `real`; contagem em
 // memória/fallback nunca pode se declarar `real` (issue #126).
-export const quotaEnvelopeStatus = (mode: ReservationMode): 'real' | 'partial' => (mode === 'supabase' ? 'real' : 'partial');
+export const quotaEnvelopeStatus = (mode: ReservationMode): 'real' | 'partial' => (mode === 'neon' ? 'real' : 'partial');
 
 const reservationFromMemory = (purpose: string, reason?: string): MaisRetornoQuotaSnapshot => {
   const monthKey = getMaisRetornoMonthKey();
@@ -106,8 +106,8 @@ const normalizeReservation = (value: any, fallbackMode: ReservationMode): MaisRe
 };
 
 export async function reserveMaisRetornoRequest(purpose: string, sourceCode = 'src_mais_retorno_api') {
-  const client = getSupabaseClient();
-  if (!client) return reservationFromMemory(purpose, 'supabase_not_configured_memory_quota');
+  const client = getDataClient();
+  if (!client) return reservationFromMemory(purpose, 'neon_not_configured_memory_quota');
 
   try {
     const reserved = await client.rpc('reserve_external_api_request', {
@@ -118,14 +118,14 @@ export async function reserveMaisRetornoRequest(purpose: string, sourceCode = 's
       p_source_code: sourceCode,
       p_purpose: purpose,
     });
-    return normalizeReservation(reserved, 'supabase');
+    return normalizeReservation(reserved, 'neon');
   } catch (error) {
     return reservationFromMemory(purpose, `quota_rpc_fallback:${error instanceof Error ? error.message : 'unknown_error'}`);
   }
 }
 
 export async function getMaisRetornoQuotaStatus() {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return statusFromMemory();
 
   try {
@@ -149,10 +149,10 @@ export async function getMaisRetornoQuotaStatus() {
         remaining: monthlyQuota(),
         allowed: true,
         warning: false,
-        mode: 'supabase' as const,
+        mode: 'neon' as const,
       };
     }
-    return normalizeReservation(row, 'supabase');
+    return normalizeReservation(row, 'neon');
   } catch {
     return statusFromMemory();
   }

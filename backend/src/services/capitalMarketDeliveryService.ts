@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { CvmDatasetCode } from '../modules/capital-markets/cvmCapitalMarketConnector.js';
 
 type RawDeliveryResult = {
@@ -52,7 +52,7 @@ const failedSummary = (datasetCode: CvmDatasetCode, error: unknown): CapitalMark
 });
 
 export class CapitalMarketDeliveryService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async sync(datasets: CvmDatasetCode[]) {
     if (!this.client) throw new Error('Supabase client not configured for capital-market delivery.');

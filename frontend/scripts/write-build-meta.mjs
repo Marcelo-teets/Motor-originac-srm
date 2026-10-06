@@ -34,20 +34,7 @@ const resolvedNeonAuthUrl = (
   || ''
 ).trim();
 
-const resolvedSupabaseUrl = (
-  env.VITE_SUPABASE_URL
-  || publicAuthConfig.supabaseUrl
-  || ''
-).trim();
-const resolvedPublishableKey = (
-  env.VITE_SUPABASE_PUBLISHABLE_KEY
-  || env.VITE_SUPABASE_ANON_KEY
-  || publicAuthConfig.supabasePublishableKey
-  || ''
-).trim();
-
 const neonAuthConfigured = Boolean(resolvedNeonAuthUrl);
-const legacySupabaseConfigured = Boolean(resolvedSupabaseUrl && resolvedPublishableKey);
 
 const metadata = {
   schemaVersion: 1,
@@ -65,7 +52,6 @@ const metadata = {
       neonProjectId: publicAuthConfig.neonProjectId,
       neonAuthUrlConfigured: neonAuthConfigured,
       source: env.VITE_NEON_AUTH_URL ? 'vercel_environment' : 'canonical_public_config',
-      legacySupabaseConfigured,
     },
     routes: [
       '/login',

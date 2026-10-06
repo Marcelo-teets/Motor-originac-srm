@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { env } from './env.js';
-import { getSupabaseClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 const SOURCE_CODE = 'src_agentetome_api';
 const SOURCE_NAME = 'Agente Tomé API / MCP';
@@ -304,7 +304,7 @@ let sourceIdPromise: Promise<string | undefined> | null = null;
 const resolveSourceId = async () => {
   if (sourceIdPromise) return sourceIdPromise;
   sourceIdPromise = (async () => {
-    const client = getSupabaseClient();
+    const client = getDataClient();
     if (!client) return undefined;
     const rows = await client.select('source_catalog', {
       select: 'id',
@@ -318,7 +318,7 @@ const resolveSourceId = async () => {
 };
 
 export async function recordAgenteTomeOperation(input: AgenteTomeAuditInput) {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return;
   try {
     await client.insert('agentetome_operation_runs', [{

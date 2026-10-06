@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 
 type WatchList = {
   id: string;
@@ -30,10 +30,10 @@ const notFound = (message: string) => Object.assign(new Error(message), { code: 
 const isNotFound = (error: unknown): error is Error & { code: 'NOT_FOUND' } => typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'NOT_FOUND';
 
 const withClientFallback = async <T>(
-  operation: (client: NonNullable<ReturnType<typeof getSupabaseClient>>) => Promise<T>,
+  operation: (client: NonNullable<ReturnType<typeof getDataClient>>) => Promise<T>,
   fallback: () => Promise<T> | T,
 ): Promise<{ data: T; status: 'real' | 'partial' }> => {
-  const client = getSupabaseClient();
+  const client = getDataClient();
   if (!client) return { data: await fallback(), status: 'partial' };
   try {
     return { data: await operation(client), status: 'real' };

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
+import { requireNeonDataClient } from '../serverless/neon-data.js';
 
 const RUNTIME = 'dcm-daily-leads-v1';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -10,10 +11,7 @@ const STATUSES = new Set(['draft', 'ready', 'sent', 'repositioned', 'do_not_adva
 type JsonObject = Record<string, unknown>;
 type AuthenticatedUser = { id: string; email?: string };
 
-type SupabaseContext = {
-  baseUrl: string;
-  anonKey: string;
-  accessToken: string;
+type DataContext = {
   user: AuthenticatedUser;
 };
 
@@ -37,7 +35,6 @@ const parseUrl = (req: IncomingMessage) => {
   return new URL((req as { url?: string }).url ?? '/', `https://${host}`);
 };
 
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 const asObject = (value: unknown): JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
   ? value as JsonObject
   : {};
@@ -60,17 +57,7 @@ const readJsonBody = async (req: IncomingMessage): Promise<JsonObject> => {
   return parsed as JsonObject;
 };
 
-const readResponse = async (response: Response) => {
-  const raw = await response.text();
-  if (!raw.trim()) return null;
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return raw;
-  }
-};
-
-const requireAuth = async (req: IncomingMessage): Promise<SupabaseContext> => {
+const requireAuth = async (req: IncomingMessage): Promise<DataContext> => {
   const authorization = getHeader(req, 'authorization');
   if (!authorization?.startsWith('Bearer ')) throw Object.assign(new Error('Missing bearer token.'), { statusCode: 401 });
 
@@ -78,38 +65,8 @@ const requireAuth = async (req: IncomingMessage): Promise<SupabaseContext> => {
   const { user: neonUser } = await verifyActiveIdentity(accessToken);
   const user: AuthenticatedUser = { id: neonUser.id, email: neonUser.email };
   if (!UUID_PATTERN.test(user.id)) throw Object.assign(new Error('Authenticated user is invalid.'), { statusCode: 401 });
-
-  // Transitional legacy data access only. Identity is already verified by Neon;
-  // the next data-plane cleanup removes this Supabase REST context entirely.
-  const baseUrl = process.env.SUPABASE_URL ? normalizeBaseUrl(process.env.SUPABASE_URL) : '';
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-  if (!baseUrl || !serviceKey) throw Object.assign(new Error('Legacy daily-leads data bridge is unavailable.'), { statusCode: 503 });
-
-  return { baseUrl, anonKey: serviceKey, accessToken: serviceKey, user };
-};
-
-const rest = async (
-  context: SupabaseContext,
-  path: string,
-  init: RequestInit = {},
-  expected: number[] = [200],
-) => {
-  const response = await fetch(`${context.baseUrl}/rest/v1/${path}`, {
-    ...init,
-    headers: {
-      apikey: context.anonKey,
-      Authorization: `Bearer ${context.accessToken}`,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
-  const payload = await readResponse(response);
-  if (!expected.includes(response.status)) {
-    const details = asObject(payload);
-    const message = text(details.message, details.details, details.hint, typeof payload === 'string' ? payload : '') || `Supabase REST failed with ${response.status}.`;
-    throw Object.assign(new Error(message), { statusCode: response.status === 409 ? 409 : response.status >= 500 ? 502 : response.status });
-  }
-  return payload;
+  requireNeonDataClient();
+  return { user };
 };
 
 const normalizeLinkedInUrl = (value: string | null) => {
@@ -125,13 +82,11 @@ const normalizeLinkedInUrl = (value: string | null) => {
   }
 };
 
-const loadLead = async (context: SupabaseContext, id: string) => {
-  const payload = await rest(
-    context,
-    `dcm_daily_leads?select=*&id=eq.${encodeURIComponent(id)}&limit=1`,
-    { method: 'GET' },
-  );
-  const rows = Array.isArray(payload) ? payload.map(asObject) : [];
+const loadLead = async (_context: DataContext, id: string) => {
+  const rows = await requireNeonDataClient().select('dcm_daily_leads', {
+    filters: [{ column: 'id', operator: 'eq', value: id }],
+    limit: 1,
+  }) as JsonObject[];
   return rows[0] ?? null;
 };
 
@@ -154,20 +109,21 @@ const buildBriefing = (items: JsonObject[]) => {
   };
 };
 
-const listQueue = async (context: SupabaseContext, req: IncomingMessage) => {
+const listQueue = async (_context: DataContext, req: IncomingMessage) => {
   const url = parseUrl(req);
   const date = url.searchParams.get('date') ?? new Date().toISOString().slice(0, 10);
   if (!DATE_PATTERN.test(date)) throw Object.assign(new Error('Invalid date. Use YYYY-MM-DD.'), { statusCode: 400 });
   const requestedStatus = url.searchParams.get('status');
   if (requestedStatus && !STATUSES.has(requestedStatus)) throw Object.assign(new Error('Invalid outreach status.'), { statusCode: 400 });
 
-  const params = new URLSearchParams({
-    select: '*',
-    generated_on: `eq.${date}`,
-    limit: '200',
+  const filters: Array<{ column: string; operator: 'eq'; value: string }> = [
+    { column: 'generated_on', operator: 'eq', value: date },
+  ];
+  if (requestedStatus) filters.push({ column: 'outreach_status', operator: 'eq', value: requestedStatus });
+  const payload = await requireNeonDataClient().select('dcm_daily_outreach_queue_v', {
+    filters,
+    limit: 200,
   });
-  if (requestedStatus) params.set('outreach_status', `eq.${requestedStatus}`);
-  const payload = await rest(context, `dcm_daily_outreach_queue_v?${params.toString()}`);
   const priorityRank: Record<string, number> = { A: 0, B: 1, C: 2, Reciclar: 3 };
   const statusRank: Record<string, number> = { ready: 0, draft: 1, missing_data: 2, repositioned: 3, sent: 4, do_not_advance: 5 };
   const items = (Array.isArray(payload) ? payload.map(asObject) : []).sort((left, right) => {
@@ -180,7 +136,7 @@ const listQueue = async (context: SupabaseContext, req: IncomingMessage) => {
   return { date, items, briefing: buildBriefing(items) };
 };
 
-const createLead = async (context: SupabaseContext, body: JsonObject) => {
+const createLead = async (context: DataContext, body: JsonObject) => {
   const companyId = text(body.companyId, body.company_id);
   const contactName = text(body.contactName, body.contact_name);
   const productHypothesis = text(body.productHypothesis, body.product_hypothesis);
@@ -216,15 +172,11 @@ const createLead = async (context: SupabaseContext, body: JsonObject) => {
     updated_by: context.user.id,
   };
 
-  const payload = await rest(context, 'dcm_daily_leads?select=*', {
-    method: 'POST',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(row),
-  }, [201]);
-  return Array.isArray(payload) ? payload[0] : payload;
+  const rows = await requireNeonDataClient().insert('dcm_daily_leads', [row]) as JsonObject[];
+  return rows[0] ?? null;
 };
 
-const updateLead = async (context: SupabaseContext, body: JsonObject) => {
+const updateLead = async (context: DataContext, body: JsonObject) => {
   const id = text(body.id, body.leadId, body.lead_id);
   if (!UUID_PATTERN.test(id)) throw Object.assign(new Error('A valid lead id is required.'), { statusCode: 422 });
 
@@ -250,17 +202,16 @@ const updateLead = async (context: SupabaseContext, body: JsonObject) => {
   if (updates.outreach_status && !STATUSES.has(String(updates.outreach_status))) throw Object.assign(new Error('Invalid outreach status.'), { statusCode: 422 });
   if (Object.keys(updates).length <= 2) throw Object.assign(new Error('No supported fields were provided.'), { statusCode: 422 });
 
-  const payload = await rest(context, `dcm_daily_leads?id=eq.${encodeURIComponent(id)}&select=*`, {
-    method: 'PATCH',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify(updates),
-  });
-  const rows = Array.isArray(payload) ? payload : [];
+  const rows = await requireNeonDataClient().update(
+    'dcm_daily_leads',
+    updates,
+    [{ column: 'id', operator: 'eq', value: id }],
+  ) as JsonObject[];
   if (!rows.length) throw Object.assign(new Error('Lead not found or not accessible.'), { statusCode: 404 });
   return rows[0];
 };
 
-const sendLead = async (context: SupabaseContext, body: JsonObject) => {
+const sendLead = async (context: DataContext, body: JsonObject) => {
   const id = text(body.id, body.leadId, body.lead_id);
   const actualMessage = text(body.actualMessage, body.actual_message);
   if (!UUID_PATTERN.test(id)) throw Object.assign(new Error('A valid lead id is required.'), { statusCode: 422 });
@@ -270,43 +221,36 @@ const sendLead = async (context: SupabaseContext, body: JsonObject) => {
   if (!current) throw Object.assign(new Error('Lead not found or not accessible.'), { statusCode: 404 });
   const now = new Date().toISOString();
   const nextAction = nullableText(body.nextAction, body.next_action, current.next_action);
-  const patched = await rest(context, `dcm_daily_leads?id=eq.${encodeURIComponent(id)}&select=*`, {
-    method: 'PATCH',
-    headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
-      actual_message: actualMessage,
-      outreach_status: 'sent',
-      sent_at: now,
-      next_action: nextAction,
-      updated_at: now,
-      updated_by: context.user.id,
-    }),
-  });
-  const lead = Array.isArray(patched) ? patched[0] : patched;
+  const patched = await requireNeonDataClient().update('dcm_daily_leads', {
+    actual_message: actualMessage,
+    outreach_status: 'sent',
+    sent_at: now,
+    next_action: nextAction,
+    updated_at: now,
+    updated_by: context.user.id,
+  }, [{ column: 'id', operator: 'eq', value: id }]) as JsonObject[];
+  const lead = patched[0] ?? null;
 
   const generatedMessage = text(current.generated_message);
   let feedbackCreated = false;
   if (generatedMessage && generatedMessage !== actualMessage) {
-    const existingPayload = await rest(
-      context,
-      `dcm_outreach_feedback?select=id,generated_message,actual_message&daily_lead_id=eq.${encodeURIComponent(id)}&limit=100`,
-    );
-    const duplicate = (Array.isArray(existingPayload) ? existingPayload.map(asObject) : []).some((feedback) => (
+    const existingPayload = await requireNeonDataClient().select('dcm_outreach_feedback', {
+      select: 'id,generated_message,actual_message',
+      filters: [{ column: 'daily_lead_id', operator: 'eq', value: id }],
+      limit: 100,
+    }) as JsonObject[];
+    const duplicate = existingPayload.some((feedback) => (
       feedback.generated_message === generatedMessage && feedback.actual_message === actualMessage
     ));
     if (!duplicate) {
-      await rest(context, 'dcm_outreach_feedback', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          daily_lead_id: id,
-          generated_message: generatedMessage,
-          actual_message: actualMessage,
-          change_summary: nullableText(body.changeSummary, body.change_summary, 'Mensagem ajustada pelo usuário antes do envio.'),
-          learned_rules: asArray(body.learnedRules ?? body.learned_rules),
-          feedback_status: 'pending',
-        }),
-      }, [201]);
+      await requireNeonDataClient().insert('dcm_outreach_feedback', [{
+        daily_lead_id: id,
+        generated_message: generatedMessage,
+        actual_message: actualMessage,
+        change_summary: nullableText(body.changeSummary, body.change_summary, 'Mensagem ajustada pelo usuário antes do envio.'),
+        learned_rules: asArray(body.learnedRules ?? body.learned_rules),
+        feedback_status: 'pending',
+      }]);
       feedbackCreated = true;
     }
   }

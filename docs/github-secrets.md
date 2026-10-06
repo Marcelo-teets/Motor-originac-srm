@@ -1,42 +1,25 @@
-# GitHub Secrets — mapa oficial do repositório
+# GitHub Actions secrets
 
-Este documento consolida os secrets esperados pelo fluxo do projeto no GitHub.
+## Obrigatórios para runtime/deploy
+- `MOTOR_NEON_DATABASE_URL`
+- `CRON_SECRET`
+- `VERCEL_TOKEN`
 
-## Secrets individuais esperados
-Crie estes secrets em `Settings -> Secrets and variables -> Actions`.
+## Neon Managed Auth
+A configuração pública é sincronizada para a Vercel pelo fluxo de deploy. Segredos de bootstrap privilegiado devem permanecer desabilitados por padrão.
 
-### Obrigatórios para Supabase Smoke
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
+## Google Sheets
+- `GOOGLE_DRIVE_CLIENT_ID`
+- `GOOGLE_DRIVE_CLIENT_SECRET`
+- `GOOGLE_DRIVE_REFRESH_TOKEN`
 
-### Recomendados
-- `PORT`
-- `USE_SUPABASE`
-- `BOOTSTRAP_SUPABASE`
-- `VITE_API_BASE_URL`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+Essas credenciais atendem o sync Neon → Sheets e outras rotinas Google autorizadas.
 
-## Valores padrão sugeridos
-- `PORT=4000`
-- `USE_SUPABASE=true`
-- `BOOTSTRAP_SUPABASE=true`
-- `VITE_API_BASE_URL=http://localhost:4000`
-- `VITE_SUPABASE_URL=<mesmo valor de SUPABASE_URL>`
-- `VITE_SUPABASE_ANON_KEY=<mesmo valor de SUPABASE_ANON_KEY>`
+## Conectores opcionais
+Configure apenas quando a integração correspondente estiver ativa, por exemplo:
+- `AGENTETOME_API_KEY`
+- credenciais Microsoft server-side
+- chaves de APIs públicas/terceiras aprovadas
 
-## O que já existe no código
-- `scripts/bootstrap-github-env.sh`: monta `.env` a partir dos secrets do GitHub
-- `.github/workflows/supabase-smoke.yml`: roda install, bootstrap, typecheck, build e backend health check
-- `.github/workflows/ci.yml`: valida build/typecheck para PRs e pushes
-
-## Fluxo recomendado
-1. Criar os secrets individualmente
-2. Rodar a workflow `Supabase Smoke` manualmente
-3. Confirmar backend saudável
-4. Seguir evoluindo por branch + PR + checks
-
-## Observação importante
-Não usar um único secret com várias linhas como substituto dos secrets individuais.
-O GitHub não quebra automaticamente esse bloco em múltiplas variáveis de ambiente.
+## Regra arquitetural
+Supabase foi removido do runtime do Motor. Não cadastrar novos segredos `SUPABASE_*` e não criar fallback para Supabase.

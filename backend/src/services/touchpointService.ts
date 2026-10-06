@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { Touchpoint } from './abmTypes.js';
 
 const fallbackTouchpoints: Touchpoint[] = [
@@ -17,7 +17,7 @@ const fallbackTouchpoints: Touchpoint[] = [
 ];
 
 export class TouchpointService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async listByCompany(companyId: string) {
     if (!this.client) return fallbackTouchpoints.filter((item) => item.company_id === companyId);

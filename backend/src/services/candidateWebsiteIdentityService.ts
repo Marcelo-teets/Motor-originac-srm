@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 
 const SOURCE_CODE = 'src_company_website';
 const CVM_DATASET_CODE = 'cvm_open_company_registry_candidates';
@@ -190,7 +190,7 @@ type OfficialEnrichmentRow = {
 };
 
 type SourceRow = { id: string; metadata?: Record<string, unknown> | null };
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 export type CandidateWebsiteIdentityOptions = { limit?: number };
 export type CandidateWebsiteIdentityResult = {
@@ -249,7 +249,7 @@ export class CandidateWebsiteIdentityService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.fetchImpl = dependencies.fetchImpl ?? fetch;
     this.now = dependencies.now ?? (() => new Date());
   }

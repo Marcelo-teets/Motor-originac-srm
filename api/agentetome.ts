@@ -1,6 +1,7 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
+import { requireNeonDataClient } from '../serverless/neon-data.js';
 
 type AgentetomeRequest = VercelRequest & { body?: unknown };
 type AuthenticatedUser = { id: string; email?: string; authorization: string };
@@ -22,7 +23,6 @@ const requestValue = (value: string | string[] | undefined) => Array.isArray(val
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected error.';
 const errorStatusCode = (error: unknown) => typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 500;
 const retryAfterSeconds = (error: unknown) => typeof (error as any)?.retryAfterSeconds === 'number' ? (error as any).retryAfterSeconds : undefined;
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, '');
 
 const logRequestError = (error: unknown) => {
   const statusCode = errorStatusCode(error);
@@ -52,14 +52,6 @@ const readBody = (req: AgentetomeRequest) => {
   throw new ApiError('Corpo da requisição inválido.', 400);
 };
 
-const runtimeConfig = () => {
-  const supabaseUrl = normalizeBaseUrl(process.env.SUPABASE_URL ?? '');
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) throw new ApiError('Supabase runtime não está configurado.', 503);
-  return { supabaseUrl, anonKey, serviceRoleKey };
-};
-
 const authenticate = async (req: AgentetomeRequest): Promise<AuthenticatedUser> => {
   const authorization = requestValue(req.headers.authorization);
   if (!authorization?.startsWith('Bearer ')) throw new ApiError('Missing bearer token.', 401);
@@ -78,42 +70,90 @@ const authenticateCron = (req: AgentetomeRequest) => {
 };
 
 const serviceRpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
-  const { supabaseUrl, serviceRoleKey } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
-    method: 'POST',
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const raw = await response.text();
-  let payload: unknown = null;
-  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = raw; }
-  if (!response.ok) throw new ApiError(`RPC ${name} failed (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    return await requireNeonDataClient().rpc<T>(name, body);
+  } catch (error) {
+    throw new ApiError(`RPC ${name} failed on Neon: ${errorMessage(error)}`, 502);
+  }
 };
 
 const requireGodMode = async (authorization: string) => {
   await verifyGodModeIdentity(authorization.slice('Bearer '.length));
 }
 
-const proxyXmlValidation = async (user: AuthenticatedUser, body: Record<string, unknown>) => {
-  const { supabaseUrl, anonKey } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/functions/v1/agentetome-validate-xml`, {
+const parseRetryAfter = (value: string | null) => {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - Date.now()) / 1000));
+};
+
+const validateXml = async (user: AuthenticatedUser, body: Record<string, unknown>) => {
+  const compact = String(body.xmlBase64 ?? body.xml_base64 ?? '').replace(/\s+/g, '');
+  if (!compact || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact)) throw new ApiError('xmlBase64 inválido.', 400);
+  let bytes: Buffer;
+  try { bytes = Buffer.from(compact, 'base64'); } catch { throw new ApiError('xmlBase64 inválido.', 400); }
+  if (!bytes.length) throw new ApiError('O XML está vazio.', 400);
+  if (bytes.length > 5 * 1024 * 1024) throw new ApiError('O XML excede o limite de 5 MB do Agentetome.', 413);
+  if (!bytes.subarray(0, Math.min(bytes.length, 256)).toString('utf8').trimStart().startsWith('<')) {
+    throw new ApiError('O conteúdo decodificado não parece ser XML.', 422);
+  }
+
+  const apiKey = process.env.AGENTETOME_API_KEY ?? '';
+  if (!apiKey) throw new ApiError('AGENTETOME_API_KEY não está configurada.', 503);
+  const fingerprint = createHash('sha256').update(bytes).digest('hex');
+  const startedAt = Date.now();
+
+  const form = new FormData();
+  form.append('arquivo', new Blob([new Uint8Array(bytes)], { type: 'application/xml' }), 'informe.xml');
+  const provider = await fetch('https://www.agentetome.com/api/v1/validar-xml', {
     method: 'POST',
-    headers: {
-      apikey: anonKey,
-      Authorization: user.authorization,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ xmlBase64: body.xmlBase64 ?? body.xml_base64 ?? '' }),
+    headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
+    body: form,
   });
-  const raw = await response.text();
-  let payload: unknown = null;
-  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = { error: raw.slice(0, 500) }; }
-  return { statusCode: response.status, payload, retryAfter: response.headers.get('retry-after') };
+  const retryAfter = parseRetryAfter(provider.headers.get('retry-after'));
+  const raw = await provider.text();
+  let report: Record<string, unknown> = {};
+  try { report = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { report = { error: raw.slice(0, 500) }; }
+
+  const auditStatus = provider.status === 429 || provider.status === 503
+    ? 'blocked'
+    : provider.status === 422 ? 'partial' : provider.ok ? 'completed' : 'failed';
+  await serviceRpc('record_agentetome_validation_audit', {
+    p_requested_by: user.id,
+    p_status: auditStatus,
+    p_http_status: provider.status,
+    p_duration_ms: Date.now() - startedAt,
+    p_request_fingerprint: fingerprint,
+    p_response_summary: {
+      ok: report.ok ?? null,
+      leiaute: report.leiaute ?? null,
+      contadores: report.contadores ?? {},
+      xmlBytes: bytes.length,
+      rawXmlPersisted: false,
+      providerDiscardsXml: true,
+    },
+    p_retry_after_seconds: retryAfter ?? null,
+  }).catch(() => undefined);
+
+  return {
+    statusCode: provider.status,
+    payload: {
+      status: provider.ok ? 'real' : provider.status === 422 ? 'partial' : 'failed',
+      generatedAt: new Date().toISOString(),
+      data: report,
+      metadata: {
+        requestFingerprint: fingerprint,
+        xmlBytes: bytes.length,
+        rawXmlPersisted: false,
+        providerDiscardsXml: true,
+        sentToCvm: false,
+      },
+      retryAfterSeconds: retryAfter,
+    },
+    retryAfter: retryAfter === undefined ? null : String(retryAfter),
+  };
 };
 
 export default async function handler(req: AgentetomeRequest, res: VercelResponse) {
@@ -190,12 +230,12 @@ export default async function handler(req: AgentetomeRequest, res: VercelRespons
         status: failed ? 'partial' : 'real',
         generatedAt: new Date().toISOString(),
         data: result,
-        note: failed ? 'O refresh não foi enfileirado.' : 'Refresh real enfileirado no Supabase. O pacote será validado, persistido e promovido ao Market Map.',
+        note: failed ? 'O refresh não foi enfileirado.' : 'Refresh real enfileirado no Neon. O pacote será validado, persistido e promovido ao Market Map.',
       });
     }
 
     if (operation === 'validate-xml' && req.method === 'POST') {
-      const proxied = await proxyXmlValidation(user, readBody(req));
+      const proxied = await validateXml(user, readBody(req));
       if (proxied.retryAfter) res.setHeader('Retry-After', proxied.retryAfter);
       return writeJson(res, proxied.statusCode, proxied.payload);
     }

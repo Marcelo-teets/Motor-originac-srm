@@ -23,27 +23,13 @@ const requestUrl = (input: RequestInfo | URL) => {
   }
 };
 
-const configuredSupabaseOrigins = new Set(
-  [process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL]
-    .filter((value): value is string => Boolean(value))
-    .flatMap((value) => {
-      try { return [new URL(value).origin]; } catch { return []; }
-    }),
-);
-
-export const isPersistenceRequest = (input: RequestInfo | URL) => {
-  const url = requestUrl(input);
-  if (!url) return false;
-  return configuredSupabaseOrigins.has(url.origin)
-    || url.hostname === 'supabase.co'
-    || url.hostname.endsWith('.supabase.co');
-};
+export const isPersistenceRequest = (_input: RequestInfo | URL) => false;
 
 if (!boundedGlobal[PATCHED_KEY]) {
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const timeoutMs = storage.getStore();
-    if (!timeoutMs || isPersistenceRequest(input)) return nativeFetch(input, init);
+    if (!timeoutMs) return nativeFetch(input, init);
 
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal = init.signal

@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { CompanySignal, EnrichmentRecord, MonitoringOutput } from '../types/platform.js';
 import type {
   CaptureEngineResult,
@@ -119,7 +119,7 @@ const emptyDecisionGate = (): TreatmentDecisionGate => ({
 });
 
 export class CapturePersistenceService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async persist(results: CaptureEngineResult[], reason: string): Promise<CapturePersistenceSummary> {
     if (!this.client) {

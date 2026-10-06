@@ -6,7 +6,7 @@ create or replace function public.agentetome_runtime_status()
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog,public,vault,cron
+set search_path = pg_catalog,public
 as $$
 declare
   v_source public.source_catalog%rowtype;
@@ -32,10 +32,8 @@ begin
   where metadata->>'code'='src_agentetome_api'
   limit 1;
 
-  select exists(
-    select 1 from vault.decrypted_secrets
-    where name='agentetome_api_key' and nullif(decrypted_secret,'') is not null
-  ) into v_secret_configured;
+  -- Secret availability is validated by the Vercel server runtime.
+  v_secret_configured := null;
 
   select count(*) filter (where active),max(last_success_at)
   into v_active_targets,v_last_success_at
@@ -65,17 +63,9 @@ begin
 
   v_last_success_at := greatest(v_last_success_at,v_last_check_at);
 
-  select exists(
-    select 1 from cron.job
-    where jobname='agentetome-due-export-refresh' and active
-  ) into v_cron_active;
+  -- Scheduling is owned by Vercel/GitHub orchestration.
+  v_cron_active := null;
 
-  if not v_secret_configured then
-    v_blockers := v_blockers||jsonb_build_array(jsonb_build_object(
-      'code','secret_missing','title','Chave do Agentetome ausente no Vault',
-      'nextAction','Cadastrar agentetome_api_key no Supabase Vault.'
-    ));
-  end if;
   if v_active_targets=0 then
     v_blockers := v_blockers||jsonb_build_array(jsonb_build_object(
       'code','no_active_target','title','Nenhuma administradora ativa',
@@ -94,15 +84,8 @@ begin
       'nextAction','Sincronizar o pacote atual para o Market Map.'
     ));
   end if;
-  if not v_cron_active then
-    v_blockers := v_blockers||jsonb_build_array(jsonb_build_object(
-      'code','cron_inactive','title','Refresh automático inativo',
-      'nextAction','Ativar o job agentetome-due-export-refresh.'
-    ));
-  end if;
 
-  v_ready := v_secret_configured and v_active_targets>0 and v_parsed_packages>0
-    and v_fidc_events>0 and v_cron_active;
+  v_ready := v_active_targets>0 and v_parsed_packages>0 and v_fidc_events>0;
   v_fresh := v_last_check_at is not null and v_last_check_at>=now()-interval '36 hours';
 
   if v_ready and not v_fresh then
@@ -116,8 +99,8 @@ begin
     'provider','agentetome','sourceCode','src_agentetome_api',
     'status',case when v_ready then 'real' else 'partial' end,
     'health',case when v_ready and v_fresh then 'healthy' else 'degraded' end,
-    'configured',v_secret_configured,'secretMode','supabase_vault',
-    'automaticRefresh',v_cron_active,'activeTargets',v_active_targets,
+    'configured',v_secret_configured,'secretMode','vercel_runtime',
+    'automaticRefresh',v_cron_active,'schedulerAuthority','vercel_github','activeTargets',v_active_targets,
     'parsedPackages',v_parsed_packages,'failedPackages',v_failed_packages,
     'bronzeRows',v_bronze_rows,'fidcEvents',v_fidc_events,
     'historicalFidcEvents',v_historical_fidc_events,

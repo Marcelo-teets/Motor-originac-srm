@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   discoverStrategicPublicResources,
   streamStrategicPublicResource,
@@ -116,7 +116,7 @@ const blank = (datasetCode: StrategicPublicDatasetCode): Summary => ({
 });
 
 export class StrategicPublicIngestionService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async run(options: StrategicPublicIngestionOptions) {
     const datasets = [...new Set(options.datasets)];

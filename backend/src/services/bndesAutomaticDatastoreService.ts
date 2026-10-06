@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   buildCnpjFilterValues,
   discoverBndesAutomaticResource,
@@ -29,7 +29,7 @@ const toStringRecord = (row: Record<string, unknown>) => Object.fromEntries(
     .map(([key, value]) => [key, value === null || value === undefined ? '' : String(value)]),
 );
 
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type CheckpointRow = {
   status: 'completed' | 'partial' | 'failed';
@@ -92,7 +92,7 @@ export class BndesAutomaticDatastoreService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.discoverResource = dependencies.discoverResource ?? discoverBndesAutomaticResource;
     this.fetchPage = dependencies.fetchPage ?? fetchBndesAutomaticPage;
     this.now = dependencies.now ?? (() => new Date());

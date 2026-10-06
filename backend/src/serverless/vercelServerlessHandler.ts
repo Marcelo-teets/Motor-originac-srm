@@ -52,23 +52,15 @@ const envFlag = (key: string) => Boolean(process.env[key] && String(process.env[
 const hasPersistentDataCredentials = () => Boolean(
   envFlag('MOTOR_NEON_DATABASE_URL')
   || envFlag('DATABASE_URL')
-  || (envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'))),
-);
 
-const supabaseHost = () => {
-  try {
-    return process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).host : null;
-  } catch {
-    return 'invalid-url';
-  }
-};
+);
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const asNullableUuid = (value: string | null | undefined) => (value && uuidPattern.test(value) ? value : null);
 
 async function dataTableProbe(table: string) {
   try {
-    const { getDataClient } = await import('../lib/supabase.js');
+    const { getDataClient } = await import('../lib/dataClient.js');
     const client = getDataClient();
     if (!client) return { table, ok: false, count: null, error: 'missing_persistent_data_env' };
     await client.select(table, { select: 'id', limit: 1 });
@@ -97,7 +89,7 @@ async function insertCaptureRun(input: CaptureRunInput) {
   };
 
   try {
-    const { getDataClient } = await import('../lib/supabase.js');
+    const { getDataClient } = await import('../lib/dataClient.js');
     const client = getDataClient();
     if (!client) return;
     await client.insert('source_connector_runs', [row]);
@@ -166,8 +158,7 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
   ];
 
   const checks = await Promise.all(tables.map((table) => dataTableProbe(table)));
-  const hasSupabaseCredentials = envFlag('SUPABASE_URL') && (envFlag('SUPABASE_SERVICE_ROLE_KEY') || envFlag('SUPABASE_ANON_KEY'));
-  const dataProvider = (envFlag('MOTOR_NEON_DATABASE_URL') || envFlag('DATABASE_URL')) ? 'neon' : hasSupabaseCredentials ? 'supabase' : 'memory';
+  const dataProvider = (envFlag('MOTOR_NEON_DATABASE_URL') || envFlag('DATABASE_URL')) ? 'neon' : 'memory';
   const persistentDataConfigured = dataProvider !== 'memory';
   const canAccessCoreTables = checks
     .filter((check) => ['companies', 'source_catalog', 'monitoring_outputs', 'source_connector_runs'].includes(check.table))
@@ -179,19 +170,14 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
     generatedAt: new Date().toISOString(),
     requestPath: parseUrl(req).pathname,
     env: {
-      USE_SUPABASE: process.env.USE_SUPABASE ?? null,
       dataProvider,
       MOTOR_NEON_DATABASE_URL: envFlag('MOTOR_NEON_DATABASE_URL'),
       DATABASE_URL: envFlag('DATABASE_URL'),
-      SUPABASE_URL: envFlag('SUPABASE_URL'),
-      SUPABASE_HOST: supabaseHost(),
-      SUPABASE_ANON_KEY: envFlag('SUPABASE_ANON_KEY'),
-      SUPABASE_SERVICE_ROLE_KEY: envFlag('SUPABASE_SERVICE_ROLE_KEY'),
       CRON_SECRET: runtimeConfigured,
     },
     captureRuntime: {
       canRunAgainstDatabase: persistentDataConfigured,
-      canRunAgainstSupabase: persistentDataConfigured, // legacy compatibility alias
+      canRunAgainstSupabase: persistentDataConfigured, // deprecated compatibility alias; runtime is Neon
       canAuthorizeWorkflow: runtimeConfigured,
       coreTablesAccessible: canAccessCoreTables,
     },

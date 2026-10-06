@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { ObjectionInstance } from './abmTypes.js';
 
 const fallbackObjections: ObjectionInstance[] = [
@@ -13,7 +13,7 @@ const fallbackObjections: ObjectionInstance[] = [
 ];
 
 export class ObjectionIntelligenceService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async listByCompany(companyId: string) {
     if (!this.client) return fallbackObjections.filter((item) => item.company_id === companyId);

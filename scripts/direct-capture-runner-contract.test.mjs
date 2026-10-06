@@ -9,7 +9,7 @@ const shell = await read('scripts/capture/bounded-capture-fanout.sh');
 const workflow = await read('.github/workflows/capture.yml');
 
 test('scheduled capture executes the canonical runtime directly on GitHub Actions', () => {
-  assert.match(runner, /createPlatformRepository\('supabase'\)/);
+  assert.match(runner, /createPlatformRepository\('database'\)/);
   assert.match(runner, /new CaptureRuntimeService\(repository\)/);
   assert.match(runner, /buildBoundedCaptureTargets/);
   assert.match(runner, /runtime\.run\(/);
@@ -23,17 +23,17 @@ test('direct runner is safe to import during CI without starting production capt
 });
 
 test('fanout shell no longer calls Vercel HTTP endpoints', () => {
-  assert.match(shell, /SUPABASE_URL/);
-  assert.match(shell, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(shell, /MOTOR_NEON_DATABASE_URL/);
+  assert.match(shell, /MOTOR_NEON_DATABASE_URL/);
   assert.match(shell, /run-bounded-capture-batch\.ts/);
   assert.doesNotMatch(shell, /curl/);
   assert.doesNotMatch(shell, /CAPTURE_URL/);
   assert.doesNotMatch(shell, /TARGETS_URL/);
 });
 
-test('workflow provides Supabase persistence directly and retains bounded smoke on push', () => {
-  assert.match(workflow, /SUPABASE_URL: \$\{\{ secrets\.SUPABASE_URL \}\}/);
-  assert.match(workflow, /SUPABASE_SERVICE_ROLE_KEY: \$\{\{ secrets\.SUPABASE_SERVICE_ROLE_KEY \}\}/);
+test('workflow provides Neon persistence directly and retains bounded smoke on push', () => {
+  assert.match(workflow, /MOTOR_NEON_DATABASE_URL: \${{ secrets.MOTOR_NEON_DATABASE_URL }}/);
+  assert.match(workflow, /MOTOR_NEON_DATABASE_URL: \${{ secrets.MOTOR_NEON_DATABASE_URL }}/);
   assert.match(workflow, /CAPTURE_RELEASE: "github-actions-direct-v1"/);
   assert.match(workflow, /MAX_TARGETS="50"/);
   assert.match(workflow, /timeout-minutes: 120/);

@@ -78,9 +78,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
       DOMAIN_TIERS: ${{ inputs.tiers || 'P1,P2,P3' }}
       DOMAIN_FORCE: ${{ inputs.force || false }}
     steps:
@@ -95,8 +94,7 @@ jobs:
       - run: npm ci
       - name: Validate production secrets
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
       - name: Resolve and verify candidate domains
         working-directory: backend
         shell: bash

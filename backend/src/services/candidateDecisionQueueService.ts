@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 
 export type CandidateDecisionQueueQuery = {
   queue?: 'commercial' | 'market_map' | 'identity' | 'promoted' | 'reviewable' | 'all';
@@ -23,7 +23,7 @@ export const normalizeCandidateDecisionQueueQuery = (query: CandidateDecisionQue
 });
 
 export class CandidateDecisionQueueService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async list(query: CandidateDecisionQueueQuery = {}) {
     if (!this.client) throw new Error('Supabase client not configured for Candidate Decision Queue.');

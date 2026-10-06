@@ -112,9 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '' }}
       REQUESTED_MAX_RESOURCES: ${{ inputs.max_resources || '' }}
@@ -132,8 +131,7 @@ jobs:
         run: npm ci
       - name: Validate ingestion secrets
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
       - name: Resolve ingestion scope
         id: scope
         shell: bash

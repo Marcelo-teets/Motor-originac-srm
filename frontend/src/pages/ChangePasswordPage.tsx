@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, PageIntro, Pill } from '../components/UI';
 import { useAuth } from '../lib/auth';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 export function ChangePasswordPage() {
   const { session } = useAuth();
@@ -36,7 +36,7 @@ export function ChangePasswordPage() {
 
     setLoading(true);
     try {
-      await supabaseAuth.changePassword(session, currentPassword, password);
+      await neonAuth.changePassword(session, currentPassword, password);
       setCurrentPassword('');
       setPassword('');
       setConfirmation('');

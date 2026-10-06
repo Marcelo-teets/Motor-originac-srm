@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 
 export type PublicDataOperationsSummary = {
   totalDatasets: number;
@@ -196,7 +196,7 @@ export const normalizePublicDataOperationsSnapshot = (value: unknown): PublicDat
 };
 
 export class PublicDataOperationsService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async getSnapshot(): Promise<{ status: 'real' | 'partial'; snapshot: PublicDataOperationsSnapshot; note?: string }> {
     if (!this.client) {

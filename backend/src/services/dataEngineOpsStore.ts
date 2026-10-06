@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 
 const memory = {
   engineRequests: [] as any[],
@@ -8,7 +8,7 @@ const memory = {
 };
 
 export class DataEngineOpsStore {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async saveEngineRequests(rows: any[]) {
     if (!rows.length) return [];

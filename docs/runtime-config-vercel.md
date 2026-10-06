@@ -1,47 +1,36 @@
-# Runtime config do frontend no Vercel
+# Runtime configuration — Vercel
 
-## Objetivo
+## Arquitetura canônica
+- Banco persistente: Neon Postgres.
+- Auth: Neon Managed Auth via proxy first-party do Motor.
+- Superfície auxiliar: Google Sheets.
+- Supabase não faz parte do runtime.
 
-Evitar que o frontend publicado tente chamar o backend em `localhost:4000`.
-
-## Variáveis obrigatórias no Vercel
-
-Production, Preview e Development devem receber:
-
-```txt
-VITE_API_BASE_URL=https://<backend-real>
-VITE_SUPABASE_URL=https://hdghpmssudrqhsbvrdyt.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-or-publishable-key>
-SUPABASE_URL=https://hdghpmssudrqhsbvrdyt.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-USE_SUPABASE=true
-BOOTSTRAP_SUPABASE=false
-```
-
-## Como validar
-
-Depois do deploy, abrir o bundle JS publicado e procurar por:
-
-```txt
-localhost:4000
-```
-
-Resultado esperado: nenhuma ocorrência em arquivo de aplicação.
-
-Também rodar localmente antes do merge:
-
+## Variáveis de produção
 ```bash
-npm run build
-bash scripts/check-no-localhost.sh frontend/src
+MOTOR_NEON_DATABASE_URL=postgresql://...
+NEON_AUTH_BASE_URL=https://...neonauth.../auth
+NEON_AUTH_JWKS_URL=https://...neonauth.../auth/.well-known/jwks.json
+MOTOR_AUTH_BOOTSTRAP_ENABLED=false
+CRON_SECRET=...
+APP_BASE_URL=https://motor-originac-srm.vercel.app
 ```
 
-## Arquivos afetados
+## Google Sheets
+Os workflows de controle de fontes usam OAuth Google:
+```bash
+GOOGLE_DRIVE_CLIENT_ID=...
+GOOGLE_DRIVE_CLIENT_SECRET=...
+GOOGLE_DRIVE_REFRESH_TOKEN=...
+```
+O identificador da planilha é configurado no workflow/script correspondente.
 
-- `frontend/src/lib/runtimeConfig.ts`
-- `frontend/src/lib/api.ts`
-- `frontend/src/lib/watchlistApi.ts`
-- `frontend/src/pages/CaptureInboxPage.tsx`
+## Frontend
+Somente valores públicos:
+```bash
+VITE_API_BASE_URL=https://motor-originac-srm.vercel.app/api
+VITE_NEON_AUTH_URL=https://...neonauth.../auth
+```
 
-## Nota operacional
-
-Sem `VITE_API_BASE_URL`, o frontend usa chamada relativa. Em produção na Vercel isso só funciona se houver proxy/rewrite para o backend. Para o MVP, configurar `VITE_API_BASE_URL` explicitamente é obrigatório.
+## Regra
+Não adicionar variáveis, clientes, URLs ou workflows de Supabase. O CI possui um contrato que bloqueia reintrodução no runtime ativo.

@@ -263,7 +263,7 @@ export type MaisRetornoQuota = {
   remaining: number;
   allowed: boolean;
   warning: boolean;
-  mode: 'supabase' | 'memory';
+  mode: 'neon' | 'memory';
   reason?: string;
 };
 export type SessionData = { [key: string]: any; expires_at: number; user: { id: string; email?: string; role?: string } };

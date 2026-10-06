@@ -84,13 +84,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!process.env.MOTOR_NEON_DATABASE_URL && !process.env.DATABASE_URL) {
       return res.status(503).json({
         status: 'blocked',
-        error: 'supabase_service_credentials_missing',
+        error: 'neon_database_credentials_missing',
         environment: {
-          hasSupabaseUrl: Boolean(process.env.SUPABASE_URL),
-          hasSupabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+          hasNeonDatabaseUrl: Boolean(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL),
           hasCronSecret: Boolean(process.env.CRON_SECRET),
         },
       });

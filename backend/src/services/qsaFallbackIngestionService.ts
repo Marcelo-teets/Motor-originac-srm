@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { fetchBrasilApiQsaFallback } from '../modules/public-data/brasilApiQsaFallback.js';
 import {
   isEligibleStrategicMonitoringTarget,
@@ -46,7 +46,7 @@ const asNumber = (value: unknown) => {
 };
 
 export class QsaFallbackIngestionService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async run(options: QsaFallbackRunOptions = {}) {
     const startedAt = new Date().toISOString();

@@ -1,5 +1,5 @@
 import type { AuthUser } from './auth.js';
-import { getDataClient } from './supabase.js';
+import { getDataClient } from './dataClient.js';
 
 export type UserRole = 'god_mode' | 'common';
 export type UserStatus = 'active' | 'invited' | 'disabled';

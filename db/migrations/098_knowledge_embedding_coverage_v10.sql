@@ -48,9 +48,9 @@ returns text
 language sql
 immutable
 strict
-set search_path = public, extensions
+set search_path = public
 as $$
-  select encode(extensions.digest(convert_to(p_content, 'UTF8'), 'sha256'), 'hex');
+  select encode(public.digest(convert_to(p_content, 'UTF8'), 'sha256'), 'hex');
 $$;
 
 create or replace function public.knowledge_embedding_jobs_touch_updated_at()
@@ -90,7 +90,7 @@ create or replace function public.knowledge_queue_embedding_on_document_change()
 returns trigger
 language plpgsql
 security definer
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   document_hash text;
@@ -195,7 +195,7 @@ create or replace function public.knowledge_enqueue_embedding_jobs(p_limit integ
 returns jsonb
 language plpgsql
 security invoker
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   affected integer := 0;
@@ -409,14 +409,14 @@ $$;
 create or replace function public.knowledge_complete_embedding_job(
   p_job_id uuid,
   p_worker_id text,
-  p_embedding extensions.vector(1024),
+  p_embedding public.vector(1024),
   p_provider_request_id text default null,
   p_usage_tokens integer default null
 )
 returns jsonb
 language plpgsql
 security invoker
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   target_job public.knowledge_embedding_jobs%rowtype;
@@ -559,7 +559,7 @@ returns jsonb
 language plpgsql
 security definer
 stable
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   result jsonb;
@@ -633,14 +633,14 @@ $$;
 revoke all on function public.knowledge_embedding_content_hash(text) from public, anon, authenticated;
 revoke all on function public.knowledge_enqueue_embedding_jobs(integer) from public, anon, authenticated;
 revoke all on function public.knowledge_claim_embedding_jobs(text, integer, integer, integer) from public, anon, authenticated;
-revoke all on function public.knowledge_complete_embedding_job(uuid, text, extensions.vector, text, integer) from public, anon, authenticated;
+revoke all on function public.knowledge_complete_embedding_job(uuid, text, public.vector, text, integer) from public, anon, authenticated;
 revoke all on function public.knowledge_fail_embedding_job(uuid, text, text, integer) from public, anon, authenticated;
 revoke all on function public.knowledge_embedding_coverage() from public, anon;
 
 grant execute on function public.knowledge_embedding_content_hash(text) to service_role;
 grant execute on function public.knowledge_enqueue_embedding_jobs(integer) to service_role;
 grant execute on function public.knowledge_claim_embedding_jobs(text, integer, integer, integer) to service_role;
-grant execute on function public.knowledge_complete_embedding_job(uuid, text, extensions.vector, text, integer) to service_role;
+grant execute on function public.knowledge_complete_embedding_job(uuid, text, public.vector, text, integer) to service_role;
 grant execute on function public.knowledge_fail_embedding_job(uuid, text, text, integer) to service_role;
 grant execute on function public.knowledge_embedding_coverage() to authenticated, service_role;
 

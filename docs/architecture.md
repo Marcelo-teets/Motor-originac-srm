@@ -5,7 +5,7 @@ A base continua sendo o monorepo oficial com `frontend/` React/Vite, `backend/` 
 
 ## Backend consolidado
 - **Runtime**: Node + Express + TypeScript.
-- **Persistência**: repositório com modo `memory` por padrão e modo `supabase` via REST (`SUPABASE_URL` + chave) quando `USE_SUPABASE=true`.
+- **Persistência**: Neon Postgres via `MOTOR_NEON_DATABASE_URL`/`DATABASE_URL`, acessado por client SQL parametrizado. `memory` existe somente como fallback local/teste; produção exige Neon.
 - **Services**: `PlatformService` centraliza qualification, patterns, lead score, thesis, market map, monitoring outputs e ranking v2.
 - **Agents reais nesta PR**:
   - `qualification_agent`: gera `qualification_snapshots`, `score_snapshots`, rationale e `evidence_payload`.
@@ -27,7 +27,7 @@ A base continua sendo o monorepo oficial com `frontend/` React/Vite, `backend/` 
 - **Mockado**: LinkedIn hiring signals e qualquer fonte que dependa de credenciais externas ou scraping mais frágil.
 
 ## Mock vs real
-- **Real**: qualification engine, pattern engine, ranking v2, catálogo principal de fontes e estrutura de persistência suportada por Supabase REST.
+- **Real**: qualification engine, pattern engine, ranking v2, catálogo principal de fontes e persistência em Neon Postgres.
 - **Parcial**: monitoring contínuo, pipeline mutável, algumas rotas mutáveis e CVM RSS.
 - **Hardcoded**: seed catalog inicial, pesos, thresholds e textos base de tese/racional.
-- **Mockado**: auth demo, LinkedIn, partes do frontend ainda alimentadas por mocks locais para evitar telas vazias.
+- **Real**: Neon Managed Auth first-party com perfis/RBAC persistidos. **Mockado/Parcial** permanece apenas onde explicitamente sinalizado em conectores ou superfícies ainda não integradas.

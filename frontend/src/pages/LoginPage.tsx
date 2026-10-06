@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { supabaseAuth } from '../lib/supabaseAuth';
+import { neonAuth } from '../lib/neonAuth';
 
 type AccessMode = 'login' | 'register' | 'bootstrap';
 
@@ -20,7 +20,7 @@ export function LoginPage() {
 
   useEffect(() => {
     let cancelled = false;
-    supabaseAuth.getBootstrapStatus()
+    neonAuth.getBootstrapStatus()
       .then((status) => {
         if (cancelled) return;
         setBootstrapAvailable(status.available);
@@ -52,12 +52,12 @@ export function LoginPage() {
       if (password.length < 10) throw new Error('Use uma senha com pelo menos 10 caracteres.');
 
       if (mode === 'bootstrap') {
-        const session = await supabaseAuth.bootstrapInitialUser(name.trim(), email.trim(), password);
+        const session = await neonAuth.bootstrapInitialUser(name.trim(), email.trim(), password);
         await acceptSession(session);
         return;
       }
 
-      const result = await supabaseAuth.signUpWithPassword(name.trim(), email.trim(), password);
+      const result = await neonAuth.signUpWithPassword(name.trim(), email.trim(), password);
       if (result.status === 'invited') {
         setSuccess('Cadastro criado. O acesso fica pendente até a liberação pelo administrador.');
         setMode('login');

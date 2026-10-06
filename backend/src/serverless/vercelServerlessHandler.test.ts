@@ -54,9 +54,6 @@ test('data-capture/health rejects requests with wrong credential', async () => {
 
 test('data-capture/health returns full diagnostics for authorized runtime', async () => {
   process.env.CRON_SECRET = 'test-secret';
-  delete process.env.SUPABASE_URL;
-  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-  delete process.env.SUPABASE_ANON_KEY;
   const handler = createVercelServerlessHandler();
   const { res, captured } = buildResponse();
 

@@ -3,7 +3,7 @@
 
 create or replace function public.knowledge_hybrid_search(
   p_query_text text,
-  p_query_embedding extensions.vector(1024) default null,
+  p_query_embedding public.vector(1024) default null,
   p_company_id uuid default null,
   p_match_count integer default 12,
   p_rrf_k integer default 60
@@ -12,7 +12,7 @@ returns jsonb
 language plpgsql
 security invoker
 stable
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   current_user_id uuid := auth.uid();
@@ -152,16 +152,16 @@ begin
 end;
 $$;
 
-comment on function public.knowledge_hybrid_search(text, extensions.vector, uuid, integer, integer)
+comment on function public.knowledge_hybrid_search(text, public.vector, uuid, integer, integer)
 is 'Authenticated RRF search over vector_documents. Uses lexical-only mode when no real query embedding is supplied and never fabricates vectors.';
 
-revoke all on function public.knowledge_hybrid_search(text, extensions.vector, uuid, integer, integer) from public, anon;
-grant execute on function public.knowledge_hybrid_search(text, extensions.vector, uuid, integer, integer) to authenticated, service_role;
+revoke all on function public.knowledge_hybrid_search(text, public.vector, uuid, integer, integer) from public, anon;
+grant execute on function public.knowledge_hybrid_search(text, public.vector, uuid, integer, integer) to authenticated, service_role;
 
 -- Existing retrieval helpers expose institutional corpus content and must not be callable anonymously.
-revoke all on function public.match_vector_documents(extensions.vector, integer) from public, anon;
-revoke all on function public.match_vector_documents_hybrid(text, extensions.vector, integer, integer, text) from public, anon;
+revoke all on function public.match_vector_documents(public.vector, integer) from public, anon;
+revoke all on function public.match_vector_documents_hybrid(text, public.vector, integer, integer, text) from public, anon;
 revoke all on function public.match_vector_documents_lexical(text, integer, text) from public, anon;
-grant execute on function public.match_vector_documents(extensions.vector, integer) to authenticated, service_role;
-grant execute on function public.match_vector_documents_hybrid(text, extensions.vector, integer, integer, text) to authenticated, service_role;
+grant execute on function public.match_vector_documents(public.vector, integer) to authenticated, service_role;
+grant execute on function public.match_vector_documents_hybrid(text, public.vector, integer, integer, text) to authenticated, service_role;
 grant execute on function public.match_vector_documents_lexical(text, integer, text) to authenticated, service_role;

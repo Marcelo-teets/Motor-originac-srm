@@ -12,19 +12,12 @@ export const PUBLIC_AUTH_ENV_KEYS = [
   'MOTOR_AUTH_BOOTSTRAP_ENABLED',
   'APP_BASE_URL',
   'VITE_NEON_AUTH_URL',
-  'VITE_SUPABASE_URL',
-  'VITE_SUPABASE_PUBLISHABLE_KEY',
-  'VITE_SUPABASE_ANON_KEY',
 ];
 
 const readJson = async (response, label) => {
   const text = await response.text();
   let payload = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`${label} returned invalid JSON.`);
-  }
+  try { payload = text ? JSON.parse(text) : {}; } catch { throw new Error(`${label} returned invalid JSON.`); }
   if (!response.ok) {
     const detail = typeof payload?.message === 'string' ? payload.message : `HTTP ${response.status}`;
     throw new Error(`${label} failed: ${detail}`);
@@ -41,53 +34,27 @@ export const validatePublicAuthConfig = ({
   neonProjectId = defaultConfig.neonProjectId,
   neonAuthBaseUrl = defaultConfig.neonAuthBaseUrl,
   neonAuthJwksUrl = defaultConfig.neonAuthJwksUrl,
-  projectRef = defaultConfig.supabaseProjectRef,
-  supabaseUrl = defaultConfig.supabaseUrl,
-  publishableKey = defaultConfig.supabasePublishableKey,
 }) => {
   if (authProvider !== 'neon') throw new Error('Canonical Auth provider must be neon.');
   if (!neonProjectId) throw new Error('Neon project ID is required.');
   if (!neonAuthBaseUrl) throw new Error('Neon Auth base URL is required.');
   if (!neonAuthJwksUrl) throw new Error('Neon Auth JWKS URL is required.');
 
-  const parsedNeonAuthUrl = new URL(neonAuthBaseUrl);
-  if (parsedNeonAuthUrl.protocol !== 'https:' || !parsedNeonAuthUrl.hostname.endsWith('.neon.tech')) {
+  const parsed = new URL(neonAuthBaseUrl);
+  if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.neon.tech')) {
     throw new Error('Neon Auth base URL must use HTTPS on neon.tech.');
   }
-  if (!parsedNeonAuthUrl.pathname.endsWith('/auth')) {
-    throw new Error('Neon Auth base URL must end with /auth.');
-  }
-  const expectedJwksUrl = `${parsedNeonAuthUrl.toString().replace(/\/$/, '')}/.well-known/jwks.json`;
+  if (!parsed.pathname.endsWith('/auth')) throw new Error('Neon Auth base URL must end with /auth.');
+  const expectedJwksUrl = `${parsed.toString().replace(/\/$/, '')}/.well-known/jwks.json`;
   if (new URL(neonAuthJwksUrl).toString() !== expectedJwksUrl) {
     throw new Error('Neon Auth JWKS URL must be derived from the canonical Auth base URL.');
-  }
-
-  // Supabase public values remain synchronized only for legacy non-Auth
-  // surfaces that still call Edge/REST endpoints directly from the frontend.
-  if (!projectRef) throw new Error('SUPABASE_PROJECT_REF is required for legacy public runtime compatibility.');
-  if (!supabaseUrl) throw new Error('Supabase public URL is required for legacy public runtime compatibility.');
-  if (!publishableKey) throw new Error('Supabase publishable key is required for legacy public runtime compatibility.');
-
-  const parsedSupabaseUrl = new URL(supabaseUrl);
-  const expectedHost = `${projectRef}.supabase.co`;
-  if (parsedSupabaseUrl.protocol !== 'https:' || parsedSupabaseUrl.hostname !== expectedHost) {
-    throw new Error(`Supabase public URL must target ${expectedHost}.`);
-  }
-  if (publishableKey.startsWith('sb_secret_')) {
-    throw new Error('A secret Supabase key cannot be exposed to the frontend.');
-  }
-  if (!publishableKey.startsWith('sb_publishable_') && publishableKey.split('.').length !== 3) {
-    throw new Error('Supabase public key format is invalid.');
   }
 
   return {
     authProvider,
     neonProjectId,
-    neonAuthBaseUrl: parsedNeonAuthUrl.toString().replace(/\/$/, ''),
+    neonAuthBaseUrl: parsed.toString().replace(/\/$/, ''),
     neonAuthJwksUrl: expectedJwksUrl,
-    projectRef,
-    supabaseUrl: parsedSupabaseUrl.toString().replace(/\/$/, ''),
-    publishableKey,
   };
 };
 
@@ -99,34 +66,19 @@ export const syncPublicAuthEnvToVercel = async ({
   neonProjectId = defaultConfig.neonProjectId,
   neonAuthBaseUrl = defaultConfig.neonAuthBaseUrl,
   neonAuthJwksUrl = defaultConfig.neonAuthJwksUrl,
-  projectRef = defaultConfig.supabaseProjectRef,
-  supabaseUrl = defaultConfig.supabaseUrl,
-  publishableKey = defaultConfig.supabasePublishableKey,
   fetchImpl = fetch,
 } = {}) => {
   if (!projectId) throw new Error('VERCEL_PROJECT_ID is required.');
   if (!teamId) throw new Error('VERCEL_ORG_ID is required.');
   if (!token) throw new Error('VERCEL_TOKEN is required.');
 
-  const publicConfig = validatePublicAuthConfig({
-    authProvider,
-    neonProjectId,
-    neonAuthBaseUrl,
-    neonAuthJwksUrl,
-    projectRef,
-    supabaseUrl,
-    publishableKey,
-  });
-
+  const publicConfig = validatePublicAuthConfig({ authProvider, neonProjectId, neonAuthBaseUrl, neonAuthJwksUrl });
   const values = new Map([
     ['NEON_AUTH_BASE_URL', publicConfig.neonAuthBaseUrl],
     ['NEON_AUTH_JWKS_URL', publicConfig.neonAuthJwksUrl],
     ['MOTOR_AUTH_BOOTSTRAP_ENABLED', 'false'],
     ['APP_BASE_URL', 'https://motor-originac-srm.vercel.app'],
     ['VITE_NEON_AUTH_URL', publicConfig.neonAuthBaseUrl],
-    ['VITE_SUPABASE_URL', publicConfig.supabaseUrl],
-    ['VITE_SUPABASE_PUBLISHABLE_KEY', publicConfig.publishableKey],
-    ['VITE_SUPABASE_ANON_KEY', publicConfig.publishableKey],
   ]);
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -146,9 +98,7 @@ export const syncPublicAuthEnvToVercel = async ({
         value,
         type: 'encrypted',
         target: ['production', 'preview', 'development'],
-        comment: key.includes('NEON_AUTH') || key === 'MOTOR_AUTH_BOOTSTRAP_ENABLED' || key === 'APP_BASE_URL'
-          ? 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.'
-          : 'Legacy public Supabase runtime compatibility; not the canonical Auth provider.',
+        comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
       }),
     }), `Vercel environment upsert for ${key}`);
   }
@@ -167,7 +117,6 @@ export const syncPublicAuthEnvToVercel = async ({
     status: 'passed',
     authProvider: publicConfig.authProvider,
     neonProjectId: publicConfig.neonProjectId,
-    projectRef: publicConfig.projectRef,
     synced: verified,
   };
 };
@@ -180,18 +129,10 @@ export const runFromEnvironment = async (env = process.env, fetchImpl = fetch) =
   neonProjectId: env.NEON_PROJECT_ID || defaultConfig.neonProjectId,
   neonAuthBaseUrl: env.NEON_AUTH_BASE_URL || defaultConfig.neonAuthBaseUrl,
   neonAuthJwksUrl: env.NEON_AUTH_JWKS_URL || defaultConfig.neonAuthJwksUrl,
-  projectRef: env.SUPABASE_PROJECT_REF || defaultConfig.supabaseProjectRef,
-  supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || defaultConfig.supabaseUrl,
-  publishableKey: env.VITE_SUPABASE_PUBLISHABLE_KEY
-    || env.VITE_SUPABASE_ANON_KEY
-    || env.SUPABASE_ANON_KEY
-    || defaultConfig.supabasePublishableKey,
   fetchImpl,
 });
 
-const isDirectExecution = process.argv[1]
-  && import.meta.url === pathToFileURL(process.argv[1]).href;
-
+const isDirectExecution = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectExecution) {
   runFromEnvironment()
     .then((report) => console.log(JSON.stringify(report, null, 2)))

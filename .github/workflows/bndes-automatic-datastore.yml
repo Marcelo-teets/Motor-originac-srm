@@ -68,9 +68,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GH_TOKEN: ${{ github.token }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+GH_TOKEN: ${{ github.token }}
       REQUESTED_TARGET_BATCH_SIZE: ${{ inputs.target_batch_size || '' }}
       REQUESTED_MAX_TARGET_BATCHES: ${{ inputs.max_target_batches || '' }}
       REQUESTED_FORCE: ${{ inputs.force || false }}
@@ -86,8 +85,7 @@ jobs:
       - run: npm ci
       - name: Validate production secrets
         run: |
-          test -n "$SUPABASE_URL" || (echo "SUPABASE_URL is missing" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "SUPABASE_SERVICE_ROLE_KEY is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
       - name: Resolve execution scope
         id: scope
         shell: bash
@@ -137,7 +135,7 @@ jobs:
           source = Path('bndes-automatic.raw.log')
           target = Path('bndes-automatic.log')
           text = source.read_text(encoding='utf-8', errors='replace') if source.exists() else ''
-          for name in ('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL'):
+          for name in ('MOTOR_NEON_DATABASE_URL',):
               value = os.environ.get(name, '')
               if value:
                   text = text.replace(value, f'[{name}_REDACTED]')

@@ -129,6 +129,18 @@
       "destination": "/api/microsoft?operation=:operation"
     },
     {
+      "source": "/api/historical-archive",
+      "destination": "/api/historical-archive"
+    },
+    {
+      "source": "/api/knowledge/rpc",
+      "destination": "/api/knowledge-rpc"
+    },
+    {
+      "source": "/api/knowledge/search",
+      "destination": "/api/knowledge-search"
+    },
+    {
       "source": "/api/integrations/task-ai",
       "destination": "/api/task-ai"
     },

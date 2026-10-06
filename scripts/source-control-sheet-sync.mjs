@@ -209,7 +209,7 @@ export function buildSummary(sources) {
   const count = (field, value) => sources.filter((source) => String(source[field] ?? '').toLowerCase() === value).length;
   return [
     ['Total', sources.length, 'Real', count('status', 'real'), 'Ativa', count('status', 'active'), 'Parcial', count('status', 'partial')],
-    ['Planejada', count('status', 'planned'), 'Saudável', count('health', 'healthy'), 'Degradada', count('health', 'degraded'), 'Controle', 'Supabase → Sheets'],
+    ['Planejada', count('status', 'planned'), 'Saudável', count('health', 'healthy'), 'Degradada', count('health', 'degraded'), 'Controle', 'Neon → Sheets'],
   ];
 }
 
@@ -228,21 +228,16 @@ async function fetchJson(url, init, context) {
   return payload;
 }
 
-async function fetchSources({ supabaseUrl, serviceRoleKey }) {
-  const select = [
-    'source_id', 'name', 'category', 'priority', 'criticality', 'frequency', 'status', 'health',
-    'last_run_status', 'last_run_at', 'items_collected', 'outputs_written', 'signals_written',
-  ].join(',');
-  const url = `${supabaseUrl}/rest/v1/source_control_sheet_v1?select=${encodeURIComponent(select)}&limit=1000`;
-  const payload = await fetchJson(url, {
-    headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
-      accept: 'application/json',
-    },
-  }, 'supabase_source_control_read');
-  if (!Array.isArray(payload)) throw new Error('supabase_source_control_invalid_payload');
-  return payload;
+async function fetchSources() {
+  const { query } = await import('./lib/neon-db.mjs');
+  const rows = await query(`
+    select source_id, name, category, priority, criticality, frequency, status, health,
+           last_run_status, last_run_at, items_collected, outputs_written, signals_written
+      from public.source_control_sheet_v1
+     limit 1000
+  `);
+  if (!Array.isArray(rows)) throw new Error('neon_source_control_invalid_payload');
+  return rows;
 }
 
 async function googleAccessToken({ clientId, clientSecret, refreshToken }) {
@@ -331,36 +326,32 @@ async function verifySheet({ accessToken, spreadsheetId, sheetName, sourceCount,
   return { versionDate, lastRowNumber: Number(lastRow[0]), headerColumns: header.length };
 }
 
-async function recordAudit({ supabaseUrl, serviceRoleKey, row }) {
+async function recordAudit({ row }) {
   try {
-    await fetchJson(`${supabaseUrl}/rest/v1/source_control_sheet_sync_runs`, {
-      method: 'POST',
-      signal: AbortSignal.timeout(30_000),
-      headers: {
-        apikey: serviceRoleKey,
-        authorization: `Bearer ${serviceRoleKey}`,
-        'content-type': 'application/json',
-        prefer: 'return=minimal',
-      },
-      body: JSON.stringify(row),
-    }, 'supabase_source_control_audit');
+    const { query } = await import('./lib/neon-db.mjs');
+    await query(
+      `insert into public.source_control_sheet_sync_runs
+       (spreadsheet_id, sheet_name, source_count, checksum_sha256, status_counts, health_counts,
+        trigger_source, git_sha, workflow_run_id, metadata)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        row.spreadsheet_id, row.sheet_name, row.source_count, row.checksum_sha256,
+        row.status_counts, row.health_counts, row.trigger_source, row.git_sha,
+        row.workflow_run_id, row.metadata,
+      ],
+    );
     return { status: 'ok' };
   } catch (error) {
-    return {
-      status: 'warning',
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return { status: 'warning', message: error instanceof Error ? error.message : String(error) };
   }
 }
 
 export async function main() {
-  const supabaseUrl = requiredEnv('SUPABASE_URL').replace(/\/$/, '');
-  const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
   const spreadsheetId = process.env.SOURCE_CONTROL_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
   const sheetName = process.env.SOURCE_CONTROL_SHEET_NAME?.trim() || DEFAULT_SHEET_NAME;
   const dryRun = String(process.env.SOURCE_CONTROL_SHEET_DRY_RUN ?? '').toLowerCase() === 'true';
 
-  const sources = await fetchSources({ supabaseUrl, serviceRoleKey });
+  const sources = await fetchSources();
   if (sources.length === 0) throw new Error('source_control_empty_catalog');
   const tableRows = buildSheetRows(sources);
   const summaryRows = buildSummary(sources);
@@ -385,8 +376,6 @@ export async function main() {
   const verification = await verifySheet({ accessToken, spreadsheetId, sheetName, sourceCount: sources.length, expectedDate: versionDate });
 
   const audit = await recordAudit({
-    supabaseUrl,
-    serviceRoleKey,
     row: {
       spreadsheet_id: spreadsheetId,
       sheet_name: sheetName,

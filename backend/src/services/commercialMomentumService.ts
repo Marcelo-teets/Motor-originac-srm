@@ -1,10 +1,10 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { MomentumResult } from './abmTypes.js';
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, Math.round(value)));
 
 export class CommercialMomentumService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async compute(companyId: string): Promise<MomentumResult> {
     if (!this.client) {

@@ -2,7 +2,7 @@ import { additionalCompanySeeds } from '../data/additionalCompanySeeds.js';
 import { companySeeds, patternCatalogSeeds, searchProfileFilterSeeds, searchProfileSeeds, sourceCatalogSeeds } from '../data/platformSeeds.js';
 import { env } from '../lib/env.js';
 import { attachCompanyDecisionMetadata } from '../lib/companyDecisionEligibility.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type {
   ActivityRecord,
   CompanyPattern,
@@ -332,11 +332,11 @@ class MemoryPlatformRepository implements PlatformRepository {
 }
 
 class DatabasePlatformRepository implements PlatformRepository {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
   private readonly fallback = new MemoryPlatformRepository();
 
   private ensureClient() {
-    if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL (preferred) or Supabase runtime credentials.');
+    if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL or DATABASE_URL.');
     return this.client;
   }
 
@@ -365,7 +365,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   // por `config.model`, então uma falha aqui (tabela ausente) não pode abortar
   // a persistência do perfil em si.
   private async persistSearchProfileFilters(
-    client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+    client: NonNullable<ReturnType<typeof getDataClient>>,
     profileIds: string[],
     filters: SearchProfileFilter[],
   ) {
@@ -483,7 +483,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listSources() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<SourceCatalogEntry[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('source_catalog', { select: '*', orderBy: { column: 'name', ascending: true } });
       return (data ?? []).map((row: any) => ({
@@ -537,7 +537,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listCompanySignals() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<CompanySignal[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('company_signals', { select: '*', orderBy: { column: 'created_at', ascending: false } });
       return (data ?? []).map((row: any) => ({
@@ -555,7 +555,7 @@ class DatabasePlatformRepository implements PlatformRepository {
   }
 
   async listEnrichments() {
-    return this.readWithFallback(async () => {
+    return this.readWithFallback<EnrichmentRecord[]>(async () => {
       const client = this.ensureClient();
       const data = await client.select('enrichments', { select: '*', orderBy: { column: 'created_at', ascending: false } });
       return (data ?? []).map((row: any) => ({
@@ -1003,10 +1003,6 @@ class DatabasePlatformRepository implements PlatformRepository {
         createdAt: company.monitoring.lastRunAt,
       })));
     }, () => this.fallback.seedBaseData());
-
-    if (env.bootstrapSupabase) {
-      await this.fallback.seedBaseData();
-    }
   }
 }
 

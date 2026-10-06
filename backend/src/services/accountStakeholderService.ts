@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import type { Stakeholder } from './abmTypes.js';
 
 const fallbackStakeholders: Stakeholder[] = [
@@ -19,7 +19,7 @@ const fallbackStakeholders: Stakeholder[] = [
 ];
 
 export class AccountStakeholderService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async listByCompany(companyId: string) {
     if (!this.client) return fallbackStakeholders.filter((item) => item.company_id === companyId);

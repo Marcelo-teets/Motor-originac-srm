@@ -8,6 +8,8 @@ import {
 } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
 import { verifyActiveIdentity } from '../serverless/neon-auth.js';
+import { requireNeonDataClient } from '../serverless/neon-data.js';
+import type { FilterDefinition } from '../backend/src/lib/postgres.js';
 
 type MicrosoftRequest = VercelRequest & { body?: Record<string, unknown> };
 type JsonRecord = Record<string, any>;
@@ -57,9 +59,6 @@ const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) =>
 };
 
 const runtimeConfig = () => {
-  const supabaseUrl = (process.env.SUPABASE_URL ?? '').replace(/\/+$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
   const clientId = process.env.MICROSOFT_CLIENT_ID ?? '';
   const clientSecret = process.env.MICROSOFT_CLIENT_SECRET ?? '';
   const tenantId = process.env.MICROSOFT_TENANT_ID ?? 'common';
@@ -70,11 +69,8 @@ const runtimeConfig = () => {
   const plannerGroupId = process.env.MICROSOFT_PLANNER_GROUP_ID ?? '';
   const scopes = (process.env.MICROSOFT_SCOPES ?? DEFAULT_SCOPES.join(' ')).split(/\s+/).filter(Boolean);
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) throw new ApiError('Supabase runtime não está configurado.', 503);
+  requireNeonDataClient();
   return {
-    supabaseUrl,
-    anonKey,
-    serviceRoleKey,
     clientId,
     clientSecret,
     tenantId,
@@ -98,16 +94,6 @@ const assertMicrosoftConfig = () => {
   ].filter(([, value]) => !value).map(([key]) => key);
   if (missing.length) throw new ApiError(`Integração Microsoft incompleta. Configure: ${missing.join(', ')}.`, 503);
   return config;
-};
-
-const serviceHeaders = (prefer = 'return=representation') => {
-  const { serviceRoleKey } = runtimeConfig();
-  return {
-    apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
-    'Content-Type': 'application/json',
-    Prefer: prefer,
-  };
 };
 
 const authenticate = async (req: MicrosoftRequest) => {
@@ -171,58 +157,63 @@ const parseResponse = async (response: Response) => {
   return payload;
 };
 
+const dbFilters = (params: Record<string, string>): FilterDefinition[] => (
+  Object.entries(params)
+    .filter(([key]) => !['select', 'limit', 'order'].includes(key))
+    .map(([column, raw]) => {
+      const match = /^(eq|lt|lte|gt|gte)\.(.*)$/.exec(raw);
+      if (!match) throw new ApiError(`Unsupported Neon filter for ${column}: ${raw}`, 500);
+      return { column, operator: match[1] as FilterDefinition['operator'], value: match[2] };
+    })
+);
+
 const dbSelect = async <T>(table: string, params: Record<string, string>) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  const response = await fetch(url, { headers: serviceHeaders() });
-  const payload = await parseResponse(response);
-  if (!response.ok) throw new ApiError(`Supabase select ${table} falhou (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    const order = params.order?.split(',')[0];
+    const [orderColumn, orderDirection] = order ? order.split('.') : [];
+    const rows = await requireNeonDataClient().select(table, {
+      select: params.select ?? '*',
+      filters: dbFilters(params),
+      limit: params.limit ? Number(params.limit) : undefined,
+      orderBy: orderColumn ? { column: orderColumn, ascending: orderDirection !== 'desc' } : undefined,
+    });
+    return rows as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(`Neon select ${table} falhou: ${errorMessage(error)}`, 502);
+  }
 };
 
 const dbUpsert = async <T>(table: string, rows: unknown[], onConflict: string) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  url.searchParams.set('on_conflict', onConflict);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: serviceHeaders('return=representation,resolution=merge-duplicates'),
-    body: JSON.stringify(rows),
-  });
-  const payload = await parseResponse(response);
-  if (!response.ok) throw new ApiError(`Supabase upsert ${table} falhou (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    return await requireNeonDataClient().upsert(table, rows, onConflict) as T;
+  } catch (error) {
+    throw new ApiError(`Neon upsert ${table} falhou: ${errorMessage(error)}`, 502);
+  }
 };
 
 const dbInsert = async <T>(table: string, rows: unknown[]) => {
-  const { supabaseUrl } = runtimeConfig();
-  const response = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
-    method: 'POST', headers: serviceHeaders(), body: JSON.stringify(rows),
-  });
-  const payload = await parseResponse(response);
-  if (!response.ok) throw new ApiError(`Supabase insert ${table} falhou (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    return await requireNeonDataClient().insert(table, rows) as T;
+  } catch (error) {
+    throw new ApiError(`Neon insert ${table} falhou: ${errorMessage(error)}`, 502);
+  }
 };
 
 const dbUpdate = async <T>(table: string, filters: Record<string, string>, body: JsonRecord) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  Object.entries(filters).forEach(([key, value]) => url.searchParams.set(key, value));
-  const response = await fetch(url, {
-    method: 'PATCH', headers: serviceHeaders(), body: JSON.stringify(body),
-  });
-  const payload = await parseResponse(response);
-  if (!response.ok) throw new ApiError(`Supabase update ${table} falhou (${response.status}): ${JSON.stringify(payload)}`, 502);
-  return payload as T;
+  try {
+    return await requireNeonDataClient().update(table, body, dbFilters(filters)) as T;
+  } catch (error) {
+    throw new ApiError(`Neon update ${table} falhou: ${errorMessage(error)}`, 502);
+  }
 };
 
 const dbDelete = async (table: string, filters: Record<string, string>) => {
-  const { supabaseUrl } = runtimeConfig();
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  Object.entries(filters).forEach(([key, value]) => url.searchParams.set(key, value));
-  const response = await fetch(url, { method: 'DELETE', headers: serviceHeaders('return=minimal') });
-  if (!response.ok) throw new ApiError(`Supabase delete ${table} falhou (${response.status}): ${await response.text()}`, 502);
+  try {
+    await requireNeonDataClient().delete(table, dbFilters(filters));
+  } catch (error) {
+    throw new ApiError(`Neon delete ${table} falhou: ${errorMessage(error)}`, 502);
+  }
 };
 
 const getConnection = async (userId: string) => {

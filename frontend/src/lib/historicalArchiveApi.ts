@@ -1,5 +1,5 @@
 import { fetchWithPolicy } from './http';
-import { supabaseRuntimeHeaders } from './supabaseRuntime';
+import { buildApiUrl } from './runtimeConfig';
 import type { SessionData } from './types';
 
 export type ArchiveRunStatus = 'queued' | 'running' | 'completed' | 'verified' | 'pruned' | 'failed';
@@ -75,7 +75,13 @@ export type HistoricalArchiveCatalog = {
   policies: HistoricalArchivePolicy[];
 };
 
-const runtimeFor = (session: SessionData) => supabaseRuntimeHeaders(session, 'Arquivo histórico');
+const headersFor = (session: SessionData) => {
+  if (!session?.access_token) throw new Error('Sessão autenticada necessária para o arquivo histórico.');
+  return {
+    Authorization: `Bearer ${session.access_token}`,
+    'Content-Type': 'application/json',
+  };
+};
 
 const parse = async <T>(response: Response): Promise<T> => {
   const text = await response.text();
@@ -91,25 +97,25 @@ const parse = async <T>(response: Response): Promise<T> => {
 
 export const historicalArchiveApi = {
   async getCatalog(session: SessionData, filters?: { table?: string; status?: string; limit?: number; offset?: number }) {
-    const { runtime, headers } = runtimeFor(session);
+    const headers = headersFor(session);
     const query = new URLSearchParams();
     if (filters?.table) query.set('table', filters.table);
     if (filters?.status) query.set('status', filters.status);
     query.set('limit', String(filters?.limit ?? 50));
     query.set('offset', String(filters?.offset ?? 0));
-    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog?${query.toString()}`, { headers }, { timeoutMs: 20_000, retries: 1 });
+    const response = await fetchWithPolicy(buildApiUrl(`/api/historical-archive?${query.toString()}`), { headers }, { timeoutMs: 20_000, retries: 1 });
     return parse<HistoricalArchiveCatalog>(response);
   },
 
   async getParts(session: SessionData, runId: string) {
-    const { runtime, headers } = runtimeFor(session);
-    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog?runId=${encodeURIComponent(runId)}`, { headers }, { timeoutMs: 20_000, retries: 1 });
+    const headers = headersFor(session);
+    const response = await fetchWithPolicy(buildApiUrl(`/api/historical-archive?runId=${encodeURIComponent(runId)}`), { headers }, { timeoutMs: 20_000, retries: 1 });
     return parse<{ status: 'ok'; runId: string; parts: HistoricalArchivePart[] }>(response);
   },
 
   async createDownload(session: SessionData, partId: string) {
-    const { runtime, headers } = runtimeFor(session);
-    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog`, {
+    const headers = headersFor(session);
+    const response = await fetchWithPolicy(buildApiUrl('/api/historical-archive'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'download', partId }),
@@ -118,8 +124,8 @@ export const historicalArchiveApi = {
   },
 
   async cleanupFailed(session: SessionData) {
-    const { runtime, headers } = runtimeFor(session);
-    const response = await fetchWithPolicy(`${runtime.url}/functions/v1/historical-excel-catalog`, {
+    const headers = headersFor(session);
+    const response = await fetchWithPolicy(buildApiUrl('/api/historical-archive'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'cleanup_failed' }),

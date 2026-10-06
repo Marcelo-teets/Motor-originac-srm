@@ -4,7 +4,7 @@ import { ingestCompanyMonitoring } from '../lib/connectors.js';
 import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
 import { isCompanyDecisionEligible, isCompanyMonitoringEligible } from '../lib/companyDecisionEligibility.js';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { isoNow } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
@@ -276,7 +276,7 @@ export class PlatformService {
       this.repository.listScoreSnapshots(),
       this.repository.listLeadScoreSnapshots(),
     ]);
-    const companies = env.useSupabase ? allCompanies.filter(isCompanyDecisionEligible) : allCompanies;
+    const companies = env.usePersistentData ? allCompanies.filter(isCompanyDecisionEligible) : allCompanies;
     const companyIds = new Set(companies.map((company) => company.id));
     const monitoringOutputs = allMonitoringOutputsRaw.filter((item) => companyIds.has(item.companyId));
     const qualificationSnapshots = allQualificationSnapshots.filter((item) => companyIds.has(item.companyId));
@@ -307,8 +307,8 @@ export class PlatformService {
       .map((row, index) => ({ ...row, position: index + 1 }));
 
     let rankingRows = computedRankingRows;
-    if (env.useSupabase) {
-      const client = getSupabaseClient();
+    if (env.usePersistentData) {
+      const client = getDataClient();
       if (client) {
         try {
           const persistedRows = await client.select('ranking_v2', {
@@ -397,7 +397,7 @@ export class PlatformService {
 
     return {
       summary: [
-        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base vinda do backend com Supabase + fallback local apenas se necessário.' },
+        { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base real persistida em Neon; fallback local existe apenas fora de produção.' },
         { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
         { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
         { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
@@ -575,14 +575,14 @@ export class PlatformService {
   async listSources() { return this.repository.listSources(); }
   async listMonitoringOutputsAll() {
     const [companies, outputs] = await Promise.all([this.hydrateCompanies(), this.repository.listMonitoringOutputs()]);
-    if (!env.useSupabase) return outputs;
+    if (!env.usePersistentData) return outputs;
     const ids = new Set(companies.filter(isCompanyMonitoringEligible).map((company) => company.id));
     return outputs.filter((output) => ids.has(output.companyId));
   }
   async listPatternCatalog(): Promise<PatternCatalogEntry[]> { return this.repository.listPatternCatalog(); }
   async listPipelineRows() {
     const [companies, rows] = await Promise.all([this.hydrateCompanies(), this.repository.listPipelineRows()]);
-    if (!env.useSupabase) return rows;
+    if (!env.usePersistentData) return rows;
     const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
     return rows.filter((row) => ids.has(row.companyId));
   }
@@ -593,7 +593,7 @@ export class PlatformService {
       this.listSources(),
       this.repository.listCompanySignals(),
     ]);
-    const companies = env.useSupabase ? hydratedCompanies.filter(isCompanyMonitoringEligible) : hydratedCompanies;
+    const companies = env.usePersistentData ? hydratedCompanies.filter(isCompanyMonitoringEligible) : hydratedCompanies;
     const companyNameById = new Map(companies.map((company) => [company.id, company.tradeName]));
     const sourceById = new Map(sources.map((source) => [source.id, source]));
 
@@ -663,7 +663,7 @@ export class PlatformService {
         status: activity.status,
       }));
 
-    return { mode: env.useSupabase ? 'real' : 'mock', rows, stages, recentActivities };
+    return { mode: env.usePersistentData ? 'real' : 'mock', rows, stages, recentActivities };
   }
 
   async listPipelineStages() {
@@ -675,7 +675,7 @@ export class PlatformService {
     return PIPELINE_STAGES.map((stage) => ({ stage, count: grouped.get(stage) ?? 0 }));
   }
   private async isDecisionCompany(companyId: string) {
-    if (!env.useSupabase) return true;
+    if (!env.usePersistentData) return true;
     return (await this.hydrateCompanies()).some((company) => company.id === companyId && isCompanyDecisionEligible(company));
   }
   async getPipelineByCompany(companyId: string) {
@@ -692,7 +692,7 @@ export class PlatformService {
   }
   async listActivities(companyId?: string) {
     const rows = await this.repository.listActivities(companyId);
-    if (!env.useSupabase) return rows;
+    if (!env.usePersistentData) return rows;
     const companies = await this.hydrateCompanies();
     const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
     return rows.filter((row) => ids.has(row.companyId));
@@ -703,7 +703,7 @@ export class PlatformService {
   }
   async listTasks(companyId?: string) {
     const rows = await this.repository.listTasks(companyId);
-    if (!env.useSupabase) return rows;
+    if (!env.usePersistentData) return rows;
     const companies = await this.hydrateCompanies();
     const ids = new Set(companies.filter(isCompanyDecisionEligible).map((company) => company.id));
     return rows.filter((row) => ids.has(row.companyId));

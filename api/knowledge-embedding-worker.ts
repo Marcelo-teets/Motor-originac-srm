@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { requireNeonDataClient } from '../serverless/neon-data.js';
 
 const RUNTIME = 'knowledge-embedding-worker-v10-vercel';
 const VOYAGE_MODEL = 'voyage-3.5';
@@ -95,33 +96,11 @@ const readBody = async (req: IncomingMessage): Promise<WorkerInput> => {
 };
 
 const rpc = async <T>(name: string, body: Record<string, unknown>): Promise<T> => {
-  const supabaseUrl = (process.env.SUPABASE_URL ?? '').replace(/\/$/, '');
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-  if (!supabaseUrl || !serviceRoleKey) throw new Error('Supabase service runtime is not configured.');
-
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
-    method: 'POST',
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  const raw = await response.text();
-  let payload: unknown = null;
   try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = raw;
+    return await requireNeonDataClient().rpc<T>(name, body);
+  } catch (error) {
+    throw new Error(`RPC ${name} failed on Neon: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  if (!response.ok) {
-    throw new Error(`RPC ${name} failed (${response.status}): ${JSON.stringify(payload)}`);
-  }
-
-  return payload as T;
 };
 
 const scheduleFailure = async (

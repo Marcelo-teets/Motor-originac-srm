@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import {
   discoverCvmOpenCompanyRegistry,
   streamCvmOpenCompanyRegistry,
@@ -22,7 +22,7 @@ const timestamp = (value: unknown) => {
 const booleanValue = (value: unknown) => value === true || String(value ?? '').toLowerCase() === 'true';
 const normalizedNameKey = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
-type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseClient>>;
+type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
 type SourceRow = { id: string; status: string; health: string; metadata?: Record<string, unknown> };
 type TargetRow = { id: string; cnpj: string | null };
 type CandidateRow = {
@@ -77,7 +77,7 @@ export class CandidateCvmRegistryService {
   private readonly now: () => Date;
 
   constructor(dependencies: Dependencies = {}) {
-    this.client = dependencies.client === undefined ? getSupabaseClient() : dependencies.client;
+    this.client = dependencies.client === undefined ? getDataClient() : dependencies.client;
     this.discoverResource = dependencies.discoverResource ?? discoverCvmOpenCompanyRegistry;
     this.streamResource = dependencies.streamResource ?? streamCvmOpenCompanyRegistry;
     this.now = dependencies.now ?? (() => new Date());

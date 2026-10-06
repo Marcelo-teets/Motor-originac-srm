@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getSupabaseClient } from '../lib/supabase.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { createPlatformRepository } from '../repositories/platformRepository.js';
 import {
   discoverFinepPublicResources,
@@ -46,7 +46,7 @@ const asNumber = (value: unknown) => {
 };
 
 export class FinepPublicIngestionService {
-  private readonly client = getSupabaseClient();
+  private readonly client = getDataClient();
 
   async run(options: FinepPublicRunOptions = {}) {
     const startedAt = new Date().toISOString();

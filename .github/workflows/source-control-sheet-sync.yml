@@ -16,7 +16,6 @@ on:
     paths:
       - 'backend/**'
       - 'api/**'
-      - 'supabase/functions/**'
       - 'db/migrations/**'
       - 'docs/data-sources/**'
       - 'scripts/source-control-sheet-sync.mjs'
@@ -67,8 +66,7 @@ jobs:
         id: credentials
         shell: bash
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
@@ -85,19 +83,18 @@ jobs:
             echo 'google_configured=false' >> "$GITHUB_OUTPUT"
             printf '%s\n' "${google_missing[@]}" | paste -sd, - | sed 's/^/google_missing=/' >> "$GITHUB_OUTPUT"
           fi
-          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo 'supabase_configured=true' >> "$GITHUB_OUTPUT"
+          if [ -n "$MOTOR_NEON_DATABASE_URL" ]; then
+            echo 'neon_configured=true' >> "$GITHUB_OUTPUT"
           else
-            echo 'supabase_configured=false' >> "$GITHUB_OUTPUT"
+            echo 'neon_configured=false' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Synchronize official source-control Sheet
         id: canonical_sync
         continue-on-error: true
-        if: steps.credentials.outputs.google_configured == 'true' && steps.credentials.outputs.supabase_configured == 'true'
+        if: steps.credentials.outputs.google_configured == 'true' && steps.credentials.outputs.neon_configured == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
@@ -127,8 +124,8 @@ jobs:
 
           - Google OAuth repository secrets complete: **${{ steps.credentials.outputs.google_configured || 'false' }}**
           - missing Google secret names: **${{ steps.credentials.outputs.google_missing || 'none' }}**
-          - Supabase repository secrets complete: **${{ steps.credentials.outputs.supabase_configured || 'false' }}**
-          - canonical Supabase → Sheet sync outcome: **${{ steps.canonical_sync.outcome || 'skipped' }}**
+          - Neon database secret complete: **${{ steps.credentials.outputs.neon_configured || 'false' }}**
+          - canonical Neon → Sheet sync outcome: **${{ steps.canonical_sync.outcome || 'skipped' }}**
           - independent displayed-row summary repair outcome: **${{ steps.summary_repair.outcome || 'skipped' }}**
 
           \`\`\`json
@@ -146,6 +143,6 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ steps.credentials.outputs.google_configured || 'false' }}" = 'true'
-          test "${{ steps.credentials.outputs.supabase_configured || 'false' }}" = 'true'
+          test "${{ steps.credentials.outputs.neon_configured || 'false' }}" = 'true'
           test "${{ steps.summary_repair.outcome || 'failure' }}" = 'success'
           test "${{ steps.canonical_sync.outcome || 'failure' }}" = 'success'

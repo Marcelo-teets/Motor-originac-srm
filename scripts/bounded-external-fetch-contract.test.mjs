@@ -10,17 +10,16 @@ test('uses request-local storage instead of a process-wide mutable timeout', () 
   assert.match(fetchGuard, /storage\.run\(timeoutMs, task\)/);
 });
 
-test('caps each external fetch below the overall 24s capture budget', () => {
+test('caps each external HTTP fetch below the overall 24s capture budget', () => {
   assert.match(fetchGuard, /BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS = 6_000/);
   assert.match(fetchGuard, /AbortSignal\.timeout\(timeoutMs\)/);
   assert.match(fetchGuard, /AbortSignal\.any/);
 });
 
-test('does not apply the external-source deadline to Supabase persistence', () => {
-  assert.match(fetchGuard, /isPersistenceRequest/);
-  assert.match(fetchGuard, /hostname\.endsWith\('\.supabase\.co'\)/);
-  assert.match(fetchGuard, /configuredSupabaseOrigins/);
-  assert.match(fetchGuard, /!timeoutMs \|\| isPersistenceRequest\(input\)/);
+test('persistent data uses PostgreSQL rather than an unbounded HTTP persistence exception', () => {
+  assert.match(fetchGuard, /isPersistenceRequest = \(_input: RequestInfo \| URL\) => false/);
+  assert.doesNotMatch(fetchGuard, /\.supabase\.co|SUPABASE_/);
+  assert.doesNotMatch(fetchGuard, /!timeoutMs \|\| isPersistenceRequest\(input\)/);
 });
 
 test('bounded capture runner wraps the existing global deadline with the fetch guard', () => {

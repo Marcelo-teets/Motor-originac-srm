@@ -69,6 +69,9 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Load Neon production connection from Vercel
+        run: bash scripts/load-neon-from-vercel.sh
+
       - name: Typecheck backend
         run: npm -C backend run typecheck
       - name: Compile strategic Vercel function
@@ -93,9 +96,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      REQUESTED_DATASET: ${{ inputs.dataset || '' }}
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_MATCHED_ROWS: ${{ inputs.max_matched_rows || '' }}
       REQUESTED_MAX_RESOURCES: ${{ inputs.max_resources || '' }}
@@ -114,16 +117,16 @@ jobs:
         id: credentials
         shell: bash
         run: |
-          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+          if [ -n "$MOTOR_NEON_DATABASE_URL" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
             echo "Supabase ingestion credentials are configured."
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=QSA ingestion blocked::Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as GitHub Actions secrets. The source remains visible as waiting/degraded in the Sources control plane."
+            echo "::warning title=QSA ingestion blocked::Configure MOTOR_NEON_DATABASE_URL as GitHub Actions secrets. The source remains visible as waiting/degraded in the Sources control plane."
             {
               echo "## QSA ingestion not executed"
               echo ""
-              echo "Required GitHub Actions secrets are missing: SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY."
+              echo "Required GitHub Actions secrets are missing: MOTOR_NEON_DATABASE_URL."
               echo "The workflow is healthy, but the heavy monthly loader is intentionally blocked until the credentials are configured."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
