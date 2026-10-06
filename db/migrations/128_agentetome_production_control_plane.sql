@@ -1,7 +1,7 @@
 -- Agentetome production control plane.
--- Centralizes provider authentication in Supabase Vault, makes refreshes scheduled
--- and observable, guarantees bronze -> silver promotion, and exposes a service-role
--- runtime contract without persisting raw XML or temporary provider download URLs.
+-- Provider authentication is supplied only by the server-side Vercel runtime environment.
+-- This database layer schedules and observes refreshes, guarantees bronze -> silver promotion,
+-- and exposes a service-role contract without persisting raw XML or temporary provider URLs.
 
 create table if not exists public.agentetome_export_targets (
   id uuid primary key default gen_random_uuid(),
@@ -55,23 +55,6 @@ where not exists (
   select 1 from public.agentetome_export_targets
   where lower(administrator)=lower('oliveira trust')
 );
-
-create or replace function public.get_agentetome_runtime_secret()
-returns text
-language sql
-security definer
-set search_path = pg_catalog,vault
-as $$
-  select decrypted_secret
-  from vault.decrypted_secrets
-  where name='agentetome_api_key'
-  limit 1
-$$;
-
-comment on function public.get_agentetome_runtime_secret() is
-  'Returns the Agentetome API key only to service_role runtimes. Never expose this RPC to browser roles.';
-revoke all on function public.get_agentetome_runtime_secret() from public,anon,authenticated;
-grant execute on function public.get_agentetome_runtime_secret() to service_role;
 
 create or replace function public.record_agentetome_validation_audit(
   p_requested_by uuid,
