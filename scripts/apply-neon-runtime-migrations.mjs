@@ -13,6 +13,7 @@ const migrations = [
   'db/migrations/060_origination_knowledge_vault.sql',
   'db/neon/20261005_neon_qualification_compatibility.sql',
   'db/neon/20261005_neon_signal_compatibility.sql',
+  'db/neon/20261006_neon_pipeline_compatibility.sql',
   'db/migrations/076_knowledge_company_workspace.sql',
   'db/migrations/077_knowledge_vault_function_grants_hardening.sql',
   'db/migrations/078_knowledge_capture_concurrency_lock.sql',
