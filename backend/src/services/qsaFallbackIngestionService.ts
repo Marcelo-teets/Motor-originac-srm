@@ -57,7 +57,7 @@ export class QsaFallbackIngestionService {
       return {
         status: 'failed' as const,
         generatedAt: new Date().toISOString(),
-        error: 'Supabase client is not configured for QSA fallback ingestion.',
+        error: 'Neon data client is not configured for QSA fallback ingestion.',
         companies: [],
       };
     }

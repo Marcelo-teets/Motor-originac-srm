@@ -37,7 +37,7 @@ export function MonitoringPage() {
       : 'idle';
   const nextCaptureAction = captureStatus === 'active'
     ? 'Revisar os triggers recentes, confirmar a tese e atualizar a próxima ação comercial dos top leads.'
-    : 'Preservar o circuit breaker e validar a saúde do Supabase antes de reativar captura ou recálculo. Não preencher lacunas com mocks.';
+    : 'Preservar o circuit breaker e validar a saúde do Neon antes de reativar captura ou recálculo. Não preencher lacunas com mocks.';
 
   return (
     <div className="page">
@@ -124,7 +124,7 @@ export function MonitoringPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState title="Sem fontes no snapshot." description="Verifique Source Catalog e disponibilidade do Supabase antes de concluir que não há fontes configuradas." />
+            <EmptyState title="Sem fontes no snapshot." description="Verifique Source Catalog e disponibilidade do Neon antes de concluir que não há fontes configuradas." />
           )}
         </Card>
       </section>

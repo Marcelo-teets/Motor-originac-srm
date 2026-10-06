@@ -94,6 +94,12 @@ jobs:
       - name: Prevent Supabase runtime reintroduction
         run: npm run test:no-supabase-runtime
 
+      - name: Neon migration plan, runtime contract and schedulers
+        run: npm run test:neon-migration
+
+      - name: Legacy data recovery tooling (temporary)
+        run: npm run test:legacy-recovery
+
       - name: Validate Neon Free budget guard
         run: node --test scripts/neon-free-budget-guard.test.mjs
 

@@ -8,6 +8,7 @@ import type { UserProfile } from './neonAuth';
 import type { SessionData } from './types';
 
 const SESSION_KEY = 'motor.neon.session';
+// Removed on load so sessions stored by the legacy auth provider never linger.
 const LEGACY_SESSION_KEY = 'motor.supabase.session';
 const REFRESH_WINDOW_MS = 90_000;
 

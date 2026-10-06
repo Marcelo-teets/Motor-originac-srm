@@ -55,7 +55,7 @@ export class CapitalMarketDeliveryService {
   private readonly client = getDataClient();
 
   async sync(datasets: CvmDatasetCode[]) {
-    if (!this.client) throw new Error('Supabase client not configured for capital-market delivery.');
+    if (!this.client) throw new Error('Neon data client not configured for capital-market delivery.');
 
     const requested = [...new Set(datasets)];
     const summaries: CapitalMarketDeliveryDatasetSummary[] = [];

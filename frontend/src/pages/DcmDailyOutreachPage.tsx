@@ -288,7 +288,7 @@ export function DcmDailyOutreachPage() {
     generatedMessage: composer.generatedMessage,
     nextAction: composer.nextAction,
     outreachStatus: composer.generatedMessage.trim() ? 'ready' : 'draft',
-  }, 'Mensagem e próxima ação salvas no Supabase.');
+  }, 'Mensagem e próxima ação salvas no Neon.');
 
   const syncPipelineAfterSend = async (lead: DcmDailyLead, actualMessage: string, nextAction: string) => {
     await api.createActivity(session, {
@@ -360,14 +360,14 @@ export function DcmDailyOutreachPage() {
         description="Transforme ranking, sinais e teses em mensagens executáveis. Cada envio registra atividade, próxima ação e o delta entre a mensagem sugerida e a mensagem realmente utilizada."
         actions={(
           <div className="pill-row">
-            <Pill tone="success">Supabase real</Pill>
+            <Pill tone="success">Neon real</Pill>
             <Pill tone="info">RLS por usuário</Pill>
             <button type="button" onClick={() => setShowCreate((current) => !current)}>{showCreate ? 'Fechar cadastro' : 'Adicionar lead'}</button>
           </div>
         )}
       />
 
-      <DataStatusBanner source="real" note="Fila, mensagens, envio e feedback são persistidos no Supabase. O CRM é atualizado após o envio; nenhum lead estático do protótipo foi importado." />
+      <DataStatusBanner source="real" note="Fila, mensagens, envio e feedback são persistidos no Neon. O CRM é atualizado após o envio; nenhum lead estático do protótipo foi importado." />
       {error ? <Card title="Ação bloqueada" subtitle="Nenhuma alteração parcial deve ser assumida" tone="accent">{error}</Card> : null}
       {success ? <Card title="Operação concluída" subtitle="Resultado persistido e auditável" tone="success">{success}</Card> : null}
 

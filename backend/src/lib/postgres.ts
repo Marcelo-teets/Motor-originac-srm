@@ -127,7 +127,7 @@ type Queryable = QueryClient & {
  * passes strings through untouched. Both are wrong for json/jsonb targets:
  * `['a']` becomes the invalid JSON `{"a"}`, `[]` silently becomes the object
  * `{}` and a plain string such as `FIDC` is rejected as invalid JSON. PostgREST
- * (the previous Supabase data plane) always sent JSON, so callers rely on JSON
+ * (the legacy PostgREST data plane) always sent JSON, so callers rely on JSON
  * semantics. Values bound to json/jsonb columns or RPC parameters are therefore
  * JSON-encoded explicitly; everything else (text[], uuid[], scalars) keeps the
  * native node-postgres encoding.
@@ -326,7 +326,7 @@ export class NeonPostgresClient {
 
   /**
    * Calls `public.<fn>` inside a transaction with request.jwt.* claims set, so
-   * functions ported from Supabase that read `auth.uid()`/role claims keep
+   * functions ported from the legacy provider that read `auth.uid()`/role claims keep
    * working. Arguments are bound as `$n` placeholders (never interpolated) and
    * json/jsonb parameters are JSON-encoded.
    */

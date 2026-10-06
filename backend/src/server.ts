@@ -375,7 +375,7 @@ app.get('/search-profiles/discovery-health', wrap(async (_req, res) => {
     searchCaptureRuntime.listRuns(),
     searchCaptureRuntime.listCandidates(),
   ]);
-  // Normaliza runs/candidatos: memória devolve camelCase, Supabase snake_case.
+  // Normaliza runs/candidatos: memória devolve camelCase, Neon snake_case.
   const runs = (runRows as any[]).map((row) => ({
     id: row.id,
     searchProfileId: row.searchProfileId ?? row.search_profile_id,
@@ -500,7 +500,7 @@ app.get('/agents/definitions', wrap(async (_req, res) => res.json(ok(platformMod
 app.get('/agents/runs', wrap(async (_req, res) => res.json(ok('partial', { runs: [], note: 'Execuções duráveis de agentes ainda não são persistidas (fila engine_requests/ai_agent_runs vazia).' }))));
 app.get('/agents/runs/:id', wrap((req, res) => res.status(404).json(fail(404, `Agent run não encontrado: ${param(req.params.id)}. Execuções duráveis ainda não são persistidas.`))));
 app.get('/agents/validations', wrap((_req, res) => res.json(ok('partial', { validations: [], note: 'Validações de agentes ainda não são persistidas; nada a reportar.' }))));
-app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Supabase/Auth real.' }]))));
+app.get('/agents/improvements', wrap((_req, res) => res.json(ok('partial', [{ id: 'imp_1', title: 'Expandir conectores adicionais após estabilizar Neon/Auth real.' }]))));
 app.get('/agents/patterns', wrap(async (_req, res) => res.json(ok(platformMode, await service.listPatternCatalog()))));
 app.post('/agents/run/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), scope: 'global', started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id para recalcular uma empresa.' }))));
 app.post('/agents/run/company/:id/:agent_name', wrap((req, res) => res.status(202).json(ok('partial', { agent: param(req.params.agent_name), companyId: param(req.params.id), started: false, note: 'Executor durável de agentes ainda não implementado; use /agents/orchestrate/company/:id.' }))));

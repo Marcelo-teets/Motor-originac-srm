@@ -131,10 +131,10 @@ type CandidateRow = {
 };
 
 type SourceRow = { id: string; metadata?: Record<string, unknown> | null };
-type SupabaseClient = NonNullable<ReturnType<typeof getDataClient>>;
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
 
 type Dependencies = {
-  client?: SupabaseClient | null;
+  client?: DataClient | null;
   fetchInstitutions?: typeof fetchBcbRegulatedInstitutions;
   now?: () => Date;
 };
@@ -153,7 +153,7 @@ export type CandidateBcbIdentityResult = {
 };
 
 export class CandidateBcbIdentityService {
-  private readonly client: SupabaseClient | null;
+  private readonly client: DataClient | null;
   private readonly fetchInstitutions: typeof fetchBcbRegulatedInstitutions;
   private readonly now: () => Date;
 
@@ -164,7 +164,7 @@ export class CandidateBcbIdentityService {
   }
 
   async run(input: { limit?: number } = {}): Promise<CandidateBcbIdentityResult> {
-    if (!this.client) throw new Error('Supabase client not configured for candidate BCB identity resolution.');
+    if (!this.client) throw new Error('Neon data client not configured for candidate BCB identity resolution.');
     const limit = Math.min(Math.max(Math.trunc(input.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
     const rows = await this.client.select('discovered_company_candidates', {
       select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,raw_payload',

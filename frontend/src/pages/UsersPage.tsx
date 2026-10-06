@@ -42,7 +42,7 @@ export function UsersPage() {
     }
   };
 
-  if (loading) return <LoadingState title="Usuários" subtitle="Carregando perfis e níveis de acesso do Supabase." />;
+  if (loading) return <LoadingState title="Usuários" subtitle="Carregando perfis e níveis de acesso do Neon." />;
   if (error && !users) return <ErrorState title="Usuários" error={error} action={<button type="button" onClick={() => void loadUsers()}>Tentar novamente</button>} />;
 
   return (
@@ -56,7 +56,7 @@ export function UsersPage() {
 
       {error ? <div className="auth-alert auth-alert-error">{error}</div> : null}
 
-      <Card title="Base de usuários" subtitle={`${users?.length ?? 0} usuário(s) cadastrado(s) no Supabase Auth`}>
+      <Card title="Base de usuários" subtitle={`${users?.length ?? 0} usuário(s) cadastrado(s) no Neon Auth`}>
         <div className="table-wrap">
           <table>
             <thead>

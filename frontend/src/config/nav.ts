@@ -155,7 +155,7 @@ export const navItems = [
     to: '/historical-archive',
     label: 'Arquivo histórico',
     shortLabel: 'Retenção externa',
-    description: 'Consulte arquivos históricos e a estratégia de proteção do Supabase.',
+    description: 'Consulte arquivos históricos e a estratégia de proteção do Neon.',
     group: 'Operação & governança',
     godOnly: true,
   },

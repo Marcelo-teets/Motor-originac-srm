@@ -10,7 +10,7 @@ export class CandidateIdentityReviewRuntime implements CandidateIdentityReviewEx
   private readonly client = getDataClient();
 
   async approve(input: CandidateIdentityApprovalInput): Promise<CandidateIdentityReviewResult> {
-    if (!this.client) throw new Error('Supabase is required for candidate identity approval.');
+    if (!this.client) throw new Error('Neon is required for candidate identity approval.');
     return this.client.rpc<CandidateIdentityReviewResult>('approve_candidate_identity_review', {
       p_candidate_id: input.candidateId,
       p_legal_name: input.legalName,
@@ -26,7 +26,7 @@ export class CandidateIdentityReviewRuntime implements CandidateIdentityReviewEx
   }
 
   async reject(input: CandidateIdentityRejectionInput): Promise<CandidateIdentityReviewResult> {
-    if (!this.client) throw new Error('Supabase is required for candidate identity rejection.');
+    if (!this.client) throw new Error('Neon is required for candidate identity rejection.');
     return this.client.rpc<CandidateIdentityReviewResult>('reject_candidate_identity_review', {
       p_candidate_id: input.candidateId,
       p_reason: input.reason,

@@ -21,8 +21,8 @@ export class CaptureRuntimeDeadlineError extends Error {
   }
 }
 
-export const selectMonitoringCompanies = (companies: CompanySeed[], useSupabase: boolean) => (
-  useSupabase ? companies.filter(isCompanyMonitoringEligible) : companies
+export const selectMonitoringCompanies = (companies: CompanySeed[], usePersistentData: boolean) => (
+  usePersistentData ? companies.filter(isCompanyMonitoringEligible) : companies
 );
 
 const schedulePolicy = (source: SourceCatalogEntry) => {
@@ -49,10 +49,10 @@ export const selectCaptureSources = (sources: SourceCatalogEntry[], cadence: Cap
 export const buildBoundedCaptureTargets = (
   companies: CompanySeed[],
   sources: SourceCatalogEntry[],
-  useSupabase: boolean,
+  usePersistentData: boolean,
   cadence: CaptureCadence = 'all',
 ): BoundedCaptureTarget[] => {
-  const eligibleCompanies = selectMonitoringCompanies(companies, useSupabase);
+  const eligibleCompanies = selectMonitoringCompanies(companies, usePersistentData);
   const eligibleSources = selectCaptureSources(sources, cadence);
   return eligibleCompanies.flatMap((company) => eligibleSources.map((source) => ({
     companyId: company.id,

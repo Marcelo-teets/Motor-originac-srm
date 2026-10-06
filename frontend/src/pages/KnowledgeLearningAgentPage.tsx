@@ -78,7 +78,7 @@ export function KnowledgeLearningAgentPage() {
         eyebrow="Knowledge Learning Agent V14"
         title="IA que mantém os mind maps vivos"
         description="O agente acompanha novas buscas, capturas, outputs e sinais; separa fatos de hipóteses; atualiza notas, evidências e relações do Knowledge Vault com versionamento e lineage."
-        actions={<div className="page-intro-actions"><Pill tone="success">Supabase real</Pill><Pill tone="info">LLM estruturada</Pill><Link className="button secondary" to="/knowledge-vault">Abrir Vault</Link></div>}
+        actions={<div className="page-intro-actions"><Pill tone="success">Neon real</Pill><Pill tone="info">LLM estruturada</Pill><Link className="button secondary" to="/knowledge-vault">Abrir Vault</Link></div>}
       />
 
       <Card title="Controle do aprendizado" subtitle="Atualização contínua da memória — sem treinamento de pesos e sem mutação de score" tone="accent">

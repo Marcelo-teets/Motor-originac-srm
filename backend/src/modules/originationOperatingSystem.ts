@@ -245,7 +245,7 @@ export const implementationMap = {
     'skill tree versionada em código',
     'backlog ORIG-001 a ORIG-020 convertido em contrato operacional',
     'templates de lead/tese/abordagem/one-pager versionados',
-    'migration SQL para persistência no Supabase',
+    'migration SQL para persistência no Neon',
     'documentação em docs/origination',
     'endpoints serverless /api/origination/*',
   ],
@@ -254,7 +254,7 @@ export const implementationMap = {
 
 export const getOriginationExecutionPlan = () => ({
   now: ['usar /api/origination/os como fonte do framework', 'rodar /rankings/v2 para top leads', 'executar fluxo completo para prioridades A', 'registrar ações em /tasks e /activities'],
-  next: ['ligar frontend a /api/origination/os', 'popular Supabase com migration 020', 'configurar conector VC/PE dedicado', 'automatizar relatório mensal'],
+  next: ['ligar frontend a /api/origination/os', 'popular Neon com migration 020', 'configurar conector VC/PE dedicado', 'automatizar relatório mensal'],
   kpis: ['leads gerados/semana', 'leads qualificados/semana', 'abordagens enviadas', 'respostas', 'reuniões', 'mandatos enviados', 'mandatos assinados', 'operações fechadas'],
 });
 

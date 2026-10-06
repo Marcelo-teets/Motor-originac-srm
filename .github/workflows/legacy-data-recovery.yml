@@ -1,0 +1,133 @@
+name: Legacy Data Recovery (Supabase export)
+
+# TEMPORARY - delete this workflow and migration/supabase-recovery/ once the legacy
+# data has been exported and imported into Neon (see migration/supabase-recovery/README.md).
+# Manual dispatch only; the only workflow allowed to reference the legacy provider
+# (allow-listed in scripts/no-supabase-runtime-contract.test.mjs).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-data-recovery
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ARTIFACT_ONLY: 'true'
+      EXPORT_ROOT: ${{ github.workspace }}/tmp/supabase-full-export
+      COPY_STORAGE_FILES: 'true'
+      EXPORT_PAGE_SIZE: '1000'
+      MAX_ROWS_PER_SHEET: '50000'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required secret names: %s\n' "$(IFS=,; echo "${missing[*]}")"
+            exit 1
+          fi
+
+      - name: Validate exporter syntax
+        run: node --check migration/supabase-recovery/supabase-full-drive-export.mjs
+
+      - name: Export Supabase to Google Drive
+        id: export
+        shell: bash
+        run: |
+          set -euo pipefail
+          node migration/supabase-recovery/supabase-full-drive-export.mjs 2>&1 | tee /tmp/supabase-full-drive-export.log
+          SUMMARY_LINE="$(grep 'FINAL_SUMMARY=' /tmp/supabase-full-drive-export.log | tail -n 1 || true)"
+          if [ -n "$SUMMARY_LINE" ]; then
+            printf '%s\n' "${SUMMARY_LINE#FINAL_SUMMARY=}" > /tmp/run_summary.json
+          fi
+
+      - name: Upload export artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-full-export-${{ github.run_id }}
+          path: tmp/supabase-full-export
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+          include-hidden-files: true
+
+      - name: Publish execution summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Supabase → Google Drive full export'
+            echo
+            echo '- project: `hdghpmssudrqhsbvrdyt`'
+            echo '- mode: GitHub artifact (Google OAuth independent)'
+            echo '- next hop: connected Google Drive folder `Motor Originação - Backup Supabase Completo - 2026-10-01`'
+            echo '- database: all discovered PostgREST tables/views + repository schema candidates'
+            echo '- auth: supported Admin Users export'
+            echo '- storage: bucket/object metadata + raw object copy when readable'
+            echo '- secrets/passwords/tokens: intentionally excluded'
+            echo
+            if [ -f tmp/supabase-full-export/run_summary.json ]; then
+              echo '```json'
+              cat tmp/supabase-full-export/run_summary.json
+              echo '```'
+            elif [ -f /tmp/run_summary.json ]; then
+              echo '```json'
+              cat /tmp/run_summary.json
+              echo '```'
+            else
+              echo 'No final summary was produced; inspect the job log.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce complete backup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUMMARY="tmp/supabase-full-export/run_summary.json"
+          if [ ! -f "$SUMMARY" ]; then
+            echo "Backup incomplete: run_summary.json missing."
+            exit 1
+          fi
+          node - "$SUMMARY" <<'NODE'
+          const fs=require('node:fs');
+          const p=process.argv[2];
+          const s=JSON.parse(fs.readFileSync(p,'utf8'));
+          const ok = s.status === 'ok'
+            && Number(s.exportPartsCreated || 0) > 0
+            && Array.isArray(s.blockedScopes)
+            && s.blockedScopes.length === 0;
+          if (!ok) {
+            console.error(JSON.stringify({
+              status:s.status,
+              databaseObjectsAttempted:s.databaseObjectsAttempted,
+              exportPartsCreated:s.exportPartsCreated,
+              storageObjectsCopied:s.storageObjectsCopied,
+              storageObjectsFailed:s.storageObjectsFailed,
+              blockedScopeCount:Array.isArray(s.blockedScopes)?s.blockedScopes.length:null,
+            }));
+            process.exit(1);
+          }
+          console.log('Complete backup gate: OK');
+          NODE

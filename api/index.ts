@@ -152,7 +152,6 @@ async function captureHealth(req: IncomingMessage, res: ServerResponse) {
     },
     captureRuntime: {
       canRunAgainstDatabase: persistentDataConfigured,
-      canRunAgainstSupabase: persistentDataConfigured, // deprecated compatibility alias; runtime is Neon
       canAuthorizeWorkflow: cronConfigured,
       coreTablesAccessible: canAccessCoreTables,
       queryTimeoutMs: CAPTURE_HEALTH_QUERY_TIMEOUT_MS,
