@@ -91,25 +91,55 @@ export const syncPublicAuthEnvToVercel = async ({
     'Content-Type': 'application/json',
   };
 
-  for (const [key, value] of values) {
-    const createUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
-    createUrl.searchParams.set('teamId', teamId);
-    createUrl.searchParams.set('upsert', 'true');
-    await readJson(await fetchImpl(createUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify([{
-        key,
-        value,
-        type: 'encrypted',
-        target: ['production', 'preview', 'development'],
-        comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
-      }]),
-    }), `Vercel environment upsert for ${key}`);
-  }
-
   const listUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
   listUrl.searchParams.set('teamId', teamId);
+  const initialPayload = await readJson(await fetchImpl(listUrl, { headers }), 'Vercel environment discovery');
+  const initialEnvs = Array.isArray(initialPayload?.envs) ? initialPayload.envs : [];
+  const desiredTargets = ['production', 'preview', 'development'];
+
+  for (const [key, value] of values) {
+    const matches = initialEnvs.filter((entry) => entry?.key === key && entry?.id);
+    const coveredTargets = new Set();
+
+    for (const entry of matches) {
+      const entryTargets = Array.isArray(entry.target) ? entry.target : [entry.target].filter(Boolean);
+      entryTargets.forEach((target) => coveredTargets.add(target));
+
+      const editUrl = new URL(
+        `https://api.vercel.com/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(entry.id)}`,
+      );
+      editUrl.searchParams.set('teamId', teamId);
+      await readJson(await fetchImpl(editUrl, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          value,
+          type: 'encrypted',
+          target: entryTargets,
+          ...(entry.gitBranch ? { gitBranch: entry.gitBranch } : {}),
+          comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
+        }),
+      }), `Vercel environment update for ${key}`);
+    }
+
+    const missingTargets = desiredTargets.filter((target) => !coveredTargets.has(target));
+    if (missingTargets.length) {
+      const createUrl = new URL(`https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env`);
+      createUrl.searchParams.set('teamId', teamId);
+      await readJson(await fetchImpl(createUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify([{
+          key,
+          value,
+          type: 'encrypted',
+          target: missingTargets,
+          comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
+        }]),
+      }), `Vercel environment create for ${key}`);
+    }
+  }
+
   const payload = await readJson(await fetchImpl(listUrl, { headers }), 'Vercel environment verification');
   const envs = Array.isArray(payload?.envs) ? payload.envs : [];
   const verified = PUBLIC_AUTH_ENV_KEYS.map((key) => {
