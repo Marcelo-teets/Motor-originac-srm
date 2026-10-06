@@ -1,8 +1,8 @@
 Motor Originação production deployment request
 
-Purpose: retry the controlled production release after fixing the Vercel v10 project environment upsert payload.
-Source main SHA before deploy-request commit: 43f5e212d267ed4f61d6d530af8fcd2cafe99629
+Purpose: diagnose and complete the controlled production release after the Vercel project environment sync gate returned HTTP 400.
+Source main SHA before deploy-request commit: 0d9903f77471dbc5eb78a6a34f5ea9423e20ed51
 Requested at: 2026-10-06
 Safety gates: exact main tip, canonical Neon Auth env sync, controlled prebuilt Vercel deploy, Neon hostname/schema/growth guard, runtime health smoke, canonical Auth smoke, automatic Git deploys disabled.
 
-Release: Neon runtime health fix + Vercel project environment sync compatibility.
+Release: Neon runtime health fix with explicit Vercel environment API diagnostics.
