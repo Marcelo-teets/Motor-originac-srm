@@ -125,4 +125,3 @@ grant select on public.agentetome_fidc_market_map_v1 to service_role;
 comment on view public.agentetome_fidc_market_map_v1 is
   'Current Agentetome FIDC snapshot: latest parsed package per active export target. Historical events remain in capital_market_events.';
 
-notify pgrst,'reload schema';
