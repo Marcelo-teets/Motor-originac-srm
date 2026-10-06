@@ -3,14 +3,9 @@ import {
   streamStrategicPublicResource,
   type StrategicPublicDatasetCode,
 } from '../modules/public-data/strategicPublicDatasetConnector.js';
+import { parseCliArgs } from './args.js';
 
-const args = process.argv.slice(2);
-const valueFor = (name: string) => {
-  const inline = args.find((argument) => argument.startsWith(`--${name}=`));
-  if (inline) return inline.slice(name.length + 3);
-  const index = args.indexOf(`--${name}`);
-  return index >= 0 ? args[index + 1] : undefined;
-};
+const { args, valueFor } = parseCliArgs();
 
 const dataset = (valueFor('dataset') ?? 'cvm_fre_capital_structure') as StrategicPublicDatasetCode;
 if (dataset !== 'cvm_fre_capital_structure') {

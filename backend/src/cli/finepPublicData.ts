@@ -1,12 +1,7 @@
 import { FinepPublicIngestionService } from '../services/finepPublicIngestionService.js';
+import { parseCliArgs } from './args.js';
 
-const args = process.argv.slice(2);
-const valueFor = (name: string) => {
-  const inline = args.find((argument) => argument.startsWith(`--${name}=`));
-  if (inline) return inline.slice(name.length + 3);
-  const index = args.indexOf(`--${name}`);
-  return index >= 0 ? args[index + 1] : undefined;
-};
+const { args, valueFor } = parseCliArgs();
 const positiveInteger = (name: string, fallback: number, maximum: number) => {
   const parsed = Number(valueFor(name) ?? fallback);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`--${name} must be a positive number.`);

@@ -1,12 +1,9 @@
 import { CandidateBcbIdentityService } from '../services/candidateBcbIdentityService.js';
+import { parseCliArgs } from './args.js';
 
-const args = process.argv.slice(2);
-const valueFor = (flag: string) => {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
-};
+const { args, valueFor } = parseCliArgs();
 
-const parsedLimit = Number(valueFor('--limit') ?? 100);
+const parsedLimit = Number(valueFor('limit') ?? 100);
 const limit = Number.isFinite(parsedLimit) ? Math.trunc(parsedLimit) : 100;
 
 const service = new CandidateBcbIdentityService();
