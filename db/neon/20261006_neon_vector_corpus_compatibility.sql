@@ -56,7 +56,7 @@ as $$
   cross join q
   where length(btrim(coalesce(query_text, ''))) > 0
     and vd.content_tsv @@ q.tsq
-    and (company_id is null or vd.company_id::text = company_id)
+    and ($3 is null or vd.company_id::text = $3)
   order by ts_rank(vd.content_tsv, q.tsq) desc, vd.created_at desc
   limit greatest(match_count, 1);
 $$;
@@ -78,13 +78,13 @@ as $$
   ), lexical as (
     select vd.id, row_number() over(order by ts_rank(vd.content_tsv,q.tsq) desc,vd.created_at desc)::int as rk
     from public.vector_documents vd cross join q
-    where vd.content_tsv @@ q.tsq and (company_id is null or vd.company_id::text=company_id)
+    where vd.content_tsv @@ q.tsq and ($5 is null or vd.company_id::text=$5)
     limit greatest(match_count,1)*6
   ), semantic as (
     select vd.id, row_number() over(order by vd.embedding <=> query_embedding,vd.created_at desc)::int as rk
     from public.vector_documents vd
     where query_embedding is not null and vd.embedding is not null
-      and (company_id is null or vd.company_id::text=company_id)
+      and ($5 is null or vd.company_id::text=$5)
     limit greatest(match_count,1)*6
   ), fused as (
     select coalesce(l.id,s.id) id,
