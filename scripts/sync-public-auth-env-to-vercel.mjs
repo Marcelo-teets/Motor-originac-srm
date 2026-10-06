@@ -19,7 +19,12 @@ const readJson = async (response, label) => {
   let payload = {};
   try { payload = text ? JSON.parse(text) : {}; } catch { throw new Error(`${label} returned invalid JSON.`); }
   if (!response.ok) {
-    const detail = typeof payload?.message === 'string' ? payload.message : `HTTP ${response.status}`;
+    const nestedMessage = typeof payload?.error?.message === 'string' ? payload.error.message : null;
+    const nestedCode = typeof payload?.error?.code === 'string' ? payload.error.code : null;
+    const topMessage = typeof payload?.message === 'string' ? payload.message : null;
+    const detail = nestedMessage
+      ? `${nestedCode ? `${nestedCode}: ` : ''}${nestedMessage}`
+      : (topMessage || `HTTP ${response.status}`);
     throw new Error(`${label} failed: ${detail}`);
   }
   return payload;
