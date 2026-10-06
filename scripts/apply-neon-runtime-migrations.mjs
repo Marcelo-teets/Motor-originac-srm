@@ -19,6 +19,7 @@ const migrations = [
   'db/migrations/078_knowledge_capture_concurrency_lock.sql',
   'db/migrations/082_knowledge_saved_views_bases.sql',
   'db/migrations/083_knowledge_monitoring_output_capture.sql',
+  'db/neon/20261006_neon_crm_execution_compatibility.sql',
   'db/migrations/085_knowledge_execution_actions.sql',
   'db/migrations/086_knowledge_execution_reference_validation.sql',
   'db/migrations/087_knowledge_execution_completion_guard.sql',
