@@ -104,12 +104,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const syncSession = async () => {
       removeStaleSessions();
+      const expectedEpoch = authEpochRef.current;
       try {
-        const expectedEpoch = authEpochRef.current;
         const freshSession = await neonAuth.refreshSession();
         if (!cancelled && authEpochRef.current === expectedEpoch) await hydrateSession(freshSession, expectedEpoch);
       } catch (syncError) {
-        if (cancelled) return;
+        if (cancelled || authEpochRef.current !== expectedEpoch) return;
         clearLocalSession();
         // Ausência do cookie first-party é o estado normal antes do login;
         // só falhas reais (rede, servidor) viram erro.
@@ -134,6 +134,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (authEpochRef.current !== expectedEpoch) return;
       await hydrateSession(freshSession, expectedEpoch);
     } catch (refreshError) {
+      if (authEpochRef.current !== expectedEpoch) return;
       if (isInvalidSessionError(refreshError)) {
         clearLocalSession();
         setError('Sua sessão expirou. Entre novamente.');
@@ -166,6 +167,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const syncAcrossTabs = (event: StorageEvent) => {
+      if (event.key && STALE_SESSION_KEYS.includes(event.key)) {
+        // During a rolling deploy, an older tab may still try to persist the
+        // legacy session. Scrub it immediately from this origin.
+        removeStaleSessions();
+        return;
+      }
       if (event.key !== AUTH_SIGNAL_KEY || !event.newValue) return;
       if (event.newValue.startsWith('logout')) {
         clearLocalSession();
@@ -176,6 +183,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       void neonAuth.refreshSession()
         .then((next) => authEpochRef.current === expectedEpoch ? hydrateSession(next, expectedEpoch) : null)
         .catch((syncError) => {
+          if (authEpochRef.current !== expectedEpoch) return;
           setError(syncError instanceof Error ? syncError.message : 'Não foi possível sincronizar a sessão.');
         });
     };
