@@ -48,6 +48,7 @@ test('compat rewrites map legacy constructs to their Neon equivalents', () => {
   assert.equal(toNeonSql('select extensions.digest(x, \'sha256\'), y::extensions.vector(1024);'), 'select public.digest(x, \'sha256\'), y::public.vector(1024);');
   assert.equal(toNeonSql('create extension if not exists vector with schema extensions;'), 'create extension if not exists vector;');
   assert.equal(toNeonSql("if auth.role() = 'service_role' then"), "if (auth.session() ->> 'role') = 'service_role' then");
+  assert.equal(toNeonSql('grant execute on function private.compact(integer) to service_role, postgres;'), 'grant execute on function private.compact(integer) to service_role;');
   assert.equal(toNeonSql('begin;\nselect 1;\ncommit;\n').trim(), 'select 1;');
 });
 
