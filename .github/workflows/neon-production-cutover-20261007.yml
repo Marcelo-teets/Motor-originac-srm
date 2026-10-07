@@ -1,0 +1,70 @@
+name: Neon Production Cutover 20261007
+
+on:
+  push:
+    branches:
+      - ops/neon-production-cutover-20261007
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-production-cutover
+  cancel-in-progress: false
+
+jobs:
+  migrate-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      EXPECTED_NEON_HOST: ep-fragrant-moon-b6o2wxmx-pooler.c-2.sa-east-1.aws.neon.tech
+      EXPECTED_MAIN_SHA: 0bfedda494c94d5c3eab3df8d123884fb03aa19c
+    steps:
+      - name: Checkout exact production main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Load canonical Neon production connection from Vercel vault
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Verify exact production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const url = new URL(process.env.MOTOR_NEON_DATABASE_URL);
+          if (url.hostname !== process.env.EXPECTED_NEON_HOST) {
+            throw new Error(`Refusing unexpected Neon host: ${url.hostname}`);
+          }
+          if (url.pathname.replace(/^\//,'') !== 'neondb') throw new Error('Refusing unexpected database');
+          const pool = new pg.Pool({ connectionString: url.toString(), max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              select current_database() as db,
+                     to_regclass('private.motor_neon_migrations') is not null as migration_tracking,
+                     to_regclass('public.companies') is not null as companies_ok
+            `);
+            const row = rows[0] || {};
+            if (!row.migration_tracking || !row.companies_ok) throw new Error('Production Neon baseline is incomplete');
+            console.log(JSON.stringify({provider:'neon',database:row.db,host:url.hostname,baseline:true}));
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Apply canonical Neon runtime migration plan
+        env:
+          GITHUB_SHA: ${{ env.EXPECTED_MAIN_SHA }}
+        run: node scripts/apply-neon-runtime-migrations.mjs
+      - name: Verify production runtime parity
+        run: node scripts/neon-runtime-parity-check.mjs
