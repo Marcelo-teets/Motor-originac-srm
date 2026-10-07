@@ -23,7 +23,7 @@ export class PortalTransparenciaConnector {
     url.searchParams.set('pagina', String(query.pagina ?? 1));
     url.searchParams.set('tamanhoPagina', String(query.tamanhoPagina ?? 50));
 
-    const response = await fetch(url.toString(), { headers: this.buildHeaders() });
+    const response = await fetch(url.toString(), { headers: this.buildHeaders(), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) {
       throw new Error(`Portal da Transparencia contratos request failed with status ${response.status}`);
     }
@@ -37,7 +37,7 @@ export class PortalTransparenciaConnector {
     url.searchParams.set('pagina', String(query.pagina ?? 1));
     url.searchParams.set('tamanhoPagina', String(query.tamanhoPagina ?? 50));
 
-    const response = await fetch(url.toString(), { headers: this.buildHeaders() });
+    const response = await fetch(url.toString(), { headers: this.buildHeaders(), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) {
       throw new Error(`Portal da Transparencia pagamentos request failed with status ${response.status}`);
     }

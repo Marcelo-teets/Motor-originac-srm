@@ -17,7 +17,7 @@ export const queridoDiarioSearchUrl = (query: string, size = 3) =>
   `${QUERIDO_DIARIO_API}?querystring=${encodeURIComponent(`"${query}"`)}&size=${size}&sort_by=descending_date`;
 
 export async function searchQueridoDiario(query: string, size = 3): Promise<GazetteSearchResult> {
-  const response = await fetch(queridoDiarioSearchUrl(query, size), { headers: { accept: 'application/json' } });
+  const response = await fetch(queridoDiarioSearchUrl(query, size), { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     throw new Error(`Querido Diário search failed with status ${response.status}`);
   }

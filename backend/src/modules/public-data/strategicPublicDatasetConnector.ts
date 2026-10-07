@@ -86,12 +86,13 @@ const hashText = (value: string) => createHash('sha256').update(value).digest('h
 
 async function probeResource(url: string) {
   const headers = { 'User-Agent': 'OriginationIntelligencePlatform/1.0' };
-  let response = await fetch(url, { method: 'HEAD', redirect: 'follow', headers }).catch(() => null);
+  let response = await fetch(url, { method: 'HEAD', redirect: 'follow', headers, signal: AbortSignal.timeout(15_000) }).catch(() => null);
   if (!response?.ok) {
     response = await fetch(url, {
       method: 'GET',
       redirect: 'follow',
       headers: { ...headers, Range: 'bytes=0-0' },
+      signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
     await response?.body?.cancel().catch(() => undefined);
   }

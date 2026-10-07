@@ -149,6 +149,7 @@ export async function fetchBrasilApiQsaFallback(cnpj: string): Promise<BrasilApi
         accept: 'application/json',
         'user-agent': 'OriginationIntelligencePlatform/1.0',
       },
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`BrasilAPI status ${response.status}`);
     const payload = await response.json() as Record<string, unknown>;

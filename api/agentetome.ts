@@ -109,6 +109,7 @@ const validateXml = async (user: AuthenticatedUser, body: Record<string, unknown
     method: 'POST',
     headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
     body: form,
+    signal: AbortSignal.timeout(120_000),
   });
   const retryAfter = parseRetryAfter(provider.headers.get('retry-after'));
   const raw = await provider.text();

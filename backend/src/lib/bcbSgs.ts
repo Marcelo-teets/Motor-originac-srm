@@ -35,7 +35,7 @@ const parseBrNumber = (value: unknown) => {
 };
 
 export async function fetchBcbSgsSeries(series: BcbSgsSeriesConfig, lastN = 3): Promise<BcbSgsSeriesResult> {
-  const response = await fetch(bcbSgsSeriesUrl(series.code, lastN), { headers: { accept: 'application/json' } });
+  const response = await fetch(bcbSgsSeriesUrl(series.code, lastN), { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     throw new Error(`BCB SGS series ${series.code} request failed with status ${response.status}`);
   }

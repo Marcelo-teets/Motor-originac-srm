@@ -56,7 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           grep -F "operation === 'provider-probe'" api/public-data-operations.ts
-          grep -F "timingSafeEqual" api/public-data-operations.ts
+          # Cron auth is the shared constant-time helper in serverless/http.ts.
+          grep -F "isCronAuthorized(req)" api/public-data-operations.ts
+          grep -F "timingSafeEqual" serverless/http.ts
           grep -F "X-Api-Key" api/public-data-operations.ts
           grep -F "https://data.maisretorno.com/mr-data/v4/api" api/public-data-operations.ts
           grep -F "X-AI-Cost-Policy" api/public-data-operations.ts

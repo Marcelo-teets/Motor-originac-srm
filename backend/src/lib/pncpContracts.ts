@@ -37,7 +37,7 @@ const parseHit = (item: unknown): PncpContractHit | null => {
 };
 
 export async function searchPncpContracts(query: string, pageSize = 5): Promise<PncpSearchResult> {
-  const response = await fetch(pncpSearchUrl(query, pageSize), { headers: { accept: 'application/json' } });
+  const response = await fetch(pncpSearchUrl(query, pageSize), { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     throw new Error(`PNCP search failed with status ${response.status}`);
   }

@@ -21,6 +21,7 @@ export class InfosimplesParticipantConnector {
         accept: 'application/json',
         authorization: `Bearer ${this.token}`,
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

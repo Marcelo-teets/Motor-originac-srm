@@ -212,7 +212,7 @@ export const probeAdminManifest = async (request: ExportRequest, deps: Pick<Pipe
   url.searchParams.set('corte', request.cut);
   if (request.competence) url.searchParams.set('competencia', request.competence);
   const startedAt = Date.now();
-  const response = await fetchImpl(url, { headers: providerHeaders(deps.apiKey) });
+  const response = await fetchImpl(url, { headers: providerHeaders(deps.apiKey), signal: AbortSignal.timeout(30_000) });
   const text = await response.text();
   let payload: Record<string, unknown>;
   try {
@@ -235,6 +235,7 @@ export const requestAdminExport = async (request: ExportRequest, deps: Pick<Pipe
   const fetchImpl = deps.fetchImpl ?? fetch;
   const response = await fetchImpl(new URL('/api/mcp', AGENTETOME_ORIGIN), {
     method: 'POST',
+    signal: AbortSignal.timeout(60_000),
     headers: providerHeaders(deps.apiKey, { 'content-type': 'application/json' }),
     body: JSON.stringify({
       jsonrpc: '2.0',
@@ -330,7 +331,7 @@ export const runAdminExport = async (
     if (payload.expira_em && Date.parse(payload.expira_em) <= now().getTime()) throw new AgentetomeError('provider_download_link_expired');
 
     stage = 'download_provider_zip';
-    const download = await fetchImpl(downloadUrl, { headers: { accept: 'application/zip, application/octet-stream' } });
+    const download = await fetchImpl(downloadUrl, { headers: { accept: 'application/zip, application/octet-stream' }, signal: AbortSignal.timeout(120_000) });
     if (!download.ok) throw new AgentetomeError(`agentetome_download_http_${download.status}`);
     const declared = Number(download.headers.get('content-length') ?? 0);
     if (declared > MAX_ZIP_BYTES) throw new AgentetomeError('agentetome_zip_size_invalid');
