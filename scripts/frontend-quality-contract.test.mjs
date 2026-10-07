@@ -104,6 +104,8 @@ test('session renewal uses the first-party Neon cookie and synchronizes browser 
   assert.match(auth, /authEpochRef = useRef\(0\)/);
   assert.match(auth, /authEpochRef\.current \+= 1/);
   assert.match(auth, /authEpochRef\.current !== expectedEpoch/);
+  assert.match(auth, /STALE_SESSION_KEYS\.includes\(event\.key\)/);
+  assert.match(auth, /removeStaleSessions\(\)/);
   assert.match(auth, /visibilitychange/);
   assert.match(auth, /addEventListener\('storage'/);
 });
