@@ -1,0 +1,62 @@
+name: Vercel Production Smoke 20261007
+
+on:
+  push:
+    branches:
+      - ops/vercel-production-smoke-20261007
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRODUCTION_URL: https://motor-originac-srm.vercel.app
+      EXPECTED_SHA: 0bfedda494c94d5c3eab3df8d123884fb03aa19c
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Checkout exact production main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Verify public build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const response = await fetch(process.env.PRODUCTION_URL + '/build-meta.json', {
+            headers: { 'cache-control': 'no-cache' },
+          });
+          if (!response.ok) throw new Error(`build-meta HTTP ${response.status}`);
+          const metadata = await response.json();
+          const deployedSha = metadata?.gitSha || metadata?.sha || metadata?.commitSha || metadata?.build?.gitSha;
+          if (deployedSha && deployedSha !== process.env.EXPECTED_SHA) {
+            throw new Error(`Unexpected deployed SHA: ${deployedSha}`);
+          }
+          console.log(JSON.stringify({buildMeta:true,deployedSha:deployedSha || null,auth:metadata?.auth || null}));
+          NODE
+      - name: Validate protected production health uses Neon
+        env:
+          SMOKE_URL: https://motor-originac-srm.vercel.app/api/data-capture/health
+          SMOKE_BEARER_TOKEN: ${{ secrets.CRON_SECRET }}
+          EXPECTED_DATA_PROVIDER: neon
+          SMOKE_ATTEMPTS: '8'
+          SMOKE_DELAY_MS: '5000'
+        run: |
+          test -n "$SMOKE_BEARER_TOKEN" || { echo "CRON_SECRET missing"; exit 2; }
+          node scripts/smoke/vercel-health-smoke.mjs
+      - name: Validate production Auth
+        env:
+          BASE_URL: https://motor-originac-srm.vercel.app
+          EXPECTED_SHA: 0bfedda494c94d5c3eab3df8d123884fb03aa19c
+          REQUIRE_CAPTCHA_SITE_KEY: 'false'
+        run: node scripts/smoke-auth-production.mjs
