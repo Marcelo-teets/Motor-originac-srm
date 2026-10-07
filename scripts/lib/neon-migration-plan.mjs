@@ -217,6 +217,7 @@ export const MIGRATIONS = Object.freeze([
   'db/migrations/145_entity_relevance_v3_historical_remediation.sql',
   'db/neon/20261007_neon_origination_ai_intro_runtime.sql',
   'db/neon/20261007_neon_origination_decision_gates.sql',
+  'db/neon/20261007_neon_paperclip_control_plane.sql',
   'db/neon/20261006_neon_runtime_cleanup.sql',
 ]);
 
