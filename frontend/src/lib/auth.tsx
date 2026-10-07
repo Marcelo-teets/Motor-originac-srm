@@ -204,7 +204,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const expectedEpoch = authEpochRef.current;
         const nextSession = await neonAuth.signInWithPassword(email, password);
-        if (authEpochRef.current !== expectedEpoch) return;
+        if (authEpochRef.current !== expectedEpoch) {
+          // A concurrent logout may have happened while /auth/login was in
+          // flight. Its late Set-Cookie must not resurrect the shared session.
+          await api.logout(nextSession).catch(() => undefined);
+          return;
+        }
         await hydrateSession(nextSession, expectedEpoch);
         if (authEpochRef.current === expectedEpoch) broadcastAuthEvent('login');
       } finally {
@@ -217,7 +222,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const expectedEpoch = authEpochRef.current;
         await hydrateSession(nextSession, expectedEpoch);
-        if (authEpochRef.current === expectedEpoch) broadcastAuthEvent('login');
+        if (authEpochRef.current !== expectedEpoch) {
+          await api.logout(nextSession).catch(() => undefined);
+          return;
+        }
+        broadcastAuthEvent('login');
       } finally {
         setLoading(false);
       }
