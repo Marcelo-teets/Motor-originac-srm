@@ -337,8 +337,9 @@ class DatabasePlatformRepository implements PlatformRepository {
   // newest N per company keeps every view identical while the cost no longer
   // grows with history. Newest first, like the previous full-table reads.
   private async recentSnapshots(
-    table: 'qualification_snapshots' | 'score_snapshots' | 'lead_score_snapshots',
+    table: 'qualification_snapshots' | 'score_snapshots' | 'lead_score_snapshots' | 'enrichments',
     extraPartition: string[] = [],
+    perCompany = SNAPSHOT_HISTORY_PER_COMPANY,
   ) {
     const partition = ['company_id', ...extraPartition].map((column) => `"${column}"`).join(', ');
     const rows = await this.ensureClient().query(
@@ -348,7 +349,7 @@ class DatabasePlatformRepository implements PlatformRepository {
        ) ranked
        where motor_history_rank <= $1
        order by created_at desc`,
-      [SNAPSHOT_HISTORY_PER_COMPANY],
+      [perCompany],
     );
     return rows.map(({ motor_history_rank: _rank, ...row }) => row);
   }
@@ -569,8 +570,8 @@ class DatabasePlatformRepository implements PlatformRepository {
 
   async listEnrichments() {
     return this.readWithFallback<EnrichmentRecord[]>(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('enrichments', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+      // hydrateCompanies only uses each company's newest enrichment.
+      const data = await this.recentSnapshots('enrichments', [], 1);
       return (data ?? []).map((row: any) => ({
         id: row.id,
         companyId: row.company_id,

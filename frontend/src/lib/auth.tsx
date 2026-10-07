@@ -7,10 +7,31 @@ import { neonAuth } from './neonAuth';
 import type { UserProfile } from './neonAuth';
 import type { SessionData } from './types';
 
-const SESSION_KEY = 'motor.neon.session';
-// Removed on load so sessions stored by the legacy auth provider never linger.
-const LEGACY_SESSION_KEY = 'motor.supabase.session';
+// The access token lives only in memory. The session itself is the HttpOnly
+// first-party cookie set by /auth/login, and /auth/session exchanges it for a
+// fresh short-lived token on load and before expiry. Nothing a script injected
+// into the page could read is persisted.
+// Tokens persisted by earlier versions (and the legacy provider) are removed.
+const STALE_SESSION_KEYS = ['motor.neon.session', 'motor.supabase.session'];
+// Cross-tab login/logout signal. Carries no credential, only the event kind.
+const AUTH_SIGNAL_KEY = 'motor.auth.signal';
 const REFRESH_WINDOW_MS = 90_000;
+
+const removeStaleSessions = () => {
+  try {
+    STALE_SESSION_KEYS.forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // Storage can be unavailable (private mode, blocked site data).
+  }
+};
+
+const broadcastAuthEvent = (kind: 'login' | 'logout') => {
+  try {
+    window.localStorage.setItem(AUTH_SIGNAL_KEY, `${kind}:${Date.now()}`);
+  } catch {
+    // Other tabs then catch up on their next refresh.
+  }
+};
 
 const isInvalidSessionError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -33,31 +54,13 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const readStoredSession = (): SessionData | null => {
-  window.localStorage.removeItem(LEGACY_SESSION_KEY);
-  const raw = window.localStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as SessionData;
-    if (!parsed.access_token || !Number.isFinite(parsed.expires_at)) throw new Error('Sessão local inválida.');
-    if (parsed.expires_at <= Date.now() && !parsed.refresh_token) {
-      window.localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
-    return parsed;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
-};
-
 const refreshIfNeeded = async (current: SessionData, force = false) => {
   if (!force && current.expires_at > Date.now() + REFRESH_WINDOW_MS) return current;
   return neonAuth.refreshSession();
 };
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [session, setSession] = useState<SessionData | null>(() => readStoredSession());
+  const [session, setSession] = useState<SessionData | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +88,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const clearLocalSession = useCallback(() => {
-    window.localStorage.removeItem(SESSION_KEY);
     setSession(null);
     setProfile(null);
   }, []);
@@ -94,23 +96,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
     let cancelled = false;
 
     const syncSession = async () => {
-      const current = readStoredSession();
-
+      removeStaleSessions();
       try {
-        const freshSession = current?.access_token
-          ? await refreshIfNeeded(current)
-          : await neonAuth.refreshSession();
+        const freshSession = await neonAuth.refreshSession();
         if (!cancelled) await hydrateSession(freshSession);
       } catch (syncError) {
         if (cancelled) return;
         clearLocalSession();
-        // Ausência do cookie first-party é o estado normal antes do login.
-        // Só mostramos erro quando existia uma sessão local que deveria ser válida.
-        if (current?.access_token && !isInvalidSessionError(syncError)) {
-          setError(syncError instanceof Error ? syncError.message : 'Não foi possível validar sua sessão.');
-        } else {
-          setError(null);
-        }
+        // Ausência do cookie first-party é o estado normal antes do login;
+        // só falhas reais (rede, servidor) viram erro.
+        setError(isInvalidSessionError(syncError)
+          ? null
+          : syncError instanceof Error ? syncError.message : 'Não foi possível validar sua sessão.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -120,13 +117,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => { cancelled = true; };
   }, [clearLocalSession, hydrateSession, retryToken]);
 
-  useEffect(() => {
-    if (session) window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else window.localStorage.removeItem(SESSION_KEY);
-  }, [session]);
-
   const renewSession = useCallback(async (force = true) => {
-    const current = session ?? readStoredSession();
+    const current = session;
     if (!current) return;
     try {
       const freshSession = await refreshIfNeeded(current, force);
@@ -164,21 +156,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const syncAcrossTabs = (event: StorageEvent) => {
-      if (event.key !== SESSION_KEY) return;
-      const next = readStoredSession();
-      if (!next) {
-        setSession(null);
-        setProfile(null);
+      if (event.key !== AUTH_SIGNAL_KEY || !event.newValue) return;
+      if (event.newValue.startsWith('logout')) {
+        clearLocalSession();
         return;
       }
-      setSession(next);
-      void hydrateSession(next).catch((syncError) => {
-        setError(syncError instanceof Error ? syncError.message : 'Não foi possível sincronizar a sessão.');
-      });
+      // Another tab logged in: the shared cookie now holds that session.
+      void neonAuth.refreshSession()
+        .then((next) => hydrateSession(next))
+        .catch((syncError) => {
+          setError(syncError instanceof Error ? syncError.message : 'Não foi possível sincronizar a sessão.');
+        });
     };
     window.addEventListener('storage', syncAcrossTabs);
     return () => window.removeEventListener('storage', syncAcrossTabs);
-  }, [hydrateSession]);
+  }, [clearLocalSession, hydrateSession]);
 
   const value = useMemo<AuthContextValue>(() => ({
     session,
@@ -193,6 +185,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const nextSession = await neonAuth.signInWithPassword(email, password);
         await hydrateSession(nextSession);
+        broadcastAuthEvent('login');
       } finally {
         setLoading(false);
       }
@@ -202,6 +195,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setError(null);
       try {
         await hydrateSession(nextSession);
+        broadcastAuthEvent('login');
       } finally {
         setLoading(false);
       }
@@ -232,6 +226,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // A limpeza local ocorre mesmo se a revogação remota estiver indisponível.
       }
       clearLocalSession();
+      broadcastAuthEvent('logout');
       setError(null);
     },
   }), [clearLocalSession, error, hydrateSession, loading, profile, session]);
