@@ -28,6 +28,10 @@ export const PATCHES = {
     // so "if not exists" skipped it and the ON CONFLICT below had no matching arbiter.
     ['create unique index if not exists uq_source_catalog_metadata_code\n', 'create unique index if not exists uq_source_catalog_metadata_code_nonempty\n'],
   ],
+  'db/migrations/136_cvm_free_tier_storage_guard.sql': [
+    // Neon does not expose the legacy superuser role "postgres"; service_role is the runtime executor.
+    ['  to service_role, postgres;', '  to service_role;'],
+  ],
   'db/migrations/151_candidate_entity_resolution_v5_conflict_constraint.sql': [
     // 150 writes "on conflict (company_id,discovered_candidate_id)" (space after "conflict");
     // the original position() probe only matched the no-space spelling and always raised.
