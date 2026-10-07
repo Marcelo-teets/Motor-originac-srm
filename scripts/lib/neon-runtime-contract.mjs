@@ -68,6 +68,7 @@ export const REQUIRED_RELATIONS = Object.freeze([
   'public.tasks',
   'public.thesis_outputs',
   'public.touchpoints',
+  'public.trigger_catalog',
   'public.trigger_events',
   'public.user_profiles',
   'public.vector_documents',
