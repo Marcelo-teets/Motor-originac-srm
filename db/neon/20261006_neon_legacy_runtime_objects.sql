@@ -124,20 +124,22 @@ create or replace function public.match_vector_documents_lexical(
   match_count integer default 5,
   company_id text default null
 )
-returns table(id uuid, content text, company_id text, metadata jsonb, lexical_score double precision)
+returns table(id uuid, content text)
 language sql
 stable
 set search_path = public, pg_temp
 as $function$
-  select vd.id, vd.content, vd.company_id, vd.metadata,
-         ts_rank(vd.content_tsv, q.tsq)::double precision as lexical_score
+  with q as (
+    select public.build_pt_search_query(query_text) as tsq
+  )
+  select vd.id, vd.content
   from public.vector_documents vd
-  cross join (select public.build_pt_search_query(query_text) as tsq) q
+  cross join q
   where q.tsq is not null
     and vd.content_tsv @@ q.tsq
     and (match_vector_documents_lexical.company_id is null
-         or vd.company_id = match_vector_documents_lexical.company_id)
-  order by lexical_score desc, vd.created_at desc, vd.id
+         or vd.company_id::text = match_vector_documents_lexical.company_id)
+  order by ts_rank(vd.content_tsv, q.tsq) desc, vd.created_at desc, vd.id
   limit least(greatest(coalesce(match_count, 5), 1), 50);
 $function$;
 
@@ -149,13 +151,13 @@ create or replace function public.match_vector_documents_hybrid(
   rrf_k integer default 60,
   company_id text default null
 )
-returns table(id uuid, content text, company_id text, metadata jsonb, rrf_score double precision)
+returns table(id uuid, content text)
 language sql
 stable
 set search_path = public, pg_temp
 as $function$
   with lexical as (
-    select l.id, row_number() over (order by l.lexical_score desc, l.id) as rnk
+    select l.id, row_number() over (order by l.id) as rnk
     from public.match_vector_documents_lexical(query_text, greatest(coalesce(match_count, 10), 1) * 6, company_id) l
   ), semantic as (
     select vd.id, row_number() over (order by vd.embedding <=> query_embedding, vd.id) as rnk
@@ -163,7 +165,7 @@ as $function$
     where query_embedding is not null
       and vd.embedding is not null
       and (match_vector_documents_hybrid.company_id is null
-           or vd.company_id = match_vector_documents_hybrid.company_id)
+           or vd.company_id::text = match_vector_documents_hybrid.company_id)
     order by vd.embedding <=> query_embedding, vd.id
     limit greatest(coalesce(match_count, 10), 1) * 6
   ), fused as (
@@ -173,7 +175,7 @@ as $function$
     from lexical l
     full outer join semantic s on s.id = l.id
   )
-  select vd.id, vd.content, vd.company_id, vd.metadata, f.rrf_score
+  select vd.id, vd.content
   from fused f
   join public.vector_documents vd on vd.id = f.id
   order by f.rrf_score desc, vd.id
