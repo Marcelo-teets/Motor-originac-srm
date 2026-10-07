@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/UI';
@@ -65,11 +65,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  // Every local sign-out/session invalidation advances the epoch. Async auth
+  // work that started before that point must never be allowed to restore a
+  // token/profile after logout (including logout received from another tab).
+  const authEpochRef = useRef(0);
 
-  const hydrateSession = useCallback(async (current: SessionData) => {
+  const hydrateSession = useCallback(async (current: SessionData, expectedEpoch = authEpochRef.current) => {
     const liveUser = await api.getMe(current).catch(() => current.user);
+    if (authEpochRef.current !== expectedEpoch) return null;
     const baseSession = { ...current, user: liveUser };
     const nextProfile = await neonAuth.getProfile(baseSession);
+    if (authEpochRef.current !== expectedEpoch) return null;
     if (nextProfile.status !== 'active') {
       throw new Error('Este usuário está desativado. Procure o administrador GOD-MODE.');
     }
@@ -88,6 +94,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const clearLocalSession = useCallback(() => {
+    authEpochRef.current += 1;
     setSession(null);
     setProfile(null);
   }, []);
@@ -98,8 +105,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const syncSession = async () => {
       removeStaleSessions();
       try {
+        const expectedEpoch = authEpochRef.current;
         const freshSession = await neonAuth.refreshSession();
-        if (!cancelled) await hydrateSession(freshSession);
+        if (!cancelled && authEpochRef.current === expectedEpoch) await hydrateSession(freshSession, expectedEpoch);
       } catch (syncError) {
         if (cancelled) return;
         clearLocalSession();
@@ -120,9 +128,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const renewSession = useCallback(async (force = true) => {
     const current = session;
     if (!current) return;
+    const expectedEpoch = authEpochRef.current;
     try {
       const freshSession = await refreshIfNeeded(current, force);
-      await hydrateSession(freshSession);
+      if (authEpochRef.current !== expectedEpoch) return;
+      await hydrateSession(freshSession, expectedEpoch);
     } catch (refreshError) {
       if (isInvalidSessionError(refreshError)) {
         clearLocalSession();
@@ -162,8 +172,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
       // Another tab logged in: the shared cookie now holds that session.
+      const expectedEpoch = authEpochRef.current;
       void neonAuth.refreshSession()
-        .then((next) => hydrateSession(next))
+        .then((next) => authEpochRef.current === expectedEpoch ? hydrateSession(next, expectedEpoch) : null)
         .catch((syncError) => {
           setError(syncError instanceof Error ? syncError.message : 'Não foi possível sincronizar a sessão.');
         });
@@ -183,9 +194,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(true);
       setError(null);
       try {
+        const expectedEpoch = authEpochRef.current;
         const nextSession = await neonAuth.signInWithPassword(email, password);
-        await hydrateSession(nextSession);
-        broadcastAuthEvent('login');
+        if (authEpochRef.current !== expectedEpoch) return;
+        await hydrateSession(nextSession, expectedEpoch);
+        if (authEpochRef.current === expectedEpoch) broadcastAuthEvent('login');
       } finally {
         setLoading(false);
       }
@@ -194,15 +207,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(true);
       setError(null);
       try {
-        await hydrateSession(nextSession);
-        broadcastAuthEvent('login');
+        const expectedEpoch = authEpochRef.current;
+        await hydrateSession(nextSession, expectedEpoch);
+        if (authEpochRef.current === expectedEpoch) broadcastAuthEvent('login');
       } finally {
         setLoading(false);
       }
     },
     async refreshProfile() {
       if (!session) return null;
+      const expectedEpoch = authEpochRef.current;
       const nextProfile = await neonAuth.getProfile(session);
+      if (authEpochRef.current !== expectedEpoch) return null;
       if (nextProfile.status !== 'active') {
         clearLocalSession();
         return nextProfile;
@@ -220,14 +236,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setRetryToken((current) => current + 1);
     },
     async logout() {
-      try {
-        await api.logout(session);
-      } catch {
-        // A limpeza local ocorre mesmo se a revogação remota estiver indisponível.
-      }
+      const currentSession = session;
+      // Invalidate in-flight refresh/profile requests before awaiting the
+      // network so they cannot resurrect the session after this logout.
       clearLocalSession();
       broadcastAuthEvent('logout');
       setError(null);
+      try {
+        await api.logout(currentSession);
+      } catch {
+        // A limpeza local ocorre mesmo se a revogação remota estiver indisponível.
+      }
     },
   }), [clearLocalSession, error, hydrateSession, loading, profile, session]);
 
