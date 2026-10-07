@@ -4,6 +4,7 @@ import {
   classifyCandidateCommercialSemantics,
   type CandidateCommercialSignalClass,
 } from '../lib/candidateCommercialSemantics.js';
+import { applyCandidateMediaRecencyGuard, CANDIDATE_MEDIA_RECENCY_VERSION } from '../lib/candidateMediaRecency.js';
 
 const DEFAULT_LIMIT = 250;
 const MAX_LIMIT = 500;
@@ -102,7 +103,8 @@ export class CandidateNewsSemanticsService {
     for (const row of rows) {
       try {
         const currentVersion = Number(row.raw_payload?.commercial_semantics_version ?? 0);
-        if (!options.force && currentVersion === SEMANTICS_VERSION) {
+        const currentRecencyVersion = Number(row.raw_payload?.commercial_recency_version ?? 0);
+        if (!options.force && currentVersion === SEMANTICS_VERSION && currentRecencyVersion === CANDIDATE_MEDIA_RECENCY_VERSION) {
           result.skippedCurrentVersion += 1;
           continue;
         }
@@ -117,8 +119,9 @@ export class CandidateNewsSemanticsService {
         if (!semantics) continue;
 
         const observedAt = this.now().toISOString();
+        const guardedPayload = applyCandidateMediaRecencyGuard(applyCandidateCommercialSemantics(input), this.now());
         const rawPayload = {
-          ...applyCandidateCommercialSemantics(input),
+          ...guardedPayload,
           classification_status: semantics.signalClass === 'editorial_noise'
             ? 'discarded_non_entity'
             : 'classified',
