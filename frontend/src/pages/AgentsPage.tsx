@@ -9,6 +9,7 @@ export function AgentsPage() {
   const { data, loading, error } = useAsyncData(() => api.getAgentsSnapshot(session), [session?.access_token]);
   const { data: abaData } = useAsyncData(() => api.getAbaStatus(session), [session?.access_token]);
   const [commandText, setCommandText] = useState('');
+  const [paperclipAction, setPaperclipAction] = useState('run_suggested_improvements');
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
 
@@ -43,13 +44,15 @@ export function AgentsPage() {
         <div className="table-helper">Capabilities: {abaData?.data.capabilities.join(', ') ?? 'carregando...'}</div>
         {commandMessage ? <div className="table-helper">{commandMessage}</div> : null}
         <div className="actions">
-          <input value={commandText} placeholder="Comando operacional (ex.: gerar playbook top lead)" onChange={(event) => setCommandText(event.target.value)} />
+          <select value={paperclipAction} onChange={(event) => setPaperclipAction(event.target.value)} aria-label="Ação Paperclip">
+            <option value="run_suggested_improvements">Processar melhorias sugeridas</option>
+            <option value="process_reprocessing_queue">Processar fila de reavaliação</option>
+          </select>
           <button type="button" onClick={async () => {
-            if (!commandText.trim()) return;
-            const result = await api.commandPaperClip(session, commandText.trim(), { source: 'agents_page' });
-            setCommandMessage(`Paper Clip: ${result.result ?? 'executado'}`);
-            setCommandText('');
-          }}>Comandar Paper Clip</button>
+            const result = await api.commandPaperClip(session, paperclipAction, { source: 'agents_page', limit: 10 });
+            setCommandMessage(`Paperclip: ${result.status} · ${result.action}`);
+          }}>Executar Paperclip</button>
+          <input value={commandText} placeholder="Comando ADM" onChange={(event) => setCommandText(event.target.value)} />
           <button type="button" onClick={async () => {
             if (!commandText.trim()) return;
             const result = await api.commandAdm(session, commandText.trim(), { source: 'agents_page' });
