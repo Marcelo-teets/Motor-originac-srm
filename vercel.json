@@ -33,7 +33,7 @@
       "maxDuration": 30
     },
     "api/dcm-daily-operating-loop.ts": {
-      "maxDuration": 10
+      "maxDuration": 30
     },
     "api/dcm-daily-leads.ts": {
       "maxDuration": 15
@@ -119,6 +119,10 @@
     {
       "source": "/api/origination/business-analyst",
       "destination": "/api/dcm-daily-operating-loop?view=business-analyst"
+    },
+    {
+      "source": "/api/origination/paperclip",
+      "destination": "/api/dcm-daily-operating-loop?view=paperclip"
     },
     {
       "source": "/api/origination/daily-leads",
