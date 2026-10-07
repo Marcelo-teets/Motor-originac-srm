@@ -185,7 +185,10 @@ export const api = {
     await requestEnvelope<AbaCommandRecord>('/aba/command', session, { method: 'POST', body: JSON.stringify({ target, action, context }) })
   ).data,
   commandPaperClip: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
-    await requestEnvelope<AbaCommandRecord>('/agents/paper-clip/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
+    await requestEnvelope<AbaCommandRecord>('/origination/paperclip', session, {
+      method: 'POST',
+      body: JSON.stringify({ action, context, idempotencyKey: crypto.randomUUID() }),
+    })
   ).data,
   commandAdm: async (session: SessionData | null, action: string, context: Record<string, unknown> = {}) => (
     await requestEnvelope<AbaCommandRecord>('/agents/adm/command', session, { method: 'POST', body: JSON.stringify({ action, context }) })
