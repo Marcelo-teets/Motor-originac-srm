@@ -321,6 +321,8 @@ class MemoryPlatformRepository implements PlatformRepository {
   }
 }
 
+const SNAPSHOT_HISTORY_PER_COMPANY = 5;
+
 class DatabasePlatformRepository implements PlatformRepository {
   private readonly client = getDataClient();
   private readonly fallback = new MemoryPlatformRepository();
@@ -328,6 +330,27 @@ class DatabasePlatformRepository implements PlatformRepository {
   private ensureClient() {
     if (!this.client) throw new Error('Persistent data client not configured. Set MOTOR_NEON_DATABASE_URL or DATABASE_URL.');
     return this.client;
+  }
+
+  // Snapshot tables are append-only (one row per recompute), but readers only
+  // use each company's latest rows (score history shows the last 5). Reading the
+  // newest N per company keeps every view identical while the cost no longer
+  // grows with history. Newest first, like the previous full-table reads.
+  private async recentSnapshots(
+    table: 'qualification_snapshots' | 'score_snapshots' | 'lead_score_snapshots',
+    extraPartition: string[] = [],
+  ) {
+    const partition = ['company_id', ...extraPartition].map((column) => `"${column}"`).join(', ');
+    const rows = await this.ensureClient().query(
+      `select * from (
+         select snapshot.*, row_number() over (partition by ${partition} order by created_at desc) as motor_history_rank
+         from public."${table}" snapshot
+       ) ranked
+       where motor_history_rank <= $1
+       order by created_at desc`,
+      [SNAPSHOT_HISTORY_PER_COMPANY],
+    );
+    return rows.map(({ motor_history_rank: _rank, ...row }) => row);
   }
 
   private async readWithFallback<T>(loader: () => Promise<T>, fallback: () => Promise<T>, shouldFallback?: (result: T) => boolean) {
@@ -562,8 +585,7 @@ class DatabasePlatformRepository implements PlatformRepository {
 
   async listQualificationSnapshots() {
     return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('qualification_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+      const data = await this.recentSnapshots('qualification_snapshots');
       return (data ?? []).map((row: any) => ({ ...row, companyId: row.company_id, pattern_summary: row.pattern_summary ?? [] } satisfies QualificationSnapshot));
     }, () => this.fallback.listQualificationSnapshots());
   }
@@ -594,8 +616,7 @@ class DatabasePlatformRepository implements PlatformRepository {
 
   async listScoreSnapshots() {
     return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('score_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+      const data = await this.recentSnapshots('score_snapshots', ['score_type']);
       return (data ?? []).map((row: any) => ({
         companyId: row.company_id,
         scoreType: row.score_type,
@@ -609,8 +630,7 @@ class DatabasePlatformRepository implements PlatformRepository {
 
   async listLeadScoreSnapshots() {
     return this.readWithFallback(async () => {
-      const client = this.ensureClient();
-      const data = await client.select('lead_score_snapshots', { select: '*', orderBy: { column: 'created_at', ascending: false } });
+      const data = await this.recentSnapshots('lead_score_snapshots');
       return (data ?? []).map((row: any) => ({
         companyId: row.company_id,
         leadScore: Number(row.lead_score ?? 0),

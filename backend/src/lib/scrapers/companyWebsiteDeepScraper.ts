@@ -1,5 +1,6 @@
 import type { B2BSignalPackResult, ScrapedPage, ScraperConnectorStatus } from './originationScraperTypes.js';
 import { classifyWebsitePath, detectSignals, extractHeadings, extractTitle, sanitizeHtml } from './originationSignalDetectors.js';
+import { mapWithConcurrency } from '../helpers.js';
 
 const candidatePaths = [
   '',
@@ -36,19 +37,39 @@ const normalizeBaseUrl = (website: string) => {
   return withProtocol.replace(/\/$/, '');
 };
 
-const fetchPage = async (url: string): Promise<ScrapedPage | null> => {
+const PAGE_FETCH_TIMEOUT_MS = 8_000;
+const MAX_PAGE_BYTES = 1_500_000;
+const PAGE_FETCH_CONCURRENCY = 5;
+const MAX_PAGES = 10;
+
+// Third-party sites: bound both the wait and the body we are willing to buffer.
+const readPageHtml = async (url: string) => {
+  const response = await fetch(url, {
+    headers: { accept: 'text/html,application/xhtml+xml' },
+    signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) return null;
+  if (Number(response.headers.get('content-length') ?? 0) > MAX_PAGE_BYTES) {
+    await response.body?.cancel();
+    return null;
+  }
+  return (await response.text()).slice(0, MAX_PAGE_BYTES);
+};
+
+const fetchPage = async (url: string, baseUrl: string): Promise<ScrapedPage | null> => {
   try {
-    const response = await fetch(url, { headers: { accept: 'text/html,application/xhtml+xml' } });
-    if (!response.ok) return null;
-    const html = await response.text();
+    const html = await readPageHtml(url);
+    if (html === null) return null;
     const title = extractTitle(html);
     const headings = extractHeadings(html);
     const rawText = sanitizeHtml(html).slice(0, 12000);
-    const pageType = url === url.replace(/\/$/, '') ? 'homepage' : classifyWebsitePath(url);
+    // Only the bare site URL is the homepage; candidate paths are classified by
+    // pathname so a host like newscorp.com is not mistaken for a newsroom.
+    const pageType = url === baseUrl ? 'homepage' : classifyWebsitePath(new URL(url).pathname);
 
     return {
       url,
-      pageType: pageType === 'unknown' && /\/\/?$/.test(url) ? 'homepage' : pageType,
+      pageType,
       title,
       headings,
       excerpt: rawText.slice(0, 280),
@@ -69,8 +90,8 @@ export const scrapeCompanyWebsiteDeep = async (params: {
   const baseUrl = normalizeBaseUrl(params.website);
   const urls = unique(candidatePaths.map((path) => `${baseUrl}${path}`));
 
-  const settled = await Promise.all(urls.map((url) => fetchPage(url)));
-  const pages = settled.filter((page): page is ScrapedPage => Boolean(page)).slice(0, 10);
+  const settled = await mapWithConcurrency(urls, PAGE_FETCH_CONCURRENCY, (url) => fetchPage(url, baseUrl));
+  const pages = settled.filter((page): page is ScrapedPage => Boolean(page)).slice(0, MAX_PAGES);
 
   const connectorStatus: ScraperConnectorStatus = pages.length ? 'real' : 'partial';
   const consolidatedText = pages
