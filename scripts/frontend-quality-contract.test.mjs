@@ -91,12 +91,19 @@ test('lead list avoids the company-detail N+1 request pattern', () => {
   assert.match(companies, /Promise\.allSettled\(\[api\.getAbmWeekly/);
 });
 
-test('session renewal uses the first-party Neon cookie and synchronizes browser contexts', () => {
+test('session renewal uses the first-party Neon cookie and synchronizes browser contexts without persisting credentials', () => {
   assert.match(auth, /refreshIfNeeded/);
   assert.match(auth, /return neonAuth\.refreshSession\(\)/);
   assert.match(auth, /motor\.neon\.session/);
   assert.match(auth, /motor\.supabase\.session/);
+  assert.match(auth, /motor\.auth\.signal/);
   assert.doesNotMatch(auth, /refresh_token: refreshed\.refresh_token/);
+  assert.doesNotMatch(auth, /JSON\.stringify\(session\)/);
+  assert.doesNotMatch(auth, /localStorage\.setItem\([^\n]*motor\.neon\.session/);
+  assert.doesNotMatch(auth, /localStorage\.setItem\([^\n]*motor\.supabase\.session/);
+  assert.match(auth, /authEpochRef = useRef\(0\)/);
+  assert.match(auth, /authEpochRef\.current \+= 1/);
+  assert.match(auth, /authEpochRef\.current !== expectedEpoch/);
   assert.match(auth, /visibilitychange/);
   assert.match(auth, /addEventListener\('storage'/);
 });
