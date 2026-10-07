@@ -1,0 +1,64 @@
+name: Final PR Closure Neon Cutover
+
+on:
+  push:
+    branches:
+      - ops/final-pr-closure-cutover-20261007
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-production-cutover
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      EXPECTED_MAIN_SHA: ab06b4abe75c08b19558e8f7faf9a0c8af19806a
+      EXPECTED_NEON_HOST: ep-fragrant-moon-b6o2wxmx-pooler.c-2.sa-east-1.aws.neon.tech
+    steps:
+      - name: Checkout exact final main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection from Vercel
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Verify production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const url = new URL(process.env.MOTOR_NEON_DATABASE_URL);
+          if (url.hostname !== process.env.EXPECTED_NEON_HOST) throw new Error(`Unexpected Neon host: ${url.hostname}`);
+          if (url.pathname.replace(/^\//,'') !== 'neondb') throw new Error('Unexpected database');
+          const pool = new pg.Pool({ connectionString:url.toString(), max:1 });
+          try {
+            const {rows}=await pool.query(`
+              select current_database() db,
+                     to_regclass('private.motor_neon_migrations') is not null migration_tracking,
+                     to_regclass('public.companies') is not null companies_ok
+            `);
+            if (!rows[0]?.migration_tracking || !rows[0]?.companies_ok) throw new Error('Production baseline incomplete');
+            console.log(JSON.stringify({database:rows[0].db,host:url.hostname,baseline:true}));
+          } finally { await pool.end(); }
+          NODE
+      - name: Apply canonical migration plan
+        env:
+          GITHUB_SHA: ${{ env.EXPECTED_MAIN_SHA }}
+        run: node scripts/apply-neon-runtime-migrations.mjs
+      - name: Verify production parity
+        run: node scripts/neon-runtime-parity-check.mjs
