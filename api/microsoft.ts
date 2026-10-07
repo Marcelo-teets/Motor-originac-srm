@@ -263,10 +263,12 @@ const getAccessToken = async (connection: MicrosoftConnection) => {
 };
 
 const graphRequest = async <T>(accessToken: string, path: string, init: RequestInit = {}) => {
+  const timeoutSignal = AbortSignal.timeout(15_000);
+  const requestSignal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(path.startsWith('http') ? path : `${GRAPH_BASE}${path}`, {
     ...init,
-    // The function runs with a 30s budget; never wait on Graph past it.
-    signal: init.signal ?? AbortSignal.timeout(15_000),
+    // Preserve caller cancellation while still enforcing the function budget.
+    signal: requestSignal,
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
