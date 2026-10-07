@@ -68,7 +68,7 @@ test('skips already classified current-version candidates unless forced', async 
       'current',
       'Open Co',
       'Open Co capta FIDC de R$ 50 milhões',
-      { commercial_semantics_version: 3 },
+      { commercial_semantics_version: 3, commercial_recency_version: 1 },
     )],
     update: async () => { updates += 1; return []; },
   };
@@ -120,4 +120,27 @@ test('force reclassifies a current-version candidate without enabling promotion'
   assert.equal(rawPayload.promotion_ready, false);
   assert.equal(rawPayload.identity_review_status, 'pending');
   assert.equal('decision_eligible' in rawPayload, false);
+});
+
+
+test('reprocesses semantics v3 once when recency metadata is missing', async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const client = {
+    select: async () => [candidate(
+      'legacy-v3',
+      'Open Co',
+      'Open Co capta FIDC de R$ 50 milhões',
+      { commercial_semantics_version: 3 },
+    )],
+    update: async (_table: string, payload: Record<string, unknown>) => { updates.push(payload); return []; },
+  };
+  const service = new CandidateNewsSemanticsService({
+    client: client as never,
+    now: () => new Date('2026-08-12T12:00:00.000Z'),
+  });
+  const result = await service.run();
+  assert.equal(result.classified, 1);
+  assert.equal(result.skippedCurrentVersion, 0);
+  const rawPayload = updates[0].raw_payload as Record<string, unknown>;
+  assert.equal(rawPayload.commercial_recency_version, 1);
 });
