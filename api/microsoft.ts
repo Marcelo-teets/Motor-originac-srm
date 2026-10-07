@@ -221,6 +221,7 @@ const microsoftTokenRequest = async (body: URLSearchParams) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(10_000),
   });
   const payload = await parseResponse(response) as JsonRecord;
   if (!response.ok || typeof payload.access_token !== 'string') {
@@ -264,6 +265,8 @@ const getAccessToken = async (connection: MicrosoftConnection) => {
 const graphRequest = async <T>(accessToken: string, path: string, init: RequestInit = {}) => {
   const response = await fetch(path.startsWith('http') ? path : `${GRAPH_BASE}${path}`, {
     ...init,
+    // The function runs with a 30s budget; never wait on Graph past it.
+    signal: init.signal ?? AbortSignal.timeout(15_000),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',

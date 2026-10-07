@@ -53,7 +53,7 @@ export class AnbimaStructuredFundsConnector {
     url.searchParams.set('page', String(page));
     url.searchParams.set('size', String(size));
 
-    const response = await fetch(url.toString(), { headers: buildHeaders(this.token) });
+    const response = await fetch(url.toString(), { headers: buildHeaders(this.token), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) {
       throw new Error(`ANBIMA list request failed with status ${response.status}`);
     }
@@ -69,7 +69,7 @@ export class AnbimaStructuredFundsConnector {
   }
 
   async detail(cnpjFundo: string) {
-    const response = await fetch(`${this.baseUrl}/${cnpjFundo}`, { headers: buildHeaders(this.token) });
+    const response = await fetch(`${this.baseUrl}/${cnpjFundo}`, { headers: buildHeaders(this.token), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) {
       throw new Error(`ANBIMA detail request failed with status ${response.status}`);
     }

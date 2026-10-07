@@ -87,6 +87,7 @@ export const scrapeProfessionalNetworkCompany = async (params: {
         accept: 'text/html,application/xhtml+xml',
         'user-agent': 'Mozilla/5.0',
       },
+      signal: AbortSignal.timeout(8_000),
     });
 
     if (response.ok) {

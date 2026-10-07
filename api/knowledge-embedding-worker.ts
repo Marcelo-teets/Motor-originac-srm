@@ -182,6 +182,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const voyageResponse = await fetch('https://api.voyageai.com/v1/embeddings', {
       method: 'POST',
+      signal: AbortSignal.timeout(20_000),
       headers: {
         Authorization: `Bearer ${voyageApiKey}`,
         'Content-Type': 'application/json',

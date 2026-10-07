@@ -15,7 +15,7 @@ const onlyDigits = (value: string) => value.replace(/\D/g, '');
 // O diretório oficial retorna um array de organizações; o parse é defensivo e
 // mantém só os campos usados no matching e na evidência.
 export async function fetchOpenFinanceParticipants(): Promise<OpenFinanceParticipant[]> {
-  const response = await fetch(OPEN_FINANCE_DIRECTORY_URL, { headers: { accept: 'application/json' } });
+  const response = await fetch(OPEN_FINANCE_DIRECTORY_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     throw new Error(`Open Finance directory request failed with status ${response.status}`);
   }

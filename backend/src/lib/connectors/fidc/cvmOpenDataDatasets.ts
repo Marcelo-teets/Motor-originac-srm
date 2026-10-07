@@ -39,7 +39,7 @@ export type CVMOpenDataPackage = {
 };
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: { accept: 'application/json' } });
+  const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     throw new Error(`CVM package request failed with status ${response.status}`);
   }
