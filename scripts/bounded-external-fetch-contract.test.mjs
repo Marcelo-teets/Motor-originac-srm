@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const fetchGuard = await readFile(new URL('../backend/src/lib/boundedExternalFetch.ts', import.meta.url), 'utf8');
 const runner = await readFile(new URL('../serverless/bounded-capture-run.ts', import.meta.url), 'utf8');
+const microsoft = await readFile(new URL('../api/microsoft.ts', import.meta.url), 'utf8');
 
 test('uses request-local storage instead of a process-wide mutable timeout', () => {
   assert.match(fetchGuard, /AsyncLocalStorage/);
@@ -27,4 +28,11 @@ test('bounded capture runner wraps the existing global deadline with the fetch g
   assert.match(runner, /withCaptureDeadline\(runtime\.run/);
   assert.match(runner, /externalFetchTimeoutMs: BOUNDED_EXTERNAL_FETCH_TIMEOUT_MS/);
   assert.match(runner, /bounded-capture-run-v2/);
+});
+
+
+test('Microsoft Graph preserves caller cancellation without losing its serverless timeout', () => {
+  assert.match(microsoft, /const timeoutSignal = AbortSignal\.timeout\(15_000\)/);
+  assert.match(microsoft, /AbortSignal\.any\(\[init\.signal, timeoutSignal\]\)/);
+  assert.match(microsoft, /signal: requestSignal/);
 });
