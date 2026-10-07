@@ -41,4 +41,9 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/neon-db-cutover'
         run: node scripts/apply-neon-runtime-migrations.mjs
       - name: Check required Neon runtime schema
+        if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'chore/neon-db-cutover'
         run: node scripts/neon-runtime-parity-check.mjs
+
+      - name: Validate Neon migration/runtime contracts on ordinary PRs
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'chore/neon-db-cutover'
+        run: node --test scripts/neon-migration-plan-contract.test.mjs scripts/neon-runtime-contract.test.mjs
