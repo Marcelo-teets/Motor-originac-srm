@@ -15,11 +15,6 @@ const writeJson = (res: ServerResponse, statusCode: number, payload: unknown) =>
 };
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
-    writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
-    return;
-  }
-
   const authorization = getHeader(req, 'authorization');
   if (!authorization?.startsWith('Bearer ')) {
     writeJson(res, 401, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Missing bearer token.' });
@@ -27,9 +22,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    await verifyActiveIdentity(authorization.slice('Bearer '.length));
-
+    const { user } = await verifyActiveIdentity(authorization.slice('Bearer '.length));
     const view = parseRequestUrl(req).searchParams.get('view') ?? 'loop';
+
+    if (view === 'paperclip') {
+      const { handlePaperclipControlPlane } = await import('../serverless/paperclip-control-plane.js');
+      const result = await handlePaperclipControlPlane(req, { id: user.id, email: user.email });
+      writeJson(res, result.statusCode, { status: 'real', generatedAt: new Date().toISOString(), data: result.data });
+      return;
+    }
+
+    if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+      writeJson(res, 405, { status: 'partial', generatedAt: new Date().toISOString(), error: 'Method not allowed.' });
+      return;
+    }
+
     const module = await import('../backend/src/modules/dcmDailyOperatingLoop.js');
     const data = view === 'business-analyst'
       ? module.getBusinessAnalystAgent()
@@ -37,9 +44,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     writeJson(res, 200, { status: 'real', generatedAt: new Date().toISOString(), data });
   } catch (error) {
-    console.error('[dcm-daily-operating-loop]', error);
-    writeJson(res, 500, {
-      status: 'partial',
+    const candidate = Number((error as { statusCode?: unknown })?.statusCode);
+    const statusCode = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+    if (statusCode >= 500) console.error('[dcm-daily-operating-loop]', error);
+    writeJson(res, statusCode, {
+      status: statusCode >= 500 ? 'partial' : 'rejected',
       generatedAt: new Date().toISOString(),
       error: error instanceof Error ? error.message : String(error),
     });
