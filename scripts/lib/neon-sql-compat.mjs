@@ -19,6 +19,8 @@ const REWRITES = [
   [/\bextensions\.(digest|gen_random_bytes|gen_random_uuid|hmac|crypt|gen_salt|vector|halfvec|vector_cosine_ops|vector_l2_ops|vector_ip_ops|cosine_distance)\b/gi, 'public.$1'],
   // pg_session_jwt exposes the verified claims through auth.session(); there is no auth.role().
   [/\bauth\.role\(\)/gi, "(auth.session() ->> 'role')"],
+  // The legacy provider exposed a "postgres" role; Neon runtime grants use service_role only.
+  [/\bto\s+service_role\s*,\s*postgres\s*;/gi, 'to service_role;'],
   // Transactions are owned by the migrator.
   [/^\s*begin\s*;\s*$/gim, ''],
   [/^\s*commit\s*;\s*$/gim, ''],
