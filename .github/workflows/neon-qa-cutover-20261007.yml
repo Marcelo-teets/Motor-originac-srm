@@ -1,0 +1,60 @@
+name: Neon QA Cutover 20261007
+
+on:
+  push:
+    branches:
+      - ops/neon-qa-cutover-20261007
+
+permissions:
+  contents: read
+
+jobs:
+  qa-cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
+      QA_NEON_HOST: ep-noisy-base-b6l3k0u3-pooler.c-2.sa-east-1.aws.neon.tech
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Retarget canonical Neon secret to isolated QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MOTOR_NEON_DATABASE_URL" || { echo "MOTOR_NEON_DATABASE_URL missing"; exit 2; }
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const source = process.env.MOTOR_NEON_DATABASE_URL;
+          const host = process.env.QA_NEON_HOST;
+          const url = new URL(source);
+          if (!url.hostname.endsWith('.neon.tech')) throw new Error('Canonical database URL is not Neon');
+          url.hostname = host;
+          fs.appendFileSync(process.env.GITHUB_ENV, `MOTOR_NEON_DATABASE_URL=${url.toString()}\n`);
+          console.log('QA Neon target prepared:', host);
+          NODE
+      - name: Verify isolated QA target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const url = new URL(process.env.MOTOR_NEON_DATABASE_URL);
+          if (url.hostname !== process.env.QA_NEON_HOST) throw new Error('Refusing non-QA Neon target');
+          const pool = new pg.Pool({ connectionString: url.toString(), max: 1 });
+          try {
+            const { rows } = await pool.query("select current_database() as db, pg_is_in_recovery() as recovery");
+            console.log(JSON.stringify({ provider: 'neon', host: url.hostname, database: rows[0]?.db }));
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Apply canonical Neon runtime migration plan on QA
+        run: node scripts/apply-neon-runtime-migrations.mjs
+      - name: Verify runtime parity on QA
+        run: node scripts/neon-runtime-parity-check.mjs
