@@ -22,7 +22,7 @@
     "test:frontend-quality": "node --test scripts/frontend-quality-contract.test.mjs",
     "test:search-discovery-quality": "tsx --test backend/src/lib/searchDiscoveryQuality.test.ts backend/src/lib/candidateRediscoveryLineage.test.ts backend/src/lib/discoverySourceRouting.test.ts backend/src/services/searchProfileRunMapping.test.ts backend/src/services/searchProfileScheduledRunner.test.ts",
     "test:people-capital": "tsx --test backend/src/lib/peopleCapitalSignals.test.ts backend/src/lib/techSignalsDiscovery.test.ts backend/src/lib/originationBriefThesis.test.ts && node --test scripts/origination-brief-migration-contract.test.mjs scripts/universal-origination-reasoning-contract.test.mjs",
-    "test:mvp-closure-runtime": "node --test scripts/mvp-closure-runtime-contract.test.mjs scripts/regulated-issuer-calibration-contract.test.mjs scripts/direct-capture-runner-contract.test.mjs scripts/origination-decision-gates-contract.test.mjs",
+    "test:mvp-closure-runtime": "node --test scripts/mvp-closure-runtime-contract.test.mjs scripts/regulated-issuer-calibration-contract.test.mjs scripts/direct-capture-runner-contract.test.mjs scripts/origination-decision-gates-contract.test.mjs scripts/paperclip-neon-control-plane-contract.test.mjs",
     "test:auth-public-env": "node --test scripts/sync-public-auth-env-to-vercel.test.mjs",
     "test:auth-production-smoke": "node --test scripts/smoke-auth-production.test.mjs",
     "test:company-credit-review": "tsx --test backend/src/lib/companyCreditReview.test.ts backend/src/lib/approvedCreditReviewQualification.test.ts",
