@@ -165,3 +165,12 @@ test('postgres adapter update skips undefined keys but keeps explicit nulls', as
   assert.match(update.sql, /set "description" = \$1, "status" = \$2 where "id" = \$3/);
   assert.deepEqual(update.values, [null, 'done', 't1']);
 });
+
+test('postgres adapter splits large writes under the bind-parameter limit', () => {
+  const rows = Array.from({ length: 10_001 }, (_, id) => ({ id }));
+  const chunks = __test.chunkForParameters(rows, 10);
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => chunk.length * 10 <= 65_535));
+  assert.equal(chunks.flat().length, rows.length);
+  assert.deepEqual(__test.chunkForParameters([], 4), []);
+});

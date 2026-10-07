@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, DataStatusBanner, EmptyState, PageIntro, Pill, Stat } from '../components/UI';
 import { useAuth } from '../lib/auth';
+import { safeExternalUrl } from '../lib/safeUrl';
 import { buildApiUrl } from '../lib/runtimeConfig';
 
 type QueueType = 'commercial' | 'identity' | 'market_map' | 'promoted';
@@ -233,7 +234,7 @@ export function CandidateDecisionQueuePage() {
                 <tr key={item.id}>
                   <td><Pill tone={tierTone(item.priorityTier)}>{item.priorityTier}</Pill><div className="table-helper">score {item.priorityScore}</div></td>
                   <td><strong>{item.companyName}</strong><div className="table-helper">{item.companyType || item.candidateRole.replace(/_/g, ' ')}</div><div className="table-helper">{item.targetStructure || item.instrumentType || 'estrutura a validar'}</div></td>
-                  <td><strong>{item.whyNow || 'Sem trigger consolidado'}</strong><div className="table-helper">{item.sourceFamily} · confiança {(item.confidence * 100).toFixed(0)}%</div>{item.latestVolume ? <div className="table-helper">{formatMoney(item.latestVolume)}</div> : null}{item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="table-helper">Abrir fonte</a> : null}</td>
+                  <td><strong>{item.whyNow || 'Sem trigger consolidado'}</strong><div className="table-helper">{item.sourceFamily} · confiança {(item.confidence * 100).toFixed(0)}%</div>{item.latestVolume ? <div className="table-helper">{formatMoney(item.latestVolume)}</div> : null}{safeExternalUrl(item.sourceUrl) ? <a href={safeExternalUrl(item.sourceUrl)} target="_blank" rel="noreferrer" className="table-helper">Abrir fonte</a> : null}</td>
                   <td><strong className="mono">{formatCnpj(item.cnpj)}</strong><div className="table-helper">{item.normalizedDomain || item.website || 'site/domínio pendente'}</div><div className="pill-row top-gap"><Pill tone={item.promotionReady ? 'success' : 'warning'}>{item.promotionReady ? 'identidade pronta' : `${item.promotionBlockers.length} blocker(s)`}</Pill></div></td>
                   <td><strong>{item.nextAction}</strong><div className="pill-row top-gap">{item.queueType === 'market_map' ? <Link to="/market-map" className="secondary">Abrir mapa</Link> : item.matchedCompanyId ? <Link to={`/companies/${item.matchedCompanyId}`} className="secondary">Abrir empresa</Link> : <Link to="/identity-review" className="secondary">Revisar identidade</Link>}</div></td>
                 </tr>

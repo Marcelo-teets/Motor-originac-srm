@@ -98,6 +98,18 @@ const groupByShape = (rows: Record<string, unknown>[]) => {
   return [...groups.values()];
 };
 
+// Postgres accepts at most 65535 bind parameters per statement; stay well below
+// so large batches are written as several statements (still in one
+// transaction, see writeRows) instead of failing.
+const MAX_BIND_PARAMETERS = 30_000;
+
+const chunkForParameters = <T>(rows: T[], columnCount: number) => {
+  const size = Math.max(1, Math.floor(MAX_BIND_PARAMETERS / Math.max(1, columnCount)));
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+};
+
 const isPlainRow = (row: unknown): row is Record<string, unknown> => (
   Boolean(row && typeof row === 'object' && !Array.isArray(row))
 );
@@ -223,7 +235,8 @@ export class NeonPostgresClient {
     if (!groups.length) return [];
     const jsonColumns = await this.jsonColumns(table);
 
-    const statements = groups.map((group) => {
+    const batches = groups.flatMap((group) => chunkForParameters(group, Object.keys(group[0]).length));
+    const statements = batches.map((group) => {
       const columns = Object.keys(group[0]).sort();
       const values: unknown[] = [];
       const tuples = group.map((row) => {
@@ -258,7 +271,7 @@ export class NeonPostgresClient {
       return output;
     }
 
-    // Several shapes: keep the call atomic, as a single multi-row INSERT was.
+    // Several shapes or chunks: keep the call atomic, as a single multi-row INSERT was.
     const connection = await this.pool.connect();
     try {
       await connection.query('begin');
@@ -404,4 +417,4 @@ export const getNeonPostgresClient = (connectionString: string) => {
   return singleton;
 };
 
-export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined };
+export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined, chunkForParameters };

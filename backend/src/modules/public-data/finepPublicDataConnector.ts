@@ -372,7 +372,9 @@ export async function discoverFinepPublicResources(): Promise<FinepPublicResourc
   for (const kind of ['operations', 'disbursements'] as FinepResourceKind[]) {
     const url = discovered[kind] ?? DIRECT_RESOURCES[kind];
     const metadata = await probeResource(url);
-    const referenceDate = metadata.modifiedAt ? new Date(metadata.modifiedAt).toISOString().slice(0, 10) : null;
+    // Last-Modified is server-controlled; a malformed value must not throw RangeError.
+    const modifiedAtMs = metadata.modifiedAt ? Date.parse(metadata.modifiedAt) : Number.NaN;
+    const referenceDate = Number.isFinite(modifiedAtMs) ? new Date(modifiedAtMs).toISOString().slice(0, 10) : null;
     resources.push({
       kind,
       key: `finep:${kind}`,

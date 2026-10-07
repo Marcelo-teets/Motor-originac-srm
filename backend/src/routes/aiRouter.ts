@@ -7,6 +7,12 @@ import { FeedbackService } from '../ai/feedbackService.js';
 import { VectorIndexService } from '../ai/vectorIndexService.js';
 import type { PlatformService } from '../services/platformService.js';
 
+const MAX_TOP_K = 20;
+const clampTopK = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(MAX_TOP_K, Math.trunc(parsed)) : undefined;
+};
+
 export const createAiRouter = (platformService: PlatformService) => {
   const aiRouter = Router();
 
@@ -27,16 +33,16 @@ export const createAiRouter = (platformService: PlatformService) => {
       const {
         companyId,
         question,
-        userId,
         conversationId,
         topK,
-      } = req.body as {
+      } = (req.body ?? {}) as {
         companyId?: string;
         question?: string;
-        userId?: string;
         conversationId?: string;
         topK?: number;
       };
+      // Identity comes from the verified token, never from the request body.
+      const userId = req.authUser?.id;
 
       if (!companyId || !question) {
         res.status(400).json({ error: 'companyId e question sao obrigatorios' });
@@ -48,7 +54,7 @@ export const createAiRouter = (platformService: PlatformService) => {
         question,
         userId,
         conversationId,
-        topK,
+        topK: clampTopK(topK),
       });
 
       res.json(response);
@@ -60,7 +66,8 @@ export const createAiRouter = (platformService: PlatformService) => {
 
   aiRouter.post('/feedback', async (req, res) => {
     try {
-      const { conversationId, userId, text } = req.body as { conversationId?: string; userId?: string; text?: string };
+      const { conversationId, text } = (req.body ?? {}) as { conversationId?: string; text?: string };
+      const userId = req.authUser?.id;
 
       if (!conversationId || !userId || !text) {
         res.status(400).json({ error: 'conversationId, userId e text sao obrigatorios' });

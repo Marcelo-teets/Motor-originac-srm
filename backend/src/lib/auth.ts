@@ -53,12 +53,18 @@ const upstreamCookie = (sessionToken: string) => (
   `${NEON_UPSTREAM_COOKIE_NAME}=${safeSessionToken(sessionToken)}`
 );
 
-const authError = (payload: Record<string, any>, fallback: string) => {
+const withStatus = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
+
+// Upstream 4xx answers are the caller's problem (bad credentials, expired
+// session, throttling) and keep their status; anything else is a 502 gateway
+// failure instead of an opaque 500.
+const authError = (payload: Record<string, any>, fallback: string, upstreamStatus = 502) => {
   const message = String(payload.message ?? payload.error_description ?? payload.error ?? fallback);
-  if (/invalid email or password|invalid credentials/i.test(message)) return new Error('E-mail ou senha inválidos.');
-  if (/too many|rate limit/i.test(message)) return new Error('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.');
-  if (/session|token/i.test(message) && /invalid|expired|missing/i.test(message)) return new Error('Sua sessão expirou. Entre novamente.');
-  return new Error(message || fallback);
+  const statusCode = upstreamStatus >= 400 && upstreamStatus < 500 ? upstreamStatus : 502;
+  if (/invalid email or password|invalid credentials/i.test(message)) return withStatus('E-mail ou senha inválidos.', 401);
+  if (/too many|rate limit/i.test(message)) return withStatus('Muitas tentativas em sequência. Aguarde alguns instantes e tente novamente.', 429);
+  if (/session|token/i.test(message) && /invalid|expired|missing/i.test(message)) return withStatus('Sua sessão expirou. Entre novamente.', 401);
+  return withStatus(message || fallback, statusCode);
 };
 
 const neonAuthRequest = async (
@@ -184,8 +190,8 @@ export const refreshAuthSession = async (sessionToken: string): Promise<AuthFlow
 
   const sessionPayload = await readJsonObject(sessionResponse);
   const jwtPayload = await readJsonObject(jwtResponse);
-  if (!sessionResponse.ok) throw authError(sessionPayload, 'Não foi possível restaurar sua sessão.');
-  if (!jwtResponse.ok) throw authError(jwtPayload, 'Não foi possível emitir o token da sessão.');
+  if (!sessionResponse.ok) throw authError(sessionPayload, 'Não foi possível restaurar sua sessão.', sessionResponse.status);
+  if (!jwtResponse.ok) throw authError(jwtPayload, 'Não foi possível emitir o token da sessão.', jwtResponse.status);
 
   const jwt = String(jwtPayload.token ?? '');
   const user = sessionPayload.user && typeof sessionPayload.user === 'object'
@@ -202,7 +208,7 @@ const establishSession = async (
   fallback: string,
 ): Promise<AuthFlowResult> => {
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, fallback);
+  if (!response.ok) throw authError(payload, fallback, response.status);
   const sessionToken = String(payload.token ?? '');
   if (!sessionToken) throw new Error('Neon Auth did not return a session token.');
   return refreshAuthSession(sessionToken);
@@ -244,7 +250,7 @@ export const requestPasswordReset = async (email: string, redirectTo: string) =>
     }),
   });
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível iniciar a recuperação de senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível iniciar a recuperação de senha.', response.status);
 };
 
 export const resetPassword = async (token: string, newPassword: string) => {
@@ -253,7 +259,7 @@ export const resetPassword = async (token: string, newPassword: string) => {
     body: JSON.stringify({ token, newPassword }),
   });
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível redefinir a senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível redefinir a senha.', response.status);
   return payload;
 };
 
@@ -271,7 +277,7 @@ export const changePassword = async (
     }),
   }, sessionToken);
   const payload = await readJsonObject(response);
-  if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.');
+  if (!response.ok) throw authError(payload, 'Não foi possível alterar a senha.', response.status);
   return payload;
 };
 
@@ -282,7 +288,7 @@ export const signOutAuth = async (sessionToken: string) => {
   }, sessionToken);
   if (!response.ok && response.status !== 401) {
     const payload = await readJsonObject(response);
-    throw authError(payload, 'Não foi possível encerrar a sessão remota.');
+    throw authError(payload, 'Não foi possível encerrar a sessão remota.', response.status);
   }
 };
 

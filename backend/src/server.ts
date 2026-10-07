@@ -89,7 +89,7 @@ const parseOptionalDate = (value: unknown): string | null | undefined => {
   return Number.isFinite(new Date(value.trim()).getTime()) ? value.trim() : undefined;
 };
 
-await service.bootstrap().catch((error) => {
+await service.bootstrap({ refreshMonitoring: !process.env.VERCEL }).catch((error) => {
   console.warn('Bootstrap warning:', error instanceof Error ? error.message : error);
 });
 
@@ -181,6 +181,8 @@ app.post('/auth/login', wrap(async (req, res) => {
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
+    // Do not leave a live upstream session behind for a rejected login.
+    await signOutAuth(flow.sessionToken).catch(() => undefined);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
@@ -198,6 +200,7 @@ app.post('/auth/session', wrap(async (req, res) => {
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
   if (profile.status !== 'active') {
+    clearAuthSessionCookie(res);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
@@ -305,6 +308,8 @@ app.patch('/auth/users/:id/access', wrap(async (req, res) => {
   const role = req.body?.role === 'god_mode' ? 'god_mode' : 'common';
   const status = req.body?.status === 'disabled' ? 'disabled' : req.body?.status === 'invited' ? 'invited' : 'active';
   const profile = await setUserAccess(req.authUser!.id, param(req.params.id), role, status);
+  // Apply the change now instead of after the active-profile cache TTL.
+  activeProfileCache.delete(profile.id);
   res.json(ok('real', profile));
 }));
 
@@ -632,7 +637,9 @@ app.post('/pipeline/company/:id/move', wrap(async (req, res) => {
   const companyId = param(req.params.id);
   let moved = await service.movePipelineStage(companyId, stage);
   if (!moved) {
-    const company = await service.getCompanyDetail(companyId);
+    // null means either "no pipeline row yet" or "company not decision-eligible";
+    // only the former may create a row.
+    const company = await service.isDecisionCompany(companyId) ? await service.getCompanyDetail(companyId) : null;
     if (!company) {
       res.status(403).json(fail(403, 'Company is not eligible for pipeline decisions.'));
       return;
@@ -650,7 +657,9 @@ app.patch('/pipeline/company/:id/next-action', wrap(async (req, res) => {
   const companyId = param(req.params.id);
   let updated = await service.updateNextAction(companyId, nextAction);
   if (!updated) {
-    const company = await service.getCompanyDetail(companyId);
+    // null means either "no pipeline row yet" or "company not decision-eligible";
+    // only the former may create a row.
+    const company = await service.isDecisionCompany(companyId) ? await service.getCompanyDetail(companyId) : null;
     if (!company) {
       res.status(403).json(fail(403, 'Company is not eligible for pipeline decisions.'));
       return;
@@ -842,6 +851,21 @@ app.use(((error, _req, res, next) => {
     : error instanceof Error ? error.message : 'Unexpected error';
   res.status(statusCode).json(fail(statusCode, message));
 }) as express.ErrorRequestHandler);
+
+// Routers without their own try/catch (e.g. /abm) and body-parser failures
+// still answer JSON instead of Express's default HTML error page.
+app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  const source = error && typeof error === 'object' ? error as { statusCode?: unknown; status?: unknown } : {};
+  const candidate = Number(source.statusCode ?? source.status);
+  const statusCode = Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : 500;
+  if (statusCode >= 500) console.error(error);
+  else console.warn(`[motor-backend] ${req.method} ${req.path} -> ${statusCode}: ${error instanceof Error ? error.message : String(error)}`);
+  res.status(statusCode).json(fail(statusCode, error instanceof Error ? error.message : 'Unexpected error'));
+});
 
 // ── Exportação para Vercel serverless ──────────────────────────────────────
 export { app };

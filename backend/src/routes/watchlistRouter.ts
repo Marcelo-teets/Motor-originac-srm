@@ -29,18 +29,28 @@ const p = (value: string | string[] | undefined) => (Array.isArray(value) ? valu
 const notFound = (message: string) => Object.assign(new Error(message), { code: 'NOT_FOUND' as const });
 const isNotFound = (error: unknown): error is Error & { code: 'NOT_FOUND' } => typeof error === 'object' && error !== null && 'code' in error && (error as any).code === 'NOT_FOUND';
 
+// The in-memory store is only for runs without a database. With a database,
+// errors propagate: silently writing to process memory would lose data.
 const withClientFallback = async <T>(
   operation: (client: NonNullable<ReturnType<typeof getDataClient>>) => Promise<T>,
   fallback: () => Promise<T> | T,
 ): Promise<{ data: T; status: 'real' | 'partial' }> => {
   const client = getDataClient();
   if (!client) return { data: await fallback(), status: 'partial' };
-  try {
-    return { data: await operation(client), status: 'real' };
-  } catch {
-    return { data: await fallback(), status: 'partial' };
-  }
+  return { data: await operation(client), status: 'real' };
 };
+
+const forbidden = () => Object.assign(new Error('Somente o criador pode alterar esta watch list.'), { code: 'FORBIDDEN' as const });
+const isForbidden = (error: unknown) => typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'FORBIDDEN';
+
+// Private lists are visible only to their creator; ownerless legacy lists
+// (created_by null) stay visible and editable by everyone, as before.
+const canView = (list: Pick<WatchList, 'createdBy' | 'isShared'>, userId: string | undefined) => (
+  list.isShared || !list.createdBy || list.createdBy === userId
+);
+const canManage = (list: Pick<WatchList, 'createdBy'>, userId: string | undefined) => (
+  !list.createdBy || list.createdBy === userId
+);
 
 const memory = {
   watchlists: [] as WatchList[],
@@ -69,11 +79,45 @@ const mapWatchListItem = (row: any): WatchListItem => ({
   addedAt: row.added_at,
 });
 
+type DataClient = NonNullable<ReturnType<typeof getDataClient>>;
+
+const loadWatchList = async (client: DataClient, watchlistId: string) => {
+  const rows = await client.select('watchlists', { select: 'id,created_by,is_shared', filters: [{ column: 'id', operator: 'eq', value: watchlistId }], limit: 1 });
+  if (!rows?.length) throw notFound('Watch list não encontrada.');
+  return mapWatchList(rows[0]);
+};
+
+const assertCanManage = async (client: DataClient, watchlistId: string, userId: string | undefined) => {
+  if (!canManage(await loadWatchList(client, watchlistId), userId)) throw forbidden();
+};
+
+// Hidden private lists answer 404 so their existence is not disclosed.
+const assertCanView = async (client: DataClient, watchlistId: string, userId: string | undefined) => {
+  if (!canView(await loadWatchList(client, watchlistId), userId)) throw notFound('Watch list não encontrada.');
+};
+const memoryCanView = (watchlistId: string, userId: string | undefined) => {
+  const target = memory.watchlists.find((item) => item.id === watchlistId);
+  if (target && !canView(target, userId)) throw notFound('Watch list não encontrada.');
+};
+
+const sendKnownError = (res: { status: (code: number) => { json: (body: unknown) => unknown } }, error: unknown) => {
+  if (isNotFound(error)) {
+    res.status(404).json(fail(404, error.message));
+    return true;
+  }
+  if (isForbidden(error)) {
+    res.status(403).json(fail(403, (error as Error).message));
+    return true;
+  }
+  return false;
+};
+
 export const createWatchlistRouter = (repository: any) => {
   const router = Router();
 
-  router.get('/', async (_req, res) => {
+  router.get('/', async (req, res) => {
     try {
+      const userId = (req as any).authUser?.id as string | undefined;
       const result = await withClientFallback(async (client) => {
         const [rows, items] = await Promise.all([
           client.select('watchlists', { select: '*', orderBy: { column: 'created_at', ascending: false } }),
@@ -81,8 +125,10 @@ export const createWatchlistRouter = (repository: any) => {
         ]);
         const counts = new Map<string, number>();
         (items ?? []).forEach((row: any) => counts.set(row.watchlist_id, (counts.get(row.watchlist_id) ?? 0) + 1));
-        return (rows ?? []).map((row: any) => mapWatchList(row, counts.get(row.id) ?? 0));
-      }, () => memory.watchlists.map((wl) => ({ ...wl, itemCount: memory.items.filter((item) => item.watchlistId === wl.id).length })));
+        return (rows ?? []).map((row: any) => mapWatchList(row, counts.get(row.id) ?? 0)).filter((wl) => canView(wl, userId));
+      }, () => memory.watchlists
+        .filter((wl) => canView(wl, userId))
+        .map((wl) => ({ ...wl, itemCount: memory.items.filter((item) => item.watchlistId === wl.id).length })));
       res.json(ok(result.status, result.data));
     } catch (error) {
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao listar watch lists.'));
@@ -130,6 +176,7 @@ export const createWatchlistRouter = (repository: any) => {
   router.patch('/:id', async (req, res) => {
     try {
       const id = p(req.params.id);
+      const userId = (req as any).authUser?.id as string | undefined;
       const patch: Record<string, unknown> = {
         ...(req.body?.name !== undefined ? { name: String(req.body.name).trim() } : {}),
         ...(req.body?.description !== undefined ? { description: String(req.body.description).trim() || null } : {}),
@@ -138,6 +185,7 @@ export const createWatchlistRouter = (repository: any) => {
       };
 
       const result = await withClientFallback(async (client) => {
+        await assertCanManage(client, id, userId);
         const rows = await client.update('watchlists', patch, [{ column: 'id', operator: 'eq', value: id }]);
         if (!rows?.length) throw notFound('Watch list não encontrada.');
         const itemCount = (await client.select('watchlist_items', { select: 'id', filters: [{ column: 'watchlist_id', operator: 'eq', value: id }] }))?.length ?? 0;
@@ -145,6 +193,7 @@ export const createWatchlistRouter = (repository: any) => {
       }, () => {
         const index = memory.watchlists.findIndex((item) => item.id === id);
         if (index < 0) throw notFound('Watch list não encontrada.');
+        if (!canManage(memory.watchlists[index], userId)) throw forbidden();
         memory.watchlists[index] = {
           ...memory.watchlists[index],
           ...(req.body?.name !== undefined ? { name: String(req.body.name).trim() } : {}),
@@ -154,12 +203,9 @@ export const createWatchlistRouter = (repository: any) => {
         };
         return memory.watchlists[index];
       });
-        res.json(ok(result.status, result.data));
+      res.json(ok(result.status, result.data));
     } catch (error) {
-      if (isNotFound(error)) {
-        res.status(404).json(fail(404, error.message));
-        return;
-      }
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao atualizar watch list.'));
     }
   });
@@ -167,10 +213,14 @@ export const createWatchlistRouter = (repository: any) => {
   router.delete('/:id', async (req, res) => {
     try {
       const id = p(req.params.id);
+      const userId = (req as any).authUser?.id as string | undefined;
       const result = await withClientFallback(async (client) => {
+        await assertCanManage(client, id, userId);
         await client.delete('watchlists', [{ column: 'id', operator: 'eq', value: id }]);
         return { deleted: true };
       }, () => {
+        const target = memory.watchlists.find((item) => item.id === id);
+        if (target && !canManage(target, userId)) throw forbidden();
         const before = memory.watchlists.length;
         memory.watchlists = memory.watchlists.filter((item) => item.id !== id);
         memory.items = memory.items.filter((item) => item.watchlistId !== id);
@@ -179,10 +229,7 @@ export const createWatchlistRouter = (repository: any) => {
       });
       res.json(ok(result.status, result.data));
     } catch (error) {
-      if (isNotFound(error)) {
-        res.status(404).json(fail(404, error.message));
-        return;
-      }
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao remover watch list.'));
     }
   });
@@ -190,15 +237,16 @@ export const createWatchlistRouter = (repository: any) => {
   router.get('/company/:companyId', async (req, res) => {
     try {
       const companyId = p(req.params.companyId);
+      const userId = (req as any).authUser?.id as string | undefined;
       const result = await withClientFallback(async (client) => {
         const links = await client.select('watchlist_items', { select: 'watchlist_id', filters: [{ column: 'company_id', operator: 'eq', value: companyId }] });
         const ids = [...new Set((links ?? []).map((row: any) => row.watchlist_id))];
         if (!ids.length) return [] as WatchList[];
         const rows = await client.select('watchlists', { select: '*', filters: [{ column: 'id', operator: 'in', value: ids as (string | number)[] }] });
-        return (rows ?? []).map((row: any) => mapWatchList(row));
+        return (rows ?? []).map((row: any) => mapWatchList(row)).filter((wl) => canView(wl, userId));
       }, () => {
         const watchlistIds = new Set(memory.items.filter((item) => item.companyId === companyId).map((item) => item.watchlistId));
-        return memory.watchlists.filter((item) => watchlistIds.has(item.id));
+        return memory.watchlists.filter((item) => watchlistIds.has(item.id) && canView(item, userId));
       });
       res.json(ok(result.status, result.data));
     } catch (error) {
@@ -209,14 +257,20 @@ export const createWatchlistRouter = (repository: any) => {
   router.get('/:id/items', async (req, res) => {
     try {
       const watchlistId = p(req.params.id);
+      const userId = (req as any).authUser?.id as string | undefined;
       const companies = await repository.listCompanies();
       const companyNames = new Map((companies ?? []).map((company: any) => [company.id, company.tradeName ?? company.name ?? company.id]));
       const result = await withClientFallback(async (client) => {
+        await assertCanView(client, watchlistId, userId);
         const rows = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }], orderBy: { column: 'added_at', ascending: false } });
         return (rows ?? []).map((row: any) => ({ ...mapWatchListItem(row), companyName: companyNames.get(row.company_id) ?? row.company_id }));
-      }, () => memory.items.filter((item) => item.watchlistId === watchlistId).map((item) => ({ ...item, companyName: companyNames.get(item.companyId) ?? item.companyId })));
+      }, () => {
+        memoryCanView(watchlistId, userId);
+        return memory.items.filter((item) => item.watchlistId === watchlistId).map((item) => ({ ...item, companyName: companyNames.get(item.companyId) ?? item.companyId }));
+      });
       res.json(ok(result.status, result.data));
     } catch (error) {
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao listar empresas da watch list.'));
     }
   });
@@ -231,6 +285,7 @@ export const createWatchlistRouter = (repository: any) => {
       if (!companyId) return res.status(400).json(fail(400, 'companyId é obrigatório'));
 
       const result = await withClientFallback(async (client) => {
+        await assertCanManage(client, watchlistId, userId);
         const existing = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }], limit: 1 });
         if (existing?.length) return mapWatchListItem(existing[0]);
 
@@ -242,6 +297,9 @@ export const createWatchlistRouter = (repository: any) => {
         }
         return mapWatchListItem(inserted[0]);
       }, () => {
+        const target = memory.watchlists.find((item) => item.id === watchlistId);
+        if (!target) throw notFound('Watch list não encontrada.');
+        if (!canManage(target, userId)) throw forbidden();
         const existing = memory.items.find((item) => item.watchlistId === watchlistId && item.companyId === companyId);
         if (existing) return existing;
         const item: WatchListItem = { id: crypto.randomUUID(), watchlistId, companyId, addedBy: userId, priorityLabel: priorityLabel ?? undefined, notes: notes ?? undefined, addedAt: new Date().toISOString() };
@@ -250,6 +308,7 @@ export const createWatchlistRouter = (repository: any) => {
       });
       res.status(201).json(ok(result.status, result.data));
     } catch (error) {
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao adicionar empresa na watch list.'));
     }
   });
@@ -258,10 +317,14 @@ export const createWatchlistRouter = (repository: any) => {
     try {
       const watchlistId = p(req.params.id);
       const companyId = p(req.params.companyId);
+      const userId = (req as any).authUser?.id as string | undefined;
       const result = await withClientFallback(async (client) => {
+        await assertCanManage(client, watchlistId, userId);
         await client.delete('watchlist_items', [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }, { column: 'company_id', operator: 'eq', value: companyId }]);
         return { removed: true };
       }, () => {
+        const target = memory.watchlists.find((item) => item.id === watchlistId);
+        if (target && !canManage(target, userId)) throw forbidden();
         const before = memory.items.length;
         memory.items = memory.items.filter((item) => !(item.watchlistId === watchlistId && item.companyId === companyId));
         if (memory.items.length === before) throw notFound('Item não encontrado.');
@@ -269,10 +332,7 @@ export const createWatchlistRouter = (repository: any) => {
       });
       res.json(ok(result.status, result.data));
     } catch (error) {
-      if (isNotFound(error)) {
-        res.status(404).json(fail(404, error.message));
-        return;
-      }
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao remover empresa da watch list.'));
     }
   });
@@ -280,10 +340,15 @@ export const createWatchlistRouter = (repository: any) => {
   router.get('/:id/updates', async (req, res) => {
     try {
       const watchlistId = p(req.params.id);
+      const userId = (req as any).authUser?.id as string | undefined;
       const itemsResult = await withClientFallback(async (client) => {
+        await assertCanView(client, watchlistId, userId);
         const rows = await client.select('watchlist_items', { select: '*', filters: [{ column: 'watchlist_id', operator: 'eq', value: watchlistId }] });
         return (rows ?? []).map((row: any) => mapWatchListItem(row));
-      }, () => memory.items.filter((item) => item.watchlistId === watchlistId));
+      }, () => {
+        memoryCanView(watchlistId, userId);
+        return memory.items.filter((item) => item.watchlistId === watchlistId);
+      });
 
       const companyIds = new Set(itemsResult.data.map((item) => item.companyId));
       const [signals, scores, companies] = await Promise.all([
@@ -294,8 +359,14 @@ export const createWatchlistRouter = (repository: any) => {
 
       const names = new Map((companies ?? []).map((company: any) => [company.id, company.tradeName ?? company.name ?? company.id]));
       const latestScore = new Map<string, number>();
+      const latestScoreAt = new Map<string, string>();
       (scores ?? []).forEach((snapshot: any) => {
-        if (!latestScore.has(snapshot.companyId)) latestScore.set(snapshot.companyId, snapshot.leadScore);
+        const at = String(snapshot.createdAt ?? '');
+        const previous = latestScoreAt.get(snapshot.companyId);
+        if (previous === undefined || at > previous) {
+          latestScoreAt.set(snapshot.companyId, at);
+          latestScore.set(snapshot.companyId, snapshot.leadScore);
+        }
       });
 
       const updates = (signals ?? [])
@@ -314,6 +385,7 @@ export const createWatchlistRouter = (repository: any) => {
 
       res.json(ok(itemsResult.status, updates));
     } catch (error) {
+      if (sendKnownError(res, error)) return;
       res.status(500).json(fail(500, error instanceof Error ? error.message : 'Erro ao gerar feed da watch list.'));
     }
   });

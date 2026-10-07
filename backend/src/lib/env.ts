@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Accept the common `KEY="value"` / `KEY='value'` .env forms.
+const unquote = (value: string) => (
+  value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.endsWith(value[0])
+    ? value.slice(1, -1)
+    : value
+);
+
 const loadEnvFile = () => {
   const rootDir = path.resolve(process.cwd(), '..');
   const candidates = [path.resolve(process.cwd(), '.env'), path.resolve(rootDir, '.env')];
@@ -14,7 +21,7 @@ const loadEnvFile = () => {
       const separatorIndex = trimmed.indexOf('=');
       if (separatorIndex <= 0) continue;
       const key = trimmed.slice(0, separatorIndex).trim();
-      const value = trimmed.slice(separatorIndex + 1).trim();
+      const value = unquote(trimmed.slice(separatorIndex + 1).trim());
       if (!(key in process.env)) process.env[key] = value;
     }
   }
@@ -22,12 +29,13 @@ const loadEnvFile = () => {
 
 loadEnvFile();
 
-const neonDatabaseUrl = process.env.MOTOR_NEON_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+// `||` (not `??`) so an empty MOTOR_NEON_DATABASE_URL still falls back to DATABASE_URL.
+const neonDatabaseUrl = (process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL || '').trim();
 const hasNeonCredentials = Boolean(neonDatabaseUrl);
 const dataProvider = hasNeonCredentials ? 'neon' : 'memory';
 const neonAuthBaseUrl = (process.env.NEON_AUTH_BASE_URL ?? '').replace(/\/$/, '');
 const neonAuthJwksUrl = process.env.NEON_AUTH_JWKS_URL
-  ?? (neonAuthBaseUrl ? `${neonAuthBaseUrl}/.well-known/jwks.json` : '');
+  || (neonAuthBaseUrl ? `${neonAuthBaseUrl}/.well-known/jwks.json` : '');
 
 export const env = {
   port: Number(process.env.PORT ?? 4000),

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Card, EmptyState, Pill, Stat } from './UI';
 import { KnowledgeExecutionPanel } from './KnowledgeExecutionPanel';
 import { useAuth } from '../lib/auth';
+import { safeExternalUrl } from '../lib/safeUrl';
 import { knowledgeVaultApi } from '../lib/knowledgeVaultApi';
 import type { KnowledgeCompanyWorkspace, KnowledgeNodeDetail } from '../lib/knowledgeVaultTypes';
 import '../styles/company-knowledge.css';
@@ -230,7 +231,7 @@ export function CompanyKnowledgePanel({ companyId }: CompanyKnowledgePanelProps)
                       <p>{output.summary || 'Sem resumo textual. A observação deve ser validada na fonte primária antes de qualquer inferência.'}</p>
                       <small>
                         {output.sourceName || 'fonte não identificada'} · {output.observedVsInferred} · {output.status} · {formatDate(output.observedAt)}
-                        {output.url ? <> · <a href={output.url} target="_blank" rel="noreferrer">abrir fonte</a></> : null}
+                        {safeExternalUrl(output.url) ? <> · <a href={safeExternalUrl(output.url)} target="_blank" rel="noreferrer">abrir fonte</a></> : null}
                       </small>
                     </div>
                     {output.capturedNodeId ? (

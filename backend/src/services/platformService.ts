@@ -5,7 +5,7 @@ import { PIPELINE_STAGES } from '../lib/crm.js';
 import { env } from '../lib/env.js';
 import { isCompanyDecisionEligible, isCompanyMonitoringEligible } from '../lib/companyDecisionEligibility.js';
 import { getDataClient } from '../lib/dataClient.js';
-import { isoNow } from '../lib/helpers.js';
+import { isoNow, mapWithConcurrency } from '../lib/helpers.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { buildRankingRow } from '../lib/ranking.js';
@@ -57,12 +57,27 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 });
 
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
+const MONITORING_CONCURRENCY = 4;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isWithinLastDay = (value: string | undefined, now: number) => {
+  const at = Date.parse(value ?? '');
+  return Number.isFinite(at) && at >= now - DAY_MS;
+};
+// assembleViews loads every view table; routes often need it several times per
+// request, so concurrent callers share one load and results live briefly.
+const VIEWS_CACHE_TTL_MS = 5_000;
 
 export class PlatformService {
   constructor(private readonly repository: PlatformRepository) {}
 
-  async bootstrap() {
+  /**
+   * `refreshMonitoring` scrapes every eligible company, so serverless cold
+   * starts skip it (capture runs on its own schedule) and rely on reads to
+   * recompute derived data lazily via `ensureDerivedData`.
+   */
+  async bootstrap({ refreshMonitoring = true }: { refreshMonitoring?: boolean } = {}) {
     await this.repository.seedBaseData();
+    if (!refreshMonitoring) return;
     await this.refreshMonitoring();
     await this.recomputeDerivedData();
   }
@@ -78,6 +93,7 @@ export class PlatformService {
     const signalsByCompany = groupByCompany(signals);
     const enrichmentsByCompany = groupByCompany(enrichments);
     const outputsByCompany = groupByCompany(monitoringOutputs);
+    const now = Date.now();
 
     return companies.map((company) => {
       const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -94,8 +110,8 @@ export class PlatformService {
           ...company.monitoring,
           status: companyOutputs.some((item) => item.connectorStatus === 'real') ? 'active' : company.monitoring.status,
           lastRunAt: companyOutputs[0]?.collectedAt ?? company.monitoring.lastRunAt,
-          outputs24h: companyOutputs.length,
-          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65).length,
+          outputs24h: companyOutputs.filter((item) => isWithinLastDay(item.collectedAt, now)).length,
+          triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65 && isWithinLastDay(signal.createdAt, now)).length,
           websiteChanges: websiteChanges.length ? websiteChanges : company.monitoring.websiteChanges,
           feedHighlights: feedHighlights.length ? feedHighlights : company.monitoring.feedHighlights,
         },
@@ -108,7 +124,8 @@ export class PlatformService {
     const monitoringCompanies = env.usePersistentData ? companies.filter(isCompanyMonitoringEligible) : companies;
     const targetCompanies = companyId ? monitoringCompanies.filter((item) => item.id === companyId) : monitoringCompanies;
     const collectedAt = isoNow();
-    const ingestions = await Promise.all(targetCompanies.map(async (company) => {
+    // Each company fans out to several external fetches; cap the parallelism.
+    const ingestions = await mapWithConcurrency(targetCompanies, MONITORING_CONCURRENCY, async (company) => {
       const raw = await ingestCompanyMonitoring(company, sources);
       const treatment = treatCaptureOutputs(company, raw.outputs, collectedAt);
       return {
@@ -117,10 +134,11 @@ export class PlatformService {
         enrichments: [...raw.enrichments, ...treatment.enrichments],
         diagnostics: treatment.diagnostics,
       };
-    }));
+    });
     await this.repository.saveMonitoringOutputs(ingestions.flatMap((item) => item.outputs));
     await this.repository.saveCompanySignals(ingestions.flatMap((item) => item.signals));
     await this.repository.saveEnrichments(ingestions.flatMap((item) => item.enrichments));
+    this.invalidateViews();
     return {
       companyCount: targetCompanies.length,
       outputCount: ingestions.reduce((sum, item) => sum + item.outputs.length, 0),
@@ -244,6 +262,7 @@ export class PlatformService {
     await this.repository.saveCompanyPatterns(snapshots.patterns);
     await this.repository.saveScoreSnapshots(snapshots.scoreSnapshots);
     await this.repository.saveLeadScoreSnapshots(snapshots.leadScoreSnapshots);
+    this.invalidateViews();
     return snapshots;
   }
 
@@ -262,7 +281,25 @@ export class PlatformService {
     if (missing) await this.recomputeDerivedData();
   }
 
-  private async assembleViews() {
+  private viewsCache: { expiresAt: number; promise: ReturnType<PlatformService['loadViews']> } | null = null;
+
+  private invalidateViews() {
+    this.viewsCache = null;
+  }
+
+  private assembleViews() {
+    const now = Date.now();
+    if (this.viewsCache && now < this.viewsCache.expiresAt) return this.viewsCache.promise;
+    const promise = this.loadViews();
+    const entry = { expiresAt: now + VIEWS_CACHE_TTL_MS, promise };
+    this.viewsCache = entry;
+    promise.catch(() => {
+      if (this.viewsCache === entry) this.viewsCache = null;
+    });
+    return promise;
+  }
+
+  private async loadViews() {
     await this.ensureDerivedData();
 
     const [allCompanies, sources, patternCatalog, allMonitoringOutputsRaw, allQualificationSnapshots, allCompanyPatterns, allScoreSnapshots, allLeadScoreSnapshots] = await Promise.all([
@@ -393,18 +430,20 @@ export class PlatformService {
   async getDashboard(): Promise<DashboardView> {
     const { companyViews, rankingRows, patterns, allMonitoringOutputs, agents } = await this.assembleViews();
     const allPatterns = Array.from(patterns.values()).flat();
+    const now = Date.now();
+    const outputs24h = allMonitoringOutputs.filter((item) => isWithinLastDay(item.collectedAt, now)).length;
 
     return {
       summary: [
         { label: 'Empresas monitoradas', value: String(companyViews.length), tone: 'primary', helper: 'Base real persistida em Neon; fallback local existe apenas fora de produção.' },
         { label: 'Top leads', value: String(rankingRows.filter((row) => row.bucket === 'immediate_priority').length), tone: 'success', helper: 'Prioridade centralizada por ranking real persistido.' },
         { label: 'Padrões ativos', value: String(allPatterns.length), tone: 'warning', helper: 'Cinco padrões práticos e catálogo inicial persistidos no banco.' },
-        { label: 'Outputs recentes', value: String(allMonitoringOutputs.length), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
+        { label: 'Outputs recentes', value: String(outputs24h), tone: 'info', helper: 'BrasilAPI, RSS e website alimentando monitoring_outputs.' },
       ],
       topLeads: rankingRows.slice(0, 5),
       monitoring: {
         activeSources: 3,
-        outputs24h: allMonitoringOutputs.length,
+        outputs24h,
         triggers24h: companyViews.reduce((sum, company) => sum + Math.round(company.triggerStrength / 25), 0),
         websiteChecks: allMonitoringOutputs.filter((item) => item.sourceId === 'src_company_website').length,
       },
@@ -673,9 +712,12 @@ export class PlatformService {
     }, new Map<string, number>());
     return PIPELINE_STAGES.map((stage) => ({ stage, count: grouped.get(stage) ?? 0 }));
   }
-  private async isDecisionCompany(companyId: string) {
-    if (!env.usePersistentData) return true;
-    return (await this.hydrateCompanies()).some((company) => company.id === companyId && isCompanyDecisionEligible(company));
+  // Memory (demo) mode only requires the company to exist; persistent mode also
+  // enforces the decision-eligibility gate.
+  async isDecisionCompany(companyId: string) {
+    return (await this.hydrateCompanies()).some((company) => (
+      company.id === companyId && (!env.usePersistentData || isCompanyDecisionEligible(company))
+    ));
   }
   async getPipelineByCompany(companyId: string) {
     if (!(await this.isDecisionCompany(companyId))) return null;
@@ -697,7 +739,9 @@ export class PlatformService {
     return rows.filter((row) => ids.has(row.companyId));
   }
   async saveActivity(activity: Omit<ActivityRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-    if (!(await this.isDecisionCompany(activity.companyId))) throw new Error('Company is not eligible for decision activity.');
+    if (!(await this.isDecisionCompany(activity.companyId))) {
+      throw Object.assign(new Error('Company is not eligible for decision activity.'), { statusCode: 403 });
+    }
     return this.repository.saveActivity(activity);
   }
   async listTasks(companyId?: string) {
@@ -708,7 +752,9 @@ export class PlatformService {
     return rows.filter((row) => ids.has(row.companyId));
   }
   async saveTask(task: Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-    if (!(await this.isDecisionCompany(task.companyId))) throw new Error('Company is not eligible for decision task.');
+    if (!(await this.isDecisionCompany(task.companyId))) {
+      throw Object.assign(new Error('Company is not eligible for decision task.'), { statusCode: 403 });
+    }
     return this.repository.saveTask(task);
   }
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) { return this.repository.updateTask(taskId, updates); }
