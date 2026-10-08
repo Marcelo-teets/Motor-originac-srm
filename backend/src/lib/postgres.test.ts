@@ -174,3 +174,19 @@ test('postgres adapter splits large writes under the bind-parameter limit', () =
   assert.equal(chunks.flat().length, rows.length);
   assert.deepEqual(__test.chunkForParameters([], 4), []);
 });
+
+
+test('postgres adapter normalizes Neon sslmode=require to verify-full', () => {
+  assert.equal(
+    __test.normalizeNeonConnectionString('postgresql://u:p@ep-test.neon.tech/neondb?sslmode=require'),
+    'postgresql://u:p@ep-test.neon.tech/neondb?sslmode=verify-full',
+  );
+  assert.equal(
+    __test.normalizeNeonConnectionString('postgresql://u:p@ep-test.neon.tech/neondb'),
+    'postgresql://u:p@ep-test.neon.tech/neondb?sslmode=verify-full',
+  );
+  assert.equal(
+    __test.normalizeNeonConnectionString('postgresql://u:p@localhost/neondb?sslmode=disable'),
+    'postgresql://u:p@localhost/neondb?sslmode=disable',
+  );
+});
