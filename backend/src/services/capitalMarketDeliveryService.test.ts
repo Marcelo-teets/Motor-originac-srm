@@ -36,3 +36,21 @@ test('uses safe defaults for incomplete RPC payloads', () => {
   assert.equal(result.status, 'completed');
   assert.equal(result.error, null);
 });
+
+
+test('delivery service routes debentures_snd through its dedicated RPC', async () => {
+  const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  const module = await import('./capitalMarketDeliveryService.js');
+  const service = new module.CapitalMarketDeliveryService() as any;
+  service.client = {
+    async rpc(fn: string, args: Record<string, unknown>) {
+      calls.push({ fn, args });
+      return { datasetCode: 'debentures_snd', eventCount: 2, candidatesUpserted: 1 };
+    },
+  };
+  const result = await service.sync(['debentures_snd'] as any);
+  assert.deepEqual(calls, [{ fn: 'sync_debentures_snd_delivery', args: {} }]);
+  assert.equal(result.status, 'real');
+  assert.equal(result.datasets[0]?.eventCount, 2);
+  assert.equal(result.datasets[0]?.candidatesUpserted, 1);
+});
