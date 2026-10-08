@@ -76,3 +76,15 @@ test('patches fail loudly when the migration text drifts', () => {
   const [file] = Object.keys(PATCHES);
   assert.throws(() => applyMigrationPatches(file, 'select 1;'), /no longer matches/);
 });
+
+
+test('bronze compatibility preserves the canonical ingested_at contract', () => {
+  const baseline = read('db/neon/20261006_neon_bronze_historical_compatibility.sql');
+  const repair = read('db/neon/20261008_neon_bronze_ingested_at_compatibility.sql');
+  assert.match(baseline, /ingested_at timestamptz not null default now\(\)/);
+  assert.match(baseline, /add column if not exists ingested_at timestamptz/);
+  assert.match(repair, /set ingested_at = coalesce\(ingested_at, captured_at, created_at, now\(\)\)/);
+  assert.match(repair, /alter column ingested_at set not null/);
+  assert.match(repair, /idx_bronze_historical_records_dataset_ingested/);
+  assert.ok(MIGRATIONS.includes('db/neon/20261008_neon_bronze_ingested_at_compatibility.sql'));
+});
