@@ -1,0 +1,45 @@
+name: VC Domain Intelligence Smoke 20261008
+
+on:
+  push:
+    branches:
+      - ops/vc-domain-intelligence-smoke-20261008
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Resolve VC portfolio candidate domains
+        working-directory: backend
+        run: >
+          npx tsx src/cli/candidateDomainIntelligence.ts
+          --limit 10 --force
+          --candidate-id 0d9969bd-242e-4665-aed4-e40eb724d72e
+          --candidate-id 98540ab1-a690-4438-a07f-705fe97d9b5a
+          --candidate-id df0801d9-5224-4a2e-8b83-940b6364e9e3
+          --candidate-id f65be87b-8daf-4ea5-82ab-ce499206d6cc
+          --candidate-id 390ef715-f444-4725-a9ae-40917cad1f4b
+          --candidate-id 42f4d1bc-6c02-46b3-9f4b-e21fa4fc0e47
+          --candidate-id 860b8e99-dfee-4c0b-8774-466623695247
+          --candidate-id 2b2708b0-ff23-4908-9e80-bd02d9d8154a
+          --candidate-id 0e882e69-b2e2-49cd-b6a0-c02cf7147ad2
+          --candidate-id d89c0039-f489-4554-8931-ac46e5419d5c
