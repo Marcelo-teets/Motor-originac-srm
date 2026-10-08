@@ -337,8 +337,9 @@ export class CandidateDomainIntelligenceService {
 
     // This extra lane only enriches identity evidence for VC portfolio
     // companies. It never relaxes the CNPJ/human-review promotion gate.
+    const commercialCandidates = commercialRows.filter((row) => row.queue_type !== 'identity');
     const vcIdentityRows = identityRows.filter(isVcPortfolioIdentityCandidate);
-    const rows = [...commercialRows, ...vcIdentityRows];
+    const rows = [...commercialCandidates, ...vcIdentityRows];
 
     const missing = rows.filter((row) => !normalizeDomainCandidate(row.website) && !normalizeDomainCandidate(row.normalized_domain));
     const now = this.now();
