@@ -23,7 +23,7 @@ const profile = (id: string, status: SearchProfile['status'] = 'active'): Search
 test('bootstrap runs active profiles directly without cadence guards', async () => {
   const calls: string[] = [];
   const summary = await runSearchProfileBootstrap({
-    listSearchProfiles: async () => [profile('a'), profile('b'), profile('inactive', 'inactive')],
+    listSearchProfiles: async () => [profile('a'), profile('b'), profile('paused', 'paused')],
     runCapture: async (searchProfileId) => {
       calls.push(searchProfileId);
       return {
