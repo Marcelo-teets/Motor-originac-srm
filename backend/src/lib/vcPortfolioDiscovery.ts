@@ -25,6 +25,38 @@ const STOPWORDS = new Set([
 // Nomes de fundos que aparecem como prefixo em alt-text tipo "Kaszek Creditas Logo".
 const FUND_PREFIXES = ['kaszek', 'monashees', 'canary', 'astella', 'valor capital group', 'valor capital'];
 
+const SOCIAL_OR_UTILITY_HOSTS = [
+  'linkedin.com', 'instagram.com', 'facebook.com', 'x.com', 'twitter.com',
+  'youtube.com', 'youtu.be', 'medium.com', 'substack.com', 'mail.google.com',
+];
+
+export type PortfolioCompanyObservation = {
+  companyName: string;
+  website?: string;
+  portfolioDetailUrl?: string;
+};
+
+const resolveUrl = (href: string, baseUrl: string) => {
+  try {
+    return new URL(href, baseUrl);
+  } catch {
+    return null;
+  }
+};
+
+const normalizedHost = (value: string) => value.toLowerCase().replace(/^www\./, '');
+
+const isExternalCompanyWebsite = (href: string, portfolioUrl: string) => {
+  if (!href || /^(?:mailto:|tel:|javascript:|#)/i.test(href)) return false;
+  const resolved = resolveUrl(href, portfolioUrl);
+  const portfolio = resolveUrl(portfolioUrl, portfolioUrl);
+  if (!resolved || !portfolio || !/^https?:$/.test(resolved.protocol)) return false;
+  const host = normalizedHost(resolved.hostname);
+  if (!host || host === normalizedHost(portfolio.hostname)) return false;
+  if (SOCIAL_OR_UTILITY_HOSTS.some((blocked) => host === blocked || host.endsWith(`.${blocked}`))) return false;
+  return true;
+};
+
 const decodeEntities = (value: string) => value
   .replace(/&amp;/g, '&')
   .replace(/&quot;/g, '"')
@@ -73,33 +105,58 @@ const isPlausibleCompanyName = (value: string) => {
 };
 
 // Extrai candidatos de elementos estruturais onde páginas de portfólio listam
-// investidas: alt de logos, headings de card e texto de âncoras.
-export const extractPortfolioCompanyNames = (html: string): string[] => {
-  const candidates: string[] = [];
+// investidas. Quando o próprio portfólio aponta para o domínio externo da
+// investida, preservamos esse link como evidência first-party de identidade.
+export const extractPortfolioCompanies = (html: string, portfolioUrl: string): PortfolioCompanyObservation[] => {
+  const anchorEvidence = new Map<string, Omit<PortfolioCompanyObservation, 'companyName'>>();
 
-  for (const match of html.matchAll(/<img[^>]+alt=["']([^"']+)["']/gi)) {
-    candidates.push(match[1] ?? '');
-  }
-  for (const match of html.matchAll(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi)) {
-    candidates.push(match[1] ?? '');
-  }
-  for (const match of html.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)) {
-    candidates.push(match[1] ?? '');
+  for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const attrs = match[1] ?? '';
+    const body = match[2] ?? '';
+    const href = attrs.match(/\bhref=["']([^"']+)["']/i)?.[1] ?? '';
+    const alt = body.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1] ?? '';
+    const label = cleanCandidate(alt || body);
+    if (!isPlausibleCompanyName(label)) continue;
+    const resolved = resolveUrl(href, portfolioUrl);
+    if (!resolved || !href) continue;
+    anchorEvidence.set(label.toLowerCase(), {
+      ...(isExternalCompanyWebsite(href, portfolioUrl)
+        ? { website: resolved.toString() }
+        : { portfolioDetailUrl: resolved.toString() }),
+    });
   }
 
-  const seen = new Set<string>();
-  const names: string[] = [];
-  for (const raw of candidates) {
-    const name = cleanCandidate(raw);
-    if (!isPlausibleCompanyName(name)) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    names.push(name);
-    if (names.length >= MAX_NAMES_PER_PAGE) break;
+  // Preserve the historical extractor order (logo alt -> headings -> anchors).
+  // Link evidence is attached by normalized company name and does not reorder
+  // candidates, which keeps downstream dedupe/review behavior deterministic.
+  const rawCandidates: string[] = [];
+  for (const match of html.matchAll(/<img[^>]+alt=["']([^"']+)["']/gi)) rawCandidates.push(match[1] ?? '');
+  for (const match of html.matchAll(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi)) rawCandidates.push(match[1] ?? '');
+  for (const match of html.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)) rawCandidates.push(match[1] ?? '');
+
+  const byName = new Map<string, PortfolioCompanyObservation>();
+  for (const raw of rawCandidates) {
+    const companyName = cleanCandidate(raw);
+    if (!isPlausibleCompanyName(companyName)) continue;
+    const key = companyName.toLowerCase();
+    const evidence = anchorEvidence.get(key) ?? {};
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, { companyName, ...evidence });
+    } else {
+      byName.set(key, {
+        companyName: existing.companyName,
+        website: existing.website ?? evidence.website,
+        portfolioDetailUrl: existing.portfolioDetailUrl ?? evidence.portfolioDetailUrl,
+      });
+    }
+    if (byName.size >= MAX_NAMES_PER_PAGE) break;
   }
-  return names;
+  return [...byName.values()];
 };
+
+export const extractPortfolioCompanyNames = (html: string): string[] =>
+  extractPortfolioCompanies(html, 'https://portfolio.invalid/').map((candidate) => candidate.companyName);
 
 // Descoberta de universo a partir dos portfólios VC (fonte estratégica central
 // do cérebro mestre). Os hits entram no fluxo padrão de candidatos: dedupe
@@ -111,16 +168,21 @@ export async function discoverVcPortfolioCompanies(): Promise<DiscoverySourceHit
   return pages
     .filter((page): page is NonNullable<typeof page> => Boolean(page))
     .flatMap((page) =>
-      extractPortfolioCompanyNames(page.html).map((companyName) => ({
-        companyName,
+      extractPortfolioCompanies(page.html, page.url).map((candidate) => ({
+        companyName: candidate.companyName,
+        ...(candidate.website ? { website: candidate.website } : {}),
         sourceRef: `vc-portfolio:${page.fund}`,
         sourceUrl: page.url,
-        evidenceSummary: `Listada no portfólio público de ${page.fund}. Validar identidade, CNPJ e aderência à tese antes de promover.`,
-        confidence: 0.55,
+        evidenceSummary: candidate.website
+          ? `Listada no portfólio público de ${page.fund}, que aponta para o domínio oficial da investida. Validar CNPJ e aderência à tese antes de promover.`
+          : `Listada no portfólio público de ${page.fund}. Validar identidade, CNPJ e aderência à tese antes de promover.`,
+        confidence: candidate.website ? 0.65 : 0.55,
         rawPayload: {
           origin: 'vc_portfolio_page',
           fund: page.fund,
           evidenceUrl: page.url,
+          ...(candidate.website ? { portfolioCompanyWebsite: candidate.website, identityEvidenceKind: 'vc_portfolio_external_link' } : {}),
+          ...(candidate.portfolioDetailUrl ? { portfolioDetailUrl: candidate.portfolioDetailUrl } : {}),
         },
       } satisfies DiscoverySourceHit)),
     );
