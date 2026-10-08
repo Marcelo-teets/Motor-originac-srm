@@ -59,6 +59,11 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Load Neon production connection from Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+          VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+          VERCEL_PROJECT_NAME: motor-originac-srm
         run: bash scripts/load-neon-from-vercel.sh
 
       - name: Typecheck backend
@@ -83,7 +88,7 @@ jobs:
       - name: Run scheduled search profile discovery
         env:
           DISCOVERY_TOKEN: ${{ secrets.CRON_SECRET }}
-          DISCOVERY_URL: https://motor-originac-srm-marcelo-teets-projects.vercel.app/api/search-profiles/cron/run
+          DISCOVERY_URL: https://motor-originac-srm.vercel.app/api/search-profiles/cron/run
         run: |
           test -n "$DISCOVERY_TOKEN" || (echo "discovery token is missing" && exit 1)
           test -n "$DISCOVERY_URL" || (echo "discovery url is missing" && exit 1)
@@ -110,9 +115,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-steps:
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
       - name: Checkout production main
         uses: actions/checkout@v4
         with:
@@ -122,6 +129,8 @@ steps:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Load canonical Neon connection from Vercel vault
+        run: bash scripts/load-neon-from-vercel.sh
       - name: Validate production secrets
         run: |
           test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
