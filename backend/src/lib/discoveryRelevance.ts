@@ -1,5 +1,5 @@
 import type { SearchProfile } from '../types/platform.js';
-import type { DiscoverySourceHit } from './discoveryCapture.js';
+import { profileNeedsPortfolioUniverse, type DiscoverySourceHit } from './discoveryCapture.js';
 
 export type DiscoveryRelevanceResult = {
   hits: DiscoverySourceHit[];
@@ -82,13 +82,21 @@ export const filterDiscoveryHitsByProfileRelevance = (
 ): DiscoveryRelevanceResult => {
   const expected = expectedSignal(profile);
   const query = quickQuery(profile);
-  const allowPortfolioUniverse = explicitPortfolioIntent.test(query);
+  const profileMode = profile.profilePayload?.mode ?? 'advanced';
+  const explicitPortfolioUniverse = explicitPortfolioIntent.test(query);
+  const institutionalPortfolioUniverse = profileMode !== 'quick-search' && profileNeedsPortfolioUniverse(profile);
+  const allowPortfolioUniverse = explicitPortfolioUniverse || institutionalPortfolioUniverse;
   const accepted: DiscoverySourceHit[] = [];
   let rejected = 0;
 
   for (const hit of hits) {
     if (isPortfolioHit(hit) && allowPortfolioUniverse) {
-      accepted.push(annotate(hit, true, 'explicit_portfolio_universe_intent', expected.id));
+      accepted.push(annotate(
+        hit,
+        true,
+        explicitPortfolioUniverse ? 'explicit_portfolio_universe_intent' : 'institutional_profile_portfolio_universe',
+        expected.id,
+      ));
       continue;
     }
 
