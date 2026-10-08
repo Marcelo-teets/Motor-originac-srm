@@ -211,25 +211,34 @@ test('DCM relevance rejects generic readiness news and keeps debt/capital-market
   assert.equal(result.rejected, 1);
 });
 
-test('portfolio universe bypass is allowed only when the user explicitly asks for that universe', () => {
+test('portfolio universe bypass stays explicit for Quick Search but is enabled for institutional profiles', () => {
   const portfolioHit = hit('Creditas', {
     sourceRef: 'vc-portfolio:kaszek',
     evidenceSummary: 'Listada no portfólio público de Kaszek.',
     rawPayload: { origin: 'vc_portfolio_page' },
   });
 
-  const regular = filterDiscoveryHitsByProfileRelevance(
+  const regularQuickSearch = filterDiscoveryHitsByProfileRelevance(
     profile('FIDC', 'Fintechs com potencial para FIDC'),
     [portfolioHit],
   );
-  assert.equal(regular.hits.length, 0);
+  assert.equal(regularQuickSearch.hits.length, 0);
 
-  const explicit = filterDiscoveryHitsByProfileRelevance(
+  const explicitQuickSearch = filterDiscoveryHitsByProfileRelevance(
     profile('FIDC', 'Startups investidas por VCs com potencial para FIDC'),
     [portfolioHit],
   );
-  assert.equal(explicit.hits.length, 1);
-  assert.equal((explicit.hits[0]?.rawPayload.relevanceGate as { rule?: string })?.rule, 'explicit_portfolio_universe_intent');
+  assert.equal(explicitQuickSearch.hits.length, 1);
+  assert.equal((explicitQuickSearch.hits[0]?.rawPayload.relevanceGate as { rule?: string })?.rule, 'explicit_portfolio_universe_intent');
+
+  const institutionalProfile: SearchProfile = {
+    ...profile('FIDC', ''),
+    id: 'sp-fintech-institutional',
+    profilePayload: { mode: 'advanced' },
+  };
+  const institutional = filterDiscoveryHitsByProfileRelevance(institutionalProfile, [portfolioHit]);
+  assert.equal(institutional.hits.length, 1);
+  assert.equal((institutional.hits[0]?.rawPayload.relevanceGate as { rule?: string })?.rule, 'institutional_profile_portfolio_universe');
 });
 
 test('entity resolution auto-links only exact normalized names, domains or CNPJ', () => {
