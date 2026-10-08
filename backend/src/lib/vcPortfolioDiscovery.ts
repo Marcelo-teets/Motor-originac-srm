@@ -108,7 +108,7 @@ const isPlausibleCompanyName = (value: string) => {
 // investidas. Quando o próprio portfólio aponta para o domínio externo da
 // investida, preservamos esse link como evidência first-party de identidade.
 export const extractPortfolioCompanies = (html: string, portfolioUrl: string): PortfolioCompanyObservation[] => {
-  const candidates: PortfolioCompanyObservation[] = [];
+  const anchorEvidence = new Map<string, Omit<PortfolioCompanyObservation, 'companyName'>>();
 
   for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
     const attrs = match[1] ?? '';
@@ -118,33 +118,36 @@ export const extractPortfolioCompanies = (html: string, portfolioUrl: string): P
     const label = cleanCandidate(alt || body);
     if (!isPlausibleCompanyName(label)) continue;
     const resolved = resolveUrl(href, portfolioUrl);
-    candidates.push({
-      companyName: label,
-      ...(isExternalCompanyWebsite(href, portfolioUrl) && resolved ? { website: resolved.toString() } : {}),
-      ...(!isExternalCompanyWebsite(href, portfolioUrl) && resolved && href ? { portfolioDetailUrl: resolved.toString() } : {}),
+    if (!resolved || !href) continue;
+    anchorEvidence.set(label.toLowerCase(), {
+      ...(isExternalCompanyWebsite(href, portfolioUrl)
+        ? { website: resolved.toString() }
+        : { portfolioDetailUrl: resolved.toString() }),
     });
   }
 
-  for (const match of html.matchAll(/<img[^>]+alt=["']([^"']+)["']/gi)) {
-    const label = cleanCandidate(match[1] ?? '');
-    if (isPlausibleCompanyName(label)) candidates.push({ companyName: label });
-  }
-  for (const match of html.matchAll(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi)) {
-    const label = cleanCandidate(match[1] ?? '');
-    if (isPlausibleCompanyName(label)) candidates.push({ companyName: label });
-  }
+  // Preserve the historical extractor order (logo alt -> headings -> anchors).
+  // Link evidence is attached by normalized company name and does not reorder
+  // candidates, which keeps downstream dedupe/review behavior deterministic.
+  const rawCandidates: string[] = [];
+  for (const match of html.matchAll(/<img[^>]+alt=["']([^"']+)["']/gi)) rawCandidates.push(match[1] ?? '');
+  for (const match of html.matchAll(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi)) rawCandidates.push(match[1] ?? '');
+  for (const match of html.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)) rawCandidates.push(match[1] ?? '');
 
   const byName = new Map<string, PortfolioCompanyObservation>();
-  for (const candidate of candidates) {
-    const key = candidate.companyName.toLowerCase();
+  for (const raw of rawCandidates) {
+    const companyName = cleanCandidate(raw);
+    if (!isPlausibleCompanyName(companyName)) continue;
+    const key = companyName.toLowerCase();
+    const evidence = anchorEvidence.get(key) ?? {};
     const existing = byName.get(key);
     if (!existing) {
-      byName.set(key, candidate);
+      byName.set(key, { companyName, ...evidence });
     } else {
       byName.set(key, {
         companyName: existing.companyName,
-        website: existing.website ?? candidate.website,
-        portfolioDetailUrl: existing.portfolioDetailUrl ?? candidate.portfolioDetailUrl,
+        website: existing.website ?? evidence.website,
+        portfolioDetailUrl: existing.portfolioDetailUrl ?? evidence.portfolioDetailUrl,
       });
     }
     if (byName.size >= MAX_NAMES_PER_PAGE) break;
