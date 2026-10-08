@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoverVcPortfolioCompanies, extractPortfolioCompanyNames } from './vcPortfolioDiscovery.js';
+import { discoverVcPortfolioCompanies, extractPortfolioCompanies, extractPortfolioCompanyNames } from './vcPortfolioDiscovery.js';
 import { DEFAULT_VC_PORTFOLIOS } from './vcPortfolios.js';
 
 const portfolioHtml = `
@@ -24,6 +24,40 @@ test('extractPortfolioCompanyNames extracts card names and drops navigation nois
 test('extractPortfolioCompanyNames handles empty and junk html', () => {
   assert.deepEqual(extractPortfolioCompanyNames(''), []);
   assert.deepEqual(extractPortfolioCompanyNames('<p>12345</p><img alt="{{placeholder}}" />'), []);
+});
+
+test('extractPortfolioCompanies preserves external investee links but not fund-internal detail URLs', () => {
+  const html = `
+    <a href="https://www.creditas.com/"><img alt="Kaszek Creditas Logo" /></a>
+    <a href="/companies/drconsulta"><img alt="Kaszek drconsulta Logo" /></a>
+    <a href="https://linkedin.com/company/noise">LinkedIn</a>
+  `;
+  const companies = extractPortfolioCompanies(html, 'https://www.kaszek.com/companies');
+
+  const creditas = companies.find((item) => item.companyName === 'Creditas');
+  const drconsulta = companies.find((item) => item.companyName === 'drconsulta');
+
+  assert.equal(creditas?.website, 'https://www.creditas.com/');
+  assert.equal(creditas?.portfolioDetailUrl, undefined);
+  assert.equal(drconsulta?.website, undefined);
+  assert.equal(drconsulta?.portfolioDetailUrl, 'https://www.kaszek.com/companies/drconsulta');
+  assert.ok(!companies.some((item) => item.companyName === 'LinkedIn'));
+});
+
+test('discoverVcPortfolioCompanies raises confidence only when the VC page supplies an external company domain', async () => {
+  const originalFetch = globalThis.fetch;
+  const html = '<a href="https://creditas.com"><img alt="Creditas Logo" /></a>';
+  globalThis.fetch = (async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+  try {
+    const hits = await discoverVcPortfolioCompanies();
+    assert.equal(hits.length, DEFAULT_VC_PORTFOLIOS.length);
+    assert.equal(hits[0]?.companyName, 'Creditas');
+    assert.equal(hits[0]?.website, 'https://creditas.com/');
+    assert.equal(hits[0]?.confidence, 0.65);
+    assert.equal(hits[0]?.rawPayload.identityEvidenceKind, 'vc_portfolio_external_link');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('extractPortfolioCompanyNames recovers clean names from real production noise', () => {
