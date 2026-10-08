@@ -16,6 +16,20 @@ export type FilterDefinition = {
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
 const SELECT_LIST = /^(\*|[a-z_][a-z0-9_]*(\s*,\s*[a-z_][a-z0-9_]*)*)$/i;
 
+const normalizeNeonConnectionString = (connectionString: string) => {
+  try {
+    const parsed = new URL(connectionString);
+    if (!parsed.hostname.endsWith('.neon.tech')) return connectionString;
+    const mode = parsed.searchParams.get('sslmode');
+    if (!mode || mode === 'require' || mode === 'prefer') {
+      parsed.searchParams.set('sslmode', 'verify-full');
+    }
+    return parsed.toString();
+  } catch {
+    return connectionString;
+  }
+};
+
 const ident = (value: string) => {
   if (!IDENTIFIER.test(value)) throw new Error(`Unsafe SQL identifier: ${value}`);
   return `"${value}"`;
@@ -175,7 +189,7 @@ export class NeonPostgresClient {
 
   constructor(connectionString: string, pool?: Queryable) {
     this.pool = pool ?? new Pool({
-      connectionString,
+      connectionString: normalizeNeonConnectionString(connectionString),
       max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
@@ -417,4 +431,4 @@ export const getNeonPostgresClient = (connectionString: string) => {
   return singleton;
 };
 
-export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined, chunkForParameters };
+export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined, chunkForParameters, normalizeNeonConnectionString };
