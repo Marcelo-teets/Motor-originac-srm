@@ -50,7 +50,8 @@
     "test:neon-growth-guard": "node --test scripts/neon-database-growth-circuit-breaker-contract.test.mjs",
     "test:no-supabase-runtime": "node --test scripts/no-supabase-runtime-contract.test.mjs",
     "test:neon-migration": "node --test scripts/neon-migration-plan-contract.test.mjs scripts/neon-runtime-contract.test.mjs scripts/check-neon-storage-budget.test.mjs scripts/run-neon-scheduled-jobs.test.mjs",
-    "test:legacy-recovery": "node --test migration/supabase-recovery/*.test.mjs"
+    "test:legacy-recovery": "node --test migration/supabase-recovery/*.test.mjs",
+    "test:real-data-runners": "node --test scripts/real-data-runner-vault-contract.test.mjs"
   },
   "devDependencies": {
     "tsx": "4.19.3"
