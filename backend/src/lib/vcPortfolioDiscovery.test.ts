@@ -46,7 +46,7 @@ test('extractPortfolioCompanies preserves external investee links but not fund-i
 
 test('discoverVcPortfolioCompanies raises confidence only when the VC page supplies an external company domain', async () => {
   const originalFetch = globalThis.fetch;
-  const html = '<a href="https://creditas.com"><img alt="Creditas Logo" /></a>';
+  const html = '<h2>Companies</h2><a href="https://creditas.com"><img alt="Creditas Logo" /></a>';
   globalThis.fetch = (async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
   try {
     const hits = await discoverVcPortfolioCompanies();
