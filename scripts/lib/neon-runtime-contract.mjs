@@ -144,6 +144,7 @@ export const REQUIRED_FUNCTIONS = Object.freeze([
   ['public', 'save_company_credit_review_draft'],
   ['public', 'sync_capital_market_company_signals'],
   ['public', 'sync_capital_market_delivery'],
+  ['public', 'sync_debentures_snd_delivery'],
   ['public', 'sync_finep_company_signals'],
   ['public', 'sync_public_dataset_company_outputs'],
   ['public', 'sync_strategic_dataset_company_signals'],
