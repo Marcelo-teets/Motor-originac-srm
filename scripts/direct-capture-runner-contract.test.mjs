@@ -31,9 +31,11 @@ test('fanout shell no longer calls Vercel HTTP endpoints', () => {
   assert.doesNotMatch(shell, /TARGETS_URL/);
 });
 
-test('workflow provides Neon persistence directly and retains bounded smoke on push', () => {
-  assert.match(workflow, /MOTOR_NEON_DATABASE_URL: \${{ secrets.MOTOR_NEON_DATABASE_URL }}/);
-  assert.match(workflow, /MOTOR_NEON_DATABASE_URL: \${{ secrets.MOTOR_NEON_DATABASE_URL }}/);
+test('workflow loads canonical Neon persistence from the Vercel vault and retains bounded smoke on push', () => {
+  assert.match(workflow, /bash scripts\/load-neon-from-vercel\.sh/);
+  assert.match(workflow, /VERCEL_TOKEN: \$\{\{ secrets\.VERCEL_TOKEN \}\}/);
+  assert.match(workflow, /VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs/);
+  assert.doesNotMatch(workflow, /MOTOR_NEON_DATABASE_URL: \$\{\{ secrets\.MOTOR_NEON_DATABASE_URL \}\}/);
   assert.match(workflow, /CAPTURE_RELEASE: "github-actions-direct-v1"/);
   assert.match(workflow, /MAX_TARGETS="50"/);
   assert.match(workflow, /timeout-minutes: 120/);
