@@ -40,7 +40,8 @@ export async function runSearchProfileBootstrap(
   const scoped = requested.size
     ? active.filter((profile) => requested.has(profile.id))
     : active;
-  const maxProfiles = Math.max(1, Math.min(Math.trunc(options.maxProfiles ?? scoped.length || 1), 100));
+  const requestedMax = options.maxProfiles ?? scoped.length ?? 1;
+  const maxProfiles = Math.max(1, Math.min(Math.trunc(requestedMax || 1), 100));
   const selected = scoped.slice(0, maxProfiles);
   const results: SearchProfileBootstrapResult[] = [];
 
