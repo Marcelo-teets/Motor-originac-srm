@@ -296,7 +296,7 @@ const runNewsDiscoveryLane = async (lane: DiscoveryQueryLane): Promise<Discovery
 };
 
 const quickSearchNeedsPortfolioUniverse = (query: string) => /\b(portf[oó]lio|portfolio|venture|vc|investida|investidas|startup|startups|tech-backed)\b/i.test(query);
-const profileNeedsPortfolioUniverse = (profile: SearchProfile) => /fintech|embedded|healthtech|agro|tech|startup|marketplace|plataforma|growth/i
+export const profileNeedsPortfolioUniverse = (profile: SearchProfile) => /fintech|embedded|healthtech|agro|tech|startup|marketplace|plataforma|growth/i
   .test(`${profile.segment} ${profile.subsegment} ${quickSearchQuery(profile)}`);
 
 const persistedUniverseHits = (universe: DiscoveryUniverseCandidate[]): DiscoverySourceHit[] => universe
