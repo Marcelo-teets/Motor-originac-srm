@@ -1,0 +1,102 @@
+name: Real Data Bootstrap V2 20261008
+
+on:
+  push:
+    branches:
+      - ops/real-data-bootstrap-v2-20261008
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-data-bootstrap-v2-20261008
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      MOTOR_API_BASE_URL: https://motor-originac-srm.vercel.app
+      CAPTURE_CADENCE: all
+      MAX_PARALLELISM: "3"
+      MAX_CAPTURE_TARGETS: "100"
+      CAPTURE_RELEASE: github-actions-bootstrap-v2-20261008
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: bash scripts/load-neon-from-vercel.sh
+
+      - name: Direct Search Profile bootstrap
+        working-directory: backend
+        run: npm exec -- tsx src/cli/searchProfileBootstrap.ts --max-profiles 100
+
+      - name: Classify candidate semantics
+        continue-on-error: true
+        working-directory: backend
+        run: npm exec -- tsx src/cli/candidateNewsSemantics.ts --limit 500 --force
+
+      - name: Enrich BCB identities
+        continue-on-error: true
+        working-directory: backend
+        run: npm exec -- tsx src/cli/candidateBcbIdentity.ts --limit 200
+
+      - name: Enrich CVM identities
+        continue-on-error: true
+        working-directory: backend
+        run: npm exec -- tsx src/cli/candidateCvmRegistry.ts --trigger backfill --force
+
+      - name: Resolve candidate domains
+        continue-on-error: true
+        working-directory: backend
+        run: npm exec -- tsx src/cli/candidateDomainIntelligence.ts --limit 100 --tiers P1,P2,P3 --force
+
+      - name: Verify first-party websites
+        continue-on-error: true
+        working-directory: backend
+        run: npm exec -- tsx src/cli/candidateWebsiteIdentity.ts --limit 100
+
+      - name: Promote verified entities
+        run: node scripts/run-neon-scheduled-jobs.mjs "--jobs=entity-resolution,reprocessing"
+
+      - name: Capture sources for promoted companies
+        continue-on-error: true
+        run: bash scripts/capture/bounded-capture-fanout.sh
+
+      - name: Recompute derived origination data
+        run: node scripts/run-neon-scheduled-jobs.mjs "--jobs=reprocessing"
+
+      - name: Validate funnel materialization
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.MOTOR_NEON_DATABASE_URL, max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              select
+                (select count(*)::int from public.search_profile_runs) as search_runs,
+                (select count(*)::int from public.discovered_company_candidates) as candidates,
+                (select count(*)::int from public.discovered_company_candidates where candidate_status='promoted') as promoted_candidates,
+                (select count(*)::int from public.companies) as companies,
+                (select count(*)::int from public.monitoring_outputs) as monitoring_outputs,
+                (select count(*)::int from public.company_signals) as signals,
+                (select count(*)::int from public.enrichments) as enrichments,
+                (select count(*)::int from public.qualification_snapshots) as qualifications,
+                (select count(*)::int from public.company_patterns) as patterns,
+                (select count(*)::int from public.lead_score_snapshots) as lead_scores,
+                (select count(*)::int from public.ranking_v2) as rankings
+            `);
+            console.log(JSON.stringify(rows[0]));
+            if ((rows[0]?.candidates ?? 0) < 1) throw new Error('Bootstrap generated no candidates.');
+          } finally { await pool.end(); }
+          NODE
