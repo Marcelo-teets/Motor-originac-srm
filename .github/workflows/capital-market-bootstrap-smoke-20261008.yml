@@ -1,0 +1,49 @@
+name: Capital Market Bootstrap Smoke 20261008
+
+on:
+  push:
+    branches:
+      - ops/capital-market-bootstrap-smoke-20261008
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: bash scripts/load-neon-from-vercel.sh
+      - name: CVM offers canary
+        working-directory: backend
+        run: npm exec -- tsx src/cli/capitalMarkets.ts --dataset cvm_offers --max-rows 50 --trigger manual --require-records --require-delivery
+      - name: Debentures SND canary
+        working-directory: backend
+        run: npm exec -- tsx src/cli/capitalMarkets.ts --dataset debentures_snd --max-rows 50 --trigger manual --require-records --require-delivery
+      - name: Validate persisted market data
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.MOTOR_NEON_DATABASE_URL, max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              select
+                (select count(*)::int from public.bronze_historical_records where dataset_code in ('cvm_offers','debentures_snd')) as bronze_rows,
+                (select count(*)::int from public.capital_market_events where dataset_code in ('cvm_offers','debentures_snd')) as events,
+                (select count(*)::int from public.discovered_company_candidates where raw_payload->>'origin'='cvm_capital_market_event') as candidates
+            `);
+            console.log(JSON.stringify(rows[0]));
+            if ((rows[0]?.bronze_rows ?? 0) < 1 || (rows[0]?.events ?? 0) < 1) throw new Error('Capital-market persistence produced no rows.');
+          } finally { await pool.end(); }
+          NODE
