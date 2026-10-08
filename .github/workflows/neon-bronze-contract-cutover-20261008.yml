@@ -1,0 +1,62 @@
+name: Neon Bronze Contract Cutover 20261008
+
+on:
+  push:
+    branches:
+      - ops/neon-bronze-ingested-at-cutover-20261008
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      EXPECTED_MAIN_SHA: a355afb1858af2de7ca2725b6f2e325cb775d1e3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Apply canonical migration plan
+        env:
+          GITHUB_SHA: ${{ env.EXPECTED_MAIN_SHA }}
+        run: node scripts/apply-neon-runtime-migrations.mjs
+      - name: Verify Neon runtime parity
+        run: node scripts/neon-runtime-parity-check.mjs
+      - name: Verify bronze ingestion contract
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.MOTOR_NEON_DATABASE_URL, max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              select
+                exists (
+                  select 1 from information_schema.columns
+                  where table_schema='public'
+                    and table_name='bronze_historical_records'
+                    and column_name='ingested_at'
+                    and is_nullable='NO'
+                ) as ingested_at_ok,
+                exists (
+                  select 1 from private.motor_neon_migrations
+                  where migration_key='db/neon/20261008_neon_bronze_ingested_at_compatibility.sql'
+                ) as migration_recorded
+            `);
+            if (!rows[0]?.ingested_at_ok || !rows[0]?.migration_recorded) throw new Error('Bronze contract not applied.');
+            console.log(JSON.stringify(rows[0]));
+          } finally { await pool.end(); }
+          NODE
