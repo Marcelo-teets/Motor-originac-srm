@@ -44,6 +44,17 @@ fi
 
 validate_neon_url "$DATABASE_VALUE"
 
+DATABASE_VALUE="$(node --input-type=module - "$DATABASE_VALUE" <<'NODE'
+const value = process.argv[2] || '';
+const parsed = new URL(value);
+if (parsed.hostname.endsWith('.neon.tech')) {
+  const mode = parsed.searchParams.get('sslmode');
+  if (!mode || mode === 'require' || mode === 'prefer') parsed.searchParams.set('sslmode', 'verify-full');
+}
+process.stdout.write(parsed.toString());
+NODE
+)"
+
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   echo "::add-mask::$DATABASE_VALUE"
   printf 'MOTOR_NEON_DATABASE_URL=%s\n' "$DATABASE_VALUE" >> "$GITHUB_ENV"
