@@ -6,14 +6,14 @@ name: Neon Scheduled Jobs
 on:
   schedule:
     - cron: '*/5 * * * *'    # origination-derived-reprocessing
-    - cron: '*/15 * * * *'   # candidate-automatic-entity-resolution + derived-intelligence-materialization
+    - cron: '*/15 * * * *'   # entity-resolution + derived-intelligence-materialization
     - cron: '17 * * * *'     # agentetome-due-export-refresh
   workflow_dispatch:
     inputs:
       jobs:
         description: 'Comma-separated jobs: reprocessing, entity-resolution, derived-materialization, agentetome'
         required: true
-        default: 'reprocessing,entity-resolution'
+        default: 'reprocessing,entity-resolution,derived-materialization'
 
 permissions:
   contents: read
@@ -83,15 +83,7 @@ jobs:
           JOBS: ${{ steps.jobs.outputs.jobs }}
         shell: bash
         run: |
-          RUNTIME_JOBS="$(printf '%s' "$JOBS" | tr ',' '\n' | grep -v '^derived-materialization
-          if [ -n "$RUNTIME_JOBS" ]; then
-            node scripts/run-neon-scheduled-jobs.mjs "--jobs=$RUNTIME_JOBS"
-          fi
-
-      - name: Materialize derived origination intelligence
-        if: contains(steps.jobs.outputs.jobs, 'derived-materialization')
-        run: npx tsx backend/src/cli/materializeDerivedIntelligence.ts --limit=25
- | paste -sd, -)"
+          RUNTIME_JOBS="$(printf '%s' "$JOBS" | tr ',' '\n' | grep -v '^derived-materialization$' | paste -sd, -)"
           if [ -n "$RUNTIME_JOBS" ]; then
             node scripts/run-neon-scheduled-jobs.mjs "--jobs=$RUNTIME_JOBS"
           fi
