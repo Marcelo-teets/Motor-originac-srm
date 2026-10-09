@@ -1,0 +1,170 @@
+version: 5.0
+generated_at: "2026-10-09T13:36:00-03:00"
+supersedes: "docs/project-control/v4/ROADMAP_TRACKER_V4_1.yaml"
+plan: "docs/project-control/v5/PLANEJAMENTO_V5_2026-10-09.md"
+project: "Motor Originação SRM"
+repository: "Marcelo-teets/Motor-originac-srm"
+main_sha: "0d2e3cf619ccaaa72dfa7130a2406f70169aa68e"
+production_sha: "ab90cac9ec287a6ec3264321aef62256994d6ea4"
+infrastructure:
+  vercel_project: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+  vercel_team: team_PJwucES3YmFbxf57HE52Bw0v
+  neon_project: steep-poetry-38942951
+  neon_branch: production
+  supabase_legacy: hdghpmssudrqhsbvrdyt  # fora do runtime; histórico não recuperado
+north_star:
+  name: "empresas reais com sinal, fator e score"
+  baseline_2026_10_09: 0
+snapshot_2026_10_09:
+  discovered_company_candidates: 46
+  promoted_candidates: 2
+  companies: 2
+  decision_eligible_companies: 0
+  score_snapshots: 0
+  ranking_v2: 0
+  vector_documents: 0
+  user_profiles: 0
+  workflows_disabled_manually: 16
+  neon_branches: 10
+  neon_branch_limit: 10
+snapshot_2026_10_09_1336_brt:
+  discovered_company_candidates: 46
+  promoted_candidates: 2
+  companies: 2
+  decision_eligible_companies: 0
+  score_snapshots: 0
+  ranking_v2: 0
+  pipeline: 0
+  vector_documents_with_embedding: 0
+  user_profiles: 0
+  neon_auth_users: 1
+  db_size: "21 MB"
+  neon_branches: 10
+  neon_active_time_seconds_month: 60804
+  neon_active_time_hours_month: 16.89
+  main_sha: "0d2e3cf619ccaaa72dfa7130a2406f70169aa68e"
+  production_sha: "ab90cac9ec287a6ec3264321aef62256994d6ea4"
+rules:
+  one_pr_per_objective: true
+  production_only_from_main: true
+  production_deploy: manual
+  real_requires: [execution, persistence, audit, smoke]
+  schema_changes_only_via: "db/neon/*.sql + Neon Runtime Parity"
+phases:
+  F0:
+    name: "Higiene operacional"
+    due: "2026-10-16"
+    status: in_progress
+    exit_gate: [production_equals_main, neon_branches_lte_7, scheduler_green_24h]
+    items:
+      - id: F0-01
+        action: merge-pr-550-snd-delivery
+        status: ready_for_merge
+        evidence:
+          pr: 550
+          head_sha: "55a62ce5bf1211630f6761cc779a4ce6d966f152"
+          mergeable_state: clean
+          ci_run_id: 37781705235
+          ci_job: build-and-typecheck
+          parity_run_id: 37781705243
+          parity_job: parity
+        blocker: "merge requires explicit Marcelo approval"
+      - id: F0-02
+        action: promote-main-to-production
+        status: blocked_tooling
+        evidence:
+          main_sha: "0d2e3cf619ccaaa72dfa7130a2406f70169aa68e"
+          production_sha: "ab90cac9ec287a6ec3264321aef62256994d6ea4"
+          production_deployment_id: "dpl_CMGyJSZMBg5hnvciC3xbncPe1Gvx"
+        blocker: "available GitHub connector has no workflow_dispatch write action; direct Vercel deploy is forbidden by policy"
+        handoff: "gh workflow run vercel-production-deploy.yml -f sha=0d2e3cf619ccaaa72dfa7130a2406f70169aa68e -f wait_for_ready=true"
+      - id: F0-03
+        action: delete-neon-preview-branches
+        status: blocked_by_decision
+        decision: D-01
+        evidence:
+          candidate_branch_ids:
+            - br-green-shape-b6cs7axi
+            - br-bold-unit-b6u966ar
+            - br-misty-hill-b6h04vwo
+            - br-dry-morning-b6abe328
+            - br-restless-bread-b6qsy5xi
+            - br-summer-fog-b6txxc43
+            - br-restless-boat-b6zv2mov
+            - br-little-cherry-b6z5lec2
+          protected_keep:
+            - br-bold-pond-b6vde4xj
+            - br-purple-butterfly-b6t6lihv
+      - {id: F0-04, action: neon-vercel-preview-branch-policy, status: blocked_by_decision, decision: D-06}
+      - {id: F0-05, action: agentetome-key-or-disable-hourly-job, status: blocked_by_decision, decision: D-05}
+      - id: F0-06
+        action: admin-profile-bootstrap-and-auth-smoke
+        status: blocked_by_decision
+        decision: D-07
+        evidence:
+          neon_auth_users: 1
+          user_profiles: 0
+          auth_bootstrap_claims: 0
+          existing_user_type: residual_smoke_user
+          schema_note: "neon_auth.user uses createdAt, not created_at"
+        blocker: "existing Neon Auth user is not Marcelo; deletion is destructive"
+      - {id: F0-07, action: supabase-history-go-no-go, status: blocked_by_decision, decision: D-02}
+  F1:
+    name: "Religar captura no Neon com orçamento"
+    due: "2026-10-23"
+    status: blocked_by_F0
+    targets: {north_star: 5, candidates: 300, promoted: 30, scheduled_capture_green_days: 7}
+    items:
+      - {id: F1-01, action: enable-wave-a, workflows: [capture.yml, search-profile-discovery.yml, capital-market-ingestion.yml], status: blocked_by_decision, decision: D-04}
+      - {id: F1-02, action: enable-wave-b, workflows: [cvm-fund-documents-schedule.yml, public-bulk-ingestion.yml, candidate-domain-intelligence.yml, candidate-cvm-registry-enrichment.yml], status: todo}
+      - {id: F1-03, action: enable-or-retire-wave-c, status: todo}
+      - {id: F1-04, action: move-minute-jobs-off-github-cron, status: todo}
+      - {id: F1-05, action: run-search-profile-bootstrap-and-review, status: todo}
+      - {id: F1-06, action: data-freshness-panel, status: todo}
+  F2:
+    name: "Universo real e elegibilidade"
+    due: "2026-11-06"
+    status: blocked_by_F1
+    targets: {north_star: 20, fidc_assignors_resolved: 50, headcount_coverage_pct: 80}
+    items:
+      - {id: F2-01, action: headcount-source-for-icp-gate, status: blocked_by_decision, decision: D-03}
+      - {id: F2-02, action: resolve-fidc-assignors-from-cvm, status: todo}
+      - {id: F2-03, action: end-to-end-materialization, status: todo}
+      - {id: F2-04, action: human-review-queue-sla-72h, status: todo}
+  F3:
+    name: "Inteligência explicável"
+    due: "2026-11-20"
+    status: blocked_by_F2
+    targets: {north_star: 40, embedding_coverage_pct: 90, trigger_events_per_week: 1, thesis_top: 20}
+    items:
+      - {id: F3-01, action: voyage-key-and-embedding-backfill, status: todo}
+      - {id: F3-02, action: real-trigger-events, status: todo}
+      - {id: F3-03, action: thesis-and-market-map-top20, status: todo}
+      - {id: F3-04, action: contextual-copilot, status: todo}
+      - {id: F3-05, action: duplicata-escritural-radar, status: todo}
+  F4:
+    name: "Execução comercial"
+    due: "2026-12-18"
+    status: blocked_by_F3
+    targets: {north_star: 60, top20_owner_next_action_due_pct: 100, intros_sent_min: 1}
+    items:
+      - {id: F4-01, action: pipeline-hygiene-top20, status: todo}
+      - {id: F4-02, action: paperclip-operating, status: todo}
+      - {id: F4-03, action: intro-agent-approved-send, status: todo}
+      - {id: F4-04, action: contacts-layer-top20, status: todo}
+      - {id: F4-05, action: real-deal-comparables, status: todo}
+decisions:
+  - {id: D-01, topic: "Apagar 6 branches preview/* e vercel-dev no Neon", due: "2026-10-10", status: open}
+  - {id: D-02, topic: "Histórico Supabase: última tentativa ou abandono", due: "2026-10-16", status: open}
+  - {id: D-03, topic: "Fonte de headcount para o gate de ICP", due: "2026-10-23", status: open}
+  - {id: D-04, topic: "Autorizar religar workflows por ondas", due: "2026-10-13", status: open}
+  - {id: D-05, topic: "AGENTETOME_API_KEY ou desligar job horário", due: "2026-10-16", status: open}
+  - {id: D-06, topic: "Política de branches de preview Vercel↔Neon", due: "2026-10-16", status: open}
+  - {id: D-07, topic: "Remover usuário residual de smoke do Neon Auth e executar bootstrap real do Marcelo", due: "2026-10-16", status: open}
+divergences:
+  - "Os arquivos V5 informados no prompt não estavam na main; estavam apenas na PR #556."
+  - "main avançou de 26afa8d para 0d2e3cf enquanto produção permaneceu em ab90cac."
+  - "neon_auth.user não possui created_at; a coluna real é createdAt."
+  - "O único usuário Neon Auth é um usuário residual de smoke, não Marcelo."
+  - "GitHub workflow state list não é exposta pelo conector disponível; contagem de 16 disabled_manually não foi revalidada por API nesta execução."
+next_review: "2026-10-16"
