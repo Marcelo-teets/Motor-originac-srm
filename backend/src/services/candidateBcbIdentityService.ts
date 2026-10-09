@@ -127,6 +127,11 @@ type CandidateRow = {
   website: string | null;
   normalized_domain: string | null;
   candidate_status: string | null;
+  candidate_role: string | null;
+  queue_type: string | null;
+  canonical_rank: number | null;
+  identity_review_status: string | null;
+  promotion_ready: boolean | null;
   raw_payload: Record<string, unknown> | null;
 };
 
@@ -166,9 +171,12 @@ export class CandidateBcbIdentityService {
   async run(input: { limit?: number } = {}): Promise<CandidateBcbIdentityResult> {
     if (!this.client) throw new Error('Neon data client not configured for candidate BCB identity resolution.');
     const limit = Math.min(Math.max(Math.trunc(input.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
-    const rows = await this.client.select('discovered_company_candidates', {
-      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,raw_payload',
-      filters: [{ column: 'candidate_status', value: 'captured' }],
+    const rows = await this.client.select('candidate_decision_queue_v4', {
+      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,candidate_role,queue_type,canonical_rank,identity_review_status,promotion_ready,raw_payload',
+      filters: [
+        { column: 'canonical_rank', value: 1 },
+        { column: 'queue_type', value: 'identity' },
+      ],
       orderBy: { column: 'updated_at', ascending: false },
       limit: 500,
     }) as CandidateRow[];
@@ -176,18 +184,19 @@ export class CandidateBcbIdentityService {
     let ambiguousSkipped = 0;
     const targets = rows.filter((row) => {
       const raw = row.raw_payload ?? {};
-      const semantics = asRecord(raw.commercial_semantics);
-      const signalClass = String(semantics.signalClass ?? '');
-      const commercial = raw.commercial_queue === true;
-      const role = String(raw.candidate_role ?? '');
+      const role = String(row.candidate_role ?? raw.candidate_role ?? '');
       const ambiguous = asRecord(raw.first_party_identity_capture).status === 'ambiguous_group';
       if (ambiguous) {
         ambiguousSkipped += 1;
         return false;
       }
-      return commercial
-        && role === 'operating_company'
-        && ['direct_funding_trigger', 'funding_plan_trigger'].includes(signalClass)
+
+      return row.canonical_rank === 1
+        && row.queue_type === 'identity'
+        && row.candidate_status === 'captured'
+        && ['operating_company', 'operating_issuer'].includes(role)
+        && row.identity_review_status !== 'approved'
+        && row.promotion_ready !== true
         && digits(row.cnpj).length !== 14
         && asRecord(raw.bcb_regulated_identity).status !== 'matched';
     }).slice(0, limit);
@@ -243,7 +252,7 @@ export class CandidateBcbIdentityService {
           ...(normalizedDomain && !candidate.normalized_domain ? { normalized_domain: normalizedDomain } : {}),
           raw_payload: {
             ...existingRaw,
-            identity_review_status: String(existingRaw.identity_review_status ?? 'pending'),
+            identity_review_status: String(candidate.identity_review_status ?? existingRaw.identity_review_status ?? 'pending'),
             legal_name_verified: false,
             promotion_ready: false,
             identity_evidence_url: dataset.sourceUrl,
