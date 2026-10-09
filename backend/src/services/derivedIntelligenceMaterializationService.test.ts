@@ -79,3 +79,27 @@ test('excludes companies that are not decision eligible', () => {
   });
   assert.deepEqual(due, []);
 });
+
+
+test('canonical SQL eligibility set overrides stale TypeScript metadata in persistent materialization', () => {
+  const staleMetadata = { ...company('a'), decisionEligible: false } as CompanySeed;
+  const due = selectCompaniesForDerivedMaterialization({
+    companies: [staleMetadata],
+    qualifications: [],
+    leadScores: [],
+    monitoringOutputs: [],
+    eligibleCompanyIds: new Set(['a']),
+  });
+  assert.deepEqual(due, [{ companyId: 'a', reason: 'missing_qualification' }]);
+});
+
+test('canonical SQL eligibility set can block a company even when local metadata says eligible', () => {
+  const due = selectCompaniesForDerivedMaterialization({
+    companies: [company('a')],
+    qualifications: [],
+    leadScores: [],
+    monitoringOutputs: [],
+    eligibleCompanyIds: new Set(),
+  });
+  assert.deepEqual(due, []);
+});
