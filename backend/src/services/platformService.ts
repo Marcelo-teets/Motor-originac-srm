@@ -30,12 +30,26 @@ import type {
 } from '../types/platform.js';
 import type { PlatformRepository } from '../repositories/platformRepository.js';
 
+const timestampMs = (value: unknown) => {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Date.parse(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const timestampIso = (value: unknown, fallback = '') => {
+  const milliseconds = timestampMs(value);
+  return milliseconds > 0 ? new Date(milliseconds).toISOString() : fallback;
+};
+
+const newestFirst = (left: unknown, right: unknown) => timestampMs(right) - timestampMs(left);
+
 const latestByCompany = <T extends { companyId: string; createdAt?: string; created_at?: string }>(items: T[]) => {
   const map = new Map<string, T>();
   for (const item of items) {
     const current = map.get(item.companyId);
-    const stamp = item.createdAt ?? item.created_at ?? '';
-    const currentStamp = current ? (current.createdAt ?? current.created_at ?? '') : '';
+    const stamp = timestampMs(item.createdAt ?? item.created_at);
+    const currentStamp = current ? timestampMs(current.createdAt ?? current.created_at) : 0;
     if (!current || stamp >= currentStamp) map.set(item.companyId, item);
   }
   return map;
@@ -59,9 +73,9 @@ const toCompanySignalView = (signal: CompanySignal) => ({
 const fallbackEnrichment = (company: CompanySeed) => company.enrichment;
 const MONITORING_CONCURRENCY = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const isWithinLastDay = (value: string | undefined, now: number) => {
-  const at = Date.parse(value ?? '');
-  return Number.isFinite(at) && at >= now - DAY_MS;
+const isWithinLastDay = (value: unknown, now: number) => {
+  const at = timestampMs(value);
+  return at > 0 && at >= now - DAY_MS;
 };
 // assembleViews loads every view table; routes often need it several times per
 // request, so concurrent callers share one load and results live briefly.
@@ -96,9 +110,9 @@ export class PlatformService {
     const now = Date.now();
 
     return companies.map((company) => {
-      const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-      const companySignals = (signalsByCompany.get(company.id) ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      const companyOutputs = (outputsByCompany.get(company.id) ?? []).sort((a, b) => b.collectedAt.localeCompare(a.collectedAt));
+      const latestEnrichment = (enrichmentsByCompany.get(company.id) ?? []).sort((a, b) => newestFirst(a.createdAt, b.createdAt))[0];
+      const companySignals = (signalsByCompany.get(company.id) ?? []).sort((a, b) => newestFirst(a.createdAt, b.createdAt));
+      const companyOutputs = (outputsByCompany.get(company.id) ?? []).sort((a, b) => newestFirst(a.collectedAt, b.collectedAt));
       const websiteChanges = companyOutputs.filter((item) => item.sourceId === 'src_company_website').slice(0, 2).map((item) => item.summary);
       const feedHighlights = companyOutputs.filter((item) => item.sourceId !== 'src_company_website').slice(0, 3).map((item) => item.summary);
 
@@ -109,7 +123,7 @@ export class PlatformService {
         monitoring: {
           ...company.monitoring,
           status: companyOutputs.some((item) => item.connectorStatus === 'real') ? 'active' : company.monitoring.status,
-          lastRunAt: companyOutputs[0]?.collectedAt ?? company.monitoring.lastRunAt,
+          lastRunAt: timestampIso(companyOutputs[0]?.collectedAt, company.monitoring.lastRunAt),
           outputs24h: companyOutputs.filter((item) => isWithinLastDay(item.collectedAt, now)).length,
           triggers24h: companySignals.filter((signal) => signal.signalStrength >= 65 && isWithinLastDay(signal.createdAt, now)).length,
           websiteChanges: websiteChanges.length ? websiteChanges : company.monitoring.websiteChanges,
@@ -759,3 +773,6 @@ export class PlatformService {
   }
   async updateTask(taskId: string, updates: Partial<Pick<TaskRecord, 'title' | 'description' | 'owner' | 'status' | 'dueDate'>>) { return this.repository.updateTask(taskId, updates); }
 }
+
+
+export const __platformServiceTest = { timestampMs, timestampIso, newestFirst, isWithinLastDay };
