@@ -9,6 +9,9 @@ on:
       - backend/src/services/candidateDomainIntelligenceService.test.ts
       - backend/src/services/candidateWebsiteIdentityService.ts
       - backend/src/services/candidateWebsiteIdentityService.test.ts
+      - backend/src/cli/candidateBcbIdentity.ts
+      - backend/src/services/candidateBcbIdentityService.ts
+      - backend/src/services/candidateBcbIdentityService.test.ts
       - docs/domain-intelligence-engine.md
   workflow_run:
     workflows:
@@ -66,6 +69,7 @@ jobs:
           npx tsx --test
           src/services/candidateDomainIntelligenceService.test.ts
           src/services/candidateWebsiteIdentityService.test.ts
+          src/services/candidateBcbIdentityService.test.ts
 
   resolve:
     if: >-
@@ -107,3 +111,9 @@ jobs:
           ARGS=(--limit "$DOMAIN_LIMIT" --tiers "$DOMAIN_TIERS")
           if [ "$DOMAIN_FORCE" = "true" ]; then ARGS+=(--force); fi
           npx tsx src/cli/candidateDomainIntelligence.ts "${ARGS[@]}" | tee candidate-domain-intelligence.log
+
+      - name: Resolve regulated candidate identity from Banco Central
+        working-directory: backend
+        shell: bash
+        run: |
+          npx tsx src/cli/candidateBcbIdentity.ts --limit "$DOMAIN_LIMIT" | tee candidate-bcb-identity.log

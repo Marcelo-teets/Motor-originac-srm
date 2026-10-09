@@ -148,3 +148,23 @@ A implementação é considerada funcional quando:
 6. um candidato sem evidência permanece sem website/domain e recebe backoff auditável;
 7. nenhuma execução promove candidato ou altera elegibilidade de decisão automaticamente;
 8. após promoção humana, o domínio já resolvido alimenta o conector `src_company_website` e o fluxo normal de monitoring/enrichment.
+
+
+## Banco Central identity backfill
+
+After domain verification, the workflow runs `CandidateBcbIdentityService` against the canonical
+`candidate_decision_queue_v4` identity lane.
+
+The BCB resolver is intentionally narrow:
+
+- only canonical rank 1 candidates in `queue_type=identity`;
+- company roles only (`operating_company`, `operating_issuer`, `portfolio_company`);
+- candidates already approved/promoted or with a full CNPJ are skipped;
+- ambiguous first-party identities are skipped;
+- only a unique high-confidence match to an active Banco Central institution is accepted;
+- official CNPJ/legal name/website are persisted as identity evidence;
+- `identity_review_status` remains pending;
+- `promotion_ready` remains false;
+- no qualification, decision eligibility or pipeline promotion is created automatically.
+
+This stage reduces manual identity work without weakening the human identity and credit gates.
