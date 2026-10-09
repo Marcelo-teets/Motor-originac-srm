@@ -98,7 +98,10 @@ export const syncPublicAuthEnvToVercel = async ({
   const desiredTargets = ['production', 'preview', 'development'];
 
   for (const [key, value] of values) {
-    const matches = initialEnvs.filter((entry) => entry?.key === key && entry?.id);
+    // Branch-scoped Vercel envs require an attached Git repository. This project
+    // intentionally uses prebuilt/manual deployments without a Git connection.
+    // Only reconcile unscoped entries; preserve branch overrides untouched.
+    const matches = initialEnvs.filter((entry) => entry?.key === key && entry?.id && !entry.gitBranch);
     const coveredTargets = new Set();
 
     for (const entry of matches) {
@@ -116,7 +119,6 @@ export const syncPublicAuthEnvToVercel = async ({
           value,
           type: 'encrypted',
           target: entryTargets,
-          ...(entry.gitBranch ? { gitBranch: entry.gitBranch } : {}),
           comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
         }),
       }), `Vercel environment update for ${key}`);
