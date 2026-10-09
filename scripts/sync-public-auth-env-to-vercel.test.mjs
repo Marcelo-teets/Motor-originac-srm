@@ -93,3 +93,25 @@ test('fails when Vercel does not expose synchronized variables in production', a
     fetchImpl,
   }), /not configured for Vercel production/);
 });
+
+test('preserves git-branch overrides and patches only unscoped envs on a disconnected Vercel project', async () => {
+  const requests = [];
+  const keys = PUBLIC_AUTH_ENV_KEYS;
+  const unscoped = keys.map((key) => ({ id: `global-${key}`, key, target: ['production', 'preview', 'development'] }));
+  const scoped = { id: 'branch-override', key: 'NEON_AUTH_BASE_URL', target: ['preview'], gitBranch: 'feature/example' };
+  const fetchImpl = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    return response(200, { envs: [...unscoped, scoped] });
+  };
+  const report = await syncPublicAuthEnvToVercel({
+    projectId: 'prj_test', teamId: 'team_test', token: 'vercel_test_token',
+    neonProjectId, neonAuthBaseUrl, neonAuthJwksUrl, fetchImpl,
+  });
+  assert.equal(report.status, 'passed');
+  const patches = requests.filter(({ init }) => init.method === 'PATCH');
+  assert.equal(patches.length, keys.length);
+  assert.equal(patches.some(({ url }) => url.includes('branch-override')), false);
+  for (const { init } of patches) {
+    assert.equal(Object.hasOwn(JSON.parse(init.body), 'gitBranch'), false);
+  }
+});
