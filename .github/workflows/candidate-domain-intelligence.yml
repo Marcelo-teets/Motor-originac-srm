@@ -12,6 +12,9 @@ on:
       - backend/src/cli/candidateBcbIdentity.ts
       - backend/src/services/candidateBcbIdentityService.ts
       - backend/src/services/candidateBcbIdentityService.test.ts
+      - backend/src/cli/candidateFirstPartyCnpjIdentity.ts
+      - backend/src/services/candidateFirstPartyCnpjIdentityService.ts
+      - backend/src/services/candidateFirstPartyCnpjIdentityService.test.ts
       - docs/domain-intelligence-engine.md
   workflow_run:
     workflows:
@@ -70,6 +73,7 @@ jobs:
           src/services/candidateDomainIntelligenceService.test.ts
           src/services/candidateWebsiteIdentityService.test.ts
           src/services/candidateBcbIdentityService.test.ts
+          src/services/candidateFirstPartyCnpjIdentityService.test.ts
 
   resolve:
     if: >-
@@ -117,3 +121,9 @@ jobs:
         shell: bash
         run: |
           npx tsx src/cli/candidateBcbIdentity.ts --limit "$DOMAIN_LIMIT" | tee candidate-bcb-identity.log
+
+      - name: Resolve CNPJ from verified first-party legal pages
+        working-directory: backend
+        shell: bash
+        run: |
+          npx tsx src/cli/candidateFirstPartyCnpjIdentity.ts --limit "$DOMAIN_LIMIT" | tee candidate-first-party-cnpj-identity.log
