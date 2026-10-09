@@ -43,9 +43,10 @@ test('HTTP jobs fail closed without the scheduler credentials', async () => {
 
 test('the workflow schedules every job that pg_cron used to run', () => {
   const workflow = readFileSync(new URL('../.github/workflows/neon-scheduled-jobs.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /cron: '\*\/5 \* \* \* \*'/);
-  assert.match(workflow, /'\*\/5 \* \* \* \*'\) JOBS='reprocessing'/);
-  assert.match(workflow, /'\*\/15 \* \* \* \*'\) JOBS='entity-resolution,derived-materialization'/);
+  // F1-04: one */15 run chains every minute-level job in dependency order; no competing */5 run.
+  assert.match(workflow, /cron: '\*\/15 \* \* \* \*'/);
+  assert.doesNotMatch(workflow, /cron: '\*\/5 \* \* \* \*'/);
+  assert.match(workflow, /'\*\/15 \* \* \* \*'\) JOBS='reprocessing,entity-resolution,derived-materialization'/);
   // D-05 (09/10/2026): Agentetome sem cron até AGENTETOME_API_KEY existir; só workflow_dispatch.
   assert.doesNotMatch(workflow, /cron: '17 \* \* \* \*'/);
   assert.match(workflow, /Comma-separated jobs: [^']*agentetome/);
