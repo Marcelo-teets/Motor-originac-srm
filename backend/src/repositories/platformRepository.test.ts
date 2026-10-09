@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlatformRepository, searchProfileToRow } from './platformRepository.js';
+import { createPlatformRepository, searchProfileToRow, __platformRepositoryTest } from './platformRepository.js';
 import type { SearchProfile } from '../types/platform.js';
 
 const sampleProfile = (overrides: Partial<SearchProfile> = {}): SearchProfile => ({
