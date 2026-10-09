@@ -6,12 +6,12 @@ name: Neon Scheduled Jobs
 on:
   schedule:
     - cron: '*/5 * * * *'    # origination-derived-reprocessing
-    - cron: '*/15 * * * *'   # candidate-automatic-entity-resolution
+    - cron: '*/15 * * * *'   # candidate-automatic-entity-resolution + derived-intelligence-materialization
     - cron: '17 * * * *'     # agentetome-due-export-refresh
   workflow_dispatch:
     inputs:
       jobs:
-        description: 'Comma-separated jobs: reprocessing, entity-resolution, agentetome'
+        description: 'Comma-separated jobs: reprocessing, entity-resolution, derived-materialization, agentetome'
         required: true
         default: 'reprocessing,entity-resolution'
 
@@ -46,7 +46,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Load canonical Neon connection from Vercel vault
-        if: contains(github.event.schedule || inputs.jobs, '*/5') || contains(github.event.schedule || inputs.jobs, '*/15') || contains(inputs.jobs || '', 'reprocessing') || contains(inputs.jobs || '', 'entity-resolution')
+        if: contains(github.event.schedule || inputs.jobs, '*/5') || contains(github.event.schedule || inputs.jobs, '*/15') || contains(inputs.jobs || '', 'reprocessing') || contains(inputs.jobs || '', 'entity-resolution') || contains(inputs.jobs || '', 'derived-materialization')
         run: bash scripts/load-neon-from-vercel.sh
 
       - name: Resolve jobs for this trigger
@@ -58,7 +58,7 @@ jobs:
         run: |
           case "$SCHEDULE" in
             '*/5 * * * *') JOBS='reprocessing' ;;
-            '*/15 * * * *') JOBS='entity-resolution' ;;
+            '*/15 * * * *') JOBS='entity-resolution,derived-materialization' ;;
             '17 * * * *') JOBS='agentetome' ;;
             *) JOBS="$INPUT_JOBS" ;;
           esac
@@ -72,13 +72,22 @@ jobs:
           JOBS: ${{ steps.jobs.outputs.jobs }}
         run: |
           case "$JOBS" in
-            *reprocessing*|*entity-resolution*) test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1) ;;
+            *reprocessing*|*entity-resolution*|*derived-materialization*) test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1) ;;
           esac
           case "$JOBS" in
             *agentetome*) test -n "$CRON_SECRET" || (echo "CRON_SECRET is missing" && exit 1) ;;
           esac
 
-      - name: Run jobs
+      - name: Run SQL/HTTP jobs
         env:
           JOBS: ${{ steps.jobs.outputs.jobs }}
-        run: node scripts/run-neon-scheduled-jobs.mjs "--jobs=$JOBS"
+        shell: bash
+        run: |
+          RUNTIME_JOBS="$(printf '%s' "$JOBS" | tr ',' '\n' | grep -v '^derived-materialization | paste -sd, -)"
+          if [ -n "$RUNTIME_JOBS" ]; then
+            node scripts/run-neon-scheduled-jobs.mjs "--jobs=$RUNTIME_JOBS"
+          fi
+
+      - name: Materialize derived origination intelligence
+        if: contains(steps.jobs.outputs.jobs, 'derived-materialization')
+        run: npx tsx backend/src/cli/materializeDerivedIntelligence.ts --limit=25
