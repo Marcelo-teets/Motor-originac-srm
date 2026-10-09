@@ -168,3 +168,23 @@ The BCB resolver is intentionally narrow:
 - no qualification, decision eligibility or pipeline promotion is created automatically.
 
 This stage reduces manual identity work without weakening the human identity and credit gates.
+
+
+## First-party CNPJ identity resolver
+
+After domain verification and Banco Central identity matching, unresolved canonical identity candidates
+with a verified first-party domain are probed on the company's own legal/privacy/terms pages.
+
+The resolver:
+
+1. stays on the verified company domain;
+2. extracts checksum-valid CNPJs only;
+3. refuses automatic selection when more than one valid CNPJ is present;
+4. corroborates a unique CNPJ with BrasilAPI CNPJ;
+5. requires the registry legal/trade name to match the candidate brand with high confidence;
+6. persists both first-party website evidence and the public registry corroboration with source lineage;
+7. pre-fills the existing human Identity Review screen;
+8. never changes `identity_review_status` to approved, `promotion_ready` to true, or `decision_eligible`.
+
+This keeps source priority aligned to the project philosophy: company first-party evidence first,
+free public cadastral corroboration second, human approval before Company Master promotion.
