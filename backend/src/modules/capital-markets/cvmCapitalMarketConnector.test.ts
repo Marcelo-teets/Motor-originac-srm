@@ -6,6 +6,7 @@ import {
   extractZipEntries,
   normalizeCapitalMarketRecord,
   parseCsv,
+  prioritizeCvmFiles,
   prioritizeCvmRows,
   selectDatasetResources,
 } from './cvmCapitalMarketConnector.js';
@@ -202,4 +203,54 @@ test('natural record identity remains stable when mutable fields change', () => 
   assert.equal(first.event.record_key, updated.event.record_key);
   assert.notEqual(first.event.content_hash, updated.event.content_hash);
   assert.equal(updated.event.volume, 300_000_000);
+});
+
+test('FRE 10.1A employee file yields one employee_count metric per row, scoped by document and version', () => {
+  const normalized = normalizeCapitalMarketRecord({
+    datasetCode: 'cvm_company_fre',
+    resource: { name: 'fre_cia_aberta_2026.zip', url: 'https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/FRE/DADOS/fre_cia_aberta_2026.zip' },
+    fileName: 'fre_cia_aberta_empregado_posicao_declaracao_genero_2026.csv',
+    observedAt: '2026-10-09T12:00:00.000Z',
+    row: {
+      CNPJ_Companhia: '73.178.600/0001-18',
+      Data_Referencia: '2026-01-01',
+      ID_Documento: '151234',
+      Versao: '2',
+      Quantidade_Feminino: '1200',
+      Quantidade_Masculino: '1850',
+      Quantidade_Nao_Binario: '3',
+      Quantidade_Outros: '',
+      Quantidade_Sem_Resposta: '47',
+    },
+  });
+
+  assert.equal(normalized.event.issuer_cnpj, '73178600000118');
+  const headcount = normalized.metrics.filter((metric) => metric.metric_code === 'employee_count');
+  assert.equal(headcount.length, 1);
+  assert.equal(headcount[0]?.metric_value, 3100);
+  assert.equal(headcount[0]?.metric_unit, 'COUNT');
+  assert.equal(headcount[0]?.measurement_scope, 'fre_empregado_genero:doc=151234:v=2');
+  assert.equal(headcount[0]?.reference_date, '2026-01-01');
+  assert.equal(normalized.metrics.length, 1);
+});
+
+test('FRE rows outside the employee file never produce employee_count', () => {
+  const normalized = normalizeCapitalMarketRecord({
+    datasetCode: 'cvm_company_fre',
+    resource: { name: 'fre_cia_aberta_2026.zip', url: 'https://dados.cvm.gov.br/fre.zip' },
+    fileName: 'fre_cia_aberta_capital_social_2026.csv',
+    observedAt: '2026-10-09T12:00:00.000Z',
+    row: { CNPJ_Companhia: '73.178.600/0001-18', Data_Referencia: '2026-01-01', Quantidade_Feminino: '10' },
+  });
+  assert.equal(normalized.metrics.some((metric) => metric.metric_code === 'employee_count'), false);
+});
+
+test('the FRE employee file is read before the other FRE tables', () => {
+  const files = [
+    { name: 'fre_cia_aberta_acao_entregue_2026.csv' },
+    { name: 'fre_cia_aberta_capital_social_2026.csv' },
+    { name: 'fre_cia_aberta_empregado_posicao_declaracao_genero_2026.csv' },
+  ];
+  assert.equal(prioritizeCvmFiles('cvm_company_fre', files)[0]?.name, 'fre_cia_aberta_empregado_posicao_declaracao_genero_2026.csv');
+  assert.deepEqual(prioritizeCvmFiles('cvm_fidc_monthly', files), files);
 });
