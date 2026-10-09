@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPlatformRepository } from '../repositories/platformRepository.js';
-import { PlatformService } from './platformService.js';
+import { PlatformService, __platformServiceTest } from './platformService.js';
 
 test('getMonitoringSnapshot returns signal-driven triggers with source metadata', async () => {
   const service = new PlatformService(createPlatformRepository('memory'));
@@ -39,4 +39,15 @@ test('getPipelineSnapshot returns recent activities ordered by latest update', a
   assert.ok(snapshot.recentActivities.length > 0);
   assert.equal(snapshot.recentActivities[0].title, 'Atividade mais recente');
   assert.ok(snapshot.recentActivities[0].companyName.length > 0);
+});
+
+
+test('platform timestamp helpers accept Neon Date values and ISO strings consistently', () => {
+  const older = new Date('2026-10-09T10:00:00Z');
+  const newerIso = '2026-10-09T10:05:00Z';
+
+  assert.ok(__platformServiceTest.timestampMs(newerIso) > __platformServiceTest.timestampMs(older));
+  assert.ok(__platformServiceTest.newestFirst(older, newerIso) > 0);
+  assert.equal(__platformServiceTest.timestampIso(older), '2026-10-09T10:00:00.000Z');
+  assert.equal(__platformServiceTest.isWithinLastDay(new Date(), Date.now()), true);
 });
