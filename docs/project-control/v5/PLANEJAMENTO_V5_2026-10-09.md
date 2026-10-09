@@ -193,7 +193,7 @@ Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e 
 
 | Item | PR | O que resolve | Estado |
 | --- | --- | --- | --- |
-| Incidente / F1 | **#568** | Teto de linhas **por execução** e pela folga real de storage na ingestão de mercado de capitais (causa raiz do 434/457 MB). Agenda semanal começa por FRE e FIDC. | CI pendente/verde; mergear **antes** de religar `capital-market-ingestion` |
+| Incidente / F1 | **#568** | Teto de linhas **por execução** e pela folga real de storage na ingestão de mercado de capitais (causa raiz do 434/457 MB). Agenda semanal começa por FRE e FIDC. | CI verde; mergear **antes** de religar `capital-market-ingestion` |
 | F2-01 (D-03) | **#569** | Headcount oficial da CVM (FRE 10.1A, colunas `Quantidade_*` conferidas no dicionário da CVM) → `employee_count` observado em `company_source_metric_snapshots`, que o gate de ICP lê. Função `sync_cvm_fre_headcount_metrics()` validada no Neon em transação revertida. | Aguarda merge + migração |
 | F1-04 | **#570** | Um único cron `*/15` encadeando reprocessamento → resolução → materialização. | Aguarda merge |
 | F2-02 | **#571** | Os nove maiores cedentes de cada FIDC (Tab I, `TAB_I2A12/I2B12_CPF_CNPJ_CEDENTE_1..9`) viram vínculos `assignor`. Antes: 15.652 eventos FIDC e **0** vínculos. CPFs ignorados. | Aguarda merge |
