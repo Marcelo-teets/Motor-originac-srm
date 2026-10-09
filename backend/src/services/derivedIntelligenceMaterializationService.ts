@@ -39,20 +39,26 @@ export const selectCompaniesForDerivedMaterialization = ({
   qualifications,
   leadScores,
   monitoringOutputs,
+  eligibleCompanyIds,
   limit = 25,
 }: {
   companies: CompanySeed[];
   qualifications: QualificationSnapshot[];
   leadScores: LeadScoreSnapshot[];
   monitoringOutputs: MonitoringOutput[];
+  eligibleCompanyIds?: ReadonlySet<string>;
   limit?: number;
 }): DueCompany[] => {
   const latestQualifications = latestByCompany(qualifications);
   const latestLeads = latestByCompany(leadScores);
   const latestMonitoring = latestMonitoringByCompany(monitoringOutputs);
 
+  const isEligible = eligibleCompanyIds
+    ? (company: CompanySeed) => eligibleCompanyIds.has(company.id)
+    : isCompanyDecisionEligible;
+
   return companies
-    .filter(isCompanyDecisionEligible)
+    .filter(isEligible)
     .map((company): DueCompany | null => {
       const qualification = latestQualifications.get(company.id);
       if (!qualification) return { companyId: company.id, reason: 'missing_qualification' };
@@ -111,24 +117,36 @@ export class DerivedIntelligenceMaterializationService {
       };
     }
 
-    const [companies, qualifications, leadScores, monitoringOutputs] = await Promise.all([
+    const [companies, qualifications, leadScores, monitoringOutputs, canonicalEligibleRows] = await Promise.all([
       this.repository.listCompanies(),
       this.repository.listQualificationSnapshots(),
       this.repository.listLeadScoreSnapshots(),
       this.repository.listMonitoringOutputs(),
+      this.client.query<{ id: string }>(
+        `select c.id
+         from public.companies c
+         where public.is_company_decision_eligible(c.id)
+         order by c.id`,
+      ),
     ]);
+
+    // The SQL gate is the canonical authority in persistent runtime. The
+    // TypeScript helper remains only as the memory/test fallback used by
+    // selectCompaniesForDerivedMaterialization when no canonical set is given.
+    const canonicalEligibleCompanyIds = new Set(canonicalEligibleRows.map((row) => String(row.id)));
 
     const due = selectCompaniesForDerivedMaterialization({
       companies,
       qualifications,
       leadScores,
       monitoringOutputs,
+      eligibleCompanyIds: canonicalEligibleCompanyIds,
       limit,
     });
 
     const summary: DerivedMaterializationSummary = {
       status: 'real',
-      consideredCompanies: companies.filter(isCompanyDecisionEligible).length,
+      consideredCompanies: canonicalEligibleCompanyIds.size,
       dueCompanies: due.length,
       recomputedCompanies: 0,
       pipelineRowsTouched: 0,
