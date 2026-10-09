@@ -1,0 +1,30 @@
+name: Materialize Derived Smoke 20261009
+
+on:
+  push:
+    branches:
+      - ops/materialize-derived-smoke-20261009
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Materialize derived intelligence
+        run: npx tsx backend/src/cli/materializeDerivedIntelligence.ts --limit=25
