@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlatformRepository, searchProfileToRow } from './platformRepository.js';
+import { createPlatformRepository, searchProfileToRow, __platformRepositoryTest } from './platformRepository.js';
 import type { SearchProfile } from '../types/platform.js';
 
 const sampleProfile = (overrides: Partial<SearchProfile> = {}): SearchProfile => ({
@@ -129,4 +129,23 @@ test('savePipelineRow preserves id/createdAt when updating company pipeline row'
   assert.equal(first.createdAt, second.createdAt);
   assert.equal(second.stage, 'Approach');
   assert.equal(second.owner, 'Coverage');
+});
+
+
+test('canonical SQL decision gate overrides stale metadata eligibility', () => {
+  assert.deepEqual(
+    __platformRepositoryTest.canonicalDecisionMetadata({
+      decision_eligible: true,
+      decision_eligibility_reason: 'legacy_metadata_gate',
+    }, false),
+    {
+      decision_eligible: false,
+      decision_eligibility_reason: 'canonical_icp_gate_blocked',
+    },
+  );
+
+  assert.equal(
+    __platformRepositoryTest.canonicalDecisionMetadata({}, true).decision_eligibility_reason,
+    'canonical_icp_gate_approved',
+  );
 });
