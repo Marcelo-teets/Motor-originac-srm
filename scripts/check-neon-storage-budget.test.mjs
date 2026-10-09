@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
-import { evaluateBudget, githubOutputLines, parseArgs } from './check-neon-storage-budget.mjs';
+import { ESTIMATED_BYTES_PER_INGESTED_ROW, evaluateBudget, githubOutputLines, headroomRows, parseArgs } from './check-neon-storage-budget.mjs';
 
 test('parses the legacy CLI contract', () => {
   assert.deepEqual(parseArgs(['--requested-rows=500', '--trigger=backfill']), { requestedRows: 500, triggerType: 'backfill' });
@@ -23,6 +23,23 @@ test('maps the Neon growth guard to the preflight decision', () => {
 
   const unknown = evaluateBudget({ guard: null, requestedRows: 1, triggerType: 'manual' });
   assert.equal(unknown.blocked, true);
+});
+
+test('caps rows by the bytes left before the next guard threshold', () => {
+  // 09/10/2026 baseline: 21 MB used, soft limit 400 MB → ~94k rows, not 50k per dataset forever.
+  const guard = { status: 'normal', current_bytes: 21_000_000, soft_limit_bytes: 400_000_000, hard_limit_bytes: 440_000_000 };
+  const early = evaluateBudget({ guard, requestedRows: 20_000, triggerType: 'manual' });
+  assert.equal(early.effectiveRows, 20_000);
+  assert.equal(early.headroomRows, Math.floor((400_000_000 - 21_000_000) / ESTIMATED_BYTES_PER_INGESTED_ROW));
+
+  const nearSoft = evaluateBudget({ guard: { ...guard, current_bytes: 390_000_000 }, requestedRows: 20_000, triggerType: 'manual' });
+  assert.deepEqual([nearSoft.effectiveRows, nearSoft.capped], [2_500, true]);
+
+  const degraded = evaluateBudget({ guard: { ...guard, status: 'degraded', current_bytes: 439_000_000 }, requestedRows: 20_000, triggerType: 'schedule' });
+  assert.deepEqual([degraded.effectiveRows, degraded.capped], [250, true]);
+
+  assert.equal(headroomRows({ current_bytes: 455_344_128, hard_limit_bytes: 440_000_000 }, 'block_raw'), 0);
+  assert.equal(headroomRows({ status: 'normal' }, 'normal'), null);
 });
 
 test('writes every GITHUB_OUTPUT key consumed by the workflows', () => {
