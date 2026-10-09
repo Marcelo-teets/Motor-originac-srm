@@ -152,7 +152,7 @@ test('service refuses automatic selection when the official domain exposes multi
     ),
     fetchRegistry: async () => {
       registryCalled = true;
-      return { status: 'partial' as const, endpoint: '', data: {} };
+      return { status: 'partial' as const, endpoint: '', data: { fallback: true, cnpj: '', error: 'not_called' } };
     },
   });
 
