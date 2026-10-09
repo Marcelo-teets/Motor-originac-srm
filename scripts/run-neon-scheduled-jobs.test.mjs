@@ -44,10 +44,11 @@ test('HTTP jobs fail closed without the scheduler credentials', async () => {
 test('the workflow schedules every job that pg_cron used to run', () => {
   const workflow = readFileSync(new URL('../.github/workflows/neon-scheduled-jobs.yml', import.meta.url), 'utf8');
   assert.match(workflow, /cron: '\*\/5 \* \* \* \*'/);
-  assert.match(workflow, /cron: '17 \* \* \* \*'/);
   assert.match(workflow, /'\*\/5 \* \* \* \*'\) JOBS='reprocessing'/);
   assert.match(workflow, /'\*\/15 \* \* \* \*'\) JOBS='entity-resolution,derived-materialization'/);
-  assert.match(workflow, /'17 \* \* \* \*'\) JOBS='agentetome'/);
+  // D-05 (09/10/2026): Agentetome sem cron até AGENTETOME_API_KEY existir; só workflow_dispatch.
+  assert.doesNotMatch(workflow, /cron: '17 \* \* \* \*'/);
+  assert.match(workflow, /Comma-separated jobs: [^']*agentetome/);
   assert.match(workflow, /node scripts\/run-neon-scheduled-jobs\.mjs/);
   assert.match(workflow, /materializeDerivedIntelligence\.ts --limit=25/);
   assert.match(workflow, /derived-materialization/);
