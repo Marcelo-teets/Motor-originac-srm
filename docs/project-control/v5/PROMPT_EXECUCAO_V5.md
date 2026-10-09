@@ -24,6 +24,10 @@
 7. “Real” = execução + persistência + auditoria + smoke. Sem os quatro, o item não está concluído.
 8. Antes de cada push: `npm run lint`, `npm run test:backend`, `npm run test:serverless` e os testes de contrato tocados (`node --test scripts/<arquivo>.test.mjs`). Push só com tudo verde.
 9. Ao terminar cada fase, publique o relatório da §7 e **atualize a data-base e a fotografia** do plano (seção 2) com números reconsultados.
+10. **Nunca dispare `capital-market-ingestion.yml` com `dataset=all`.** Um dataset por vez, e só depois da PR #568 (teto por execução) estar na `main`. Origem: o incidente de 09/10, quando um `all` levou o Neon de 21 MB para 455 MB (`RUNBOOK_INCIDENTE_STORAGE_2026-10-09.md`).
+11. Antes de qualquer escrita em massa, rode o bloco 10 do `KPIS_V5.sql`. Com o guard fora de `normal`, não grave.
+12. Use os runbooks em vez de improvisar: deploy = RB-01; ondas de captura = RB-02; bootstrap do admin = RB-03; branches Neon = RB-04; agendador = RB-05 (`RUNBOOKS_OPERACAO_V5.md`). Os prompts por agente estão em `HANDOFFS_V5.md`.
+13. O GitHub só aceita a API REST nesta sessão (`gh api ...`). `gh workflow run`, `gh pr list` e afins usam GraphQL e falham; use `POST .../actions/workflows/<arquivo>/dispatches`.
 
 ## 2. Linha de base a reconferir (09/10/2026)
 
@@ -43,7 +47,7 @@ union all select 'neon_auth_users', count(*)::text from neon_auth."user"
 union all select 'db_size', pg_size_pretty(pg_database_size(current_database()));
 ```
 
-Esperado em 09/10: 46 / 2 / 2 / 0 / 0 / 0 / 0 / 0 / 0 / 1 / ~21 MB.
+Esperado em 09/10 (manhã): 46 / 2 / 2 / 0 / 0 / 0 / 0 / 0 / 0 / 1 / ~21 MB. Em 09/10 às 14:40: 50 candidatos, 7 sinais e **434 MB** (incidente; ver runbook). Para o funil completo, use o bloco 2 do `KPIS_V5.sql`.
 Workflows desligados: `gh api 'repos/Marcelo-teets/Motor-originac-srm/actions/workflows?per_page=100' --jq '.workflows[]|select(.state!="active")|.path'` → esperado 16.
 
 ---
@@ -53,11 +57,11 @@ Workflows desligados: `gh api 'repos/Marcelo-teets/Motor-originac-srm/actions/wo
 ### F0-01 · Mergear #550
 - Confirme ao vivo: PR #550 `mergeable_state=clean`, checks `build-and-typecheck` e `parity` verdes no head atual.
 - **Merge é decisão do Marcelo.** Se não tiver autorização explícita, deixe a PR pronta e registre no tracker `status: ready_for_merge`.
-- Depois do merge, rode `gh workflow run capital-market-ingestion.yml -f dataset=debentures_snd` (o workflow está desabilitado: habilite-o só para esse disparo e volte a desabilitar se D-04 ainda estiver `open`) e verifique que o log **não** contém `Unsupported CVM dataset: debentures_snd`.
+- Depois do merge, rode `gh api -X POST repos/Marcelo-teets/motor-originac-srm/actions/workflows/capital-market-ingestion.yml/dispatches -f ref=main -f 'inputs[dataset]=debentures_snd'` (o workflow está desabilitado: habilite-o só para esse disparo e volte a desabilitar se D-04 ainda estiver `open`) e verifique que o log **não** contém `Unsupported CVM dataset: debentures_snd`.
 
 ### F0-02 · Promover `main` à produção
 - Pegue o SHA exato: `git ls-remote origin refs/heads/main`.
-- Dispare: `gh workflow run vercel-production-deploy.yml -f sha=<SHA40> -f wait_for_ready=true`.
+- Dispare pelo RB-01: `gh api -X POST repos/Marcelo-teets/motor-originac-srm/actions/workflows/vercel-production-deploy.yml/dispatches -f ref=main -f "inputs[sha]=<SHA40>" -F 'inputs[wait_for_ready]=true'`.
 - Aceite: deploy `READY` com `target=production` e `githubCommitSha=<SHA40>` (`list_deployments`), e `production-auth-smoke.yml` verde com `expected_sha=<SHA40>`.
 
 ### F0-03 · Limpar branches Neon — **gate D-01**
@@ -92,12 +96,12 @@ Situação conhecida: `neon_auth."user"` tem **1** usuário, `user_profiles` = 0
 
 ## 4. Fase F1 — Religar captura no Neon com orçamento (prazo 23/10) · **gate D-04**
 
-Antes de cada onda: `gh workflow run neon-free-budget-guard.yml` e confirmar verde. Se o guard acusar ≥ 425 MB ou ≥ 85 h projetadas, **pare a onda**.
+Antes de cada onda: `gh api -X POST repos/Marcelo-teets/motor-originac-srm/actions/workflows/neon-free-budget-guard.yml/dispatches -f ref=main` e confirmar verde. Se o guard acusar ≥ 425 MB ou ≥ 85 h projetadas, **pare a onda**.
 
 Para cada workflow da onda:
 1. Leia o YAML e confirme que carrega o Neon via `scripts/load-neon-from-vercel.sh` (ou segredo `MOTOR_NEON_DATABASE_URL`) e **não** referencia Supabase. Se referenciar, corrija em PR antes de habilitar.
 2. Habilite: `gh api -X PUT repos/Marcelo-teets/Motor-originac-srm/actions/workflows/<arquivo>/enable`.
-3. Rode uma vez: `gh workflow run <arquivo>` (com os inputs default) e aguarde verde.
+3. Rode uma vez: `gh api -X POST repos/Marcelo-teets/motor-originac-srm/actions/workflows/<arquivo>/dispatches -f ref=main` (inputs na tabela do RB-02) e aguarde verde.
 4. Confira crescimento real no Neon (contagem antes/depois da tabela-alvo).
 5. Se falhar: desabilite de novo (`.../disable`), abra PR com a correção, repita.
 

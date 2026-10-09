@@ -4,6 +4,18 @@
 **Substitui:** `docs/project-control/v4/` (V4.1, 21/07/2026) e `STATUS_E_ROADMAP_2026-07-17.md` — ambos escritos sobre o Supabase, hoje fora do runtime.
 **Tracker máquina-legível:** `ROADMAP_TRACKER_V5.yaml` (nesta pasta).
 
+**Pacote V5 (nesta pasta):**
+
+| Arquivo | Para quê |
+| --- | --- |
+| `PLANEJAMENTO_V5_2026-10-09.md` | Este plano: diagnóstico, metas, fases, decisões e riscos. |
+| `ROADMAP_TRACKER_V5.yaml` | Status item a item, com evidência (PR, SHA, run). |
+| `PROMPT_EXECUCAO_V5.md` | Prompt para o agente executor. |
+| `RUNBOOKS_OPERACAO_V5.md` | RB-01 deploy · RB-02 ondas de captura · RB-03 bootstrap do admin · RB-04 branches Neon · RB-05 agendador · RB-06 rotina semanal. |
+| `RUNBOOK_INCIDENTE_STORAGE_2026-10-09.md` | Incidente 434/457 MB: linha do tempo, SQL verbatim da limpeza e religação. |
+| `KPIS_V5.sql` | 11 consultas validadas no Neon: métrica-norte, funil, SLA, headcount, captura, frescor, discovery, gatilhos, RAG, orçamento. |
+| `HANDOFFS_V5.md` | Papéis por agente e prompts prontos (GPT/dashboard, Codex, Claude). |
+
 | Superfície | Identificador | Estado verificado em 09/10 |
 | --- | --- | --- |
 | GitHub | `Marcelo-teets/Motor-originac-srm`, `main@0d2e3cf` (09/10 13:33 BRT) | #550 `mergeable_state=clean`, CI/parity verdes; control plane V5 original ainda está na PR #556, não na `main` |
@@ -159,7 +171,7 @@ Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e 
 | --- | --- | --- | --- |
 | D-01 | **Aprovado.** Apagar `vercel-dev` e as `preview/*` de PRs já fechadas. `production` e `backup/production-20261008` ficam. | Origem já mergeada ou smoke `ops/*` | As 6 `preview/*` de 08/10 já tinham sido removidas pela integração Vercel↔Neon ao fechar as PRs; `vercel-dev` (`br-little-cherry-b6z5lec2`) apagada. **Branches: 10 → 4** (`production`, `backup/production-20261008` e 2 previews de PRs abertas). |
 | D-02 | **Encerrar a recuperação ativa do histórico Supabase.** Projeto `hdghpmssudrqhsbvrdyt` fica intacto como arquivo passivo (não apagar, não pagar). Reabrir só se ficar acessível sem custo. | O histórico de julho tinha 1 empresa real; sinais eram de seeds sintéticos. Recuperar exige upgrade/suporte e não move a métrica-norte. | F0-07 → `closed_no_recovery`. |
-| D-03 | **Headcount em duas camadas, nesta ordem:** (1) companhias abertas → `cvm_company_fre` (Formulário de Referência CVM, já existe no `capital-market-ingestion.yml`); (2) fechadas promovidas → enriquecimento firmográfico (Apollo `organizations_enrich`), só para empresas já promovidas, gravando a fonte em `source_trace`. `icp_headcount_override` manual apenas para o top 10 da fila, com justificativa. | Fonte oficial e gratuita primeiro; custo de enriquecimento limitado ao que já passou pela revisão humana. | Destrava F2-01. |
+| D-03 | **Headcount em duas camadas, nesta ordem:** (1) companhias abertas → `cvm_company_fre` (Formulário de Referência CVM, já existe no `capital-market-ingestion.yml`); (2) fechadas promovidas → enriquecimento firmográfico (Apollo `organizations_enrich`), só para empresas já promovidas, gravando a fonte em `source_trace`. `icp_headcount_override` manual apenas para o top 10 da fila, com justificativa. | Fonte oficial e gratuita primeiro; custo de enriquecimento limitado ao que já passou pela revisão humana. | Camada 1 implementada na **#569**. Camada 2 (Apollo) só depois de medir a cobertura da camada 1. |
 | D-04 | **Aprovado religar por ondas**, com budget guard verde antes de cada onda. | Captura é o gargalo nº 1. | Guard verde (run 37963191485: storage 8,7%, compute 16,9%, branches 4). **Onda A habilitada e disparada:** `capture.yml`, `search-profile-discovery.yml`, `capital-market-ingestion.yml`. Falhas encontradas viraram PRs #564 e #565 (ver §5.1). |
 | D-05 | **Desligar o cron horário do Agentetome** até existir `AGENTETOME_API_KEY`; job continua por `workflow_dispatch`. | Falhava em toda execução; ninguém fornece a chave hoje. | PR #563. |
 | D-06 | **Manter a criação automática de branch por preview, com limpeza ativa.** Previews de PRs já fechadas são apagadas sob D-01 sempre que o total passar de 7. | As 6 de 08/10 sumiram sozinhas, mas as das PRs #563/#564/#565 continuaram após o merge (a limpeza da integração não é imediata). Mudar a integração exige dashboard e não resolve a causa. | F0-04 → `closed_no_change`; reavaliar se o guard acusar ≥ 8 branches de novo. |
@@ -176,6 +188,29 @@ Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e 
 - **Redeploy de `4422eaa` falhou** (run 37967451209): o próprio `vercel-production-deploy.yml` desconecta o Git do projeto ao fim de cada deploy, e o deploy seguinte quebra ao tentar atualizar variáveis de preview presas a branch. Correção: **PR #566**.
 - **Branches Neon:** voltaram a 10/10 com as previews das PRs #563/#564/#565; as 3 foram apagadas após o merge → **7**.
 - **Ainda abertas:** #550 (SND), #566 (deploy), #556 (este plano). A #559 foi incorporada nesta PR e pode ser fechada.
+
+### 5.2 Entregas de código de 09/10 (tarde)
+
+| Item | PR | O que resolve | Estado |
+| --- | --- | --- | --- |
+| Incidente / F1 | **#568** | Teto de linhas **por execução** e pela folga real de storage na ingestão de mercado de capitais (causa raiz do 434/457 MB). Agenda semanal começa por FRE e FIDC. | CI pendente/verde; mergear **antes** de religar `capital-market-ingestion` |
+| F2-01 (D-03) | **#569** | Headcount oficial da CVM (FRE 10.1A, colunas `Quantidade_*` conferidas no dicionário da CVM) → `employee_count` observado em `company_source_metric_snapshots`, que o gate de ICP lê. Função `sync_cvm_fre_headcount_metrics()` validada no Neon em transação revertida. | Aguarda merge + migração |
+| F1-04 | **#570** | Um único cron `*/15` encadeando reprocessamento → resolução → materialização. | Aguarda merge |
+| F2-02 | **#571** | Os nove maiores cedentes de cada FIDC (Tab I, `TAB_I2A12/I2B12_CPF_CNPJ_CEDENTE_1..9`) viram vínculos `assignor`. Antes: 15.652 eventos FIDC e **0** vínculos. CPFs ignorados. | Aguarda merge |
+| F0-02 | — | Produção = `main@14e25de` (run 37971618529), depois que a #567 corrigiu o sync de Auth com o Git desconectado. | ✅ |
+| F0-03 | — | Branches Neon voltaram a 10/10 (previews de PRs já mergeadas); apagadas as de #537, #544, #563, #564, #565. | Rotina RB-04 |
+
+**Achados que mudam o plano:**
+- O agendador entregou só **26 execuções em 48 h** (10 com sucesso), contra mais de 700 previstas. É isso que a #570 ataca; se a cobertura continuar abaixo de 90%, decidir por agendador externo.
+- O deploy oficial força `MOTOR_AUTH_BOOTSTRAP_ENABLED=false`. A janela D-07 precisa de Redeploy pelo dashboard (RB-03).
+- As colunas brutas não ficam no bronze (`compact_manifest`): toda extração nova (headcount, cedentes) só aparece na **próxima** ingestão. Depois da limpeza, ingerir `cvm_company_fre` e `cvm_fidc_monthly` um por vez (H-06).
+
+### 5.3 Sequência crítica até a métrica-norte sair do zero
+
+1. Marcelo aprova a limpeza ("opção 1") → Claude executa o runbook do incidente.
+2. Merge de #568, #569, #570 e #571 → migração do FRE pelo fluxo de parity → RB-01.
+3. RB-02 onda A (`capture`, `search-profile-discovery`) → `capital-market-ingestion` só com `cvm_company_fre`, depois `cvm_fidc_monthly`.
+4. Materialização (RB-05) → KPI bloco 1. **Expectativa:** companhias abertas promovidas com headcount ≥ 50 passam no gate de ICP; cedentes de FIDC entram como candidatos para revisão humana.
 
 ---
 

@@ -1,11 +1,11 @@
 version: 5.0
-generated_at: "2026-10-09T14:45:00-03:00"
+generated_at: "2026-10-09T16:00:00-03:00"
 supersedes: "docs/project-control/v4/ROADMAP_TRACKER_V4_1.yaml"
 plan: "docs/project-control/v5/PLANEJAMENTO_V5_2026-10-09.md"
 project: "Motor Originação SRM"
 repository: "Marcelo-teets/Motor-originac-srm"
-main_sha: "4422eaa78efaf89e0d156227d4223a5398ddc463"
-production_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
+main_sha: "14e25de48fd8277743395a391a7429d072dfb572"
+production_sha: "14e25de48fd8277743395a391a7429d072dfb572"
 infrastructure:
   vercel_project: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
   vercel_team: team_PJwucES3YmFbxf57HE52Bw0v
@@ -85,20 +85,20 @@ phases:
         blocker: "merge requires explicit Marcelo approval"
       - id: F0-02
         action: promote-main-to-production
-        status: needs_redeploy
-        blocker: "redeploy de 4422eaa falhou no sync de Auth após o próprio workflow desconectar o Git (run 37967451209); correção na PR #566"
+        status: done
         evidence:
-          main_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
-          deploy_run_id: 37963933776
-          production_deployment_id: "dpl_PsFPVfdC5ZwsHoK48tFEzq4SrAvY"
-          auth_smoke_run_id: 37964112272
-        note: "repetir após merge de #550/#563/#564/#565"
+          main_sha: "14e25de48fd8277743395a391a7429d072dfb572"
+          deploy_run_id: 37971618529
+          previous: {sha_776be89: 37963933776, sha_4422eaa_failed: 37967451209}
+          fix: "PR #567 (sync de Auth ignora envs por branch com o Git desconectado); #566 fechada como duplicada"
+        note: "repetir a cada merge relevante (RB-01)"
       - id: F0-03
         action: delete-neon-preview-branches
         status: done
         decision: D-01
         evidence:
-          deleted_2026_10_09: [br-little-cherry-b6z5lec2, br-weathered-union-b6nic9ne, br-lively-sound-b6pywxek, br-old-glade-b6x206yg]
+          deleted_2026_10_09: [br-little-cherry-b6z5lec2, br-weathered-union-b6nic9ne, br-lively-sound-b6pywxek, br-old-glade-b6x206yg, br-snowy-surf-b64ujfsq, br-little-hall-b6ajvhbq]
+          runbook: "RUNBOOKS_OPERACAO_V5.md RB-04"
           note_1440: "previews das PRs #563/#564/#565 recriaram o teto 10/10; apagadas após merge (git branches não podem ser removidas desta sessão)"
           auto_removed_by_vercel_integration: "as 6 preview/* de 08/10 já não existiam em 09/10 ~14h"
           branches_after: 4
@@ -139,6 +139,8 @@ phases:
         workflows: [capture.yml, search-profile-discovery.yml, capital-market-ingestion.yml]
         status: blocked_by_incident
         decision: D-04
+        runbooks: [RUNBOOK_INCIDENTE_STORAGE_2026-10-09.md, "RUNBOOKS_OPERACAO_V5.md RB-02"]
+        prerequisite_prs: [568]
         incident: "capital-market-ingestion dataset=all gravou ~124 mil linhas; banco 21 MB → 434 MB (limite 457 MB). Onda A desabilitada de novo; limpeza aguarda aprovação do Marcelo"
         evidence:
           budget_guard_run_id: 37963191485
@@ -148,8 +150,9 @@ phases:
           growth_after_run: {discovered_company_candidates: 50, monitoring_outputs: 115, company_signals: 7, capital_market_events: 124381}
       - {id: F1-02, action: enable-wave-b, workflows: [cvm-fund-documents-schedule.yml, public-bulk-ingestion.yml, candidate-domain-intelligence.yml, candidate-cvm-registry-enrichment.yml], status: todo}
       - {id: F1-03, action: enable-or-retire-wave-c, status: todo}
-      - {id: F1-04, action: move-minute-jobs-off-github-cron, status: todo}
+      - {id: F1-04, action: move-minute-jobs-off-github-cron, status: in_review, evidence: {pr: 570, baseline_48h: {scheduled_runs: 26, success: 10}}}
       - {id: F1-05, action: run-search-profile-bootstrap-and-review, status: todo}
+      - {id: F1-07, action: capital-market-run-wide-row-cap, status: in_review, evidence: {pr: 568, root_cause_of: "incidente 434/457 MB"}}
       - {id: F1-06, action: data-freshness-panel, status: todo}
   F2:
     name: "Universo real e elegibilidade"
@@ -157,8 +160,8 @@ phases:
     status: blocked_by_F1
     targets: {north_star: 20, fidc_assignors_resolved: 50, headcount_coverage_pct: 80}
     items:
-      - {id: F2-01, action: headcount-source-for-icp-gate, status: todo, decision: D-03, source_order: [cvm_company_fre, apollo_organizations_enrich_promoted_only, manual_override_top10]}
-      - {id: F2-02, action: resolve-fidc-assignors-from-cvm, status: todo}
+      - {id: F2-01, action: headcount-source-for-icp-gate, status: in_review, decision: D-03, source_order: [cvm_company_fre, apollo_organizations_enrich_promoted_only, manual_override_top10], evidence: {pr: 569, migration: db/neon/20261009_neon_cvm_fre_headcount_sync.sql, validated: "transação revertida no Neon prod: VALIDATION_ROLLBACK synced=0"}}
+      - {id: F2-02, action: resolve-fidc-assignors-from-cvm, status: in_review, evidence: {pr: 571, finding: "15.652 eventos cvm_fidc_monthly e 0 vínculos; cedentes ficam em TAB_I2A12/I2B12_CPF_CNPJ_CEDENTE_1..9"}}
       - {id: F2-03, action: end-to-end-materialization, status: todo}
       - {id: F2-04, action: human-review-queue-sla-72h, status: todo}
   F3:
