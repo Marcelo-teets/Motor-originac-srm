@@ -7,7 +7,8 @@ on:
   schedule:
     - cron: '*/5 * * * *'    # origination-derived-reprocessing
     - cron: '*/15 * * * *'   # entity-resolution + derived-intelligence-materialization
-    - cron: '17 * * * *'     # agentetome-due-export-refresh
+    # agentetome-due-export-refresh: sem cron até AGENTETOME_API_KEY existir na Vercel (decisão D-05, 09/10/2026);
+    # continua disponível via workflow_dispatch com jobs=agentetome.
   workflow_dispatch:
     inputs:
       jobs:
@@ -59,7 +60,6 @@ jobs:
           case "$SCHEDULE" in
             '*/5 * * * *') JOBS='reprocessing' ;;
             '*/15 * * * *') JOBS='entity-resolution,derived-materialization' ;;
-            '17 * * * *') JOBS='agentetome' ;;
             *) JOBS="$INPUT_JOBS" ;;
           esac
           if ! printf '%s' "$JOBS" | grep -Eq '^[a-z,-]+$'; then echo "Invalid jobs: $JOBS"; exit 1; fi
