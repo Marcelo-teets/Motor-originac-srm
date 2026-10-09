@@ -194,7 +194,7 @@ export class CandidateBcbIdentityService {
       return row.canonical_rank === 1
         && row.queue_type === 'identity'
         && row.candidate_status === 'captured'
-        && ['operating_company', 'operating_issuer'].includes(role)
+        && ['operating_company', 'operating_issuer', 'portfolio_company'].includes(role)
         && row.identity_review_status !== 'approved'
         && row.promotion_ready !== true
         && digits(row.cnpj).length !== 14
