@@ -166,6 +166,13 @@ const addEntity = (input: {
   });
 };
 
+export const FIDC_ASSIGNOR_COLUMN_PREFIXES = ['TAB_I2A12', 'TAB_I2B12'] as const;
+export const FIDC_ASSIGNOR_SLOTS = 9;
+const isFidcAssignorSlotLink = (link: { entity_role: string; source_fields: string[] }) => (
+  link.entity_role === 'assignor'
+  && link.source_fields.some((field) => FIDC_ASSIGNOR_COLUMN_PREFIXES.some((prefix) => field.startsWith(`${prefix}_CPF_CNPJ_CEDENTE_`)))
+);
+
 const extractEntityLinks = (input: {
   pick: RowPick;
   instrumentType: string;
@@ -214,6 +221,19 @@ const extractEntityLinks = (input: {
     primary: true,
     sourceFields: ['assignor'],
   });
+  // FIDC monthly report, Tab I, items I.2.a.12 / I.2.b.12: the nine largest
+  // assignors (cedentes) by CPF/CNPJ. Column names verified against the CVM data
+  // dictionary (META/meta_inf_mensal_fidc_txt.zip, meta_inf_mensal_fidc_tab_I.txt).
+  // Only 14-digit CNPJs become links: CPFs are natural persons, not origination
+  // targets, and are not stored.
+  for (const prefix of FIDC_ASSIGNOR_COLUMN_PREFIXES) {
+    for (let rank = 1; rank <= FIDC_ASSIGNOR_SLOTS; rank += 1) {
+      const column = `${prefix}_CPF_CNPJ_CEDENTE_${rank}`;
+      const document = digitsOnly(input.pick(column));
+      if (!document || document.length !== 14) continue;
+      addEntity({ links, role: 'assignor', cnpj: document, name: null, primary: true, sourceFields: [column] });
+    }
+  }
   addEntity({
     links,
     role: 'fund',
@@ -454,8 +474,12 @@ export const normalizeCapitalMarketRecord = (input: {
   const rawLinks = extractEntityLinks({ pick, instrumentType });
   const issuer = rawLinks.find((link) => link.entity_role === 'issuer');
   const fund = rawLinks.find((link) => link.entity_role === 'fund');
-  const primaryTarget = rawLinks.find((link) => link.is_primary_origination_target && link.entity_cnpj)
-    ?? rawLinks.find((link) => link.is_primary_origination_target);
+  // Tab I assignor slots are origination targets in their own right but must not
+  // become the row's identity: the report row belongs to the fund, and keying it by
+  // its largest assignor would change record keys of rows already ingested.
+  const identityLinks = rawLinks.filter((link) => !isFidcAssignorSlotLink(link));
+  const primaryTarget = identityLinks.find((link) => link.is_primary_origination_target && link.entity_cnpj)
+    ?? identityLinks.find((link) => link.is_primary_origination_target);
   const issuerCnpj = issuer?.entity_cnpj ?? null;
   const issuerName = issuer?.entity_name ?? null;
   const fundCnpj = fund?.entity_cnpj ?? null;
