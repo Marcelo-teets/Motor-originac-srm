@@ -1,10 +1,10 @@
 version: 5.0
-generated_at: "2026-10-09T14:20:00-03:00"
+generated_at: "2026-10-09T14:45:00-03:00"
 supersedes: "docs/project-control/v4/ROADMAP_TRACKER_V4_1.yaml"
 plan: "docs/project-control/v5/PLANEJAMENTO_V5_2026-10-09.md"
 project: "Motor Originação SRM"
 repository: "Marcelo-teets/Motor-originac-srm"
-main_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
+main_sha: "4422eaa78efaf89e0d156227d4223a5398ddc463"
 production_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
 infrastructure:
   vercel_project: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
@@ -44,6 +44,20 @@ snapshot_2026_10_09_1336_brt:
   neon_active_time_hours_month: 16.89
   main_sha: "0d2e3cf619ccaaa72dfa7130a2406f70169aa68e"
   production_sha: "ab90cac9ec287a6ec3264321aef62256994d6ea4"
+snapshot_2026_10_09_1440_brt:
+  discovered_company_candidates: 50
+  promoted_candidates: 2
+  companies: 2
+  monitoring_outputs: 115
+  company_signals: 7
+  score_snapshots: 0
+  ranking_v2: 0
+  capital_market_events: 124381
+  db_size: "434 MB"
+  neon_project_size_limit: "457 MB"
+  neon_branches: 7
+  main_sha: "4422eaa78efaf89e0d156227d4223a5398ddc463"
+  production_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
 rules:
   one_pr_per_objective: true
   production_only_from_main: true
@@ -71,7 +85,8 @@ phases:
         blocker: "merge requires explicit Marcelo approval"
       - id: F0-02
         action: promote-main-to-production
-        status: done
+        status: needs_redeploy
+        blocker: "redeploy de 4422eaa falhou no sync de Auth após o próprio workflow desconectar o Git (run 37967451209); correção na PR #566"
         evidence:
           main_sha: "776be8967bc1f69718b80649ea8b6090b2d704ce"
           deploy_run_id: 37963933776
@@ -83,7 +98,8 @@ phases:
         status: done
         decision: D-01
         evidence:
-          deleted_2026_10_09: [br-little-cherry-b6z5lec2]
+          deleted_2026_10_09: [br-little-cherry-b6z5lec2, br-weathered-union-b6nic9ne, br-lively-sound-b6pywxek, br-old-glade-b6x206yg]
+          note_1440: "previews das PRs #563/#564/#565 recriaram o teto 10/10; apagadas após merge (git branches não podem ser removidas desta sessão)"
           auto_removed_by_vercel_integration: "as 6 preview/* de 08/10 já não existiam em 09/10 ~14h"
           branches_after: 4
           candidate_branch_ids:
@@ -98,8 +114,8 @@ phases:
           protected_keep:
             - br-bold-pond-b6vde4xj
             - br-purple-butterfly-b6t6lihv
-      - {id: F0-04, action: neon-vercel-preview-branch-policy, status: closed_no_change, decision: D-06, note: "integração apaga a branch ao fechar a PR; guard vigia teto de 9"}
-      - {id: F0-05, action: agentetome-key-or-disable-hourly-job, status: ready_for_merge, decision: D-05, evidence: {pr: 563}}
+      - {id: F0-04, action: neon-vercel-preview-branch-policy, status: closed_no_change, decision: D-06, note: "limpeza da integração não é imediata no merge; apagar previews de PRs fechadas quando > 7"}
+      - {id: F0-05, action: agentetome-key-or-disable-hourly-job, status: done, decision: D-05, evidence: {pr: 563, merge_commit: "12ec4cf47cb8b725a4a4697253c51a559cca7489", note: "workflow; não depende de deploy"}}
       - id: F0-06
         action: admin-profile-bootstrap-and-auth-smoke
         status: waiting_marcelo_window
@@ -121,13 +137,15 @@ phases:
       - id: F1-01
         action: enable-wave-a
         workflows: [capture.yml, search-profile-discovery.yml, capital-market-ingestion.yml]
-        status: in_progress
+        status: blocked_by_incident
         decision: D-04
+        incident: "capital-market-ingestion dataset=all gravou ~124 mil linhas; banco 21 MB → 434 MB (limite 457 MB). Onda A desabilitada de novo; limpeza aguarda aprovação do Marcelo"
         evidence:
           budget_guard_run_id: 37963191485
           enabled_at: "2026-10-09T14:02:00-03:00"
           runs: {capture: 37963349278, search_profile_discovery: 37963352628, capital_market_ingestion: 37963355986}
-          fixes: [564, 565]
+          fixes_merged: {564: "ba1a53965245f89b500739d73e6442337264c331", 565: "4422eaa78efaf89e0d156227d4223a5398ddc463"}
+          growth_after_run: {discovered_company_candidates: 50, monitoring_outputs: 115, company_signals: 7, capital_market_events: 124381}
       - {id: F1-02, action: enable-wave-b, workflows: [cvm-fund-documents-schedule.yml, public-bulk-ingestion.yml, candidate-domain-intelligence.yml, candidate-cvm-registry-enrichment.yml], status: todo}
       - {id: F1-03, action: enable-or-retire-wave-c, status: todo}
       - {id: F1-04, action: move-minute-jobs-off-github-cron, status: todo}
@@ -171,7 +189,7 @@ decisions:
   - {id: D-03, topic: "Fonte de headcount para o gate de ICP", due: "2026-10-23", status: approved, decided_at: "2026-10-09", outcome: "CVM FRE → Apollo só para promovidas → override manual top 10"}
   - {id: D-04, topic: "Autorizar religar workflows por ondas", due: "2026-10-13", status: approved, decided_at: "2026-10-09", outcome: "onda A habilitada 09/10"}
   - {id: D-05, topic: "AGENTETOME_API_KEY ou desligar job horário", due: "2026-10-16", status: approved, decided_at: "2026-10-09", outcome: "desligar cron horário (PR #563)"}
-  - {id: D-06, topic: "Política de branches de preview Vercel↔Neon", due: "2026-10-16", status: approved, decided_at: "2026-10-09", outcome: "manter automático; integração limpa ao fechar PR"}
+  - {id: D-06, topic: "Política de branches de preview Vercel↔Neon", due: "2026-10-16", status: approved, decided_at: "2026-10-09", outcome: "manter automático + apagar previews de PRs fechadas sob D-01 quando > 7 branches"}
   - {id: D-07, topic: "Remover usuário residual de smoke do Neon Auth e executar bootstrap real do Marcelo", due: "2026-10-16", status: approved, decided_at: "2026-10-09", outcome: "executar só na janela com o Marcelo presente"}
 divergences:
   - "Os arquivos V5 informados no prompt não estavam na main; estavam apenas na PR #556."

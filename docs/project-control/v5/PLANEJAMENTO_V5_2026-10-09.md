@@ -162,7 +162,7 @@ Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e 
 | D-03 | **Headcount em duas camadas, nesta ordem:** (1) companhias abertas → `cvm_company_fre` (Formulário de Referência CVM, já existe no `capital-market-ingestion.yml`); (2) fechadas promovidas → enriquecimento firmográfico (Apollo `organizations_enrich`), só para empresas já promovidas, gravando a fonte em `source_trace`. `icp_headcount_override` manual apenas para o top 10 da fila, com justificativa. | Fonte oficial e gratuita primeiro; custo de enriquecimento limitado ao que já passou pela revisão humana. | Destrava F2-01. |
 | D-04 | **Aprovado religar por ondas**, com budget guard verde antes de cada onda. | Captura é o gargalo nº 1. | Guard verde (run 37963191485: storage 8,7%, compute 16,9%, branches 4). **Onda A habilitada e disparada:** `capture.yml`, `search-profile-discovery.yml`, `capital-market-ingestion.yml`. Falhas encontradas viraram PRs #564 e #565 (ver §5.1). |
 | D-05 | **Desligar o cron horário do Agentetome** até existir `AGENTETOME_API_KEY`; job continua por `workflow_dispatch`. | Falhava em toda execução; ninguém fornece a chave hoje. | PR #563. |
-| D-06 | **Manter a criação automática de branch por preview** (não mexer no dashboard). | Evidência de 09/10: a integração apaga a branch quando a PR fecha (as 6 de 08/10 sumiram sozinhas). O teto de 9 branches segue vigiado pelo budget guard. | F0-04 → `closed_no_change`; reavaliar se o guard acusar ≥ 8 branches. |
+| D-06 | **Manter a criação automática de branch por preview, com limpeza ativa.** Previews de PRs já fechadas são apagadas sob D-01 sempre que o total passar de 7. | As 6 de 08/10 sumiram sozinhas, mas as das PRs #563/#564/#565 continuaram após o merge (a limpeza da integração não é imediata). Mudar a integração exige dashboard e não resolve a causa. | F0-04 → `closed_no_change`; reavaliar se o guard acusar ≥ 8 branches de novo. |
 | D-07 | **Aprovado remover o usuário residual de smoke**, mas **somente na janela de bootstrap com o Marcelo presente**: (1) apagar `motor-auth-smoke-…@example.com`; (2) `MOTOR_AUTH_BOOTSTRAP_ENABLED=true`; (3) Marcelo se cadastra e vira `god_mode`; (4) variável volta a `false`; (5) `production-auth-smoke.yml` verde. | Abrir o bootstrap sem o Marcelo presente deixaria o `god_mode` disponível para o primeiro cadastro. | Aguardando janela com o Marcelo. |
 
 ### 5.1 Execução complementar em 09/10
@@ -171,8 +171,11 @@ Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e 
 - **Onda A — achados:**
   - `search-profile-discovery.yml`: `run_discovery` verde; `classify_news_candidates` falhou com `Unsafe SQL identifier: raw_payload->>transportSourceRef` → **PR #564** (filtro por texto JSON no adaptador Postgres).
   - `capture.yml`: ~20 fontes por empresa capturadas; falha só em *Company Careers Pages* (`Invalid URL`, empresas sem website) → **PR #565** (vira observação parcial).
-  - `capital-market-ingestion.yml` (`dataset=all`): em execução no fechamento deste registro.
-- **PRs a mergear (todas com CI rodando/verde):** #550 (SND), #563 (D-05), #564 e #565 (onda A). Depois do merge, novo deploy pelo mesmo workflow.
+  - `capital-market-ingestion.yml` (`dataset=all`, run 37963355986): **incidente de storage**. A trava pré-execução limita 20 mil linhas *por dataset*, não por execução; 7 datasets gravaram ~124 mil linhas (`capital_market_events`, `bronze_historical_records`, `capital_market_metrics`, `capital_market_entity_links`) e o banco foi de **21 MB para 434 MB**, contra o limite de 457 MB do projeto. O job abortou com `project size limit (457 MB) has been exceeded`. Os três workflows da onda A foram **desabilitados de novo**. Limpeza proposta (aguarda aprovação do Marcelo): manter só `cvm_fidc_monthly`, apagar as linhas de 09/10 dos outros 6 datasets e rodar `VACUUM FULL`; depois, trava por execução antes de religar.
+- **Merges (14:33):** #563 (`12ec4cf`), #564 (`ba1a539`), #565 (`4422eaa`).
+- **Redeploy de `4422eaa` falhou** (run 37967451209): o próprio `vercel-production-deploy.yml` desconecta o Git do projeto ao fim de cada deploy, e o deploy seguinte quebra ao tentar atualizar variáveis de preview presas a branch. Correção: **PR #566**.
+- **Branches Neon:** voltaram a 10/10 com as previews das PRs #563/#564/#565; as 3 foram apagadas após o merge → **7**.
+- **Ainda abertas:** #550 (SND), #566 (deploy), #556 (este plano). A #559 foi incorporada nesta PR e pode ser fechada.
 
 ---
 
