@@ -83,7 +83,15 @@ jobs:
           JOBS: ${{ steps.jobs.outputs.jobs }}
         shell: bash
         run: |
-          RUNTIME_JOBS="$(printf '%s' "$JOBS" | tr ',' '\n' | grep -v '^derived-materialization | paste -sd, -)"
+          RUNTIME_JOBS="$(printf '%s' "$JOBS" | tr ',' '\n' | grep -v '^derived-materialization
+          if [ -n "$RUNTIME_JOBS" ]; then
+            node scripts/run-neon-scheduled-jobs.mjs "--jobs=$RUNTIME_JOBS"
+          fi
+
+      - name: Materialize derived origination intelligence
+        if: contains(steps.jobs.outputs.jobs, 'derived-materialization')
+        run: npx tsx backend/src/cli/materializeDerivedIntelligence.ts --limit=25
+ | paste -sd, -)"
           if [ -n "$RUNTIME_JOBS" ]; then
             node scripts/run-neon-scheduled-jobs.mjs "--jobs=$RUNTIME_JOBS"
           fi
