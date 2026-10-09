@@ -62,9 +62,11 @@ export class CapitalMarketDeliveryService {
 
     for (const datasetCode of requested) {
       try {
-        const raw = await this.client.rpc<RawDeliveryResult>('sync_capital_market_delivery', {
-          p_dataset_code: datasetCode,
-        });
+        const raw = datasetCode === 'debentures_snd'
+          ? await this.client.rpc<RawDeliveryResult>('sync_debentures_snd_delivery', {})
+          : await this.client.rpc<RawDeliveryResult>('sync_capital_market_delivery', {
+            p_dataset_code: datasetCode,
+          });
         summaries.push(normalizeCapitalMarketDeliveryResult(datasetCode, raw));
       } catch (error) {
         summaries.push(failedSummary(datasetCode, error));
