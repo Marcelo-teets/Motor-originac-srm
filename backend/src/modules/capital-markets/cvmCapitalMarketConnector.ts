@@ -293,6 +293,57 @@ const metricDefinitions: Array<{
   { code: 'subordination_ratio', label: 'Índice de subordinação', unit: 'PERCENT', aliases: ['Percentual Subordinacao', 'PERC_SUBORDINACAO', 'Indice Subordinacao'] },
 ];
 
+// FRE item 10.1A: employees by gender self-declaration. Columns verified against
+// the CVM data dictionary (META/meta_fre_cia_aberta.zip,
+// meta_fre_cia_aberta_empregado_declaracao_genero.txt); the file was renamed to
+// fre_cia_aberta_empregado_posicao_declaracao_genero, so both names match.
+export const FRE_EMPLOYEE_GENDER_FILE = /empregado_(?:posicao_)?declaracao_genero/i;
+export const FRE_EMPLOYEE_COUNT_COLUMNS = [
+  'Quantidade_Feminino',
+  'Quantidade_Masculino',
+  'Quantidade_Nao_Binario',
+  'Quantidade_Outros',
+  'Quantidade_Sem_Resposta',
+] as const;
+
+const freEmployeeCountMetric = (input: {
+  recordKey: string;
+  contentHash: string;
+  pick: RowPick;
+  referenceDate: string | null;
+  observedAt: string;
+}): NormalizedCapitalMarketMetric | null => {
+  const counts = FRE_EMPLOYEE_COUNT_COLUMNS
+    .map((column) => parseNumber(input.pick(column)))
+    .filter((value): value is number => value !== null && value >= 0);
+  if (!counts.length) return null;
+  const documentId = input.pick('ID_Documento') ?? 'na';
+  const version = input.pick('Versao') ?? 'na';
+  return {
+    dataset_code: 'cvm_company_fre',
+    record_key: input.recordKey,
+    content_hash: input.contentHash,
+    metric_code: 'employee_count',
+    metric_label: 'Empregados (FRE 10.1A, soma por gênero)',
+    metric_value: counts.reduce((sum, value) => sum + value, 0),
+    metric_unit: 'COUNT',
+    reference_date: input.referenceDate,
+    // Rows of the same document/version are summed by sync_cvm_fre_headcount_metrics().
+    measurement_scope: `fre_empregado_genero:doc=${documentId}:v=${version}`,
+    source_column: FRE_EMPLOYEE_COUNT_COLUMNS.join('+'),
+    observed_at: input.observedAt,
+    updated_at: input.observedAt,
+  };
+};
+
+// Within the FRE archive, read the employee file first so a capped run still
+// captures headcount (decision gate input) before the ~50 other tables.
+export const prioritizeCvmFiles = <T extends { name: string }>(datasetCode: CvmDatasetCode, files: T[]) => (
+  datasetCode === 'cvm_company_fre'
+    ? [...files].sort((a, b) => Number(FRE_EMPLOYEE_GENDER_FILE.test(b.name)) - Number(FRE_EMPLOYEE_GENDER_FILE.test(a.name)))
+    : files
+);
+
 const extractMetrics = (input: {
   datasetCode: CvmDatasetCode;
   recordKey: string;
@@ -303,6 +354,10 @@ const extractMetrics = (input: {
   referenceDate: string | null;
   observedAt: string;
 }) => {
+  if (input.datasetCode === 'cvm_company_fre' && FRE_EMPLOYEE_GENDER_FILE.test(input.fileName)) {
+    const headcount = freEmployeeCountMetric(input);
+    return headcount ? [headcount] : [];
+  }
   const metrics: NormalizedCapitalMarketMetric[] = [];
   const scope = input.pick('Grupo DFP', 'GRUPO_DFP', 'Ordem Exercicio', 'ORDEM_EXERC', 'Tipo Classe', 'Categoria', 'Tipo Documento', 'TP_DOC') ?? input.fileName;
   const usedColumns = new Set<string>();
@@ -621,7 +676,7 @@ export const fetchCvmResourceRecords = async (input: {
   }
 
   const records: NormalizedCapitalMarketRecord[] = [];
-  for (const file of files) {
+  for (const file of prioritizeCvmFiles(input.datasetCode, files)) {
     const remaining = input.maxRows - records.length;
     if (remaining <= 0) break;
     const rows = parseCsv(decodeBuffer(file.data));
