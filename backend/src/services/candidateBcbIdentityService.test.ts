@@ -167,7 +167,7 @@ test('service processes canonical identity queue candidates without legacy comme
         website: 'https://www.creditas.com/',
         normalized_domain: 'creditas.com',
         candidate_status: 'captured',
-        candidate_role: 'operating_company',
+        candidate_role: 'portfolio_company',
         queue_type: 'identity',
         canonical_rank: 1,
         identity_review_status: 'pending',
