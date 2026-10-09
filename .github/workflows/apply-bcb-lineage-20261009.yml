@@ -1,0 +1,34 @@
+name: Apply BCB Lineage 20261009
+
+on:
+  push:
+    branches: [ops/apply-bcb-lineage-20261009]
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      GITHUB_SHA: 776be8967bc1f69718b80649ea8b6090b2d704ce
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 776be8967bc1f69718b80649ea8b6090b2d704ce
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Apply canonical migration plan
+        run: node scripts/apply-neon-runtime-migrations.mjs
+      - name: Verify runtime parity
+        run: node scripts/neon-runtime-parity-check.mjs
