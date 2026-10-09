@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { shouldSkipCapitalMarketResource } from './capitalMarketIngestionService.js';
+import { runWithRunWideRowBudget, shouldSkipCapitalMarketResource } from './capitalMarketIngestionService.js';
 
 const resource = {
   id: 'resource-1',
@@ -41,4 +41,31 @@ test('failed checkpoint is retried even when the resource timestamp is unchanged
     resource,
     checkpoint: { ...checkpoint, status: 'failed' },
   }), false);
+});
+
+test('max rows is a budget for the whole run, not per dataset', async () => {
+  const calls: Array<[string, number]> = [];
+  const seen: Record<string, number> = { cvm_fidc_monthly: 15_652, cvm_cri_monthly: 20_000, cvm_cra_monthly: 20_000 };
+  const result = await runWithRunWideRowBudget(
+    ['cvm_fidc_monthly', 'cvm_cri_monthly', 'cvm_cra_monthly'],
+    20_000,
+    async (datasetCode, datasetMaxRows) => {
+      calls.push([datasetCode, datasetMaxRows]);
+      return { recordsSeen: Math.min(seen[datasetCode] ?? 0, datasetMaxRows) };
+    },
+  );
+  assert.deepEqual(calls, [['cvm_fidc_monthly', 20_000], ['cvm_cri_monthly', 4_348]]);
+  assert.deepEqual(result.deferredDatasets, ['cvm_cra_monthly']);
+  assert.equal(result.remainingRows, 0);
+  assert.equal(result.summaries.reduce((sum, item) => sum + item.recordsSeen, 0), 20_000);
+});
+
+test('unchanged scheduled datasets do not consume the run budget', async () => {
+  const result = await runWithRunWideRowBudget(
+    ['cvm_offers', 'cvm_fidc_monthly'],
+    100,
+    async (datasetCode, datasetMaxRows) => ({ recordsSeen: datasetCode === 'cvm_offers' ? 0 : Math.min(40, datasetMaxRows) }),
+  );
+  assert.deepEqual(result.deferredDatasets, []);
+  assert.equal(result.remainingRows, 60);
 });

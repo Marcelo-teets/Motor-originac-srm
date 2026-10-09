@@ -30,6 +30,9 @@ const delivery = await new CapitalMarketDeliveryService().sync(deliveryDatasets)
 const result = { ...ingestion, delivery };
 
 console.log(JSON.stringify(result, null, 2));
+if (ingestion.deferredDatasets.length) {
+  console.warn(`Run-wide row budget exhausted; deferred datasets: ${ingestion.deferredDatasets.join(', ')}.`);
+}
 if (ingestion.status === 'failed' || delivery.status === 'failed') process.exitCode = 1;
 if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
   console.error('Capital-market ingestion completed without source records.');
@@ -37,7 +40,9 @@ if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
 }
 if (args.includes('--require-delivery')) {
   const assertion = evaluateCapitalMarketDeliveryAssertions({
-    requested: datasets,
+    // Datasets deferred by the run-wide row budget were never attempted; they are
+    // not delivery failures and are picked up by the next run.
+    requested: datasets.filter((dataset) => !ingestion.deferredDatasets.includes(dataset)),
     ingestion: ingestion.datasets,
     delivery: delivery.datasets,
   });

@@ -182,6 +182,33 @@ const emptySummary = (datasetCode: CvmDatasetCode, error: string): CapitalMarket
   errors: [error],
 });
 
+/**
+ * `maxRows` is a budget for the whole run, not per dataset. On 09/10/2026 a
+ * manual `dataset=all` run applied 20k rows to each of 7 datasets (~124k rows,
+ * ~3.5 KB each with bronze/metrics/links) and pushed Neon from 21 MB to its
+ * 457 MiB project limit. Datasets reached after the budget is spent are
+ * deferred, not processed, and reported so the caller can schedule them.
+ */
+export const runWithRunWideRowBudget = async <T extends { recordsSeen: number }>(
+  datasets: readonly CvmDatasetCode[],
+  maxRows: number,
+  runOne: (datasetCode: CvmDatasetCode, datasetMaxRows: number) => Promise<T>,
+) => {
+  const summaries: T[] = [];
+  const deferredDatasets: CvmDatasetCode[] = [];
+  let remaining = Math.max(0, Math.trunc(maxRows));
+  for (const datasetCode of datasets) {
+    if (remaining <= 0) {
+      deferredDatasets.push(datasetCode);
+      continue;
+    }
+    const summary = await runOne(datasetCode, remaining);
+    summaries.push(summary);
+    remaining -= Math.max(0, Number(summary.recordsSeen) || 0);
+  }
+  return { summaries, deferredDatasets, remainingRows: Math.max(0, remaining) };
+};
+
 export class CapitalMarketIngestionService {
   private readonly client = getDataClient();
   private persistenceBatchSize = INITIAL_BATCH_SIZE;
@@ -190,20 +217,23 @@ export class CapitalMarketIngestionService {
     if (!this.client) throw new Error('Neon data client not configured for capital-market ingestion.');
     const datasets = options.datasets?.length ? [...new Set(options.datasets)] : allDatasets;
     const maxRows = Math.max(1, Math.min(options.maxRows ?? DEFAULT_MAX_ROWS, MAX_ROWS));
-    const summaries: CapitalMarketDatasetSummary[] = [];
-    for (const datasetCode of datasets) {
-      summaries.push(await this.runDataset(datasetCode, {
+    const { summaries, deferredDatasets, remainingRows } = await runWithRunWideRowBudget(
+      datasets,
+      maxRows,
+      (datasetCode, datasetMaxRows) => this.runDataset(datasetCode, {
         reference: options.reference,
-        maxRows,
+        maxRows: datasetMaxRows,
         triggerType: options.triggerType ?? 'manual',
-      }));
-    }
+      }),
+    );
     return {
       status: summaries.every((item) => item.status === 'completed')
         ? 'real'
         : summaries.some((item) => item.status !== 'failed') ? 'partial' : 'failed',
       generatedAt: new Date().toISOString(),
-      requested: { datasets, reference: options.reference ?? null, maxRows },
+      requested: { datasets, reference: options.reference ?? null, maxRows, budgetScope: 'run' as const },
+      deferredDatasets,
+      remainingRows,
       totals: {
         resourcesProcessed: summaries.reduce((sum, item) => sum + item.resourcesProcessed, 0),
         resourcesSkipped: summaries.reduce((sum, item) => sum + item.resourcesSkipped, 0),
