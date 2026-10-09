@@ -2,6 +2,7 @@ import { CVM_DATASETS, type CvmDatasetCode } from '../modules/capital-markets/cv
 import { evaluateCapitalMarketDeliveryAssertions } from '../services/capitalMarketAssertions.js';
 import { CapitalMarketDeliveryService } from '../services/capitalMarketDeliveryService.js';
 import { CapitalMarketIngestionService } from '../services/capitalMarketIngestionService.js';
+import { getDataClient } from '../lib/dataClient.js';
 import { parseCliArgs } from './args.js';
 
 const { args, valueFor } = parseCliArgs();
@@ -27,9 +28,22 @@ const deliveryDatasets = ingestion.datasets
   .filter((dataset) => dataset.status !== 'failed')
   .map((dataset) => dataset.datasetCode);
 const delivery = await new CapitalMarketDeliveryService().sync(deliveryDatasets);
-const result = { ...ingestion, delivery };
+
+// F2-01: FRE headcount feeds the commercial ICP gate (company_source_metric_snapshots.employee_count).
+let freHeadcountSnapshots: number | null = null;
+if (deliveryDatasets.includes('cvm_company_fre')) {
+  const client = getDataClient();
+  if (client) {
+    const synced = await client.rpc<number>('sync_cvm_fre_headcount_metrics', {});
+    freHeadcountSnapshots = Number(synced ?? 0);
+  }
+}
+const result = { ...ingestion, delivery, freHeadcountSnapshots };
 
 console.log(JSON.stringify(result, null, 2));
+if (ingestion.deferredDatasets.length) {
+  console.warn(`Run-wide row budget exhausted; deferred datasets: ${ingestion.deferredDatasets.join(', ')}.`);
+}
 if (ingestion.status === 'failed' || delivery.status === 'failed') process.exitCode = 1;
 if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
   console.error('Capital-market ingestion completed without source records.');
@@ -37,7 +51,9 @@ if (args.includes('--require-records') && ingestion.totals.recordsSeen <= 0) {
 }
 if (args.includes('--require-delivery')) {
   const assertion = evaluateCapitalMarketDeliveryAssertions({
-    requested: datasets,
+    // Datasets deferred by the run-wide row budget were never attempted; they are
+    // not delivery failures and are picked up by the next run.
+    requested: datasets.filter((dataset) => !ingestion.deferredDatasets.includes(dataset)),
     ingestion: ingestion.datasets,
     delivery: delivery.datasets,
   });

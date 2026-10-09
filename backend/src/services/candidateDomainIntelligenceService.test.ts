@@ -4,7 +4,9 @@ import {
   CandidateDomainIntelligenceService,
   extractObservedDomainHints,
   generateDomainGuesses,
+  generateVcPortfolioDomainGuesses,
   isDomainResolutionInCooldown,
+  isVcPortfolioIdentityCandidate,
   isSafePublicDomain,
 } from './candidateDomainIntelligenceService.js';
 
@@ -42,6 +44,141 @@ test('domain guesses are bounded and name-derived', () => {
   assert.ok(guesses.length <= 6);
   assert.equal(guesses[0]?.domain, 'empresateste.com.br');
   assert.equal(guesses[0]?.strategy, 'name_guess');
+});
+
+
+test('VC portfolio lane is narrowly scoped and avoids ambiguous short-brand guesses', () => {
+  assert.equal(isVcPortfolioIdentityCandidate({
+    queue_type: 'identity',
+    candidate_role: 'portfolio_company',
+    source_ref: 'vc-portfolio:Kaszek',
+  }), true);
+  assert.equal(isVcPortfolioIdentityCandidate({
+    queue_type: 'commercial',
+    candidate_role: 'portfolio_company',
+    source_ref: 'vc-portfolio:Kaszek',
+  }), false);
+
+  assert.deepEqual(generateVcPortfolioDomainGuesses({ company_name: 'Comp', legal_name: 'Comp' }), []);
+  assert.deepEqual(generateVcPortfolioDomainGuesses({ company_name: 'Karta', legal_name: 'Karta' }), []);
+
+  const creditas = generateVcPortfolioDomainGuesses({ company_name: 'Creditas', legal_name: 'Creditas' });
+  assert.equal(creditas[0]?.domain, 'creditas.com.br');
+  assert.ok(creditas.some((hint) => hint.domain === 'creditas.com'));
+
+  const innerAi = generateVcPortfolioDomainGuesses({ company_name: 'Inner AI', legal_name: 'Inner AI' });
+  assert.equal(innerAi[0]?.domain, 'inner.ai');
+});
+
+test('VC portfolio identity candidate can receive a verified domain without CNPJ or automatic promotion', async () => {
+  const updates: Array<{ table: string; payload: Record<string, unknown>; filters: unknown[] }> = [];
+  const candidate = {
+    id: 'vc-creditas',
+    company_name: 'Creditas',
+    legal_name: 'Creditas',
+    cnpj: null,
+    cnpj_valid: false,
+    website: null,
+    normalized_domain: null,
+    candidate_status: 'captured',
+    priority_tier: 'P3',
+    queue_type: 'identity',
+    candidate_role: 'portfolio_company',
+    source_ref: 'vc-portfolio:Kaszek',
+    source_url: 'https://www.kaszek.com/companies',
+    evidence_summary: 'Listada no portfólio público de Kaszek.',
+    raw_payload: {},
+  };
+  const client = {
+    select: async (table: string, options: { filters?: Array<{ column: string; value: unknown }> }) => {
+      if (table === 'candidate_decision_queue_v4') {
+        const queueType = options.filters?.find((filter) => filter.column === 'queue_type')?.value;
+        return queueType === 'identity' ? [candidate] : [];
+      }
+      if (table === 'candidate_official_enrichments') return [];
+      return [];
+    },
+    update: async (table: string, payload: Record<string, unknown>, filters: unknown[]) => {
+      updates.push({ table, payload, filters });
+      return [];
+    },
+  };
+
+  const service = new CandidateDomainIntelligenceService({
+    client: client as never,
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (!target.includes('creditas.com')) return new Response('not found', { status: 404 });
+      return new Response(
+        '<html><title>Creditas</title><body>Creditas — soluções financeiras para transformar planos em realidade.</body></html>',
+        { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+      );
+    },
+    now: () => new Date('2026-10-08T16:00:00.000Z'),
+  });
+
+  const result = await service.run({ limit: 10, candidateIds: ['vc-creditas'], force: true });
+
+  assert.equal(result.websitesVerified, 1);
+  assert.equal(result.candidatesUpdated, 1);
+  assert.equal(result.candidatesWithObservedHints, 0, 'fund portfolio URL must not count as company-domain evidence');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.payload.normalized_domain, 'creditas.com.br');
+  assert.equal('candidate_status' in updates[0]!.payload, false);
+  assert.equal('company_id' in updates[0]!.payload, false);
+  assert.equal('cnpj' in updates[0]!.payload, false);
+
+  const rawPayload = updates[0]?.payload.raw_payload as Record<string, unknown>;
+  const capture = rawPayload.website_identity_capture as Record<string, unknown>;
+  assert.equal(capture.status, 'verified');
+  assert.equal(capture.evidenceScope, 'vc_portfolio_identity_only');
+  assert.equal(capture.cnpjStillRequired, true);
+  assert.equal(capture.automaticPromotionAllowed, false);
+  assert.equal(capture.humanApprovalRequired, true);
+});
+
+test('VC portfolio source page is never probed as the investee website', async () => {
+  const fetched: string[] = [];
+  const candidate = {
+    id: 'vc-telepatia',
+    company_name: 'Telepatia',
+    legal_name: 'Telepatia',
+    cnpj: null,
+    cnpj_valid: false,
+    website: null,
+    normalized_domain: null,
+    candidate_status: 'captured',
+    priority_tier: 'P3',
+    queue_type: 'identity',
+    candidate_role: 'portfolio_company',
+    source_ref: 'vc-portfolio:Canary',
+    source_url: 'https://canary.com.br/portfolio',
+    evidence_summary: 'Listada no portfólio público de Canary.',
+    raw_payload: { source: 'https://canary.com.br/portfolio' },
+  };
+  const client = {
+    select: async (table: string, options: { filters?: Array<{ column: string; value: unknown }> }) => {
+      if (table === 'candidate_decision_queue_v4') {
+        const queueType = options.filters?.find((filter) => filter.column === 'queue_type')?.value;
+        return queueType === 'identity' ? [candidate] : [];
+      }
+      if (table === 'candidate_official_enrichments') return [];
+      return [];
+    },
+    update: async () => [],
+  };
+  const service = new CandidateDomainIntelligenceService({
+    client: client as never,
+    fetchImpl: async (url) => {
+      fetched.push(String(url));
+      return new Response('not found', { status: 404 });
+    },
+    now: () => new Date('2026-10-08T16:00:00.000Z'),
+  });
+
+  await service.run({ limit: 10, force: true });
+  assert.ok(fetched.length > 0);
+  assert.equal(fetched.some((url) => url.includes('canary.com.br')), false);
 });
 
 test('domain trace honors its next retry timestamp', () => {

@@ -17,6 +17,19 @@ test('postgres adapter builds parameterized equality and in filters', () => {
   assert.deepEqual(built.values, ['abc', 'open', 'queued']);
 });
 
+test('postgres adapter filters on one level of JSON text extraction with validated parts', () => {
+  const built = __test.buildWhere([
+    { column: 'candidate_status', value: 'captured' },
+    { column: 'raw_payload->>transportSourceRef', value: 'google-news-rss' },
+  ]);
+  assert.equal(built.sql, ` where "candidate_status" = $1 and "raw_payload"->>'transportSourceRef' = $2`);
+  assert.deepEqual(built.values, ['captured', 'google-news-rss']);
+  assert.throws(() => __test.filterColumn("raw_payload->>x'; drop table companies; --"));
+  assert.throws(() => __test.filterColumn('raw_payload->>a->>b'));
+  assert.throws(() => __test.filterColumn('raw_payload->a'));
+  assert.throws(() => __test.ident('raw_payload->>transportSourceRef'));
+});
+
 test('postgres adapter refuses accidental empty-list in filters by using false', () => {
   const built = __test.buildWhere([{ column: 'id', operator: 'in', value: [] }]);
   assert.equal(built.sql, ' where false');

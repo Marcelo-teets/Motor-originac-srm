@@ -43,6 +43,24 @@ test('extracts structured JobPosting records with DCM relevance', () => {
   assert.equal(jobs[0]?.location, 'São Paulo, SP, BR');
 });
 
+test('reports a partial skip instead of throwing when the company has no website', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = (async () => { fetched = true; return new Response('', { status: 500 }); }) as typeof fetch;
+
+  try {
+    for (const website of ['', '   ', 'http://']) {
+      const capture = await captureCompanyCareers({ companyName: 'Sem Site S.A.', website, collectedAt: '2026-10-09T12:00:00.000Z' });
+      assert.equal(capture.connectorStatus, 'partial');
+      assert.equal(capture.matched, false);
+      assert.equal(capture.metadata.skipped, 'no_company_website');
+    }
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('does not accept a generic homepage 200 as an authoritative empty careers page', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(`

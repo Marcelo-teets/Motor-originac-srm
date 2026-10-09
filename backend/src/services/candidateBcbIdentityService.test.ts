@@ -64,14 +64,12 @@ test('service writes full BCB CNPJ and official enrichment while preserving huma
   const upserts: Array<{ table: string; rows: unknown[]; onConflict?: string }> = [];
   const client = {
     select: async (table: string) => {
-      if (table === 'discovered_company_candidates') return [{
+      if (table === 'candidate_decision_queue_v4') return [{
         id: 'uy3-candidate', company_name: 'Fintech UY3', legal_name: 'Fintech UY3', cnpj: null,
         website: null, normalized_domain: '', candidate_status: 'captured',
-        raw_payload: {
-          candidate_role: 'operating_company', commercial_queue: true,
-          commercial_semantics: { signalClass: 'direct_funding_trigger' },
-          promotion_ready: false,
-        },
+        candidate_role: 'operating_company', queue_type: 'identity', canonical_rank: 1,
+        identity_review_status: 'pending', promotion_ready: false,
+        raw_payload: {},
       }];
       if (table === 'source_catalog') return [{
         id: 'bcb-source', metadata: { code: 'src_banco_central_do_brasil_dados_abertos' },
@@ -128,12 +126,12 @@ test('service writes full BCB CNPJ and official enrichment while preserving huma
 test('service skips candidates already marked ambiguous by first-party evidence', async () => {
   let fetched = false;
   const client = {
-    select: async (table: string) => table === 'discovered_company_candidates' ? [{
+    select: async (table: string) => table === 'candidate_decision_queue_v4' ? [{
       id: 'open-co', company_name: 'Open Co', legal_name: 'Open Co', cnpj: null,
       website: 'https://open-co.com/', normalized_domain: 'open-co.com', candidate_status: 'captured',
+      candidate_role: 'operating_company', queue_type: 'identity', canonical_rank: 1,
+      identity_review_status: 'pending', promotion_ready: false,
       raw_payload: {
-        candidate_role: 'operating_company', commercial_queue: true,
-        commercial_semantics: { signalClass: 'direct_funding_trigger' },
         first_party_identity_capture: { status: 'ambiguous_group' },
       },
     }] : [],
@@ -153,5 +151,96 @@ test('service skips candidates already marked ambiguous by first-party evidence'
   const result = await service.run();
   assert.equal(result.status, 'no_targets');
   assert.equal(result.ambiguousSkipped, 1);
+  assert.equal(fetched, false);
+});
+
+
+test('service processes canonical identity queue candidates without legacy commercial semantics', async () => {
+  const updated: Array<Record<string, unknown>> = [];
+  const client = {
+    select: async (table: string) => {
+      if (table === 'candidate_decision_queue_v4') return [{
+        id: 'creditas-candidate',
+        company_name: 'Creditas',
+        legal_name: 'Creditas',
+        cnpj: null,
+        website: 'https://www.creditas.com/',
+        normalized_domain: 'creditas.com',
+        candidate_status: 'captured',
+        candidate_role: 'portfolio_company',
+        queue_type: 'identity',
+        canonical_rank: 1,
+        identity_review_status: 'pending',
+        promotion_ready: false,
+        raw_payload: { domain_intelligence: { status: 'verified', confidence: 0.95 } },
+      }];
+      if (table === 'source_catalog') return [{ id: 'bcb-source', metadata: { code: 'src_banco_central_do_brasil_dados_abertos' } }];
+      return [];
+    },
+    update: async (_table: string, payload: Record<string, unknown>) => {
+      updated.push(payload);
+      return [];
+    },
+    upsert: async (_table: string, rows: unknown[]) => rows,
+  };
+
+  const service = new CandidateBcbIdentityService({
+    client: client as never,
+    fetchInstitutions: async () => ({
+      sourceUrl: 'https://bcb.example/BcBase',
+      referenceDate: '2026-10-09',
+      pages: 1,
+      seatEnrichment: { status: 'available' as const, rowsMatched: 1, error: null },
+      rows: [institution('CREDITAS SOCIEDADE DE CRÉDITO DIRETO S.A.', '00000000000100', 'https://www.creditas.com/')],
+    }),
+    now: () => new Date('2026-10-09T16:00:00.000Z'),
+  });
+
+  const result = await service.run({ limit: 10 });
+  assert.equal(result.targets, 1);
+  assert.equal(result.matched, 1);
+  assert.equal(updated.length, 1);
+  const raw = updated[0].raw_payload as Record<string, unknown>;
+  assert.equal(raw.identity_review_status, 'pending');
+  assert.equal(raw.promotion_ready, false);
+  assert.equal('decision_eligible' in raw, false);
+});
+
+test('service ignores candidates outside the canonical identity queue', async () => {
+  let fetched = false;
+  const client = {
+    select: async (table: string) => table === 'candidate_decision_queue_v4' ? [{
+      id: 'commercial-candidate',
+      company_name: 'Empresa Comercial',
+      legal_name: 'Empresa Comercial',
+      cnpj: null,
+      website: 'https://empresa.com.br/',
+      normalized_domain: 'empresa.com.br',
+      candidate_status: 'captured',
+      candidate_role: 'operating_company',
+      queue_type: 'commercial',
+      canonical_rank: 1,
+      identity_review_status: 'pending',
+      promotion_ready: false,
+      raw_payload: {},
+    }] : [],
+    update: async () => [],
+    upsert: async () => [],
+  };
+
+  const service = new CandidateBcbIdentityService({
+    client: client as never,
+    fetchInstitutions: async () => {
+      fetched = true;
+      return {
+        sourceUrl: '', referenceDate: '2026-10-09', rows: [], pages: 0,
+        seatEnrichment: { status: 'available' as const, rowsMatched: 0, error: null },
+      };
+    },
+  });
+
+  const result = await service.run();
+  assert.equal(result.status, 'no_targets');
+  assert.equal(result.targets, 0);
   assert.equal(fetched, false);
 });

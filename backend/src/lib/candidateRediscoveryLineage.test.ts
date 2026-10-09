@@ -114,6 +114,84 @@ test('rediscovery increments its audit counter while preserving the original pay
   assert.equal((update?.raw_payload.rediscovery as { firstSeenAt?: string })?.firstSeenAt, '2026-08-01T00:00:00Z');
 });
 
+test('rediscovery hydrates only missing identity fields from stronger first-party evidence', () => {
+  const update = buildRediscoveryCandidateUpdate(
+    {
+      id: 'candidate-creditas',
+      dedupe_key: 'name:creditas',
+      candidate_status: 'captured',
+      source_ref: 'vc-portfolio:Kaszek',
+      website: null,
+      normalized_domain: null,
+      cnpj: null,
+      legal_name: 'Creditas',
+      source_url: 'https://www.kaszek.com/companies',
+      evidence_summary: 'Listada no portfólio público de Kaszek.',
+      confidence: 0.55,
+      raw_payload: {},
+    },
+    {
+      dedupeKey: 'name:creditas',
+      sourceRef: 'vc-portfolio:Kaszek',
+      sourceUrl: 'https://www.kaszek.com/companies',
+      evidenceSummary: 'Portfólio aponta para o domínio oficial.',
+      website: 'https://creditas.com/',
+      normalizedDomain: 'creditas.com',
+      legalName: 'Creditas Sociedade de Crédito Direto S.A.',
+      confidence: 0.65,
+      rawPayload: {
+        origin: 'vc_portfolio_page',
+        portfolioCompanyWebsite: 'https://creditas.com/',
+        identityEvidenceKind: 'vc_portfolio_external_link',
+      },
+    },
+    '2026-10-08T16:00:00.000Z',
+  );
+
+  assert.ok(update);
+  assert.equal(update?.website, 'https://creditas.com/');
+  assert.equal(update?.normalized_domain, 'creditas.com');
+  assert.equal(update?.legal_name, undefined, 'existing legal name must not be overwritten');
+  assert.equal(update?.confidence, 0.65);
+  assert.equal((update?.raw_payload.identityHydration as { websiteAdded?: boolean })?.websiteAdded, true);
+  assert.equal((update?.raw_payload.identityHydration as { normalizedDomainAdded?: boolean })?.normalizedDomainAdded, true);
+});
+
+test('rediscovery preserves existing verified identity even when a later observation differs', () => {
+  const update = buildRediscoveryCandidateUpdate(
+    {
+      id: 'candidate-verified',
+      dedupe_key: 'name:verified',
+      candidate_status: 'captured',
+      source_ref: 'src_brasilapi_cnpj',
+      website: 'https://verified.com.br',
+      normalized_domain: 'verified.com.br',
+      cnpj: '12345678000190',
+      legal_name: 'Verified S.A.',
+      confidence: 0.9,
+      raw_payload: {},
+    },
+    {
+      dedupeKey: 'name:verified',
+      sourceRef: 'vc-portfolio:Kaszek',
+      website: 'https://different.example',
+      normalizedDomain: 'different.example',
+      cnpj: '99999999000191',
+      legalName: 'Different Ltda',
+      confidence: 0.65,
+      rawPayload: { origin: 'vc_portfolio_page' },
+    },
+    '2026-10-08T16:01:00.000Z',
+  );
+
+  assert.ok(update);
+  assert.equal(update?.website, undefined);
+  assert.equal(update?.normalized_domain, undefined);
+  assert.equal(update?.cnpj, undefined);
+  assert.equal(update?.legal_name, undefined);
+  assert.equal(update?.confidence, undefined);
+});
+
 test('rediscovery refreshes commercial semantics without changing promotion or decision state', () => {
   const update = buildRediscoveryCandidateUpdate(
     {

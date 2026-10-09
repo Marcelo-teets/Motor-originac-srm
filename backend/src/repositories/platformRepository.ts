@@ -84,6 +84,18 @@ const defaultEnrichment = {
 
 const stableFilterTimestamp = '2026-03-21T09:00:00Z';
 
+const canonicalDecisionMetadata = (
+  metadata: Record<string, unknown> | null | undefined,
+  eligible: boolean,
+) => ({
+  ...(metadata ?? {}),
+  decision_eligible: eligible,
+  decision_eligibility_reason: eligible
+    ? 'canonical_icp_gate_approved'
+    : 'canonical_icp_gate_blocked',
+});
+
+
 const profileToFilters = (profile: SearchProfile): SearchProfileFilter[] => ([
   { id: `${profile.id}_segment`, profileId: profile.id, filterKey: 'segment', filterValue: profile.segment, createdAt: stableFilterTimestamp },
   { id: `${profile.id}_subsegment`, profileId: profile.id, filterKey: 'subsegment', filterValue: profile.subsegment, createdAt: stableFilterTimestamp },
@@ -404,7 +416,10 @@ class DatabasePlatformRepository implements PlatformRepository {
   async listCompanies() {
     return this.readWithFallback(async () => {
       const client = this.ensureClient();
-      const data = await client.select('companies', { select: '*' });
+      const data = await client.query(
+        `select c.*, public.is_company_decision_eligible(c.id) as canonical_decision_eligible
+         from public.companies c`,
+      );
       return (data ?? []).map((row: any) => attachCompanyDecisionMetadata({
         id: row.id,
         legalName: row.legal_name,
@@ -426,7 +441,7 @@ class DatabasePlatformRepository implements PlatformRepository {
         sourceRecords: row.source_trace ?? [],
         marketMapPeers: row.estimated_payload?.marketMapPeers ?? [],
         activities: row.estimated_payload?.activities ?? [],
-      } satisfies CompanySeed, row.metadata));
+      } satisfies CompanySeed, canonicalDecisionMetadata(row.metadata, row.canonical_decision_eligible === true)));
     }, () => this.fallback.listCompanies(), (result) => Array.isArray(result) && result.length === 0);
   }
 
@@ -1032,3 +1047,5 @@ class DatabasePlatformRepository implements PlatformRepository {
 }
 
 export const createPlatformRepository = (mode: 'memory' | 'database'): PlatformRepository => (mode === 'database' ? new DatabasePlatformRepository() : new MemoryPlatformRepository());
+
+export const __platformRepositoryTest = { canonicalDecisionMetadata };

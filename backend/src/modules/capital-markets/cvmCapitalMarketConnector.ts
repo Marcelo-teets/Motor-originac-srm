@@ -166,6 +166,13 @@ const addEntity = (input: {
   });
 };
 
+export const FIDC_ASSIGNOR_COLUMN_PREFIXES = ['TAB_I2A12', 'TAB_I2B12'] as const;
+export const FIDC_ASSIGNOR_SLOTS = 9;
+const isFidcAssignorSlotLink = (link: { entity_role: string; source_fields: string[] }) => (
+  link.entity_role === 'assignor'
+  && link.source_fields.some((field) => FIDC_ASSIGNOR_COLUMN_PREFIXES.some((prefix) => field.startsWith(`${prefix}_CPF_CNPJ_CEDENTE_`)))
+);
+
 const extractEntityLinks = (input: {
   pick: RowPick;
   instrumentType: string;
@@ -214,6 +221,19 @@ const extractEntityLinks = (input: {
     primary: true,
     sourceFields: ['assignor'],
   });
+  // FIDC monthly report, Tab I, items I.2.a.12 / I.2.b.12: the nine largest
+  // assignors (cedentes) by CPF/CNPJ. Column names verified against the CVM data
+  // dictionary (META/meta_inf_mensal_fidc_txt.zip, meta_inf_mensal_fidc_tab_I.txt).
+  // Only 14-digit CNPJs become links: CPFs are natural persons, not origination
+  // targets, and are not stored.
+  for (const prefix of FIDC_ASSIGNOR_COLUMN_PREFIXES) {
+    for (let rank = 1; rank <= FIDC_ASSIGNOR_SLOTS; rank += 1) {
+      const column = `${prefix}_CPF_CNPJ_CEDENTE_${rank}`;
+      const document = digitsOnly(input.pick(column));
+      if (!document || document.length !== 14) continue;
+      addEntity({ links, role: 'assignor', cnpj: document, name: null, primary: true, sourceFields: [column] });
+    }
+  }
   addEntity({
     links,
     role: 'fund',
@@ -293,6 +313,57 @@ const metricDefinitions: Array<{
   { code: 'subordination_ratio', label: 'Índice de subordinação', unit: 'PERCENT', aliases: ['Percentual Subordinacao', 'PERC_SUBORDINACAO', 'Indice Subordinacao'] },
 ];
 
+// FRE item 10.1A: employees by gender self-declaration. Columns verified against
+// the CVM data dictionary (META/meta_fre_cia_aberta.zip,
+// meta_fre_cia_aberta_empregado_declaracao_genero.txt); the file was renamed to
+// fre_cia_aberta_empregado_posicao_declaracao_genero, so both names match.
+export const FRE_EMPLOYEE_GENDER_FILE = /empregado_(?:posicao_)?declaracao_genero/i;
+export const FRE_EMPLOYEE_COUNT_COLUMNS = [
+  'Quantidade_Feminino',
+  'Quantidade_Masculino',
+  'Quantidade_Nao_Binario',
+  'Quantidade_Outros',
+  'Quantidade_Sem_Resposta',
+] as const;
+
+const freEmployeeCountMetric = (input: {
+  recordKey: string;
+  contentHash: string;
+  pick: RowPick;
+  referenceDate: string | null;
+  observedAt: string;
+}): NormalizedCapitalMarketMetric | null => {
+  const counts = FRE_EMPLOYEE_COUNT_COLUMNS
+    .map((column) => parseNumber(input.pick(column)))
+    .filter((value): value is number => value !== null && value >= 0);
+  if (!counts.length) return null;
+  const documentId = input.pick('ID_Documento') ?? 'na';
+  const version = input.pick('Versao') ?? 'na';
+  return {
+    dataset_code: 'cvm_company_fre',
+    record_key: input.recordKey,
+    content_hash: input.contentHash,
+    metric_code: 'employee_count',
+    metric_label: 'Empregados (FRE 10.1A, soma por gênero)',
+    metric_value: counts.reduce((sum, value) => sum + value, 0),
+    metric_unit: 'COUNT',
+    reference_date: input.referenceDate,
+    // Rows of the same document/version are summed by sync_cvm_fre_headcount_metrics().
+    measurement_scope: `fre_empregado_genero:doc=${documentId}:v=${version}`,
+    source_column: FRE_EMPLOYEE_COUNT_COLUMNS.join('+'),
+    observed_at: input.observedAt,
+    updated_at: input.observedAt,
+  };
+};
+
+// Within the FRE archive, read the employee file first so a capped run still
+// captures headcount (decision gate input) before the ~50 other tables.
+export const prioritizeCvmFiles = <T extends { name: string }>(datasetCode: CvmDatasetCode, files: T[]) => (
+  datasetCode === 'cvm_company_fre'
+    ? [...files].sort((a, b) => Number(FRE_EMPLOYEE_GENDER_FILE.test(b.name)) - Number(FRE_EMPLOYEE_GENDER_FILE.test(a.name)))
+    : files
+);
+
 const extractMetrics = (input: {
   datasetCode: CvmDatasetCode;
   recordKey: string;
@@ -303,6 +374,10 @@ const extractMetrics = (input: {
   referenceDate: string | null;
   observedAt: string;
 }) => {
+  if (input.datasetCode === 'cvm_company_fre' && FRE_EMPLOYEE_GENDER_FILE.test(input.fileName)) {
+    const headcount = freEmployeeCountMetric(input);
+    return headcount ? [headcount] : [];
+  }
   const metrics: NormalizedCapitalMarketMetric[] = [];
   const scope = input.pick('Grupo DFP', 'GRUPO_DFP', 'Ordem Exercicio', 'ORDEM_EXERC', 'Tipo Classe', 'Categoria', 'Tipo Documento', 'TP_DOC') ?? input.fileName;
   const usedColumns = new Set<string>();
@@ -399,8 +474,12 @@ export const normalizeCapitalMarketRecord = (input: {
   const rawLinks = extractEntityLinks({ pick, instrumentType });
   const issuer = rawLinks.find((link) => link.entity_role === 'issuer');
   const fund = rawLinks.find((link) => link.entity_role === 'fund');
-  const primaryTarget = rawLinks.find((link) => link.is_primary_origination_target && link.entity_cnpj)
-    ?? rawLinks.find((link) => link.is_primary_origination_target);
+  // Tab I assignor slots are origination targets in their own right but must not
+  // become the row's identity: the report row belongs to the fund, and keying it by
+  // its largest assignor would change record keys of rows already ingested.
+  const identityLinks = rawLinks.filter((link) => !isFidcAssignorSlotLink(link));
+  const primaryTarget = identityLinks.find((link) => link.is_primary_origination_target && link.entity_cnpj)
+    ?? identityLinks.find((link) => link.is_primary_origination_target);
   const issuerCnpj = issuer?.entity_cnpj ?? null;
   const issuerName = issuer?.entity_name ?? null;
   const fundCnpj = fund?.entity_cnpj ?? null;
@@ -621,7 +700,7 @@ export const fetchCvmResourceRecords = async (input: {
   }
 
   const records: NormalizedCapitalMarketRecord[] = [];
-  for (const file of files) {
+  for (const file of prioritizeCvmFiles(input.datasetCode, files)) {
     const remaining = input.maxRows - records.length;
     if (remaining <= 0) break;
     const rows = parseCsv(decodeBuffer(file.data));

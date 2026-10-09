@@ -311,7 +311,7 @@ jobs:
             MAX_ROWS="10000"
             TRIGGER="schedule"
           else
-            DATASET="cvm_fund_registry,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_fii_monthly,cvm_securitization_ots,cvm_fund_documents,cvm_company_fre,cvm_company_itr,cvm_company_dfp"
+            DATASET="cvm_company_fre,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_securitization_ots,cvm_fund_registry,cvm_fii_monthly,cvm_fund_documents,cvm_company_itr,cvm_company_dfp"
             REFERENCE=""
             MAX_ROWS="20000"
             TRIGGER="schedule"

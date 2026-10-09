@@ -37,7 +37,6 @@ test('uses safe defaults for incomplete RPC payloads', () => {
   assert.equal(result.error, null);
 });
 
-
 test('delivery service routes debentures_snd through its dedicated RPC', async () => {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const module = await import('./capitalMarketDeliveryService.js');

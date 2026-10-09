@@ -69,6 +69,10 @@ type CandidateQueueRow = {
   normalized_domain: string | null;
   candidate_status: string | null;
   priority_tier: string | null;
+  queue_type?: string | null;
+  candidate_role?: string | null;
+  source_ref?: string | null;
+  cnpj_valid?: boolean | null;
   source_url?: string | null;
   evidence_summary?: string | null;
   raw_payload?: Record<string, unknown> | null;
@@ -180,6 +184,42 @@ export const generateDomainGuesses = (
   .slice(0, 6)
   .map((domain) => ({ domain, strategy: 'name_guess' as const }));
 
+export const isVcPortfolioIdentityCandidate = (candidate: Pick<CandidateQueueRow, 'queue_type' | 'candidate_role' | 'source_ref'>) => (
+  candidate.queue_type === 'identity'
+  && candidate.candidate_role === 'portfolio_company'
+  && String(candidate.source_ref ?? '').startsWith('vc-portfolio:')
+);
+
+export const generateVcPortfolioDomainGuesses = (
+  candidate: Pick<CandidateQueueRow, 'company_name' | 'legal_name'>,
+): CandidateDomainHint[] => {
+  const companyName = String(candidate.company_name ?? '').trim();
+  const compact = normalizeText(companyName).replace(/[^a-z0-9]/g, '');
+  // Short/generic portfolio brands create too many false-positive domains.
+  if (compact.length < 6) return [];
+
+  const labels = [...brandLabels(candidate.company_name, candidate.legal_name)];
+  if (compact.length >= 6) labels.unshift(compact);
+
+  const aiLabel = /(?:^|\s)ai(?:\s|$)/i.test(companyName)
+    ? normalizeText(companyName).split(' ').find((token) => token.length >= 4 && token !== 'ai')
+    : '';
+  if (aiLabel) labels.unshift(aiLabel.replace(/[^a-z0-9]/g, ''));
+
+  const tlds = aiLabel ? ['ai', 'com.br', 'com', 'io'] : ['com.br', 'com', 'io'];
+  const seen = new Set<string>();
+  return labels
+    .flatMap((label) => tlds.map((tld) => `${label}.${tld}`))
+    .filter(isSafePublicDomain)
+    .filter((domain) => {
+      if (seen.has(domain)) return false;
+      seen.add(domain);
+      return true;
+    })
+    .slice(0, 8)
+    .map((domain) => ({ domain, strategy: 'name_guess' as const }));
+};
+
 const domainTrace = (candidate: CandidateQueueRow) => asRecord(candidate.raw_payload?.domain_intelligence);
 
 export const isDomainResolutionInCooldown = (candidate: CandidateQueueRow, now: Date) => {
@@ -192,9 +232,14 @@ const tradeNameFrom = (enrichments: OfficialEnrichmentRow[]) => enrichments
   .map((row) => String(row.data?.tradeName ?? row.data?.trade_name ?? '').trim())
   .find(Boolean) ?? null;
 
-const acceptsMatch = (strategy: DomainHintStrategy, score: WebsiteIdentityScore) => {
+const acceptsMatch = (strategy: DomainHintStrategy, score: WebsiteIdentityScore, vcPortfolioLane = false) => {
   if (!score.verified) return false;
   if (strategy !== 'name_guess') return true;
+  if (vcPortfolioLane) {
+    return score.matchType === 'exact_name'
+      && score.confidence >= 0.95
+      && score.domainAligned;
+  }
   return score.matchType === 'cnpj' || (score.matchType === 'exact_name' && score.confidence >= 0.95);
 };
 
@@ -213,6 +258,7 @@ export class CandidateDomainIntelligenceService {
     candidate: CandidateQueueRow,
     enrichments: OfficialEnrichmentRow[],
     hints: CandidateDomainHint[],
+    vcPortfolioLane = false,
   ): Promise<ProbeMatch> {
     let probes = 0;
     let bestConfidence = 0;
@@ -244,7 +290,7 @@ export class CandidateDomainIntelligenceService {
             tradeName,
           }, finalDomain, html);
           bestConfidence = Math.max(bestConfidence, score.confidence);
-          if (!acceptsMatch(hint.strategy, score)) continue;
+          if (!acceptsMatch(hint.strategy, score, vcPortfolioLane)) continue;
           return { verified: true, probes, domain: finalDomain, website: finalUrl, score, strategy: hint.strategy, bestConfidence };
         } catch {
           // Bounded network misses are expected during domain discovery.
@@ -264,8 +310,8 @@ export class CandidateDomainIntelligenceService {
       ? { column: 'id', operator: 'in' as const, value: candidateIds }
       : { column: 'priority_tier', operator: 'in' as const, value: tiers };
 
-    const rows = await this.client.select('candidate_decision_queue_v4', {
-      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,priority_tier,source_url,evidence_summary,raw_payload',
+    const commercialRows = await this.client.select('candidate_decision_queue_v4', {
+      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,priority_tier,queue_type,candidate_role,source_ref,cnpj_valid,source_url,evidence_summary,raw_payload',
       filters: [
         { column: 'canonical_rank', value: 1 },
         { column: 'queue_type', value: 'commercial' },
@@ -276,6 +322,24 @@ export class CandidateDomainIntelligenceService {
       orderBy: { column: 'priority_score', ascending: false },
       limit: queryLimit,
     }) as CandidateQueueRow[];
+
+    const identityRows = await this.client.select('candidate_decision_queue_v4', {
+      select: 'id,company_name,legal_name,cnpj,website,normalized_domain,candidate_status,priority_tier,queue_type,candidate_role,source_ref,cnpj_valid,source_url,evidence_summary,raw_payload',
+      filters: [
+        { column: 'canonical_rank', value: 1 },
+        { column: 'queue_type', value: 'identity' },
+        { column: 'candidate_status', value: 'captured' },
+        targetSelector,
+      ],
+      orderBy: { column: 'priority_score', ascending: false },
+      limit: queryLimit,
+    }) as CandidateQueueRow[];
+
+    // This extra lane only enriches identity evidence for VC portfolio
+    // companies. It never relaxes the CNPJ/human-review promotion gate.
+    const commercialCandidates = commercialRows.filter((row) => row.queue_type !== 'identity');
+    const vcIdentityRows = identityRows.filter(isVcPortfolioIdentityCandidate);
+    const rows = [...commercialCandidates, ...vcIdentityRows];
 
     const missing = rows.filter((row) => !normalizeDomainCandidate(row.website) && !normalizeDomainCandidate(row.normalized_domain));
     const now = this.now();
@@ -311,8 +375,14 @@ export class CandidateDomainIntelligenceService {
         const observedAt = this.now().toISOString();
         try {
           const candidateEnrichments = byCandidate.get(candidate.id) ?? [];
-          const observedHints = extractObservedDomainHints(candidate, candidateEnrichments);
-          const guesses = generateDomainGuesses(candidate);
+          const vcPortfolioLane = isVcPortfolioIdentityCandidate(candidate);
+          // Never treat the VC fund page itself as company-domain evidence.
+          // Portfolio candidates without official enrichments start from
+          // bounded brand guesses and must pass the stricter exact-name gate.
+          const observedHints = vcPortfolioLane ? [] : extractObservedDomainHints(candidate, candidateEnrichments);
+          const guesses = vcPortfolioLane
+            ? generateVcPortfolioDomainGuesses(candidate)
+            : generateDomainGuesses(candidate);
           const seen = new Set<string>();
           const hints = [...observedHints, ...guesses].filter((hint) => {
             const domain = normalizeDomainCandidate(hint.domain);
@@ -320,7 +390,7 @@ export class CandidateDomainIntelligenceService {
             seen.add(domain);
             return true;
           }).slice(0, MAX_DOMAINS_PER_CANDIDATE);
-          const probe = await this.probeCandidate(candidate, candidateEnrichments, hints);
+          const probe = await this.probeCandidate(candidate, candidateEnrichments, hints, vcPortfolioLane);
           const existingWebsiteCapture = asRecord(candidate.raw_payload?.website_identity_capture);
           const currentAttemptCount = Math.max(
             Number(existingWebsiteCapture.attemptCount) || 0,
@@ -366,6 +436,11 @@ export class CandidateDomainIntelligenceService {
                   resolutionStrategy: probe.strategy,
                   observedAt,
                   humanApprovalRequired: true,
+                  ...(vcPortfolioLane ? {
+                    evidenceScope: 'vc_portfolio_identity_only',
+                    cnpjStillRequired: true,
+                    automaticPromotionAllowed: false,
+                  } : {}),
                 },
                 domain_intelligence: {
                   ...trace,
@@ -374,6 +449,11 @@ export class CandidateDomainIntelligenceService {
                   confidence: probe.score.confidence,
                   matchType: probe.score.matchType,
                   resolutionStrategy: probe.strategy,
+                  ...(vcPortfolioLane ? {
+                    evidenceScope: 'vc_portfolio_identity_only',
+                    cnpjStillRequired: true,
+                    automaticPromotionAllowed: false,
+                  } : {}),
                 },
               },
               updated_at: observedAt,
@@ -394,8 +474,20 @@ export class CandidateDomainIntelligenceService {
                 domainResolutionVersion: VERSION,
                 observedAt,
                 humanApprovalRequired: true,
+                ...(vcPortfolioLane ? {
+                  evidenceScope: 'vc_portfolio_identity_only',
+                  cnpjStillRequired: true,
+                  automaticPromotionAllowed: false,
+                } : {}),
               },
-              domain_intelligence: trace,
+              domain_intelligence: {
+                ...trace,
+                ...(vcPortfolioLane ? {
+                  evidenceScope: 'vc_portfolio_identity_only',
+                  cnpjStillRequired: true,
+                  automaticPromotionAllowed: false,
+                } : {}),
+              },
             },
             updated_at: observedAt,
           }, [{ column: 'id', value: candidate.id }]);

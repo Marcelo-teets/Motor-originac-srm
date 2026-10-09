@@ -9,6 +9,9 @@ on:
       - backend/src/services/candidateDomainIntelligenceService.test.ts
       - backend/src/services/candidateWebsiteIdentityService.ts
       - backend/src/services/candidateWebsiteIdentityService.test.ts
+      - backend/src/cli/candidateBcbIdentity.ts
+      - backend/src/services/candidateBcbIdentityService.ts
+      - backend/src/services/candidateBcbIdentityService.test.ts
       - docs/domain-intelligence-engine.md
   workflow_run:
     workflows:
@@ -66,6 +69,7 @@ jobs:
           npx tsx --test
           src/services/candidateDomainIntelligenceService.test.ts
           src/services/candidateWebsiteIdentityService.test.ts
+          src/services/candidateBcbIdentityService.test.ts
 
   resolve:
     if: >-
@@ -78,8 +82,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
-DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
       DOMAIN_TIERS: ${{ inputs.tiers || 'P1,P2,P3' }}
       DOMAIN_FORCE: ${{ inputs.force || false }}
     steps:
@@ -92,9 +99,11 @@ DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Validate production secrets
+      - name: Load canonical Neon connection from Vercel vault
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Validate production database connection
         run: |
-          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
+          test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing after Vercel vault load" && exit 1)
       - name: Resolve and verify candidate domains
         working-directory: backend
         shell: bash
@@ -102,3 +111,9 @@ DOMAIN_LIMIT: ${{ inputs.limit || '50' }}
           ARGS=(--limit "$DOMAIN_LIMIT" --tiers "$DOMAIN_TIERS")
           if [ "$DOMAIN_FORCE" = "true" ]; then ARGS+=(--force); fi
           npx tsx src/cli/candidateDomainIntelligence.ts "${ARGS[@]}" | tee candidate-domain-intelligence.log
+
+      - name: Resolve regulated candidate identity from Banco Central
+        working-directory: backend
+        shell: bash
+        run: |
+          npx tsx src/cli/candidateBcbIdentity.ts --limit "$DOMAIN_LIMIT" | tee candidate-bcb-identity.log

@@ -1,5 +1,7 @@
 # Origination Intelligence Platform — Control Plane V4.1
 
+> **Histórico.** Substituído em 09/10/2026 por `docs/project-control/v5/PLANEJAMENTO_V5_2026-10-09.md` e `ROADMAP_TRACKER_V5.yaml` (runtime agora no Neon).
+
 **Data-base:** 21/07/2026  
 **Main auditada:** `a38d45f6734fad489af75f32067251147d4bbe0b`
 

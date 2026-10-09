@@ -216,10 +216,13 @@ export const MIGRATIONS = Object.freeze([
   'db/migrations/152_regulated_issuer_identity_calibration.sql',
   'db/migrations/145_entity_relevance_v3_historical_remediation.sql',
   'db/neon/20261007_neon_origination_ai_intro_runtime.sql',
+  'db/neon/20261009_neon_bcb_identity_source_catalog.sql',
   'db/neon/20261007_neon_origination_decision_gates.sql',
   'db/neon/20261007_neon_paperclip_control_plane.sql',
   'db/neon/20261008_neon_bronze_ingested_at_compatibility.sql',
+  'db/neon/20261009_neon_cvm_fre_headcount_sync.sql',
   'db/neon/20261006_neon_runtime_cleanup.sql',
+  'db/neon/20261009_neon_cvm_candidate_role_consistency.sql',
 ]);
 
 const PRE_UUID = 'pre-UUID schema history; superseded by db/neon/20260928_neon_uuid_runtime_core.sql + 20260928_neon_uuid_extended_runtime.sql';

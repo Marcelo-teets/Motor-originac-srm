@@ -268,7 +268,7 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
     const existingRows: any[] = [];
     if (dedupeKeys.length) {
       const rows = await this.client.select('discovered_company_candidates', {
-        select: 'id,dedupe_key,candidate_status,source_ref,raw_payload',
+        select: 'id,dedupe_key,candidate_status,source_ref,website,normalized_domain,cnpj,legal_name,source_url,evidence_summary,confidence,raw_payload',
         filters: [{ column: 'dedupe_key', operator: 'in', value: dedupeKeys }],
       });
       for (const row of rows ?? []) {
@@ -293,6 +293,13 @@ export class SearchProfileCaptureRuntime implements SearchProfileCaptureAdapter 
         'discovered_company_candidates',
         {
           ...(update.source_ref ? { source_ref: update.source_ref } : {}),
+          ...(update.website ? { website: update.website } : {}),
+          ...(update.normalized_domain ? { normalized_domain: update.normalized_domain } : {}),
+          ...(update.cnpj ? { cnpj: update.cnpj } : {}),
+          ...(update.legal_name ? { legal_name: update.legal_name } : {}),
+          ...(update.source_url ? { source_url: update.source_url } : {}),
+          ...(update.evidence_summary ? { evidence_summary: update.evidence_summary } : {}),
+          ...(update.confidence !== undefined ? { confidence: update.confidence } : {}),
           raw_payload: update.raw_payload,
           updated_at: update.updated_at,
         },
