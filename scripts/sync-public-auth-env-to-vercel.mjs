@@ -98,7 +98,11 @@ export const syncPublicAuthEnvToVercel = async ({
   const desiredTargets = ['production', 'preview', 'development'];
 
   for (const [key, value] of values) {
-    const matches = initialEnvs.filter((entry) => entry?.key === key && entry?.id);
+    // Branch-scoped preview overrides (created per Git branch, e.g. by the Neon↔Vercel
+    // integration) are not canonical config. Vercel refuses to PATCH them once the
+    // project's Git link is removed — which this deploy workflow does on purpose —
+    // so they are left untouched and do not count as coverage for a target.
+    const matches = initialEnvs.filter((entry) => entry?.key === key && entry?.id && !entry.gitBranch);
     const coveredTargets = new Set();
 
     for (const entry of matches) {
@@ -116,7 +120,6 @@ export const syncPublicAuthEnvToVercel = async ({
           value,
           type: 'encrypted',
           target: entryTargets,
-          ...(entry.gitBranch ? { gitBranch: entry.gitBranch } : {}),
           comment: 'Canonical Neon Managed Auth configuration for the Origination Intelligence Platform.',
         }),
       }), `Vercel environment update for ${key}`);

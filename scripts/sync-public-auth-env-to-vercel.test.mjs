@@ -53,6 +53,37 @@ test('upserts only canonical Neon Auth variables and verifies production targets
   }
 });
 
+test('leaves branch-scoped preview overrides untouched (works after Git disconnect)', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    const method = init.method ?? 'GET';
+    if (method === 'POST') return response(201, { created: { id: 'env' }, failed: [] });
+    if (method === 'PATCH') {
+      const body = JSON.parse(init.body);
+      if (body.gitBranch) return response(400, { error: { code: 'BAD_REQUEST', message: 'Project does not have a connected Git repository.' } });
+      return response(200, {});
+    }
+    return response(200, {
+      envs: [
+        ...PUBLIC_AUTH_ENV_KEYS.map((key) => ({ id: `id_${key}`, key, target: ['production', 'preview', 'development'] })),
+        { id: 'branch_override', key: 'NEON_AUTH_BASE_URL', target: ['preview'], gitBranch: 'feat/some-preview' },
+      ],
+    });
+  };
+
+  const report = await syncPublicAuthEnvToVercel({
+    projectId: 'prj_test', teamId: 'team_test', token: 'vercel_test_token', authProvider: 'neon',
+    neonProjectId, neonAuthBaseUrl, neonAuthJwksUrl, fetchImpl,
+  });
+
+  assert.equal(report.status, 'passed');
+  const patched = requests.filter(({ init }) => init.method === 'PATCH').map(({ url }) => url);
+  assert.equal(patched.some((url) => url.includes('branch_override')), false);
+  assert.equal(patched.length, PUBLIC_AUTH_ENV_KEYS.length);
+  assert.equal(requests.filter(({ init }) => init.method === 'POST').length, 0);
+});
+
 test('validates canonical Neon Auth URLs', () => {
   const result = validatePublicAuthConfig({ authProvider: 'neon', neonProjectId, neonAuthBaseUrl, neonAuthJwksUrl });
   assert.equal(result.authProvider, 'neon');
