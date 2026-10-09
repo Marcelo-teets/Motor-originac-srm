@@ -46,9 +46,11 @@ test('the workflow schedules every job that pg_cron used to run', () => {
   assert.match(workflow, /cron: '\*\/5 \* \* \* \*'/);
   assert.match(workflow, /cron: '17 \* \* \* \*'/);
   assert.match(workflow, /'\*\/5 \* \* \* \*'\) JOBS='reprocessing'/);
-  assert.match(workflow, /'\*\/15 \* \* \* \*'\) JOBS='entity-resolution'/);
+  assert.match(workflow, /'\*\/15 \* \* \* \*'\) JOBS='entity-resolution,derived-materialization'/);
   assert.match(workflow, /'17 \* \* \* \*'\) JOBS='agentetome'/);
   assert.match(workflow, /node scripts\/run-neon-scheduled-jobs\.mjs/);
+  assert.match(workflow, /materializeDerivedIntelligence\.ts --limit=25/);
+  assert.match(workflow, /derived-materialization/);
   assert.match(workflow, /secrets\.MOTOR_NEON_DATABASE_URL/);
   assert.match(workflow, /secrets\.CRON_SECRET/);
 });
