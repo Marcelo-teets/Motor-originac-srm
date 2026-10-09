@@ -1,14 +1,14 @@
 # Motor Originação SRM — Planejamento V5
 
-**Data-base:** 09/10/2026 (sexta-feira)
+**Data-base:** 09/10/2026 13:36 BRT (reconciliada ao vivo; plano original 11:00 BRT)
 **Substitui:** `docs/project-control/v4/` (V4.1, 21/07/2026) e `STATUS_E_ROADMAP_2026-07-17.md` — ambos escritos sobre o Supabase, hoje fora do runtime.
 **Tracker máquina-legível:** `ROADMAP_TRACKER_V5.yaml` (nesta pasta).
 
 | Superfície | Identificador | Estado verificado em 09/10 |
 | --- | --- | --- |
-| GitHub | `Marcelo-teets/Motor-originac-srm`, `main@26afa8d` (09/10 10:48) | CI verde no HEAD; 1 PR aberta (#550) |
-| Vercel | `prj_hsB473e7bNF0xOd6CEUwo7WFgNYs` | Produção em `ab90cac` (08/10 16:26) — **4 commits atrás da `main`** |
-| Neon | `steep-poetry-38942951` (sa-east-1, Free), branch `production` | 103 tabelas, 315 funções, 21 MB; **10/10 branches** |
+| GitHub | `Marcelo-teets/Motor-originac-srm`, `main@0d2e3cf` (09/10 13:33 BRT) | #550 `mergeable_state=clean`, CI/parity verdes; control plane V5 original ainda está na PR #556, não na `main` |
+| Vercel | `prj_hsB473e7bNF0xOd6CEUwo7WFgNYs` | Produção continua em `ab90cac`; `main` agora é `0d2e3cf` — **produção divergente da main** |
+| Neon | `steep-poetry-38942951` (sa-east-1, Free), branch `production` | 21 MB; **10/10 branches**; active time no ciclo = **16,89 h / 85 h** |
 | Supabase | `hdghpmssudrqhsbvrdyt` | Fora do runtime desde o cutover de 06/10; dados históricos **não recuperados** (último teste: 06/10, REST 402 / banco recusa conexão) |
 
 ---
@@ -65,6 +65,16 @@ Ou seja: a **plataforma está pronta para operar no Neon**; o que falta é **vol
 | Storage lógico | ~46 MB (branch) / 21 MB (db) | 480 MB | Folga ampla |
 
 **Consequência imediata:** a próxima preview da Vercel não consegue criar branch Neon.
+
+
+### 2.4 Reconciliação ao vivo — 09/10/2026 13:36 BRT
+
+- Baseline reconsultada no Neon: **46 candidatos / 2 promovidos / 2 companies / 0 elegíveis / 0 score_snapshots / 0 ranking_v2 / 0 pipeline / 0 embeddings / 0 user_profiles / 1 usuário Neon Auth / 21 MB**.
+- Branches Neon: **10/10**. Confirmadas as 6 `preview/*` criadas pela Vercel, `vercel-dev` arquivada, `backup/production-20261008` e `production`.
+- Uso Neon no ciclo: **60.804 s = 16,89 h de active time**; limite do plano: 85 h.
+- PR #550 no head `55a62ce5bf1211630f6761cc779a4ce6d966f152`: `mergeable_state=clean`; CI run `37781705235` com job `build-and-typecheck` verde; Neon Runtime Parity run `37781705243` com job `parity` verde. Como o merge exige autorização explícita do Marcelo, o item fica `ready_for_merge`.
+- Auth: o único registro em `neon_auth."user"` é `motor-auth-smoke-a4b7a996c0662d3a@example.com`, portanto **não é o usuário do Marcelo**. A coluna temporal real é `"createdAt"` (camelCase), não `created_at`. F0-06 fica bloqueado por decisão antes de qualquer remoção destrutiva.
+- V5 original está na PR #556, não na `main`; esta reconciliação cria uma PR nova a partir da `main` atual para tornar o control plane auditável sem reutilizar branch desatualizada.
 
 ---
 
@@ -141,16 +151,28 @@ Backtest/ground truth de sinais; arquivo frio Excel/Storage portado; observabili
 
 ---
 
-## 5. Decisões pendentes do Marcelo
+## 5. Decisões (tomadas em 09/10/2026, por delegação do Marcelo)
 
-| ID | Decisão | Prazo | Recomendação |
+Em 09/10 às 13:58 o Marcelo delegou as decisões pendentes. Registro, motivo e execução:
+
+| ID | Decisão | Motivo | Execução em 09/10 |
 | --- | --- | --- | --- |
-| D-01 | Apagar as 6 branches `preview/*` e a `vercel-dev` no Neon | 10/10 | Sim — as branches de origem já foram mergeadas na `main` ou eram smokes `ops/*` |
-| D-02 | Histórico Supabase: última tentativa ou abandono | 16/10 | Uma tentativa com prazo fixo; se falhar, seguir com dado novo — o volume de julho era majoritariamente de entidades sintéticas |
-| D-03 | Fonte de headcount para o gate | 23/10 | Combinar (a) CVM Formulário de Referência para companhias abertas (gratuito, oficial) com (b) enriquecimento firmográfico via Apollo/Lusha para fechadas, gravando a fonte em `source_trace`; alternativa: `icp_headcount_override` manual só para o top da fila |
-| D-04 | Religar workflows (F1) — autoriza Claude a habilitar via API, onda por onda | 13/10 | Sim, condicionado ao budget guard |
-| D-05 | `AGENTETOME_API_KEY` | 16/10 | Cadastrar se o Agentetome segue no escopo; senão, desligar o job |
-| D-06 | Política de previews Vercel↔Neon | 16/10 | Branch Neon só sob demanda |
+| D-01 | **Aprovado.** Apagar `vercel-dev` e as `preview/*` de PRs já fechadas. `production` e `backup/production-20261008` ficam. | Origem já mergeada ou smoke `ops/*` | As 6 `preview/*` de 08/10 já tinham sido removidas pela integração Vercel↔Neon ao fechar as PRs; `vercel-dev` (`br-little-cherry-b6z5lec2`) apagada. **Branches: 10 → 4** (`production`, `backup/production-20261008` e 2 previews de PRs abertas). |
+| D-02 | **Encerrar a recuperação ativa do histórico Supabase.** Projeto `hdghpmssudrqhsbvrdyt` fica intacto como arquivo passivo (não apagar, não pagar). Reabrir só se ficar acessível sem custo. | O histórico de julho tinha 1 empresa real; sinais eram de seeds sintéticos. Recuperar exige upgrade/suporte e não move a métrica-norte. | F0-07 → `closed_no_recovery`. |
+| D-03 | **Headcount em duas camadas, nesta ordem:** (1) companhias abertas → `cvm_company_fre` (Formulário de Referência CVM, já existe no `capital-market-ingestion.yml`); (2) fechadas promovidas → enriquecimento firmográfico (Apollo `organizations_enrich`), só para empresas já promovidas, gravando a fonte em `source_trace`. `icp_headcount_override` manual apenas para o top 10 da fila, com justificativa. | Fonte oficial e gratuita primeiro; custo de enriquecimento limitado ao que já passou pela revisão humana. | Destrava F2-01. |
+| D-04 | **Aprovado religar por ondas**, com budget guard verde antes de cada onda. | Captura é o gargalo nº 1. | Guard verde (run 37963191485: storage 8,7%, compute 16,9%, branches 4). **Onda A habilitada e disparada:** `capture.yml`, `search-profile-discovery.yml`, `capital-market-ingestion.yml`. Falhas encontradas viraram PRs #564 e #565 (ver §5.1). |
+| D-05 | **Desligar o cron horário do Agentetome** até existir `AGENTETOME_API_KEY`; job continua por `workflow_dispatch`. | Falhava em toda execução; ninguém fornece a chave hoje. | PR #563. |
+| D-06 | **Manter a criação automática de branch por preview** (não mexer no dashboard). | Evidência de 09/10: a integração apaga a branch quando a PR fecha (as 6 de 08/10 sumiram sozinhas). O teto de 9 branches segue vigiado pelo budget guard. | F0-04 → `closed_no_change`; reavaliar se o guard acusar ≥ 8 branches. |
+| D-07 | **Aprovado remover o usuário residual de smoke**, mas **somente na janela de bootstrap com o Marcelo presente**: (1) apagar `motor-auth-smoke-…@example.com`; (2) `MOTOR_AUTH_BOOTSTRAP_ENABLED=true`; (3) Marcelo se cadastra e vira `god_mode`; (4) variável volta a `false`; (5) `production-auth-smoke.yml` verde. | Abrir o bootstrap sem o Marcelo presente deixaria o `god_mode` disponível para o primeiro cadastro. | Aguardando janela com o Marcelo. |
+
+### 5.1 Execução complementar em 09/10
+
+- **F0-02 concluído:** `main@776be89` promovida à produção pelo `vercel-production-deploy.yml` (run 37963933776) → deployment `dpl_PsFPVfdC5ZwsHoK48tFEzq4SrAvY` READY; `production-auth-smoke.yml` verde (run 37964112272).
+- **Onda A — achados:**
+  - `search-profile-discovery.yml`: `run_discovery` verde; `classify_news_candidates` falhou com `Unsafe SQL identifier: raw_payload->>transportSourceRef` → **PR #564** (filtro por texto JSON no adaptador Postgres).
+  - `capture.yml`: ~20 fontes por empresa capturadas; falha só em *Company Careers Pages* (`Invalid URL`, empresas sem website) → **PR #565** (vira observação parcial).
+  - `capital-market-ingestion.yml` (`dataset=all`): em execução no fechamento deste registro.
+- **PRs a mergear (todas com CI rodando/verde):** #550 (SND), #563 (D-05), #564 e #565 (onda A). Depois do merge, novo deploy pelo mesmo workflow.
 
 ---
 
