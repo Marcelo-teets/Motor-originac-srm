@@ -35,6 +35,17 @@ const ident = (value: string) => {
   return `"${value}"`;
 };
 
+// Filters may target one level of JSON text extraction: `raw_payload->>transportSourceRef`.
+// Both the column and the key must be plain identifiers; the key is emitted as a
+// quoted literal, so nothing user-controlled reaches the SQL text.
+const JSON_TEXT_PATH = /^([a-z_][a-z0-9_]*)->>([a-z_][a-z0-9_]*)$/i;
+
+const filterColumn = (value: string) => {
+  const jsonPath = JSON_TEXT_PATH.exec(value);
+  if (jsonPath) return `${ident(jsonPath[1])}->>'${jsonPath[2]}'`;
+  return ident(value);
+};
+
 const selectList = (value = '*') => {
   if (!SELECT_LIST.test(value.trim())) throw new Error(`Unsupported select list: ${value}`);
   if (value.trim() === '*') return '*';
@@ -54,7 +65,7 @@ const buildWhere = (filters: FilterDefinition[] = [], startAt = 1) => {
   const clauses: string[] = [];
 
   for (const filter of filters) {
-    const column = ident(filter.column);
+    const column = filterColumn(filter.column);
     const op = filter.operator ?? 'eq';
 
     if (op === 'is') {
@@ -431,4 +442,4 @@ export const getNeonPostgresClient = (connectionString: string) => {
   return singleton;
 };
 
-export const __test = { ident, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined, chunkForParameters, normalizeNeonConnectionString };
+export const __test = { ident, filterColumn, selectList, buildWhere, dedupeByConflict, toParam, groupByShape, withoutUndefined, chunkForParameters, normalizeNeonConnectionString };
