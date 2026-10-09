@@ -238,8 +238,18 @@ const validatedCareersPage = (html: string, jobs: JobOpeningObservation[]) => {
 
 export const captureCompanyCareers = async (params: { companyName: string; website: string; collectedAt?: string }): Promise<PeopleCapitalCapture> => {
   const collectedAt = params.collectedAt ?? new Date().toISOString();
-  const base = params.website.startsWith('http') ? params.website : `https://${params.website}`;
   const paths = ['/careers', '/carreiras', '/jobs', '/vagas', '/work-with-us', '/trabalhe-conosco'];
+  const website = (params.website ?? '').trim();
+  const base = website.startsWith('http') ? website : `https://${website}`;
+  if (!website || !URL.canParse(base)) {
+    // Companies promoted without a verified first-party site cannot have careers pages
+    // captured; report a partial observation instead of failing the whole source run.
+    return {
+      connectorStatus: 'partial', matched: false, sourceUrl: '', collectedAt,
+      jobs: [], headcount: null, investors: [], signals: [],
+      metadata: { companyName: params.companyName, skipped: 'no_company_website', successfulCareerPages: 0, attemptedPaths: [] },
+    };
+  }
   const pages: Array<{ url: string; jobs: JobOpeningObservation[] }> = [];
 
   await Promise.all(paths.map(async (path) => {
