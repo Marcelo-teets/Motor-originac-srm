@@ -21,6 +21,10 @@ test('CVM scheduled and manual runs have run-wide modest limits', () => {
   assert.match(yaml, /default: "1000"/);
   assert.match(yaml, /MAX_ROWS="1000"/);
   assert.match(yaml, /MAX_ROWS="500"/);
-  assert.match(yaml, /DATASET="cvm_company_fre,cvm_fidc_monthly"/);
+  assert.match(yaml, /cron: "40 10 \\* \\* 1"/);
+  assert.match(yaml, /cron: "40 11 \\* \\* 1"/);
+  assert.match(yaml, /DATASET="cvm_company_fre"/);
+  assert.match(yaml, /DATASET="cvm_fidc_monthly"/);
+  assert.doesNotMatch(yaml, /MAX_ROWS="20000"/);
   assert.match(yaml, /scripts\/check-neon-storage-budget\.mjs/);
 });
