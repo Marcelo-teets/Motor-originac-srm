@@ -1,8 +1,8 @@
 # Runbook — Incidente de storage Neon (09/10/2026)
 
-**Estado:** contido, aguardando aprovação da limpeza ("opção 1").
-**Responsável pela execução:** Claude, com o SQL verbatim abaixo.
-**Aprovação necessária:** Marcelo (ação destrutiva em produção).
+**Estado (11/10/2026):** opção 1 **aprovada e executada** em `production` (Neon `steep-poetry-38942951`). A redução foi verificada de 434 MiB para **73 MiB**. **Resta validar guard `normal` após refresh canônico; captura não deve ser reativada antes disso.**
+**Responsável:** execução auditada no GitHub, PR #573, comentário #6109648776.
+**Escopo aprovado:** apenas dados do incidente não-FIDC; backup `backup/production-20261008` preservado.
 
 ## 1. O que aconteceu
 
@@ -30,7 +30,9 @@
 
 > Achado para a F2-02: `cvm_fidc_monthly` gerou 0 métricas e 0 vínculos de entidade, só eventos sem CNPJ de cedente. O arquivo lido foi `inf_mensal_fidc_tab_III_*.csv`. Antes de usar como base de cedentes, é preciso confirmar qual tabela do informe mensal traz os cedentes.
 
-## 3. Limpeza ("opção 1") — executar só com aprovação
+## 3. Procedimento histórico da limpeza ("opção 1") — **já executado**
+
+> **NÃO repetir:** este SQL é registro auditável da operação aprovada e concluída em 11/10, não um job recorrente. Um novo DELETE/VACUUM FULL exigiria nova aprovação e pré-checagem.
 
 Ordem obrigatória por causa das FKs: `capital_market_entity_links` e `capital_market_metrics` dependem de `capital_market_events`.
 
@@ -79,7 +81,9 @@ select pg_size_pretty(pg_database_size(current_database())) as db,
        private.refresh_database_growth_guard() ->> 'status' as guard;
 ```
 
-Aceite: banco entre **80 e 100 MB** e guard `normal`.
+**Resultado observado:** 73 MiB após `VACUUM FULL` nas quatro tabelas. Verificação de integridade: 15.652 eventos FIDC, 15.652 bronze FIDC, 50 eventos CVM ofertas, 50 SND, 55 links e 339 métricas.
+
+**Gate pendente:** o cache de `private.database_growth_guard_state` continuava `block_raw` após a redução física; não sobrescrever a tabela diretamente. Executar o script canônico `node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual` em GitHub Actions com credenciais oficiais (ele executa `private.refresh_database_growth_guard()`). Aceitar somente `state=healthy`, `blocked=false` e leitura persistida `status=normal`, com `current_bytes` coerente com o banco físico. Proibido declarar sucesso a partir do tamanho isolado.
 
 ## 4. Alternativas, se a opção 1 não for aprovada
 
@@ -91,10 +95,13 @@ Aceite: banco entre **80 e 100 MB** e guard `normal`.
 
 ## 5. Religar a onda A depois da limpeza
 
+**Estado atual: PENDENTE.** A PR #568 já foi integrada e a produção usa o código V5. Reativar somente após refresh do guard `normal` e aprovação do budget guard. O gatilho manual **não oferece `dataset=all`** após a PR de segurança de ingestão; workflows de issues/PRs não podem lançar ingestões.
+
 1. Mergear #568 (teto por execução) **antes** de religar `capital-market-ingestion.yml`.
 2. Rodar `neon-free-budget-guard.yml` e conferir verde.
 3. Seguir `RUNBOOK_ONDAS_CAPTURA.md`, começando por `capture.yml` e `search-profile-discovery.yml`, que gravam pouco.
-4. Capital markets: disparar um dataset por vez (`dataset=cvm_company_fre`, depois `cvm_fidc_monthly`), nunca `all`.
+4. Capital markets: disparar um dataset por vez (`dataset=cvm_company_fre`, depois `cvm_fidc_monthly`), inicialmente `max_rows=100`, nunca `all`. Validar CNPJ e headcount FRE e pelo menos um `capital_market_entity_links.entity_role='assignor'` associado à Tab I antes de ampliar o limite.
+5. Registrar antes/depois de `pg_database_size`, contagens, `source_connector_runs` e do `private.database_growth_guard_state`. Se a fonte não produzir sinais úteis, parar a coleta em vez de persistir mais bronze.
 
 ## 6. Lições registradas
 
