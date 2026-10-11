@@ -1,23 +1,15 @@
-Motor Originação — approved V5 collection and Neon efficiency release
+Motor Originação — V5 Neon storage guard release
 
 Requested: 2026-10-11 (America/Sao_Paulo)
-Base HEAD before release-request commit: 43d41edc45ce6fe7a4bb0b21ee14d51b145b3010
-Release target: exact resulting main HEAD after this PR merges.
-Execution: canonical GitHub Actions workflow vercel-production-deploy.yml,
-triggered by this reviewed .github/deploy-requests/motor-production.txt change.
+Baseline main: 1038765eb4c82c95037527b142042cab5d049bfd
+Deploy target: exact main HEAD created by merging this PR.
+Official trigger: .github/workflows/vercel-production-deploy.yml via on.push.paths.
 
-Reviewed changes:
-- #575: fail-closed CVM workflow, no issue/PR ingestion, small budgets;
-  post-cleanup Neon runbooks and operational controls.
-- #574: FIDC monthly Tab I CNPJ/assignor extraction only, bounded CSV parser.
-- #576: versioned, allowlisted, guarded removal of one duplicate bronze B-tree index.
-- #577: separate weekly FRE and FIDC scheduled runs (1000 rows each).
+Scope: PR #579 zero-row guard refresh in capital-market workflow,
+PR #580 fail-closed refreshed guard health gate in the canonical
+production release. Also includes reviewed CVM efficiency PRs #574–#577.
+No manual SQL, no data ingestion, no new cleanup or admin bootstrap.
 
-Release gates:
-- HEAD and CI validation; canonical Vercel Auth env sync.
-- Neon connection and approved pending migration only, recorded in ledger.
-- Neon runtime parity; build/prebuilt deploy; Neon/Auth production smokes.
-- Keep Git automatic deployments disabled.
-- Never ingest broad dataset=all or delete data; preserve Neon production and backup.
-
-No Auth god_mode bootstrap D-07 and no new cleanup authorized by this release.
+Gates: main SHA, Vercel Auth, Neon migration parity, real storage state
+healthy, immutable build, prebuilt Vercel production deploy and Auth smoke.
+Physical data preservation: FIDC events/bronze and production backup.
