@@ -25,4 +25,8 @@ assert.match(workflow, /node scripts\/verify-neon-v5-release-migrations\.mjs[\s\
 assert.ok(workflow.indexOf('Validate Neon production data plane before build') < workflow.indexOf('Apply only approved Neon V5 migrations and verify parity'), 'Preflight must follow production DB validation');
 assert.ok(workflow.indexOf('Apply only approved Neon V5 migrations and verify parity') < workflow.indexOf('Build immutable production artifact'), 'Migrations and parity must complete before build');
 
+assert.ok(workflow.includes('scripts/check-neon-storage-budget.mjs --requested-rows=1 --trigger=manual'));
+assert.ok(workflow.includes('.state == "healthy" and .blocked == false'));
+assert.ok(workflow.indexOf('scripts/check-neon-storage-budget.mjs --requested-rows=1') < workflow.indexOf('Build immutable production artifact'));
+
 console.log('Vercel prebuilt production workflow: contract passed.');
