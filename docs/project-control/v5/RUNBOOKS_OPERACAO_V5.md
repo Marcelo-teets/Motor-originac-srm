@@ -25,13 +25,13 @@ Comandos conferidos em 09/10/2026. Todos os `gh` usam a API REST, porque GraphQL
 4. **Aceite:** run `success` e deployment de produção `READY` com `githubCommitSha = $SHA` (Vercel MCP `list_deployments`, `target=production`). O próprio workflow roda o smoke de saúde e o de Auth.
 5. **Rollback:** promover o deployment anterior marcado `isRollbackCandidate: true` (Vercel → Deployments → Promote), ou disparar o passo 2 com o SHA anterior.
 
-Histórico de 09/10: `776be89` (run 37963933776) ✅ · `4422eaa` (run 37967451209) ❌ no sync de Auth, corrigido pela #567 · `14e25de` (run 37971618529) ✅.
+Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido pela #567; `14e25de` (37971618529) ✅; `c0d828b` (38143356320, 11/10) ✅, READY, Neon Auth e paridade aprovados. O fluxo também aceita o gatilho de release exclusivamente em `.github/deploy-requests/motor-production.txt`, aprovado por PR e merge na main. **Não usar deploy direto Vercel.**
 
 ---
 
 ## RB-02 · Religar captura por ondas (F1-01..F1-03, decisão D-04)
 
-**Pré-requisitos:** limpeza do incidente feita (`RUNBOOK_INCIDENTE_STORAGE_2026-10-09.md`), guard em `normal` e PR #568 mergeada antes de qualquer `capital-market-ingestion`.
+**Pré-requisitos (11/10):** limpeza aprovada concluída (434 → 73 MiB), PR #568 e deploy V5 presentes, **mas** `database_growth_guard_state` permaneceu `block_raw` com bytes antigos. O workflow de budget executa `private.refresh_database_growth_guard()`; **não religar captura até esse fluxo comprovar `state=healthy`, `blocked=false`, guard persistido `normal` e folga física coerente.**
 
 **Para cada workflow:**
 1. Guard:
@@ -55,11 +55,11 @@ Histórico de 09/10: `776be89` (run 37963933776) ✅ · `4422eaa` (run 379674512
 | --- | --- | --- | --- |
 | A | `capture.yml` | `inputs[cadence]=all` | `monitoring_outputs`, `company_signals` |
 | A | `search-profile-discovery.yml` | — | `discovered_company_candidates`, `search_profile_runs` |
-| A | `capital-market-ingestion.yml` | `inputs[dataset]=cvm_company_fre`, depois `cvm_fidc_monthly`. **Nunca `all`.** | `capital_market_events`, `company_source_metric_snapshots` (via #569) |
+| A | `capital-market-ingestion.yml` | `inputs[dataset]=cvm_company_fre`, depois `cvm_fidc_monthly`, com `inputs[max_rows]=100` no primeiro smoke. **Nunca `all`.** | `capital_market_metrics.employee_count` → `company_source_metric_snapshots`; FIDC Tab I → `capital_market_entity_links.assignor` |
 | B | `cvm-fund-documents-schedule.yml`, `public-bulk-ingestion.yml`, `candidate-domain-intelligence.yml`, `candidate-cvm-registry-enrichment.yml` | defaults | conferir no CLI de cada um |
 | C | os 9 restantes, um por vez | defaults | habilitar se houver consumidor; senão PR apagando o YAML |
 
-**Regras:** a onda B só começa depois de 3 dias verdes da onda A. Nenhum workflow fica `disabled_manually` sem justificativa registrada no tracker.
+**Regras de eficiência:** a onda B só começa depois de 3 dias verdes da onda A. Nenhum workflow fica `disabled_manually` sem justificativa registrada no tracker. A execução manual coleta **um dataset por vez**, com limite de linhas **por execução** (default 1.000); agenda semanal prioriza só FRE e FIDC. Um push de código só faz testes: ingestão de produção por push exige alteração explícita de `backend/src/services/.cvm-trigger`. Não usar títulos de issue/PR como gatilho de ingestão. Após cada run, exigir contagens before/after, registros elegíveis, bytes/registro e crescimento de `pg_database_size` menor que a folga sinalizada pelo guard.
 
 ---
 
@@ -124,3 +124,17 @@ Histórico de 09/10: `776be89` (run 37963933776) ✅ · `4422eaa` (run 379674512
 2. Atualizar o `snapshot_*` no `ROADMAP_TRACKER_V5.yaml` e a seção 2 do plano.
 3. Conferir: workflows desabilitados, branches Neon (RB-04), produção = `main` (RB-01).
 4. Publicar o relatório no formato da §7 do `PROMPT_EXECUCAO_V5.md`.
+
+---
+
+## RB-07 · Eficiência de storage e qualidade da ingestão (11/10/2026)
+
+**Baseline verificada após limpeza:** banco ~73 MiB; `capital_market_events` ~33 MiB / 15.752 linhas; `bronze_historical_records` ~17 MiB / 15.751 linhas; `capital_market_metrics` 339; `capital_market_entity_links` 55. A mesma fonte pode ocupar bronze e evento: não duplicar payloads adicionais sem medição e contrato de linhagem.
+
+1. **Guard:** no workflow oficial (com `MOTOR_NEON_DATABASE_URL` da Vercel), rodar `node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual`. Conferir saída `state=healthy`; depois SELECT em `private.database_growth_guard_state`. Proibido sobrescrever `status`/`current_bytes` diretamente.
+2. **Custos por fonte:** medir `pg_database_size(current_database())` antes/depois, `recordsInserted` versus `recordsUnchanged`, e `entityLinksWritten`/`metricsWritten`. Se ingestão gera bronze mas zero links, métricas ou candidatos, priorizar o arquivo correto antes de aumentar volume.
+3. **FIDC:** usar exclusivamente a Tab I do informe mensal (campos `TAB_I2A12_CPF_CNPJ_CEDENTE_*` e `TAB_I2B12_CPF_CNPJ_CEDENTE_*`) para a tese de cedentes; preservar fund identity e ignorar CPFs. Falta de Tab I deve falhar explicitamente, não gravar Tab III como aparente sucesso.
+4. **FRE:** priorizar arquivo de empregados (10.1A), contar `capital_market_metrics.employee_count`, sincronizar `company_source_metric_snapshots` e confirmar elegibilidade do gate. Sem headcount verificado, não prometer score.
+5. **Índices:** antes de adicionar índice, comparar `pg_indexes` e `pg_stat_user_indexes`. Há duas definições idênticas `(dataset_code, ref_date DESC)` no bronze (índices `bronze_historical_records_dataset_ref_idx` e `idx_bronze_historical_dataset_ref`), candidatas a deduplicação em **PR de migração própria**, com medição de espaço e planos EXPLAIN. **Não remover automaticamente**; migrations via `db/neon/*.sql` + plano oficial + parity.
+6. **Proteção:** não executar `DELETE` nem `VACUUM FULL` periodicamente. A limpeza do incidente 09/10 foi extraordinária, com autorização específica. Não excluir backup ou dados FIDC para acomodar uma nova coleta genérica.
+7. **SLO:** budget guard verde antes de cada onda, 3 dias sem erro na A antes da B, refresh físico do guard e revisão do uso de índices/storage semanalmente.
