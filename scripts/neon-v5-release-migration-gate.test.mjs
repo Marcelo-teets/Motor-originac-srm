@@ -38,6 +38,6 @@ test('bronze index cleanup keeps canonical index and checks strict definition eq
   assert.match(sql, /idx_bronze_historical_dataset_ref/);
   assert.match(sql, /is distinct from/);
   assert.match(sql, /raise exception 'bronze_duplicate_index_definition_mismatch'/);
-  assert.match(sql, /drop index public\\.idx_bronze_historical_dataset_ref/);
+  assert.ok(sql.includes('drop index public.idx_bronze_historical_dataset_ref'));
   assert.doesNotMatch(sql, /drop (?:table|schema)/i);
 });
