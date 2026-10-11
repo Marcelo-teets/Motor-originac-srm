@@ -32,10 +32,6 @@ on:
       - db/migrations/131_debentures_snd_signal_treatment.sql
       - db/migrations/132_debentures_snd_candidate_delivery.sql
       - db/migrations/133_debentures_snd_delivery_whitelist.sql
-  pull_request:
-    types: [opened, synchronize, reopened]
-  issues:
-    types: [opened]
   schedule:
     - cron: "20 9 * * *"
     - cron: "0 14 * * *"
@@ -43,12 +39,11 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: Dataset de mercado de capitais ou all
+        description: Um dataset por execucao; all desabilitado por seguranca
         required: true
         default: cvm_offers
         type: choice
         options:
-          - all
           - cvm_offers
           - debentures_snd
           - cvm_fund_registry
@@ -66,9 +61,9 @@ on:
         required: false
         type: string
       max_rows:
-        description: Limite de linhas por dataset
+        description: Limite de linhas total da execucao
         required: true
-        default: "20000"
+        default: "1000"
         type: string
 
 permissions:
@@ -80,11 +75,6 @@ concurrency:
 
 jobs:
   ingest:
-    if: >-
-      (github.event_name != 'issues' && github.event_name != 'pull_request') ||
-      (github.actor == 'Marcelo-teets' &&
-        ((github.event_name == 'issues' && startsWith(github.event.issue.title, '[OPS][CVM_BOOTSTRAP]')) ||
-         (github.event_name == 'pull_request' && startsWith(github.event.pull_request.title, '[OPS][CVM_BOOTSTRAP]'))))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -121,13 +111,25 @@ jobs:
       - name: Validate Neon ingestion secret
         run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
 
-      - name: Check storage budget for push canaries
+      - name: Allow push ingestion only after explicit CVM trigger
         if: github.event_name == 'push'
+        id: push_scope
+        shell: bash
+        run: |
+          if git show --format= --name-only HEAD | grep -Fxq 'backend/src/services/.cvm-trigger'; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Code push: typecheck and tests only; no implicit ingestion.'
+          fi
+
+      - name: Check storage budget for push canaries
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true'
         id: storage_push
         run: node scripts/check-neon-storage-budget.mjs --requested-rows=500 --trigger=manual
 
       - name: Publish paused push summary
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked == 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked == 'true'
         run: |
           {
             echo '## Capital Market Ingestion — live persistence paused'
@@ -174,7 +176,7 @@ jobs:
             src/services/cvmProductionIntelligence.test.ts
 
       - name: Persist recent CVM offers canary directly
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           for ATTEMPT in $(seq 1 12); do
@@ -196,7 +198,7 @@ jobs:
           exit 1
 
       - name: Persist Debentures SND canary directly
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           cd backend
@@ -208,7 +210,7 @@ jobs:
             --require-delivery
 
       - name: Prove CVM canary idempotency
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           cd backend
@@ -221,7 +223,7 @@ jobs:
             --require-idempotent
 
       - name: Prove SND canary idempotency
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           cd backend
@@ -234,7 +236,7 @@ jobs:
             --require-idempotent
 
       - name: Bootstrap all capital-market datasets after migration or explicit trigger
-        if: github.event_name == 'push' && steps.storage_push.outputs.blocked != 'true'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true' && steps.storage_push.outputs.blocked != 'true'
         shell: bash
         run: |
           CHANGED_FILES=$(git diff --name-only "${{ github.event.before }}" "${GITHUB_SHA}" || true)
@@ -243,7 +245,7 @@ jobs:
             exit 0
           fi
 
-          PREFLIGHT="$(node scripts/check-neon-storage-budget.mjs --requested-rows=20000 --trigger=backfill)"
+          PREFLIGHT="$(node scripts/check-neon-storage-budget.mjs --requested-rows=1000 --trigger=backfill)"
           echo "$PREFLIGHT" | jq .
           if [ "$(echo "$PREFLIGHT" | jq -r '.blocked')" = "true" ]; then
             echo "Backfill paused by storage budget; no write attempted."
@@ -253,13 +255,13 @@ jobs:
 
           cd backend
           npm exec -- tsx src/cli/capitalMarkets.ts \
-            --dataset all \
+            --dataset cvm_company_fre \
             --max-rows "$EFFECTIVE_ROWS" \
             --trigger backfill \
             --require-delivery
 
       - name: Probe exact deployed endpoint when deployment capacity is available
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true'
         continue-on-error: true
         run: |
           for ATTEMPT in $(seq 1 6); do
@@ -290,28 +292,23 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "issues" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            DATASET="all"
-            REFERENCE=""
-            MAX_ROWS="20000"
-            TRIGGER="backfill"
-          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             DATASET="${REQUESTED_DATASET:-cvm_offers}"
             REFERENCE="$REQUESTED_REFERENCE"
-            MAX_ROWS="${REQUESTED_MAX_ROWS:-20000}"
+            MAX_ROWS="${REQUESTED_MAX_ROWS:-1000}"
             TRIGGER="manual"
           elif [ "$SCHEDULE_EXPRESSION" = "20 9 * * *" ]; then
             DATASET="cvm_offers"
             REFERENCE=""
-            MAX_ROWS="20000"
+            MAX_ROWS="1000"
             TRIGGER="schedule"
           elif [ "$SCHEDULE_EXPRESSION" = "0 14 * * *" ]; then
             DATASET="debentures_snd"
             REFERENCE=""
-            MAX_ROWS="10000"
+            MAX_ROWS="500"
             TRIGGER="schedule"
           else
-            DATASET="cvm_company_fre,cvm_fidc_monthly,cvm_cri_monthly,cvm_cra_monthly,cvm_securitization_ots,cvm_fund_registry,cvm_fii_monthly,cvm_fund_documents,cvm_company_itr,cvm_company_dfp"
+            DATASET="cvm_company_fre,cvm_fidc_monthly"
             REFERENCE=""
             MAX_ROWS="20000"
             TRIGGER="schedule"
