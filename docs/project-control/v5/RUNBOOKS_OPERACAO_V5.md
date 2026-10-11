@@ -129,6 +129,8 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 
 ## RB-07 · Eficiência de storage e qualidade da ingestão (11/10/2026)
 
+**Atualização de guard:** o workflow `capital-market-ingestion.yml` pode atualizar o cache via `scripts/check-neon-storage-budget.mjs --requested-rows=0 --trigger=manual` ao receber um push no arquivo de workflow; essa etapa não executa ingestão de dados. O refresh também ocorre normalmente no preflight de cada coleta. Verificar sempre a leitura persistida e a correspondência de bytes antes de habilitar captura.
+
 **Baseline verificada após limpeza:** banco ~73 MiB; `capital_market_events` ~33 MiB / 15.752 linhas; `bronze_historical_records` ~17 MiB / 15.751 linhas; `capital_market_metrics` 339; `capital_market_entity_links` 55. A mesma fonte pode ocupar bronze e evento: não duplicar payloads adicionais sem medição e contrato de linhagem.
 
 1. **Guard:** no workflow oficial (com `MOTOR_NEON_DATABASE_URL` da Vercel), rodar `node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual`. Conferir saída `state=healthy`; depois SELECT em `private.database_growth_guard_state`. Proibido sobrescrever `status`/`current_bytes` diretamente.

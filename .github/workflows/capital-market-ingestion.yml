@@ -112,6 +112,10 @@ jobs:
       - name: Validate Neon ingestion secret
         run: test -n "$MOTOR_NEON_DATABASE_URL" || (echo "MOTOR_NEON_DATABASE_URL is missing" && exit 1)
 
+      - name: Refresh Neon guard without ingesting on code changes
+        if: github.event_name == 'push'
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=0 --trigger=manual
+
       - name: Allow push ingestion only after explicit CVM trigger
         if: github.event_name == 'push'
         id: push_scope

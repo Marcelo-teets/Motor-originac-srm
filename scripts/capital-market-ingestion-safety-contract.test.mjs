@@ -28,3 +28,11 @@ test('CVM scheduled and manual runs have run-wide modest limits', () => {
   assert.doesNotMatch(yaml, /MAX_ROWS="20000"/);
   assert.match(yaml, /scripts\/check-neon-storage-budget\.mjs/);
 });
+
+test('safe code push refreshes stale Neon guard before any ingestion gate', () => {
+  const guardStep = yaml.indexOf('Refresh Neon guard without ingesting on code changes');
+  const triggerStep = yaml.indexOf('Allow push ingestion only after explicit CVM trigger');
+  assert.ok(guardStep >= 0 && triggerStep > guardStep);
+  assert.ok(yaml.includes('node scripts/check-neon-storage-budget.mjs --requested-rows=0 --trigger=manual'));
+  assert.match(yaml, /if: github.event_name == 'push' && steps.push_scope.outputs.enabled == 'true'/);
+});
