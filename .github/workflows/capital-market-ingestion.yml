@@ -36,6 +36,7 @@ on:
     - cron: "20 9 * * *"
     - cron: "0 14 * * *"
     - cron: "40 10 * * 1"
+    - cron: "40 11 * * 1"
   workflow_dispatch:
     inputs:
       dataset:
@@ -307,10 +308,15 @@ jobs:
             REFERENCE=""
             MAX_ROWS="500"
             TRIGGER="schedule"
-          else
-            DATASET="cvm_company_fre,cvm_fidc_monthly"
+          elif [ "$SCHEDULE_EXPRESSION" = "40 10 * * 1" ]; then
+            DATASET="cvm_company_fre"
             REFERENCE=""
-            MAX_ROWS="20000"
+            MAX_ROWS="1000"
+            TRIGGER="schedule"
+          else
+            DATASET="cvm_fidc_monthly"
+            REFERENCE=""
+            MAX_ROWS="1000"
             TRIGGER="schedule"
           fi
           echo "dataset=$DATASET" >> "$GITHUB_OUTPUT"
