@@ -20,4 +20,9 @@ assert.match(workflow, /Confirm automatic deployments remain disabled[\s\S]*if: 
 assert.doesNotMatch(workflow, /deploy-production\s+"?--sha=/, 'Workflow must not use the broken gitSource deployment path');
 assert.doesNotMatch(workflow, /github-limited/, 'Workflow must not depend on Vercel Git credentials');
 
+assert.match(workflow, /Apply only approved Neon V5 migrations and verify parity/, 'Only reviewed migrations are allowed into production');
+assert.match(workflow, /node scripts\/verify-neon-v5-release-migrations\.mjs[\s\S]*node scripts\/apply-neon-runtime-migrations\.mjs[\s\S]*node scripts\/neon-runtime-parity-check\.mjs/, 'Preflight, versioned migration runner and parity must execute in order');
+assert.ok(workflow.indexOf('Validate Neon production data plane before build') < workflow.indexOf('Apply only approved Neon V5 migrations and verify parity'), 'Preflight must follow production DB validation');
+assert.ok(workflow.indexOf('Apply only approved Neon V5 migrations and verify parity') < workflow.indexOf('Build immutable production artifact'), 'Migrations and parity must complete before build');
+
 console.log('Vercel prebuilt production workflow: contract passed.');
