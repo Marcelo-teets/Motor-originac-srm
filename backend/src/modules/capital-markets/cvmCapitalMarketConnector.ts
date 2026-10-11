@@ -653,7 +653,7 @@ export const fileIsRelevant = (datasetCode: CvmDatasetCode, fileName: string) =>
     // Tab I contains the assignor CNPJ slots. Other tabs can exhaust the
     // shared storage budget without generating an origination link.
     // Fail closed when Tab I is absent; do not silently ingest Tab III.
-    return /(?:^|\\/)inf[_ -]?mensal[_ -]?fidc[_ -]?tab[_ -]?i(?:[_ -]|\\.)/i.test(fileName);
+    return /(?:^|\/)inf[_ -]?mensal[_ -]?fidc[_ -]?tab[_ -]?i(?:[_ -]|\.)/i.test(fileName);
   }
   if (datasetCode === 'cvm_company_itr' || datasetCode === 'cvm_company_dfp') {
     return /_(BPA|BPP|DRE|DFC_MD|DFC_MI)_(con|ind)_/i.test(fileName);
