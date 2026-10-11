@@ -1,8 +1,20 @@
-Motor Originação production deployment request
+Motor Originação — controlled V5 production release request
 
-Purpose: complete the controlled production release by updating existing Vercel environment variables by ID instead of recreating conflicting production variables.
-Source main SHA before deploy-request commit: 8d0740f3d89af496e321f4aa9f4920d98c97d305
-Requested at: 2026-10-06
-Safety gates: exact main tip, canonical Neon Auth env sync, controlled prebuilt Vercel deploy, Neon hostname/schema/growth guard, runtime health smoke, canonical Auth smoke, automatic Git deploys disabled.
+Requested: 2026-10-11 (America/Sao_Paulo)
+Baseline main before release-request commit: 69748c1b0c4a32634e67d0646dc31d9b2200285f
+Target: the exact main HEAD created by merging this release-request PR.
+Execution: canonical .github/workflows/vercel-production-deploy.yml push trigger
+for this release-request file. No direct Vercel deployments.
 
-Release: Neon runtime health fix + conflict-safe Vercel environment synchronization.
+Required fail-closed gates:
+1. Exact SHA of main in GitHub Actions checkout.
+2. Canonical Neon Managed Auth production environment synchronization.
+3. Neon production hostname and runtime data-plane validation.
+4. Approved pending V5 migrations only, through scripts/apply-neon-runtime-migrations.mjs.
+5. Neon runtime parity before immutable build.
+6. Prebuilt production deployment + Neon health and authenticated smoke.
+7. Disable automatic Vercel Git deployments on completion or failure.
+
+Release includes all approved merges through #572, including #568–#571,
+#556, #550, #561 and #562. Human admin bootstrap D-07 is NOT requested.
+No deletion of production or backup, no unapproved migrations.
