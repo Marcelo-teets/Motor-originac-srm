@@ -151,6 +151,11 @@ jobs:
           node scripts/verify-neon-v5-release-migrations.mjs
           node scripts/apply-neon-runtime-migrations.mjs
           node scripts/neon-runtime-parity-check.mjs
+          # Zero-row preflight refreshes the cached private growth guard after
+          # cleanup/VACUUM and fails the release if physical storage is unsafe.
+          STORAGE_REPORT="$(node scripts/check-neon-storage-budget.mjs --requested-rows=1 --trigger=manual)"
+          echo "$STORAGE_REPORT" | jq .
+          printf '%s' "$STORAGE_REPORT" | jq -e '.state == "healthy" and .blocked == false' >/dev/null
 
       - name: Build immutable production artifact
         shell: bash
