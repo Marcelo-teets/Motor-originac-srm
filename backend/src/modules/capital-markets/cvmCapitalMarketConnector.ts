@@ -647,8 +647,14 @@ const relevantFinancialAccounts = new Set([
   '6.01', '6.02', '6.03', '6.05',
 ]);
 
-const fileIsRelevant = (datasetCode: CvmDatasetCode, fileName: string) => {
+export const fileIsRelevant = (datasetCode: CvmDatasetCode, fileName: string) => {
   if (!/\.csv$/i.test(fileName)) return false;
+  if (datasetCode === 'cvm_fidc_monthly') {
+    // Tab I contains the assignor CNPJ slots. Other tabs can exhaust the
+    // shared storage budget without generating an origination link.
+    // Fail closed when Tab I is absent; do not silently ingest Tab III.
+    return /(?:^|\\/)inf[_ -]?mensal[_ -]?fidc[_ -]?tab[_ -]?i(?:[_ -]|\\.)/i.test(fileName);
+  }
   if (datasetCode === 'cvm_company_itr' || datasetCode === 'cvm_company_dfp') {
     return /_(BPA|BPP|DRE|DFC_MD|DFC_MI)_(con|ind)_/i.test(fileName);
   }
@@ -703,7 +709,10 @@ export const fetchCvmResourceRecords = async (input: {
   for (const file of prioritizeCvmFiles(input.datasetCode, files)) {
     const remaining = input.maxRows - records.length;
     if (remaining <= 0) break;
-    const rows = parseCsv(decodeBuffer(file.data));
+    // Parse only the remaining run budget unless financial-account filtering
+    // needs to scan sparse rows (ITR/DFP). Avoid decoding unused CSV rows.
+    const needsRowFilter = input.datasetCode === 'cvm_company_itr' || input.datasetCode === 'cvm_company_dfp';
+    const rows = parseCsv(decodeBuffer(file.data), needsRowFilter ? Number.POSITIVE_INFINITY : remaining);
     for (const row of rows) {
       if (!rowIsRelevant(input.datasetCode, row)) continue;
       records.push(normalizeCapitalMarketRecord({
