@@ -140,6 +140,18 @@ jobs:
           }
           NODE
 
+      - name: Apply only approved Neon V5 migrations and verify parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Production connection is pulled from the canonical Vercel vault.
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          node scripts/verify-neon-v5-release-migrations.mjs
+          node scripts/apply-neon-runtime-migrations.mjs
+          node scripts/neon-runtime-parity-check.mjs
+
       - name: Build immutable production artifact
         shell: bash
         env:
