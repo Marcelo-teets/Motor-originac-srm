@@ -308,9 +308,9 @@ test('FIDC ingestion reads only Tab I; rejects Tab III even when first in ZIP', 
 });
 
 test('bounded CSV parser stops at the remaining record budget with quoted newlines', () => {
-  const csv = 'CNPJ;DESCRICAO\\r\\n"11.111.111/0001-11";"linha 1\\nlinha 2"\\r\\n22.222.222/0001-22;segunda\\r\\n33.333.333/0001-33;terceira\\r\\n';
+  const csv = 'CNPJ;DESCRICAO\r\n"11.111.111/0001-11";"linha 1\nlinha 2"\r\n22.222.222/0001-22;segunda\r\n33.333.333/0001-33;terceira\r\n';
   const records = parseCsv(csv, 1);
   assert.equal(records.length, 1);
   assert.equal(records[0].CNPJ, '11.111.111/0001-11');
-  assert.equal(records[0].DESCRICAO, 'linha 1\\nlinha 2');
+  assert.equal(records[0].DESCRICAO, 'linha 1\nlinha 2');
 });
