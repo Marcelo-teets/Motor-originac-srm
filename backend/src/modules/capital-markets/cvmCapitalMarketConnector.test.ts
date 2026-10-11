@@ -4,6 +4,7 @@ import './cvmHttp.test.js';
 import {
   CVM_DATASETS,
   extractZipEntries,
+  fileIsRelevant,
   normalizeCapitalMarketRecord,
   parseCsv,
   prioritizeCvmFiles,
@@ -295,4 +296,21 @@ test('assignor slots do not take over the fund as the identity of a FIDC Tab I r
   const after = normalizeCapitalMarketRecord({ ...base, row: { ...row, TAB_I2A12_CPF_CNPJ_CEDENTE_1: '73.178.600/0001-18' } });
   assert.equal(before.bronze.entity_cnpj, '11111111000111');
   assert.equal(after.bronze.entity_cnpj, before.bronze.entity_cnpj);
+});
+
+test('FIDC ingestion reads only Tab I; rejects Tab III even when first in ZIP', () => {
+  assert.equal(fileIsRelevant('cvm_fidc_monthly', 'inf_mensal_fidc_tab_III_202609.csv'), false);
+  assert.equal(fileIsRelevant('cvm_fidc_monthly', 'inf_mensal_fidc_tab_I_202609.csv'), true);
+  assert.equal(fileIsRelevant('cvm_fidc_monthly', 'nested/inf_mensal_fidc_tab_I_202609.csv'), true);
+  assert.equal(fileIsRelevant('cvm_fidc_monthly', 'inf_mensal_fidc_tab_II_202609.csv'), false);
+  assert.equal(fileIsRelevant('cvm_company_fre', 'fre_cia_aberta_empregado_posicao_declaracao_genero_2026.csv'), true);
+  assert.equal(fileIsRelevant('cvm_company_itr', 'itr_cia_aberta_BPA_con_2026.csv'), true);
+});
+
+test('bounded CSV parser stops at the remaining record budget with quoted newlines', () => {
+  const csv = 'CNPJ;DESCRICAO\r\n"11.111.111/0001-11";"linha 1\nlinha 2"\r\n22.222.222/0001-22;segunda\r\n33.333.333/0001-33;terceira\r\n';
+  const records = parseCsv(csv, 1);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].CNPJ, '11.111.111/0001-11');
+  assert.equal(records[0].DESCRICAO, 'linha 1\nlinha 2');
 });
