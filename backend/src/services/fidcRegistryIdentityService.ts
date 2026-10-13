@@ -135,9 +135,9 @@ export class FIDCRegistryIdentityService {
     const unavailableByReason: Record<string, number> = {};
     const noteFailure = (error: unknown) => {
       const message = String(error ?? '').toLowerCase();
-      const category = /\\b429\\b|rate.limit/.test(message) ? 'rate_limited'
-        : /\\b404\\b|not.found/.test(message) ? 'not_found'
-        : /\\b403\\b|forbidden/.test(message) ? 'access_denied'
+      const category = /\b429\b|rate.limit/.test(message) ? 'rate_limited'
+        : /\b404\b|not.found/.test(message) ? 'not_found'
+        : /\b403\b|forbidden/.test(message) ? 'access_denied'
         : /timeout|abort|timed.out/.test(message) ? 'timeout'
         : 'other';
       unavailableByReason[category] = (unavailableByReason[category] ?? 0) + 1;
