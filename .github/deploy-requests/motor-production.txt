@@ -1,5 +1,17 @@
-Motor Originação V5 — registry fallback release
-Date: 2026-10-13
-Main baseline: dc77a9fc20fd9de19a1c9387595d78c8f168fcb2
-Change: PR #590; verified CNPJ fallback source constraints
-Deploy via official workflow, with Neon migration and Auth gates.
+Motor Originação — M0/A1 execution and data-quality release
+Date: 2026-10-13 (America/Sao_Paulo)
+Reviewed main baseline: 95f58c41829536256877a8bfd53d4fedd4f8b12d
+Target: exact main HEAD after reviewed release PR merge.
+Use only canonical .github/workflows/vercel-production-deploy.yml (no direct Vercel deployment).
+
+Changes:
+- PR #593: executable A0–A8 100%-MVP acceptance plan and status tracker.
+- PR #594: one-off 2x20 registry enrichment safety contract; failed at quality gate
+  with 20/85 unchanged and no false promotions, logged for investigation.
+- PR #595: bounded unresolved-CNPJ offset selection, sanitized provider error
+  categories, one-shot three-offset diagnostic canary.
+Controls:
+- CI and Neon parity green, Neon data growth guard normal, storage and branch budget;
+- build, Auth env parity, immutable prebuilt deploy, runtime/health/Auth smoke;
+- no automatic company promotion, candidate score fabrication or credential bootstrap.
+Auth D-07 still needs the user. 7-day health check is scheduled, not complete.
