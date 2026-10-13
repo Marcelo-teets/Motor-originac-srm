@@ -1,0 +1,33 @@
+name: FIDC Registry Provider Diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v5-fidc-registry-provider-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check corporate lookup providers
+        run: |
+          node --input-type=module <<'NODE'
+          const id='00288948000194';
+          for(const [provider,base] of [
+            ['brasilapi','https://brasilapi.com.br/api/cnpj/v1/'],
+            ['minhareceita','https://minhareceita.org/']
+          ]) {
+            try {
+              const response=await fetch(base+id,{signal:AbortSignal.timeout(12000)});
+              const data=response.ok?await response.json():{};
+              console.log(JSON.stringify({
+                provider,httpStatus:response.status,
+                cnpjMatches:String(data.cnpj??'').replace(/\D/g,'')===id,
+                hasLegalName:Boolean(String(data.razao_social??'').trim())
+              }));
+            }catch(error){
+              console.log(JSON.stringify({provider,networkError:String(error?.cause?.code??error?.name??'unknown')}));
+            }
+          }
+          NODE
