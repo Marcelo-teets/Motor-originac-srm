@@ -193,6 +193,26 @@ export async function fetchBrasilApiCompany(cnpj: string) {
   }
 }
 
+// Fallback for corporate registry lookups when BrasilAPI denies runner egress.
+// Minha Receita publishes a public API backed by the monthly Receita CNPJ dump.
+// This is still a proxy source, NOT an authoritative credit or promotion signal.
+export async function fetchMinhaReceitaCompany(cnpj: string) {
+  const digits = cnpj.replace(/\D/g, '');
+  const endpoint = `https://minhareceita.org/${digits}`;
+  try {
+    const response = await connectorFetch(endpoint, 'application/json');
+    if (!response.ok) throw new Error(`MinhaReceita status ${response.status}`);
+    const raw = await readCappedText(response);
+    return { status: 'real' as const, data: JSON.parse(raw) as Record<string, unknown>, endpoint };
+  } catch (error) {
+    return {
+      status: 'partial' as const,
+      data: { fallback: true, cnpj: digits, error: error instanceof Error ? error.message : 'unknown_error' },
+      endpoint,
+    };
+  }
+}
+
 export async function fetchRssFeed(feedUrl: string) {
   try {
     const response = await connectorFetch(feedUrl, 'application/rss+xml, application/xml, text/xml');
