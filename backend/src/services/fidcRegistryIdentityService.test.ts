@@ -18,7 +18,7 @@ test('only exact valid CNPJ and legal name can be stored', () => {
   const now = new Date('2026-10-13T13:00:00.000Z');
   assert.equal(normalizeFIDCRegistryIdentity(CNPJ, valid('11111111000111'), now), null);
   assert.equal(normalizeFIDCRegistryIdentity(CNPJ, { ...valid(), data: { cnpj: CNPJ, razao_social: '' } }, now), null);
-  assert.equal(normalizeFIDCRegistryIdentity(CNPJ, { status: 'partial' as const, endpoint, data: { fallback: true, cnpj: CNPJ } }, now), null);
+  assert.equal(normalizeFIDCRegistryIdentity(CNPJ, { status: 'partial' as const, endpoint, data: { fallback: true, cnpj: CNPJ, error: 'temporary_unavailable' } }, now), null);
   const r = normalizeFIDCRegistryIdentity(CNPJ, valid(), now);
   assert.equal(r?.cnpj, CNPJ);
   assert.equal(r?.legal_name, 'EXEMPLO SERVICOS DIGITAIS LTDA');
