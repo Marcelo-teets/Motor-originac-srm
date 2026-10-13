@@ -1,0 +1,84 @@
+name: V5 FIDC Registry Identity Ten CNPJ Pilot
+
+# Fires exactly once when this reviewed file first reaches main.
+# No schedules, no workflow_dispatch and no broad ingestion.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-fidc-registry-identity-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v5-fidc-identity-pilot
+  cancel-in-progress: false
+
+jobs:
+  registry-identity-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Load canonical Neon production connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Verify safe physical storage headroom
+        id: budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=10 --trigger=manual
+      - name: Require green guard before registry calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.budget.outputs.state }}" = "healthy"
+          test "${{ steps.budget.outputs.blocked }}" = "false"
+          test "${{ steps.budget.outputs.effective_rows }}" = "10"
+      - name: Resolve at most ten CVM-proven CNPJ identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 10
+      - name: Confirm corroborated names and no auto-promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({
+            connectionString: process.env.MOTOR_NEON_DATABASE_URL,
+            max: 1,
+            connectionTimeoutMillis: 10000,
+          });
+          try {
+            const {rows} = await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities) as matched,
+                (select count(*)::int from public.fidc_assignor_identity_queue_v5
+                 where registry_review_stage='registry_identity_review_required') as review_queue,
+                (select count(*)::int from public.fidc_assignor_identity_queue_v5) as cvm_cnpjs,
+                (select status from private.database_growth_guard_state) as guard,
+                pg_database_size(current_database()) as storage_bytes
+            `);
+            console.log(JSON.stringify(rows[0]));
+            if (rows[0].matched < 1 || rows[0].review_queue < 1)
+              throw new Error('Registry returned no corroborated identity; stop before scaling');
+            if (rows[0].cvm_cnpjs !== 85 || rows[0].guard !== 'normal')
+              throw new Error('CVM queue or storage guard changed unexpectedly');
+          } finally {
+            await pool.end();
+          }
+          NODE
