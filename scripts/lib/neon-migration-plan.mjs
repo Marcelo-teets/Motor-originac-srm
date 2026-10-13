@@ -227,6 +227,7 @@ export const MIGRATIONS = Object.freeze([
   'db/neon/20261013_neon_fidc_assignor_identity_queue_v5.sql',
   'db/neon/20261013_neon_fidc_assignor_registry_identity_v5.sql',
   'db/neon/20261013_neon_fidc_registry_provider_fallback.sql',
+  'db/neon/20261013_neon_fidc_cnpjws_publica_third_provider.sql',
 ]);
 
 const PRE_UUID = 'pre-UUID schema history; superseded by db/neon/20260928_neon_uuid_runtime_core.sql + 20260928_neon_uuid_extended_runtime.sql';

@@ -1,4 +1,4 @@
-import { fetchBrasilApiCompany, fetchMinhaReceitaCompany } from '../lib/connectors.js';
+import { fetchBrasilApiCompany, fetchMinhaReceitaCompany, fetchCnpjWsPublicCompany } from '../lib/connectors.js';
 import { getDataClient } from '../lib/dataClient.js';
 import { isValidCnpj, normalizeCnpj } from './strategicPublicIngestionService.js';
 
@@ -10,7 +10,8 @@ const API_PAUSE_MS = 250;
 type Client = NonNullable<ReturnType<typeof getDataClient>>;
 type FetchRegistry = typeof fetchBrasilApiCompany;
 type FetchFallback = typeof fetchMinhaReceitaCompany;
-type RegistryResult = Awaited<ReturnType<FetchRegistry | FetchFallback>>;
+type FetchTertiary = typeof fetchCnpjWsPublicCompany;
+type RegistryResult = Awaited<ReturnType<FetchRegistry | FetchFallback | FetchTertiary>>;
 type QueueRow = {
   cnpj: string;
   evidence_links: number | string;
@@ -22,6 +23,7 @@ type Dependencies = {
   client?: Client | null;
   fetchRegistry?: FetchRegistry;
   fetchFallback?: FetchFallback;
+  fetchTertiary?: FetchTertiary;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -52,7 +54,10 @@ export const normalizeFIDCRegistryIdentity = (
 ) => {
   if (response.status !== 'real') return null;
   const data = record(response.data);
-  const registryCnpj = normalizeCnpj(data.cnpj);
+  const fromCnpjWs = response.endpoint.startsWith('https://publica.cnpj.ws/cnpj/');
+  const office = record(data.estabelecimento);
+  // CNPJ.ws returns a root CNPJ at top level. Require full office CNPJ.
+  const registryCnpj = normalizeCnpj(fromCnpjWs ? office.cnpj : data.cnpj);
   const normalizedInput = normalizeCnpj(cnpj);
   const legalName = clean(data.razao_social ?? data.nome_empresarial);
   if (
@@ -62,17 +67,19 @@ export const normalizeFIDCRegistryIdentity = (
     || ![
       'https://brasilapi.com.br/api/cnpj/v1/' + normalizedInput,
       'https://minhareceita.org/' + normalizedInput,
+      'https://publica.cnpj.ws/cnpj/' + normalizedInput,
     ].includes(response.endpoint)
   ) return null;
   return {
     cnpj: normalizedInput,
     legal_name: legalName,
-    trade_name: clean(data.nome_fantasia) || null,
-    registration_status: clean(data.descricao_situacao_cadastral) || null,
-    municipality: clean(data.municipio) || null,
-    state_code: clean(data.uf) || null,
-    registry_provider: response.endpoint.startsWith('https://minhareceita.org/')
-      ? 'minhareceita_receita_proxy' : 'brasilapi_receita_proxy',
+    trade_name: clean(fromCnpjWs ? office.nome_fantasia : data.nome_fantasia) || null,
+    registration_status: clean(fromCnpjWs ? office.situacao_cadastral : data.descricao_situacao_cadastral) || null,
+    municipality: clean(fromCnpjWs ? record(office.cidade).nome : data.municipio) || null,
+    state_code: clean(fromCnpjWs ? record(office.estado).sigla : data.uf) || null,
+    registry_provider: fromCnpjWs ? 'cnpjws_publica_proxy'
+      : response.endpoint.startsWith('https://minhareceita.org/')
+        ? 'minhareceita_receita_proxy' : 'brasilapi_receita_proxy',
     registry_url: response.endpoint,
     registry_checked_at: verifiedAt.toISOString(),
     updated_at: verifiedAt.toISOString(),
@@ -83,6 +90,8 @@ export class FIDCRegistryIdentityService {
   private readonly client: Client | null;
   private readonly fetchRegistry: FetchRegistry;
   private readonly fetchFallback: FetchFallback;
+  private readonly fetchTertiary: FetchTertiary;
+  private lastTertiaryRequestMs = -Infinity;
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
 
@@ -90,6 +99,7 @@ export class FIDCRegistryIdentityService {
     this.client = deps.client === undefined ? getDataClient() : deps.client;
     this.fetchRegistry = deps.fetchRegistry ?? fetchBrasilApiCompany;
     this.fetchFallback = deps.fetchFallback ?? fetchMinhaReceitaCompany;
+    this.fetchTertiary = deps.fetchTertiary ?? fetchCnpjWsPublicCompany;
     this.now = deps.now ?? (() => new Date());
     this.sleep = deps.sleep ?? sleep;
   }
@@ -147,7 +157,16 @@ export class FIDCRegistryIdentityService {
       const cnpj = targets[i];
       try {
         const primary = await this.fetchRegistry(cnpj);
-        const result: RegistryResult = primary.status === 'real' ? primary : await this.fetchFallback(cnpj);
+        const secondary: RegistryResult = primary.status === 'real' ? primary : await this.fetchFallback(cnpj);
+        let result: RegistryResult = secondary;
+        if (secondary.status !== 'real') {
+          // CNPJ.ws Public API: <=3 requests/minute/IP; 21-second spacing
+          // applies only to this tertiary provider, never the other sources.
+          const remainingMs = 21_000 - (Date.now() - this.lastTertiaryRequestMs);
+          if (remainingMs > 0) await this.sleep(remainingMs);
+          this.lastTertiaryRequestMs = Date.now();
+          result = await this.fetchTertiary(cnpj);
+        }
         if (result.status !== 'real') {
           noteFailure(record(result.data).error); 
           unavailable += 1;

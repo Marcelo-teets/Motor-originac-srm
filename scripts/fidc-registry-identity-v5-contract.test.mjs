@@ -31,3 +31,12 @@ test('registry fallback migration stores honest provider provenance and exact CN
   assert.ok(migration.includes("'https://brasilapi.com.br/api/cnpj/v1/' || cnpj"));
   for (const forbidden of ['delete from', 'truncate', 'drop table', 'drop schema']) assert.ok(!migration.toLowerCase().includes(forbidden));
 });
+
+test('third provider migration preserves exact CNPJ provenance and minimal storage', () => {
+  const ddl=readFileSync(new URL('../db/neon/20261013_neon_fidc_cnpjws_publica_third_provider.sql',import.meta.url),'utf8');
+  assert.ok(ddl.includes('cnpjws_publica_proxy'));
+  assert.ok(ddl.includes("'https://publica.cnpj.ws/cnpj/' || cnpj"));
+  assert.ok(ddl.includes('fidc_assignor_registry_identities_registry_provider_check'));
+  for (const forbidden of ['delete from','truncate table','drop table','create materialized view'])
+    assert.equal(ddl.toLowerCase().includes(forbidden),false);
+});

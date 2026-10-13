@@ -176,6 +176,10 @@ test('unavailable HTTP response is classified without keeping raw CNPJ payload',
       status: 'partial' as const, endpoint: `https://minhareceita.org/${cnpj}`,
       data: { fallback: true, cnpj, error: 'HTTP 404 not found' },
     }),
+    fetchTertiary: async cnpj => ({
+      status: 'partial' as const, endpoint: `https://publica.cnpj.ws/cnpj/${cnpj}`,
+      data: { fallback: true, cnpj, error: 'HTTP 404 not found' },
+    }),
     now: () => new Date('2026-10-13T15:00:00Z'),
   });
   const result = await service.run({ limit: 1 });
@@ -183,4 +187,56 @@ test('unavailable HTTP response is classified without keeping raw CNPJ payload',
   assert.equal(result.unavailableByReason.not_found, 1);
   assert.equal(result.stored, 0);
   assert.equal(JSON.stringify(result).includes(CNPJ), false);
+});
+
+test('CNPJ.ws public response must corroborate full office CNPJ, never only root', () => {
+  const now = new Date('2026-10-13T15:00:00Z');
+  const endpoint = `https://publica.cnpj.ws/cnpj/${CNPJ}`;
+  const data = { razao_social: 'EMPRESA PUBLICA DOIS LTDA', estabelecimento: {
+    cnpj: CNPJ, nome_fantasia: 'PUBLICA', situacao_cadastral:'Ativa',
+    cidade:{nome:'Sao Paulo'}, estado:{sigla:'SP'},
+  }};
+  const real = normalizeFIDCRegistryIdentity(CNPJ,{status:'real',endpoint,data},now);
+  assert.equal(real?.registry_provider,'cnpjws_publica_proxy');
+  assert.equal(real?.cnpj,CNPJ);
+  assert.equal(real?.legal_name,'EMPRESA PUBLICA DOIS LTDA');
+  assert.equal(real?.municipality,'Sao Paulo');
+  assert.equal(real?.state_code,'SP');
+  assert.equal(normalizeFIDCRegistryIdentity(CNPJ,{
+    status:'real',endpoint,
+    data:{razao_social:'EMPRESA PUBLICA DOIS LTDA',cnpj:'19540550',estabelecimento:{cnpj:'11111111000111'}},
+  },now),null);
+});
+
+test('third provider is rate-limited to less than 3/minute and stores only verified identity', async () => {
+  const cnpjs = [CNPJ,'00288948000194'];
+  const saved: Record<string,unknown>[] = [];
+  const sleeps: number[] = [];
+  const client={
+    select: async () => cnpjs.map(cnpj=>({
+      cnpj,identity_next_step:'needs_registry_identity',registry_legal_name:null,registry_checked_at:null,
+    })),
+    upsert: async (_table:string,rows:Record<string,unknown>[])=>{saved.push(...rows);return rows;},
+  };
+  const service=new FIDCRegistryIdentityService({
+    client:client as never,
+    fetchRegistry: async cnpj=>({
+      status:'partial' as const,endpoint:`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+      data:{fallback:true,cnpj,error:'HTTP 403'},
+    }),
+    fetchFallback: async cnpj=>({
+      status:'partial' as const,endpoint:`https://minhareceita.org/${cnpj}`,
+      data:{fallback:true,cnpj,error:'HTTP 502'},
+    }),
+    fetchTertiary: async cnpj=>({
+      status:'real' as const,endpoint:`https://publica.cnpj.ws/cnpj/${cnpj}`,
+      data:{razao_social:'EMPRESA DE TESTE LTDA',estabelecimento:{cnpj}},
+    }),
+    sleep: async (ms)=>{sleeps.push(ms);},
+  });
+  const result=await service.run({limit:2});
+  assert.equal(result.stored,2);
+  assert.equal(result.reviewRequired,true);
+  assert.equal(saved[0].registry_provider,'cnpjws_publica_proxy');
+  assert.ok(sleeps.some(ms=>ms>=20000),'required spacing for public API absent');
 });
