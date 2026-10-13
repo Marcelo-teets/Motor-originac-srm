@@ -42,29 +42,47 @@ export const deterministicCompanyUuid = (candidate: Pick<DiscoveredCandidateDraf
 
 export const discoveryHitToCandidateDraft = (profile: SearchProfile, hit: DiscoverySourceHit): DiscoveredCandidateDraft => {
   const cnpj = normalizeCnpj(hit.cnpj) || undefined;
-  const rawPayload = applyCandidateCommercialSemantics({
+  const portfolioOnly = hit.sourceRef.startsWith('vc-portfolio:')
+    || hit.rawPayload.origin === 'vc_portfolio_page';
+  const sourceSemantics = applyCandidateCommercialSemantics({
     companyName: hit.companyName,
     sourceRef: hit.sourceRef,
     evidenceSummary: hit.evidenceSummary,
     rawPayload: hit.rawPayload,
   });
+  // A VC portfolio establishes membership/visibility, not credit product,
+  // legal identity, receivables, Brazil operation or ICP. Keep the profile
+  // attributes as search hypotheses only; never count them as observed facts.
+  const rawPayload = portfolioOnly ? {
+    ...sourceSemantics,
+    profileAttributeVerification: 'unverified_portfolio_only',
+    searchProfileHypothesis: {
+      segment: profile.segment,
+      subsegment: profile.subsegment,
+      companyType: profile.companyType,
+      creditProduct: profile.creditProduct,
+      targetStructure: profile.targetStructure,
+      geography: profile.geography,
+      receivables: profile.receivables,
+    },
+  } : sourceSemantics;
   return {
     searchProfileId: profile.id,
     companyName: hit.companyName,
-    legalName: hit.companyName,
+    legalName: portfolioOnly ? undefined : hit.companyName,
     website: hit.website,
     normalizedDomain: normalizeDomain(hit.website),
     cnpj,
-    geography: profile.geography || 'Brasil',
-    segment: profile.segment,
-    subsegment: profile.subsegment,
-    companyType: profile.companyType,
-    creditProduct: profile.creditProduct,
-    targetStructure: profile.targetStructure,
+    geography: portfolioOnly ? 'Unverified' : (profile.geography || 'Brasil'),
+    segment: portfolioOnly ? 'Unverified' : profile.segment,
+    subsegment: portfolioOnly ? 'Unverified' : profile.subsegment,
+    companyType: portfolioOnly ? 'Unverified' : profile.companyType,
+    creditProduct: portfolioOnly ? 'Unknown' : profile.creditProduct,
+    targetStructure: portfolioOnly ? 'Unknown' : profile.targetStructure,
     sourceRef: hit.sourceRef,
     sourceUrl: hit.sourceUrl,
     evidenceSummary: hit.evidenceSummary,
-    receivables: profile.receivables,
+    receivables: portfolioOnly ? [] : profile.receivables,
     confidence: hit.confidence,
     dedupeKey: buildDiscoveryDedupeKey({ companyName: hit.companyName, website: hit.website, cnpj }),
     rawPayload,
