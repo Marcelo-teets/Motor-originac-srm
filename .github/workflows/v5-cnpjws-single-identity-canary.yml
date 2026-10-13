@@ -1,0 +1,77 @@
+name: V5 CNPJws Single Verified Registry Canary
+
+# One-shot production-data smoke on a reviewed workflow-file merge to main.
+# No cron, no dispatch, no broad ingestion.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-cnpjws-single-identity-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: motor-v5-cnpjws-identity-smoke
+  cancel-in-progress: false
+
+jobs:
+  one-company:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Load existing secured Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Budget guard
+        id: budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=1 --trigger=manual
+      - name: Verify green budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.budget.outputs.state }}" = "healthy"
+          test "${{ steps.budget.outputs.blocked }}" = "false"
+          test "${{ steps.budget.outputs.effective_rows }}" = "1"
+      - name: Resolve one previously unresolved CVM FIDC assignor
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 1 --offset 0
+      - name: Verify CNPJws identity provenance and unchanged commercial state
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities
+                 where registry_provider='cnpjws_publica_proxy'
+                   and registry_url='https://publica.cnpj.ws/cnpj/'||cnpj
+                   and public.is_valid_cnpj_checksum(cnpj)) as corroborated,
+                (select count(*)::int from public.companies) as companies,
+                (select count(*)::int from public.discovered_company_candidates) as candidates,
+                (select status from private.database_growth_guard_state) as guard
+            `);
+            console.log(JSON.stringify(rows[0]));
+            if (rows[0].corroborated < 1) throw new Error('CNPJws registry source did not corroborate a valid establishment CNPJ');
+            if (rows[0].companies !== 2 || rows[0].candidates !== 50)
+              throw new Error('Unexpected candidate/company write during registry-only canary');
+            if (rows[0].guard !== 'normal') throw new Error('Neon guard not normal');
+          } finally { await pool.end(); }
+          NODE
