@@ -1,0 +1,129 @@
+name: V5 FIDC Registry Identity Two Bounded Batches
+# Runs only when this new, reviewed workflow is merged into main.
+# No workflow_dispatch or recurring schedule. Never promotes companies.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-fidc-40-registry-identity-batches.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v5-fidc-registry-two-batches
+  cancel-in-progress: false
+
+jobs:
+  registry-batches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Load authorized production Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+
+      - name: Snapshot identity and company counts before run
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities) as registry_count,
+                (select count(*)::int from public.fidc_assignor_identity_queue_v5) as source_cnpjs,
+                (select count(*)::int from public.companies) as companies,
+                (select count(*)::int from public.discovered_company_candidates) as candidates
+            `);
+            const x=rows[0];
+            console.log(JSON.stringify(x));
+            if(x.source_cnpjs!==85 || x.registry_count<20) throw new Error('Unexpected CVM evidence or registry baseline');
+            const fs=await import('node:fs');
+            fs.appendFileSync(process.env.GITHUB_ENV,`REGISTRY_BASELINE=${x.registry_count}\nCOMPANIES_BASELINE=${x.companies}\nCANDIDATES_BASELINE=${x.candidates}\n`);
+          } finally {await pool.end();}
+          NODE
+
+      - name: Preflight Neon storage for first 20 CNPJs
+        id: first_budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=20 --trigger=manual
+      - name: Require healthy first-run budget
+        shell: bash
+        run: |
+          test "${{ steps.first_budget.outputs.state }}" = "healthy"
+          test "${{ steps.first_budget.outputs.blocked }}" = "false"
+          test "${{ steps.first_budget.outputs.effective_rows }}" = "20"
+      - name: Enrich at most 20 FIDC CNPJs - batch 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 20
+
+      - name: Preflight Neon storage for second 20 CNPJs
+        id: second_budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=20 --trigger=manual
+      - name: Require healthy second-run budget
+        shell: bash
+        run: |
+          test "${{ steps.second_budget.outputs.state }}" = "healthy"
+          test "${{ steps.second_budget.outputs.blocked }}" = "false"
+          test "${{ steps.second_budget.outputs.effective_rows }}" = "20"
+      - name: Enrich at most 20 FIDC CNPJs - batch 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 20
+
+      - name: Verify only registry identities increased, all have exact provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities) as registry_count,
+                (select count(*)::int from public.fidc_assignor_identity_queue_v5
+                 where registry_legal_name is not null) as reviewable_names,
+                (select count(*)::int from public.companies) as companies,
+                (select count(*)::int from public.discovered_company_candidates) as candidates,
+                (select count(*)::int from public.fidc_assignor_registry_identities
+                 where length(trim(legal_name))<3
+                    or (registry_provider='minhareceita_receita_proxy'
+                        and registry_url <> 'https://minhareceita.org/'||cnpj)
+                    or (registry_provider='brasilapi_receita_proxy'
+                        and registry_url <> 'https://brasilapi.com.br/api/cnpj/v1/'||cnpj)
+                ) as invalid_provenance,
+                (select status from private.database_growth_guard_state) as storage_status,
+                pg_database_size(current_database())::bigint as physical_bytes
+            `);
+            const d=rows[0]; console.log(JSON.stringify(d));
+            const base=Number(process.env.REGISTRY_BASELINE);
+            if(d.registry_count<50) throw new Error('Less than 50 corroborated identities; stop qualification gate');
+            if(d.registry_count-base>40) throw new Error('More than 40 identities written: unexpected scope');
+            if(d.registry_count!==d.reviewable_names || d.invalid_provenance!==0) throw new Error('Identity provenance invalid');
+            if(d.companies!==Number(process.env.COMPANIES_BASELINE)
+              || d.candidates!==Number(process.env.CANDIDATES_BASELINE))
+              throw new Error('Unreviewed candidate/company promotion detected');
+            if(d.storage_status!=='normal') throw new Error('Storage guard no longer normal');
+          } finally {await pool.end();}
+          NODE
