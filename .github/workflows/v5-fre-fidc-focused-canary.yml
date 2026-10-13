@@ -1,0 +1,110 @@
+name: V5 Focused FRE FIDC Real Data Canary
+
+# One controlled production-data smoke: this workflow runs on its own first
+# merge into main. It does not run on schedule or on ordinary code pushes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-fre-fidc-focused-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: motor-v5-focused-fre-fidc-canary
+  cancel-in-progress: false
+
+jobs:
+  focused-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Load authorized Neon production connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Assert Neon budget is healthy for FRE
+        id: fre_budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual
+      - name: Verify FRE budget from written outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.fre_budget.outputs.state }}" = "healthy"
+          test "${{ steps.fre_budget.outputs.blocked }}" = "false"
+          test "${{ steps.fre_budget.outputs.effective_rows }}" = "100"
+      - name: Collect and persist at most 100 FRE rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts --dataset cvm_company_fre --max-rows 100 --trigger manual --require-records --require-delivery
+      - name: Validate FRE headcount was derived from real evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({connectionString: process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows} = await pool.query(
+              "select count(*)::int as metrics from public.capital_market_metrics where dataset_code='cvm_company_fre' and metric_code='employee_count'"
+            );
+            console.log(JSON.stringify({freEmployeeCountMetrics:rows[0].metrics}));
+            if(rows[0].metrics < 1) throw new Error('No verified FRE employee_count metrics; stop before FIDC');
+          } finally { await pool.end(); }
+          NODE
+      - name: Assert Neon budget is healthy for FIDC
+        id: fidc_budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual
+      - name: Verify FIDC budget from written outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.fidc_budget.outputs.state }}" = "healthy"
+          test "${{ steps.fidc_budget.outputs.blocked }}" = "false"
+          test "${{ steps.fidc_budget.outputs.effective_rows }}" = "100"
+      - name: Collect and persist at most 100 FIDC Tab I rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/capitalMarkets.ts --dataset cvm_fidc_monthly --max-rows 100 --trigger manual --require-records --require-delivery
+      - name: Validate FIDC assignor identity and final storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.capital_market_entity_links where dataset_code='cvm_fidc_monthly' and entity_role='assignor' and entity_cnpj is not null) as assignor_links,
+                (select count(*)::int from public.capital_market_events where dataset_code='cvm_fidc_monthly') as fidc_events,
+                pg_database_size(current_database())::bigint as database_bytes
+            `);
+            const d=rows[0];
+            console.log(JSON.stringify(d));
+            if(d.assignor_links < 1) throw new Error('No FIDC Tab I assignor CNPJ persisted; do not scale collection');
+          } finally { await pool.end(); }
+          NODE
