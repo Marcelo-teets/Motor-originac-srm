@@ -34,6 +34,8 @@ export type FIDCRegistryIdentityResult = {
   stored: number;
   skippedCached: number;
   reviewRequired: boolean;
+  unavailableByReason: Record<string, number>;
+  offset: number;
 };
 
 const record = (value: unknown): Record<string, unknown> => (
@@ -92,10 +94,13 @@ export class FIDCRegistryIdentityService {
     this.sleep = deps.sleep ?? sleep;
   }
 
-  async run({ limit = 10 }: { limit?: number } = {}): Promise<FIDCRegistryIdentityResult> {
+  async run({ limit = 10, offset = 0 }: { limit?: number; offset?: number } = {}): Promise<FIDCRegistryIdentityResult> {
     if (!this.client) throw new Error('Neon runtime is required to enrich FIDC identities.');
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PER_RUN) {
       throw new Error(`limit must be an integer from 1 to ${MAX_PER_RUN}`);
+    }
+    if (!Number.isInteger(offset) || offset < 0 || offset > 200) {
+      throw new Error('offset must be an integer from 0 to 200');
     }
     const queue = await this.client.select('fidc_assignor_identity_queue_v5', {
       select: 'cnpj,evidence_links,identity_next_step,registry_legal_name,registry_checked_at',
@@ -106,6 +111,7 @@ export class FIDCRegistryIdentityService {
     let skippedCached = 0;
     const now = this.now();
     const targets: string[] = [];
+    let unresolvedSeen = 0;
     for (const row of queue) {
       const cnpj = normalizeCnpj(row.cnpj);
       if (!isValidCnpj(cnpj) || unique.has(cnpj)) continue;
@@ -121,10 +127,21 @@ export class FIDCRegistryIdentityService {
         skippedCached += 1;
         continue;
       }
+      if (unresolvedSeen < offset) { unresolvedSeen += 1; continue; }
       targets.push(cnpj);
       if (targets.length === limit) break;
     }
     let registryMatched = 0, invalidRegistry = 0, unavailable = 0, stored = 0;
+    const unavailableByReason: Record<string, number> = {};
+    const noteFailure = (error: unknown) => {
+      const message = String(error ?? '').toLowerCase();
+      const category = /\\b429\\b|rate.limit/.test(message) ? 'rate_limited'
+        : /\\b404\\b|not.found/.test(message) ? 'not_found'
+        : /\\b403\\b|forbidden/.test(message) ? 'access_denied'
+        : /timeout|abort|timed.out/.test(message) ? 'timeout'
+        : 'other';
+      unavailableByReason[category] = (unavailableByReason[category] ?? 0) + 1;
+    };
     for (let i = 0; i < targets.length; i += 1) {
       if (i) await this.sleep(API_PAUSE_MS);
       const cnpj = targets[i];
@@ -132,6 +149,7 @@ export class FIDCRegistryIdentityService {
         const primary = await this.fetchRegistry(cnpj);
         const result: RegistryResult = primary.status === 'real' ? primary : await this.fetchFallback(cnpj);
         if (result.status !== 'real') {
+          noteFailure(record(result.data).error); 
           unavailable += 1;
           continue;
         }
@@ -143,7 +161,8 @@ export class FIDCRegistryIdentityService {
         registryMatched += 1;
         await this.client.upsert('fidc_assignor_registry_identities', [value], 'cnpj');
         stored += 1;
-      } catch {
+      } catch (error) {
+        noteFailure(error);
         unavailable += 1; // no false company name, no automatic candidate
       }
     }
@@ -151,6 +170,7 @@ export class FIDCRegistryIdentityService {
       status: targets.length ? 'completed' : 'no_targets',
       selected: targets.length, registryMatched, invalidRegistry,
       unavailable, stored, skippedCached, reviewRequired: true,
+      unavailableByReason, offset,
     };
   }
 }
