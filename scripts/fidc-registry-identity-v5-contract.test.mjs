@@ -29,5 +29,5 @@ test('registry fallback migration stores honest provider provenance and exact CN
   assert.ok(migration.includes('brasilapi_receita_proxy'));
   assert.ok(migration.includes("'https://minhareceita.org/' || cnpj"));
   assert.ok(migration.includes("'https://brasilapi.com.br/api/cnpj/v1/' || cnpj"));
-  assert.doesNotMatch(migration, /\\b(?:delete from|truncate|drop table|drop schema)\\b/i);
+  for (const forbidden of ['delete from', 'truncate', 'drop table', 'drop schema']) assert.ok(!migration.toLowerCase().includes(forbidden));
 });
