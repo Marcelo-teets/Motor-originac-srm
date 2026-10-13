@@ -5,6 +5,11 @@ import { parsePortfoliosMetadata, DEFAULT_VC_PORTFOLIOS } from './vcPortfolios.j
 import { companySeeds } from '../data/platformSeeds.js';
 import type { CompanySeed, SourceCatalogEntry } from '../types/platform.js';
 
+// Tests intentionally isolate runs even when the runner executes them in the
+// same millisecond. Memoization within a single run is tested separately.
+let timestampSequence = 0;
+const uniqueRunTimestamp = () => new Date(Date.now() + (timestampSequence++) * 60_000).toISOString();
+
 const company = companySeeds[0]!;
 
 const source: SourceCatalogEntry = {
@@ -52,7 +57,7 @@ test('parsePortfoliosMetadata falls back to defaults and validates entries', () 
 
 test('captureVcPortfolios emits venture_backed with catalog source id on a concrete match', async () => {
   await withStubbedFetch(portfolioHtmlWith(company.tradeName), async () => {
-    const bundle = await captureVcPortfolios(company, [source], new Date().toISOString());
+    const bundle = await captureVcPortfolios(company, [source], uniqueRunTimestamp());
 
     assert.equal(bundle.outputs.length, 1);
     assert.equal(bundle.outputs[0]!.sourceId, source.id);
@@ -70,7 +75,7 @@ test('captureVcPortfolios emits venture_backed with catalog source id on a concr
 
 test('captureVcPortfolios memoizes portfolio fetches across companies in the same run', async () => {
   await withStubbedFetch(portfolioHtmlWith(company.tradeName), async (calls) => {
-    const collectedAt = new Date().toISOString();
+    const collectedAt = uniqueRunTimestamp();
     await Promise.all([
       captureVcPortfolios(company, [source], collectedAt),
       captureVcPortfolios(companySeeds[1] ?? company, [source], collectedAt),
@@ -81,7 +86,7 @@ test('captureVcPortfolios memoizes portfolio fetches across companies in the sam
 
 test('captureVcPortfolios stays silent without a concrete match', async () => {
   await withStubbedFetch(portfolioHtmlWith('Outra Empresa Qualquer'), async () => {
-    const bundle = await captureVcPortfolios(company, [source], new Date().toISOString());
+    const bundle = await captureVcPortfolios(company, [source], uniqueRunTimestamp());
     assert.deepEqual(bundle, { outputs: [], signals: [], enrichments: [] });
   });
 });
@@ -89,20 +94,36 @@ test('captureVcPortfolios stays silent without a concrete match', async () => {
 test('captureVcPortfolios never matches on short names', async () => {
   const shortNamed: CompanySeed = { ...company, tradeName: 'Neo', legalName: 'Neo' };
   await withStubbedFetch(portfolioHtmlWith('Neo'), async () => {
-    const bundle = await captureVcPortfolios(shortNamed, [source], new Date().toISOString());
+    const bundle = await captureVcPortfolios(shortNamed, [source], uniqueRunTimestamp());
     assert.deepEqual(bundle, { outputs: [], signals: [], enrichments: [] });
   });
 });
 
 test('captureVcPortfolios stays silent on network failure and without sources', async () => {
   await withStubbedFetch(null, async () => {
-    const bundle = await captureVcPortfolios(company, [source], new Date().toISOString());
+    const bundle = await captureVcPortfolios(company, [source], uniqueRunTimestamp());
     assert.deepEqual(bundle, { outputs: [], signals: [], enrichments: [] }, 'fetch errors must never become signals');
   });
 
-  const empty = await captureVcPortfolios(company, [], new Date().toISOString());
+  const empty = await captureVcPortfolios(company, [], uniqueRunTimestamp());
   assert.deepEqual(empty, { outputs: [], signals: [], enrichments: [] });
 
-  const planned = await captureVcPortfolios(company, [{ ...source, status: 'planned' }], new Date().toISOString());
+  const planned = await captureVcPortfolios(company, [{ ...source, status: 'planned' }], uniqueRunTimestamp());
   assert.deepEqual(planned, { outputs: [], signals: [], enrichments: [] });
+});
+
+test('portfolio cache invalidates on source roster change within same run', async () => {
+  await withStubbedFetch(portfolioHtmlWith(company.tradeName), async (calls) => {
+    const collectedAt = uniqueRunTimestamp();
+    await captureVcPortfolios(company, [source], collectedAt);
+    const updatedSource: SourceCatalogEntry = {
+      ...source,
+      metadata: {
+        ...source.metadata,
+        portfolios: [{ fund: 'Fundo Diferente', url: 'https://novo-fundo.example/portfolio' }],
+      },
+    };
+    await captureVcPortfolios(company, [updatedSource], collectedAt);
+    assert.equal(calls(), 2, 'different portfolio roster requires a new fetch');
+  });
 });
