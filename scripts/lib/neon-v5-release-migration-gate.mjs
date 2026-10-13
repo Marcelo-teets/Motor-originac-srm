@@ -6,6 +6,7 @@ export const APPROVED_V5_PENDING_MIGRATIONS = Object.freeze([
   'db/neon/20261013_neon_fidc_assignor_identity_queue_v5.sql',
   'db/neon/20261013_neon_fidc_assignor_registry_identity_v5.sql',
   'db/neon/20261013_neon_fidc_registry_provider_fallback.sql',
+  'db/neon/20261013_neon_fidc_cnpjws_publica_third_provider.sql',
 ]);
 
 export const verifyApprovedNeonPendingMigrations = ({
