@@ -1,6 +1,7 @@
-name: V5 FIDC Registry Identity Ten CNPJ Pilot
+name: V5 FIDC Registry Identity Ten CNPJ Pilot (Fallback Retest)
 
-# Fires exactly once when this reviewed file first reaches main.
+# Explicit approved retry following BrasilAPI 403 and Minha Receita 200 diagnostics.
+# Runs once for this reviewed workflow update reaching main.
 # No schedules, no workflow_dispatch and no broad ingestion.
 on:
   push:
@@ -46,7 +47,7 @@ jobs:
           test "${{ steps.budget.outputs.state }}" = "healthy"
           test "${{ steps.budget.outputs.blocked }}" = "false"
           test "${{ steps.budget.outputs.effective_rows }}" = "10"
-      - name: Resolve at most ten CVM-proven CNPJ identities
+      - name: Resolve at most ten CVM-proven CNPJ identities (provider fallback)
         shell: bash
         run: |
           set -euo pipefail
