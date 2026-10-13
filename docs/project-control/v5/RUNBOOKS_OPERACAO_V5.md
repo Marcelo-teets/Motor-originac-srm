@@ -173,3 +173,8 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 - Métrica M1: `select count(*) from fidc_assignor_identity_queue_v5 where registry_legal_name is not null;`. Meta inicial >=50 verificados por registro, **ainda sujeitos a revisão comercial**. Confirmar nenhum acesso anônimo/autenticado direto à view.
 
 **Deploy:** migration em `db/neon` + plano/allowlist, PR → CI + parity → merge → PR de solicitação do deploy oficial → ledger Neon + Auth/health smoke → canário com lotes pequenos e relatório de integridade.
+
+
+### Provedor público terciário CNPJ.ws (13/10/2026)
+
+Quando BrasilAPI e Minha Receita retornarem `partial`, a resolução cadastral pode tentar **CNPJ.ws API Pública**, sem token, em `https://publica.cnpj.ws/cnpj/{cnpj}`. É um intermediário de dados públicos, não a Receita Federal diretamente. Contrato oficial: [API Pública](https://docs.cnpj.ws/referencia-de-api/api-publica/consultando-cnpj), limite **3 chamadas por minuto por IP** ([limitações](https://docs.cnpj.ws/en/referencia-de-api/api-publica/limitacoes)); aplicar intervalo mínimo de 21 segundos entre chamadas desse provedor na execução. Resposta é aceita somente com **`estabelecimento.cnpj` completo e igual ao CNPJ CVM**, checksum válido e `razao_social` não vazia; o campo `cnpj_raiz` isolado **nunca** comprova o estabelecimento. Persistir apenas as colunas mínimas do cache, `registry_provider=cnpjws_publica_proxy` e URL exata, sem sócios/endereços brutos. Não aumentar consultas se canário de 1 CNPJ falhar, e jamais auto-promover empresa, score ou lead.
