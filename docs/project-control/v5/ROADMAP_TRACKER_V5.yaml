@@ -263,3 +263,33 @@ reconciliation_2026_10_13:
       target: "Dashboard/Company Detail/Leads/Search Profiles/Pipeline live end-to-end with authenticated user"
   activation_plan: "docs/project-control/v5/PLANO_ATIVACAO_FUNCIONAL_2026-10-13.md"
   note: "Historical snapshots/status comments above are preserved as audit chronology; current truth is this reconciliation block."
+ 
+acceptance_execution_2026_10_13:
+  plan: "docs/project-control/v5/PLANO_EXECUCAO_ATE_ACEITE_100_2026-10-13.md"
+  measured_from: "Neon production and GitHub/Vercel checks, 2026-10-13"
+  github_main_initial: "de969c69c02ad222e9909ad4be0cd946edfb40fe"
+  vercel_production_ready_initial: "c6d8476bf58a76896cc10e40549e7a6f0eeeb38f"
+  neon_guard: normal
+  neon_database_bytes: 79085568
+  neon_branch_count: 6
+  fidc_identified_cnpjs: 85
+  fidc_registry_identity_rows: 20
+  fidc_active_registry_status_rows: 18
+  company_master_rows: 2
+  qualification_snapshots: 0
+  score_snapshots: 0
+  lead_score_snapshots: 0
+  ranking_rows: 0
+  user_profiles: 0
+  milestone_statuses:
+    A0_plan: in_progress
+    A1_registry_coverage: 20_of_85
+    A2_commercial_review: pending
+    A3_verified_company_promotion: pending_human_review
+    A4_funding_receivables_headcount: pending
+    A5_qualification_scoring_ranking: pending
+    A6_real_auth_and_ui: waiting_user_auth
+    A7_seven_day_monitoring: not_yet_observed
+    A8_mvp_acceptance: pending
+  release_policy: "PR, green CI and parity, reviewed deploy-request PR, Vercel READY matching main, Neon/Auth smoke"
+  evidence_note: "Targets are not accomplishments; seven days must actually elapse and D-07 needs the user."
