@@ -1,0 +1,69 @@
+name: V5 CNPJ Registry User Agent Canary
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v5-cnpj-user-agent-canary.yml']
+permissions:
+  contents: read
+concurrency:
+  group: v5-cnpj-user-agent-canary
+  cancel-in-progress: false
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: bash scripts/load-neon-from-vercel.sh
+      - name: Verify one-row physical budget
+        id: budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=1 --trigger=manual
+      - name: Require approved row budget
+        run: |
+          test "${{ steps.budget.outputs.state }}" = "healthy"
+          test "${{ steps.budget.outputs.blocked }}" = "false"
+          test "${{ steps.budget.outputs.effective_rows }}" = "1"
+      - name: Capture before count
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg'; import fs from 'node:fs';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1});
+          try {
+            const {rows}=await pool.query('select count(*)::int n from public.fidc_assignor_registry_identities');
+            fs.appendFileSync(process.env.GITHUB_ENV,`CNPJ_BEFORE=${rows[0].n}\n`);
+          } finally {await pool.end();}
+          NODE
+      - name: Test one unresolved CVM-linked company with descriptive User-Agent
+        run: |
+          set -euo pipefail
+          cd backend
+          npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 1 --offset 0
+      - name: Assert one corroborated name, stable company master and healthy storage
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities) as names,
+                (select count(*)::int from public.companies) as companies,
+                (select status from private.database_growth_guard_state) as guard
+            `);
+            const x=rows[0];console.log(JSON.stringify(x));
+            if(x.names!==Number(process.env.CNPJ_BEFORE)+1)
+              throw new Error('No corroborated CNPJ from explicit application User-Agent');
+            if(x.companies!==2 || x.guard!=='normal')
+              throw new Error('Unauthorized promotion or Neon guard changed');
+          } finally {await pool.end();}
+          NODE

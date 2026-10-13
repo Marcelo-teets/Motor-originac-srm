@@ -163,8 +163,9 @@ const CONNECTOR_FETCH_TIMEOUT_MS = 8_000;
 const MAX_CONNECTOR_BODY_BYTES = 2_000_000;
 
 // External sources are untrusted: never wait forever or buffer an unbounded body.
-const connectorFetch = (url: string, accept: string) => fetch(url, {
-  headers: { accept },
+const PUBLIC_REGISTRY_USER_AGENT = 'MotorOriginationIntelligence/1.0 (public-CNPJ-registry-client)';
+const connectorFetch = (url: string, accept: string, extraHeaders: Record<string, string> = {}) => fetch(url, {
+  headers: { accept, ...extraHeaders },
   signal: AbortSignal.timeout(CONNECTOR_FETCH_TIMEOUT_MS),
 });
 
@@ -181,7 +182,9 @@ const readCappedText = async (response: Response) => {
 export async function fetchBrasilApiCompany(cnpj: string) {
   const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
   try {
-    const response = await connectorFetch(endpoint, 'application/json');
+    const response = await connectorFetch(endpoint, 'application/json', {
+      'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
+    });
     if (!response.ok) throw new Error(`BrasilAPI status ${response.status}`);
     return { status: 'real' as const, data: await response.json(), endpoint };
   } catch (error) {
@@ -200,7 +203,9 @@ export async function fetchMinhaReceitaCompany(cnpj: string) {
   const digits = cnpj.replace(/\D/g, '');
   const endpoint = `https://minhareceita.org/${digits}`;
   try {
-    const response = await connectorFetch(endpoint, 'application/json');
+    const response = await connectorFetch(endpoint, 'application/json', {
+      'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
+    });
     if (!response.ok) throw new Error(`MinhaReceita status ${response.status}`);
     const raw = await readCappedText(response);
     return { status: 'real' as const, data: JSON.parse(raw) as Record<string, unknown>, endpoint };
