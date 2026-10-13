@@ -1,5 +1,21 @@
-Motor Originação V5 — registry fallback release
-Date: 2026-10-13
-Main baseline: dc77a9fc20fd9de19a1c9387595d78c8f168fcb2
-Change: PR #590; verified CNPJ fallback source constraints
-Deploy via official workflow, with Neon migration and Auth gates.
+Motor Originação SRM — V5 MVP quality and source-integrity release
+Date: 2026-10-13 America/Sao_Paulo
+Reviewed main baseline: a5d260dc13c9384254956d402fedeafde338907f
+Target: exact main HEAD created by merging this release request.
+
+Changes:
+- #593 plan to MVP 100% with A0–A8 commercial QA and real 7-day monitoring.
+- #594 failed bounded 2x20 pilot (no names added, fail closed).
+- #595 paged unresolved CNPJs and HTTP-failure classification.
+- #598 truthful HTTP User-Agent for CNPJ proxies; 1-row canary failed
+  without fake data; external registry API remains a blocker.
+- #597 VC-portfolio search-profile attributes marked unverified instead
+  of manufactured fintech/receivables/credit evidence; historical rows
+  require distinct reviewed remediation.
+
+All changes have green CI + Neon parity before release. No schema migrations.
+Only release through .github/workflows/vercel-production-deploy.yml:
+verify exact SHA, Neon health, storage guard normal, immutable build,
+Vercel production READY, Auth smoke; preserve production and backup.
+Do not enable broad ingestion, fake qualifications/scores, perform admin
+bootstrap without user present, or claim M1 coverage>=50.
