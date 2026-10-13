@@ -1,4 +1,4 @@
-import { fetchBrasilApiCompany } from '../lib/connectors.js';
+import { fetchBrasilApiCompany, fetchMinhaReceitaCompany } from '../lib/connectors.js';
 import { getDataClient } from '../lib/dataClient.js';
 import { isValidCnpj, normalizeCnpj } from './strategicPublicIngestionService.js';
 
@@ -9,6 +9,8 @@ const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const API_PAUSE_MS = 250;
 type Client = NonNullable<ReturnType<typeof getDataClient>>;
 type FetchRegistry = typeof fetchBrasilApiCompany;
+type FetchFallback = typeof fetchMinhaReceitaCompany;
+type RegistryResult = Awaited<ReturnType<FetchRegistry | FetchFallback>>;
 type QueueRow = {
   cnpj: string;
   evidence_links: number | string;
@@ -19,6 +21,7 @@ type QueueRow = {
 type Dependencies = {
   client?: Client | null;
   fetchRegistry?: FetchRegistry;
+  fetchFallback?: FetchFallback;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -42,7 +45,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export const normalizeFIDCRegistryIdentity = (
   cnpj: string,
-  response: Awaited<ReturnType<FetchRegistry>>,
+  response: RegistryResult,
   verifiedAt: Date,
 ) => {
   if (response.status !== 'real') return null;
@@ -54,8 +57,10 @@ export const normalizeFIDCRegistryIdentity = (
     !isValidCnpj(normalizedInput)
     || registryCnpj !== normalizedInput
     || legalName.length < 3
-    || !response.endpoint.startsWith('https://brasilapi.com.br/api/cnpj/v1/')
-    || !response.endpoint.endsWith(normalizedInput)
+    || ![
+      'https://brasilapi.com.br/api/cnpj/v1/' + normalizedInput,
+      'https://minhareceita.org/' + normalizedInput,
+    ].includes(response.endpoint)
   ) return null;
   return {
     cnpj: normalizedInput,
@@ -64,7 +69,8 @@ export const normalizeFIDCRegistryIdentity = (
     registration_status: clean(data.descricao_situacao_cadastral) || null,
     municipality: clean(data.municipio) || null,
     state_code: clean(data.uf) || null,
-    registry_provider: 'brasilapi_receita_proxy',
+    registry_provider: response.endpoint.startsWith('https://minhareceita.org/')
+      ? 'minhareceita_receita_proxy' : 'brasilapi_receita_proxy',
     registry_url: response.endpoint,
     registry_checked_at: verifiedAt.toISOString(),
     updated_at: verifiedAt.toISOString(),
@@ -74,12 +80,14 @@ export const normalizeFIDCRegistryIdentity = (
 export class FIDCRegistryIdentityService {
   private readonly client: Client | null;
   private readonly fetchRegistry: FetchRegistry;
+  private readonly fetchFallback: FetchFallback;
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(deps: Dependencies = {}) {
     this.client = deps.client === undefined ? getDataClient() : deps.client;
     this.fetchRegistry = deps.fetchRegistry ?? fetchBrasilApiCompany;
+    this.fetchFallback = deps.fetchFallback ?? fetchMinhaReceitaCompany;
     this.now = deps.now ?? (() => new Date());
     this.sleep = deps.sleep ?? sleep;
   }
@@ -121,7 +129,8 @@ export class FIDCRegistryIdentityService {
       if (i) await this.sleep(API_PAUSE_MS);
       const cnpj = targets[i];
       try {
-        const result = await this.fetchRegistry(cnpj);
+        const primary = await this.fetchRegistry(cnpj);
+        const result: RegistryResult = primary.status === 'real' ? primary : await this.fetchFallback(cnpj);
         if (result.status !== 'real') {
           unavailable += 1;
           continue;
