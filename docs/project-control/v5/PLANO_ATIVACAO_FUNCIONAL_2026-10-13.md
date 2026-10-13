@@ -1,3 +1,5 @@
+**Plano completo de execução e aceite 100% do MVP:** [`PLANO_EXECUCAO_ATE_ACEITE_100_2026-10-13.md`](PLANO_EXECUCAO_ATE_ACEITE_100_2026-10-13.md); para a leitura institucional, use este plano junto aos gates M0–M5 abaixo.
+
 # Motor Originação SRM — Plano de ativação funcional V5
 
 **Corte de evidências:** 13/10/2026 · **Fonte de verdade do código:** `Marcelo-teets/Motor-originac-srm/main`.
