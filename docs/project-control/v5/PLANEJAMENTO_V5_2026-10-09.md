@@ -3,6 +3,7 @@
 **Data-base:** 09/10/2026 13:36 BRT (reconciliada ao vivo; plano original 11:00 BRT)
 **Substitui:** `docs/project-control/v4/` (V4.1, 21/07/2026) e `STATUS_E_ROADMAP_2026-07-17.md` — ambos escritos sobre o Supabase, hoje fora do runtime.
 **Tracker máquina-legível:** `ROADMAP_TRACKER_V5.yaml` (nesta pasta).
+**Reconciliação atual (13/10/2026):** [`PLANO_ATIVACAO_FUNCIONAL_2026-10-13.md`](PLANO_ATIVACAO_FUNCIONAL_2026-10-13.md), com evidências da produção real, fases M0–M5, gates e fluxo de deploy. As tabelas datadas de 09/10 abaixo são históricas, não o estado vigente.
 
 **Pacote V5 (nesta pasta):**
 

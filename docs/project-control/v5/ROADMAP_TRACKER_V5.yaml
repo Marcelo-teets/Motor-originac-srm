@@ -4,8 +4,8 @@ supersedes: "docs/project-control/v4/ROADMAP_TRACKER_V4_1.yaml"
 plan: "docs/project-control/v5/PLANEJAMENTO_V5_2026-10-09.md"
 project: "Motor Originação SRM"
 repository: "Marcelo-teets/Motor-originac-srm"
-main_sha: "59428ab"  # 09/10 16:20: #568, #569, #570 mergeadas; ainda sem deploy
-production_sha: "14e25de48fd8277743395a391a7429d072dfb572"
+main_sha: "01590d987ffb5e39be13deb4659140c51fdc3bf8"  # baseline confirmada 13/10 antes de novas PRs
+production_sha: "01590d987ffb5e39be13deb4659140c51fdc3bf8"
 infrastructure:
   vercel_project: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
   vercel_team: team_PJwucES3YmFbxf57HE52Bw0v
@@ -73,7 +73,7 @@ phases:
     items:
       - id: F0-01
         action: merge-pr-550-snd-delivery
-        status: ready_for_merge
+        status: done
         evidence:
           pr: 550
           head_sha: "55a62ce5bf1211630f6761cc779a4ce6d966f152"
@@ -137,11 +137,11 @@ phases:
       - id: F1-01
         action: enable-wave-a
         workflows: [capture.yml, search-profile-discovery.yml, capital-market-ingestion.yml]
-        status: blocked_by_incident
+        status: controlled_canary_validated_awaiting_recurring_activation
         decision: D-04
         runbooks: [RUNBOOK_INCIDENTE_STORAGE_2026-10-09.md, "RUNBOOKS_OPERACAO_V5.md RB-02"]
         prerequisite_prs: [568]  # mergeada 09/10 16:13
-        remaining_blocker: "limpeza do Neon (opção 1) sem aprovação; banco 455.344.128 bytes, guard block_raw"
+        remaining_blocker: "storage guard normal desde 12/10; workflow states/execução recorrente ainda não demonstrados por 7 dias"
         incident: "capital-market-ingestion dataset=all gravou ~124 mil linhas; banco 21 MB → 434 MB (limite 457 MB). Onda A desabilitada de novo; limpeza aguarda aprovação do Marcelo"
         evidence:
           budget_guard_run_id: 37963191485
@@ -161,8 +161,8 @@ phases:
     status: blocked_by_F1
     targets: {north_star: 20, fidc_assignors_resolved: 50, headcount_coverage_pct: 80}
     items:
-      - {id: F2-01, action: headcount-source-for-icp-gate, status: merged_awaiting_migration, decision: D-03, source_order: [cvm_company_fre, apollo_organizations_enrich_promoted_only, manual_override_top10], evidence: {pr: 569, migration: db/neon/20261009_neon_cvm_fre_headcount_sync.sql, validated: "transação revertida no Neon prod: VALIDATION_ROLLBACK synced=0"}}
-      - {id: F2-02, action: resolve-fidc-assignors-from-cvm, status: ready_for_merge, evidence: {pr: 571, rebased_head: "4e39eaa", note: "conflito só no teste com a #569, resolvido mantendo os dois blocos; CI e parity verdes", finding: "15.652 eventos cvm_fidc_monthly e 0 vínculos; cedentes ficam em TAB_I2A12/I2B12_CPF_CNPJ_CEDENTE_1..9"}}
+      - {id: F2-01, action: headcount-source-for-icp-gate, status: 100_fre_metrics_unlinked_to_companies, decision: D-03, source_order: [cvm_company_fre, apollo_organizations_enrich_promoted_only, manual_override_top10], evidence: {pr: 569, migration: db/neon/20261009_neon_cvm_fre_headcount_sync.sql, validated: "transação revertida no Neon prod: VALIDATION_ROLLBACK synced=0"}}
+      - {id: F2-02, action: resolve-fidc-assignors-from-cvm, status: 85_cnpjs_queue_ready_names_pending, evidence: {pr: 571, rebased_head: "4e39eaa", note: "conflito só no teste com a #569, resolvido mantendo os dois blocos; CI e parity verdes", finding: "15.652 eventos cvm_fidc_monthly e 0 vínculos; cedentes ficam em TAB_I2A12/I2B12_CPF_CNPJ_CEDENTE_1..9"}}
       - {id: F2-03, action: end-to-end-materialization, status: todo}
       - {id: F2-04, action: human-review-queue-sla-72h, status: todo}
   F3:
@@ -202,3 +202,64 @@ divergences:
   - "O único usuário Neon Auth é um usuário residual de smoke, não Marcelo."
   - "GitHub workflow state list não é exposta pelo conector disponível; contagem de 16 disabled_manually não foi revalidada por API nesta execução."
 next_review: "2026-10-16"
+
+reconciliation_2026_10_13:
+  evidence_cutoff: "2026-10-13T11:20:00-03:00"
+  baseline_main_sha: "01590d987ffb5e39be13deb4659140c51fdc3bf8"
+  production_ready_sha: "01590d987ffb5e39be13deb4659140c51fdc3bf8"
+  official_deploy_run: 38405518782
+  fre_fidc_canary_run: 38403931727
+  production_status: ready_runtime_auth_smoke_green
+  neon:
+    project: steep-poetry-38942951
+    branch: production
+    growth_guard: normal
+    physical_bytes: 79020032
+    branches: 6
+    backup_preserved: true
+  observed:
+    discovered_company_candidates: 50
+    promoted_candidates: 2
+    companies: 2
+    company_signals: 103
+    monitoring_outputs: 211
+    fre_employee_count_metrics: 100
+    headcount_company_snapshots: 0
+    fidc_verified_cnpj_queue: 85
+    fidc_assignor_evidence_links: 91
+    qualification_snapshots: 0
+    company_patterns: 0
+    score_snapshots: 0
+    lead_score_snapshots: 0
+    ranking_v2: 0
+    thesis_outputs: 0
+    pipeline: 0
+    user_profiles: 0
+    vector_documents: 0
+  delivered_since_original_plan:
+    pr_merges: [550, 556, 561, 562, 568, 569, 570, 571, 572, 573, 574, 575, 576, 577, 578, 579, 580, 581, 582, 583, 584]
+    cleanup_runbook_approved_and_executed: true
+    fre_and_fidc_canary_validated: true
+    identity_view_versioned_and_deployed: true
+    open_prs: 0
+  remaining_gates:
+    M0_auth_bootstrap:
+      status: waiting_marcelo_window
+      target: "Neon user_profiles >= 1, login/logout/RLS and protected views"
+    M1_first_party_registry_identity:
+      status: todo
+      target: "at least 50 of 85 assignors with verified legal names, proof and review; no automatic promotion"
+    M2_eligibility:
+      status: todo
+      target: "verified financial ICP, firmographics/headcount, receivables, funding gap and timing"
+    M3_scored_opportunities:
+      status: todo
+      target: "at least 5 real companies with signals, qualification, patterns, scores, thesis and next action"
+    M4_recurring_capture:
+      status: unverified_workflow_activation
+      target: "Wave A budget-safe; 3 green days before Wave B and 7 healthy days for acceptance"
+    M5_ui_and_pipeline:
+      status: todo
+      target: "Dashboard/Company Detail/Leads/Search Profiles/Pipeline live end-to-end with authenticated user"
+  activation_plan: "docs/project-control/v5/PLANO_ATIVACAO_FUNCIONAL_2026-10-13.md"
+  note: "Historical snapshots/status comments above are preserved as audit chronology; current truth is this reconciliation block."
