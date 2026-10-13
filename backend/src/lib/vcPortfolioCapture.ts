@@ -35,10 +35,14 @@ const normalize = (value: string) => value
 let pagesCache: { key: string; promise: Promise<VcPortfolioPage[]> } | null = null;
 
 const fetchPagesOnce = (source: RuntimeSource, collectedAt: string) => {
-  if (pagesCache?.key !== collectedAt) {
-    const portfolios = parsePortfoliosMetadata(source.metadata?.portfolios);
+  const portfolios = parsePortfoliosMetadata(source.metadata?.portfolios);
+  // A timestamp alone is not a unique cache identity: source configurations
+  // and independent quick runs can share a millisecond. Cache ONLY the same
+  // source + portfolio roster within one evidence-collection run.
+  const key = JSON.stringify([collectedAt, source.id, portfolios]);
+  if (pagesCache?.key !== key) {
     pagesCache = {
-      key: collectedAt,
+      key,
       promise: Promise.all(portfolios.map((config) => fetchPortfolioPage(config)))
         .then((pages) => pages.filter((page): page is VcPortfolioPage => Boolean(page))),
     };
