@@ -157,3 +157,19 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 6. A view é derivada de `capital_market_entity_links` e `capital_market_events`, não materializa cópia e evita duplicação de custos. Versionar qualquer mudança em `db/neon` + migration plan + parity.
 
 **Gate da Onda A:** não habilitar captura genérica para contornar a falta de empresas. Rodar apenas fontes direcionadas com budget guard verde e observar valor comercial gerado por MB.
+
+
+---
+
+## RB-09 · Identidade registral incremental de cedentes FIDC (M1, 13/10/2026)
+
+**Pré-condições:** `fidc_assignor_identity_queue_v5` já tem CNPJs válidos com fonte CVM Tab I; `database_growth_guard_state=normal`; conexão Neon via cofre Vercel no GitHub Actions. Não usar `dataset=all`.
+
+- Schema incremental: `fidc_assignor_registry_identities`, chave primária `cnpj`, mínimo de colunas necessárias, nenhum dump da resposta completa. A view `fidc_assignor_identity_queue_v5` ganha os campos `registry_legal_name`, `registry_status`, `registry_url`, `registry_checked_at`, `registry_review_stage`. Sem materializar eventos CVM novamente.
+- Consulta: `backend/src/cli/fidcAssignorRegistry.ts --limit 10` via `npm exec -- tsx`, com limite rígido de 20 por rodada, timeout/retry do connector compartilhado e intervalo entre requisições; cache de 30 dias por CNPJ e idempotência na UPSERT.
+- Origem: `brasilapi_receita_proxy` é um **intermediário de consulta de registros CNPJ**, não prova independente de crédito ou certidão emitida diretamente pela Receita. Só aceitar `cnpj` de retorno idêntico e checksum válido; exigir razão social não vazia.
+- Revisão obrigatória: `registry_identity_review_required` **não promove** `discovered_company_candidates` ou `companies`. Revisar entidade operacional, recebíveis, funding gap, headcount e IC P antes de promover por workflow de identidade existente.
+- Falha: `status=partial` ou CNPJ divergente não grava nome. Operação manual por lote e auditoria antes/depois; sem relançar automaticamente uma coleta massiva. Rerun só quando budget permitir.
+- Métrica M1: `select count(*) from fidc_assignor_identity_queue_v5 where registry_legal_name is not null;`. Meta inicial >=50 verificados por registro, **ainda sujeitos a revisão comercial**. Confirmar nenhum acesso anônimo/autenticado direto à view.
+
+**Deploy:** migration em `db/neon` + plano/allowlist, PR → CI + parity → merge → PR de solicitação do deploy oficial → ledger Neon + Auth/health smoke → canário com lotes pequenos e relatório de integridade.
