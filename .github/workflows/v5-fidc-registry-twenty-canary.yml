@@ -1,0 +1,77 @@
+name: V5 FIDC Registry Twenty Verified Identities
+
+# One-shot after reviewed merge, never an ordinary scheduled capture job.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-fidc-registry-twenty-canary.yml'
+permissions:
+  contents: read
+concurrency:
+  group: motor-fidc-registry-bounded-twenty
+  cancel-in-progress: false
+jobs:
+  verified-registry-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Load canonical Neon connection
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Guard budget for twenty identities
+        id: budget
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=20 --trigger=manual
+      - name: Require healthy physical storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.budget.outputs.state }}" = "healthy"
+          test "${{ steps.budget.outputs.blocked }}" = "false"
+          test "${{ steps.budget.outputs.effective_rows }}" = "20"
+      - name: Resolve at most twenty source-proven assignors
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backend
+          OUTPUT="$(npm exec -- tsx src/cli/fidcAssignorRegistry.ts --limit 20 --offset 0)"
+          printf '%s\n' "$OUTPUT"
+          printf '%s\n' "$OUTPUT" | jq -e '.selected <= 20 and .stored >= 1 and .invalidRegistry == 0 and .reviewRequired == true' >/dev/null
+      - name: Assert CNPJ attribution, guard and no commercial promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.MOTOR_NEON_DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+          try {
+            const {rows}=await pool.query(`
+              select
+                (select count(*)::int from public.fidc_assignor_registry_identities) as verified_names,
+                (select count(*)::int from public.fidc_assignor_registry_identities
+                  where registry_provider='cnpjws_publica_proxy'
+                    and registry_url='https://publica.cnpj.ws/cnpj/'||cnpj
+                    and public.is_valid_cnpj_checksum(cnpj)) as corroborated_cnpjws,
+                (select count(*)::int from public.fidc_assignor_identity_queue_v5) as source_cnpjs,
+                (select count(*)::int from public.companies) as companies,
+                (select count(*)::int from public.discovered_company_candidates) as candidates,
+                (select status from private.database_growth_guard_state) as guard,
+                pg_database_size(current_database()) as bytes
+            `);
+            const x=rows[0];console.log(JSON.stringify(x));
+            if(x.verified_names<22 || x.corroborated_cnpjws<2) throw new Error('Registry batch added no new full-CNPJ identity');
+            if(x.source_cnpjs!==85 || x.companies!==2 || x.candidates!==50 || x.guard!=='normal')
+              throw new Error('Unexpected source, promotion, or storage state');
+          } finally{await pool.end();}
+          NODE
