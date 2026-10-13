@@ -98,3 +98,40 @@ test('mismatched registry response cannot produce a false identity', async () =>
   assert.equal(result.stored, 0);
   assert.equal(writes, 0);
 });
+
+test('Minha Receita fallback is used only after BrasilAPI denies and keeps actual source URL', async () => {
+  const stored: Array<Record<string, unknown>> = [];
+  let fallbackCalls = 0;
+  const client = {
+    select: async () => [{
+      cnpj: CNPJ, identity_next_step: 'needs_registry_identity',
+      registry_legal_name: null, registry_checked_at: null,
+    }],
+    upsert: async (_table: string, rows: Record<string, unknown>[]) => {
+      stored.push(...rows);
+      return rows;
+    },
+  };
+  const service = new FIDCRegistryIdentityService({
+    client: client as never,
+    fetchRegistry: async (cnpj) => ({
+      status: 'partial' as const, endpoint: `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+      data: { fallback: true, cnpj, error: 'BrasilAPI status 403' },
+    }),
+    fetchFallback: async (cnpj) => {
+      fallbackCalls += 1;
+      return {
+        status: 'real' as const,
+        endpoint: `https://minhareceita.org/${cnpj}`,
+        data: { cnpj, razao_social: 'EMPRESA TESTE CADASTRAL LTDA', nome_fantasia: 'TESTE' },
+      };
+    },
+    now: () => new Date('2026-10-13T15:00:00.000Z'),
+  });
+  const result = await service.run({ limit: 1 });
+  assert.equal(fallbackCalls, 1);
+  assert.equal(result.stored, 1);
+  assert.equal(stored[0].registry_provider, 'minhareceita_receita_proxy');
+  assert.equal(stored[0].registry_url, `https://minhareceita.org/${CNPJ}`);
+  assert.equal(result.reviewRequired, true);
+});

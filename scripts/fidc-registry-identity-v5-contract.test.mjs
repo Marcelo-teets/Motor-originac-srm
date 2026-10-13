@@ -22,3 +22,12 @@ test('read-only review queue requires source CVM provenance and human identity r
   assert.ok(sql.includes('revoke all on public.fidc_assignor_identity_queue_v5'));
   assert.doesNotMatch(sql, /\b(?:approve_candidate_identity_review|auto_resolve_verified_candidate_entities_v4)\s*\(/i);
 });
+
+test('registry fallback migration stores honest provider provenance and exact CNPJ path', () => {
+  const migration = readFileSync(new URL('../db/neon/20261013_neon_fidc_registry_provider_fallback.sql', import.meta.url), 'utf8');
+  assert.ok(migration.includes('minhareceita_receita_proxy'));
+  assert.ok(migration.includes('brasilapi_receita_proxy'));
+  assert.ok(migration.includes("'https://minhareceita.org/' || cnpj"));
+  assert.ok(migration.includes("'https://brasilapi.com.br/api/cnpj/v1/' || cnpj"));
+  for (const forbidden of ['delete from', 'truncate', 'drop table', 'drop schema']) assert.ok(!migration.toLowerCase().includes(forbidden));
+});
