@@ -140,3 +140,20 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 5. **Índices:** antes de adicionar índice, comparar `pg_indexes` e `pg_stat_user_indexes`. Há duas definições idênticas `(dataset_code, ref_date DESC)` no bronze (índices `bronze_historical_records_dataset_ref_idx` e `idx_bronze_historical_dataset_ref`), candidatas a deduplicação em **PR de migração própria**, com medição de espaço e planos EXPLAIN. **Não remover automaticamente**; migrations via `db/neon/*.sql` + plano oficial + parity.
 6. **Proteção:** não executar `DELETE` nem `VACUUM FULL` periodicamente. A limpeza do incidente 09/10 foi extraordinária, com autorização específica. Não excluir backup ou dados FIDC para acomodar uma nova coleta genérica.
 7. **SLO:** budget guard verde antes de cada onda, 3 dias sem erro na A antes da B, refresh físico do guard e revisão do uso de índices/storage semanalmente.
+
+---
+
+## RB-08 · Cedentes FIDC: identidade antes da promoção (13/10/2026)
+
+**Smoke real auditado:** GitHub Actions `38403931727`, 100 linhas FRE + 100 linhas FIDC Tab I, ambos `completed`; 100 métricas `employee_count` (FRE), 91 vínculos de cedentes e **85 CNPJs distintos**, todos com checksum válido, do informe CVM de setembro/2026. Banco físico ~79 MB. Ainda não há `company_source_metric_snapshots.employee_count` nem novos registros `companies`; essa ausência é esperada enquanto identidade e vínculos não coincidirem.
+
+**Procedimento canônico — sem duplicar bronze:**
+
+1. Consulte `public.fidc_assignor_identity_queue_v5` (view `security_invoker`, sem exposição a `anonymous`/`authenticated`). Cada linha é um **CNPJ válido e sua linhagem CVM**, com quantidade de fundos, data e arquivo de origem.
+2. Classifique `identity_next_step`: `needs_registry_identity` requer consulta first-party para razão social; `candidate_identity_review` requer verificar identidade já capturada; `linked_company` segue para qualification. **CNPJ válido ≠ empresa qualificada**.
+3. Enriquecer primeiro com registro público e nome legal sustentado por fonte. Verificar se pertence a companhia operacional, fintech, cedente ou intermediário financeiro. Separar fundos, gestoras e instituições não ICP. Não atribuir `company_name` fictício.
+4. Somente criar/promover candidato pelo fluxo oficial de revisão de identidade com evidência e critério comercial (recebíveis estruturáveis, ticket, funding gap, capacidade creditícia, headcount). Não inventar dados de crédito nem criar `score_snapshots` sem ICP.
+5. Medir conversão: `CNPJs válidos → nomes verificados → candidatos revisados → companies → elegíveis → qualification/patterns/score/ranking`. Reportar rejeições e duplicatas com justificativa.
+6. A view é derivada de `capital_market_entity_links` e `capital_market_events`, não materializa cópia e evita duplicação de custos. Versionar qualquer mudança em `db/neon` + migration plan + parity.
+
+**Gate da Onda A:** não habilitar captura genérica para contornar a falta de empresas. Rodar apenas fontes direcionadas com budget guard verde e observar valor comercial gerado por MB.
