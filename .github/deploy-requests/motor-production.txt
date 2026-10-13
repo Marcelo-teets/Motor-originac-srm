@@ -1,18 +1,20 @@
-Motor Originação SRM — guarded CNPJ.ws public third-source release
-Requested: 2026-10-13 America/Sao_Paulo
-Base main: ceb42170d3966330a7ad5286c5a7c5f6b69b3374
-Production target: exact main HEAD after merging this reviewed request.
+Motor Originação SRM — source-integrity and controlled identity release
+Requested 2026-10-13 America/Sao_Paulo
+Base main SHA: 28bcf76f43d41c77fe0cf4a5d834f9f16b939dcb
+Target exact main HEAD created by merging this PR.
 
-Changes: #600, CNPJ.ws unauthenticated tertiary source after BrasilAPI and
-Minha Receita partial responses; strictly checks full estabelecimento.cnpj,
-requires legal name, records actual provider and URL, rate limits at
-<=3 calls/minute/IP with at least 21 seconds between requests.
-Reviewed Neon migration:
-db/neon/20261013_neon_fidc_cnpjws_publica_third_provider.sql
-registered in official migration plan and allowlist.
+Changes since previous production release:
+- #602 one-CNPJ live CNPJ.ws smoke, successful.
+- #603 twenty-CNPJ bounded batch, successful (total 41 registry identities).
+- #605 deterministic VC portfolio cache and tests (CI green).
+- #604 guarded SQL migration: correct 14 historical VC portfolio
+  hypotheses wrongly stored as verified fintech/embedded finance/FIDC facts;
+  preserves original evidence and search hypotheses, no DELETE.
+- #606 bounded final ten-CNPJ cloud batch workflow.
 
-Canonical release: .github/workflows/vercel-production-deploy.yml
-CI -> migration ledger -> Neon parity -> storage healthy -> prebuilt
-Vercel READY -> Neon/Auth smoke -> verify exact SHA.
-No auto-promotion, no broad data collection, no admin bootstrap.
-After release: isolated one-CNPJ cloud canary to confirm API and identity.
+Release gates: green CI and Neon Runtime Parity, canonical migration
+ledger/allowlist, Neon guard healthy, Vercel prebuilt deployment READY,
+Auth/runtime smoke, and production SHA parity.
+Only through .github/workflows/vercel-production-deploy.yml.
+No automatic entity promotion, credit scoring, user bootstrap, or data
+deletion. Backup preserved. M1 registry coverage is separate from ICP fit.
