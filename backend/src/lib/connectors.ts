@@ -218,6 +218,27 @@ export async function fetchMinhaReceitaCompany(cnpj: string) {
   }
 }
 
+// Public CNPJ.ws API: at most three calls per minute per source IP, unauthenticated.
+// Use only after existing BrasilAPI/Minha Receita fail; batch runner rate-limits.
+export async function fetchCnpjWsPublicCompany(cnpj: string) {
+  const digits = cnpj.replace(/\D/g, '');
+  const endpoint = `https://publica.cnpj.ws/cnpj/${digits}`;
+  try {
+    const response = await connectorFetch(endpoint, 'application/json', {
+      'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
+    });
+    if (!response.ok) throw new Error(`CNPJws status ${response.status}`);
+    const raw = await readCappedText(response);
+    return { status: 'real' as const, data: JSON.parse(raw) as Record<string, unknown>, endpoint };
+  } catch (error) {
+    return {
+      status: 'partial' as const,
+      data: { fallback: true, cnpj: digits, error: error instanceof Error ? error.message : 'unknown_error' },
+      endpoint,
+    };
+  }
+}
+
 export async function fetchRssFeed(feedUrl: string) {
   try {
     const response = await connectorFetch(feedUrl, 'application/rss+xml, application/xml, text/xml');
