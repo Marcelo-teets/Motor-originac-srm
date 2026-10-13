@@ -1,15 +1,21 @@
-Motor Originação — V5 Neon storage guard release
+Motor Originação SRM — V5 first-party FIDC identity queue release
+Requested: 2026-10-13 (America/Sao_Paulo)
+Baseline main SHA: 156b199751fa6249d8ed3032847253d40baa195a
+Release target: the exact main HEAD after this PR merge.
+Trigger: canonical .github/workflows/vercel-production-deploy.yml only.
 
-Requested: 2026-10-11 (America/Sao_Paulo)
-Baseline main: 1038765eb4c82c95037527b142042cab5d049bfd
-Deploy target: exact main HEAD created by merging this PR.
-Official trigger: .github/workflows/vercel-production-deploy.yml via on.push.paths.
+Changes under review:
+- PR #582: cloud-only 100-row FRE + FIDC smoke, success (#38403931727).
+  100 employee_count metrics and 85 checksum-valid distinct FIDC assignors,
+  sourced from 91 primary Tab I identity links.
+- PR #583: non-materialized, security-invoker CVM assignor identity
+  queue and reviewer runbook. No fabricated company legal names,
+  automatic promotion, or duplicate bronze storage.
 
-Scope: PR #579 zero-row guard refresh in capital-market workflow,
-PR #580 fail-closed refreshed guard health gate in the canonical
-production release. Also includes reviewed CVM efficiency PRs #574–#577.
-No manual SQL, no data ingestion, no new cleanup or admin bootstrap.
-
-Gates: main SHA, Vercel Auth, Neon migration parity, real storage state
-healthy, immutable build, prebuilt Vercel production deploy and Auth smoke.
-Physical data preservation: FIDC events/bronze and production backup.
+Required gates:
+- CI, SHA main, approved Neon migrations and runtime parity.
+- Live Neon storage guard refreshed and healthy.
+- Immutable prebuilt Vercel deployment READY; Neon runtime/Auth smoke.
+- Post-release compare view distinct CNPJ count vs raw links (expected 85).
+- Protect production + backup and never run unsanctioned cleanup.
+No admin bootstrap or broad ingest authorization is included.
