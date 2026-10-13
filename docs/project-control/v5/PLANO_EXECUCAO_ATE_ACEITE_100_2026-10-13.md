@@ -60,3 +60,10 @@ Qualificação requer: crédito é core? recebíveis estruturáveis? FIDC existe
 Em cada PR/run, registrar: número, SHA, migrations, CI, data, estado de produção, métricas antes/depois, erro/risco e gate satisfeito. A tabela de execução em `ROADMAP_TRACKER_V5.yaml` deve referenciar este plano e jamais confundir metas com fatos.
 
 **O que a engenharia pode entregar sem a presença do usuário:** A0/A1, instrumentação de A2–A5, runbooks, testes e PRs. **O que não pode atestar sozinha:** Auth administrativo de usuário humano, revisão comercial final e o intervalo de 7 dias de monitoramento saudável.
+
+## Evidência operacional A1 — 13/10/2026 (pós-plano)
+
+- PR #594 mesclada, run [#38436217778](https://github.com/Marcelo-teets/Motor-originac-srm/actions/runs/38436217778) **failure por gate de qualidade**, e não por falha de deploy: dois lotes de 20 deram `registryMatched=0`, `unavailable=20` cada; dados cadastrais mantidos **20/85**, 2 empresas e 50 candidatos invariáveis, storage guard `normal` e ~79 MB.
+- Causa parcial de eficiência confirmada: quando uma tentativa não armazena nenhum registro, o segundo lote pega os **mesmos 20 CNPJs não resolvidos**, pois a seleção era sempre o primeiro subconjunto de CNPJs sem cache. Não executar retry maciço automaticamente.
+- Correção subsequente: paginação `--offset` no conjunto de CNPJs não resolvidos, contadores agregados por causa de falha sem expor respostas ou dados sensíveis; canário separado de **três consultas** a posições diferentes para distinguir indisponibilidade do provedor versus ausência de dado por CNPJ.
+- **Gate M1 continua bloqueado** até ≥50 razões sociais corroboradas. A descoberta está enviesada para empresas industriais/financeiras; o KPI de identidade não implica fit no ICP tech, nem autorização de promover empresas. As 2 empresas no Company Master são emissores imobiliários: não usar automaticamente para cumprir o gate de 5 empresas tech com estrutura de recebíveis.

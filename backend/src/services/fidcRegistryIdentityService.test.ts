@@ -135,3 +135,52 @@ test('Minha Receita fallback is used only after BrasilAPI denies and keeps actua
   assert.equal(stored[0].registry_url, `https://minhareceita.org/${CNPJ}`);
   assert.equal(result.reviewRequired, true);
 });
+
+test('offset skips an unavailable CNPJ batch without repeating it', async () => {
+  const ids = ['00288948000194','01789121000127','19540550000121'];
+  const fetched: string[] = [];
+  const client = {
+    select: async () => ids.map(cnpj => ({
+      cnpj, identity_next_step: 'needs_registry_identity',
+      registry_legal_name: null, registry_checked_at: null,
+    })),
+    upsert: async () => [],
+  };
+  const service = new FIDCRegistryIdentityService({
+    client: client as never,
+    fetchRegistry: async (cnpj) => { fetched.push(cnpj); return valid(cnpj); },
+    now: () => new Date('2026-10-13T15:00:00Z'),
+  });
+  const result = await service.run({ limit: 1, offset: 2 });
+  assert.deepEqual(fetched, [ids[2]]);
+  assert.equal(result.offset, 2);
+  assert.equal(result.stored, 1);
+  await assert.rejects(() => service.run({ offset: 201 }), /offset must be an integer/);
+});
+
+test('unavailable HTTP response is classified without keeping raw CNPJ payload', async () => {
+  const client = {
+    select: async () => [{
+      cnpj: CNPJ, identity_next_step: 'needs_registry_identity',
+      registry_legal_name: null, registry_checked_at: null,
+    }],
+    upsert: async () => {throw Error('not called');},
+  };
+  const service = new FIDCRegistryIdentityService({
+    client: client as never,
+    fetchRegistry: async cnpj => ({
+      status: 'partial' as const, endpoint: `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+      data: { fallback: true, cnpj, error: 'HTTP 403' },
+    }),
+    fetchFallback: async cnpj => ({
+      status: 'partial' as const, endpoint: `https://minhareceita.org/${cnpj}`,
+      data: { fallback: true, cnpj, error: 'HTTP 404 not found' },
+    }),
+    now: () => new Date('2026-10-13T15:00:00Z'),
+  });
+  const result = await service.run({ limit: 1 });
+  assert.equal(result.unavailable, 1);
+  assert.equal(result.unavailableByReason.not_found, 1);
+  assert.equal(result.stored, 0);
+  assert.equal(JSON.stringify(result).includes(CNPJ), false);
+});
