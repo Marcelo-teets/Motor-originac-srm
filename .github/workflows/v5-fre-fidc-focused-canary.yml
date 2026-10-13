@@ -42,7 +42,6 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/check-neon-storage-budget.mjs --requested-rows=100 --trigger=manual
-          test "${{ steps.fre_budget.outputs.state }}" != "blocked" || exit 1
       - name: Verify FRE budget from written outputs
         shell: bash
         run: |
