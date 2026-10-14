@@ -4,6 +4,15 @@ import type { CandidateDecisionQueueService } from '../services/candidateDecisio
 export const createCandidateDecisionQueueRouter = (service: CandidateDecisionQueueService) => {
   const router = Router();
 
+  router.get('/fidc-assignors', async (_req, res, next) => {
+    try {
+      const data = await service.listFidcAssignors();
+      res.json({ status: 'real', generatedAt: new Date().toISOString(), data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/', async (req, res, next) => {
     try {
       const data = await service.list({
