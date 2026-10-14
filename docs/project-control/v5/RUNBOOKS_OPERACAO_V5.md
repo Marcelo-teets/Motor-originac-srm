@@ -178,3 +178,23 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 ### Provedor público terciário CNPJ.ws (13/10/2026)
 
 Quando BrasilAPI e Minha Receita retornarem `partial`, a resolução cadastral pode tentar **CNPJ.ws API Pública**, sem token, em `https://publica.cnpj.ws/cnpj/{cnpj}`. É um intermediário de dados públicos, não a Receita Federal diretamente. Contrato oficial: [API Pública](https://docs.cnpj.ws/referencia-de-api/api-publica/consultando-cnpj), limite **3 chamadas por minuto por IP** ([limitações](https://docs.cnpj.ws/en/referencia-de-api/api-publica/limitacoes)); aplicar intervalo mínimo de 21 segundos entre chamadas desse provedor na execução. Resposta é aceita somente com **`estabelecimento.cnpj` completo e igual ao CNPJ CVM**, checksum válido e `razao_social` não vazia; o campo `cnpj_raiz` isolado **nunca** comprova o estabelecimento. Persistir apenas as colunas mínimas do cache, `registry_provider=cnpjws_publica_proxy` e URL exata, sem sócios/endereços brutos. Não aumentar consultas se canário de 1 CNPJ falhar, e jamais auto-promover empresa, score ou lead.
+
+---
+
+## RB-10 · Revisão comercial dos cedentes FIDC (14/10/2026, M2/A2)
+
+**Baseline real (Neon produção):** 85 CNPJs com fonte CVM Tab I; 51 razões sociais corroboradas com proveniência (44 situações ativas, 7 inaptas), 2 empresas cadastradas, 0 qualificação/score/ranking. A identidade cadastral já superou a meta M1 de 50, **mas M2 permanece aberto**. Muitos cedentes são indústrias, fabricantes e intermediários financeiros fora do ICP tech.
+
+**Consulta segura:** `select cnpj, legal_name, registration_status, review_lane, recommended_review_action, registry_url, cvm_evidence_url, distinct_funds, establishments_in_cvm_queue from public.fidc_assignor_commercial_review_v5 order by review_lane, distinct_funds desc, evidence_links desc limit 100;`. View `security_invoker`, acesso restrito ao papel operacional; não há materialização ou duplicação de payload CVM.
+
+**Revisão humana obrigatória, sem inferir teses a partir do nome:**
+
+1. `registry_lookup_pending`: falta identidade corroborada. Nunca promover.
+2. `registration_exception_review`: verificar situação (inapta, baixada, suspensa, nula) e se há divergência/falência antes de prosseguir.
+3. `regulated_entity_review`: **sinal textual somente**, não exclusão definitiva. Confirmar se é banco, securitizadora, gestora, administrador, distribuidora ou outra entidade fora do ICP.
+4. `business_model_due_diligence`: validar site, modelo de negócio tech, headcount/porte, recebíveis estruturáveis, concentração, carteira/lastro, necessidade de funding, FIDC existente, timing e ticket. Não marcar `credit_product` ou `fit_fidc` sem evidência.
+5. `cnpj_root` agrupa estabelecimentos da mesma raiz; verificar duplicatas econômicas antes de contar cinco empresas diferentes.
+
+**Aceite M2:** shortlist de empresas operacionais com fontes, conclusão de revisão por pessoa autorizada, razão de no-go ou de elegibilidade, eventual criação/promoção **pelo fluxo canônico de aprovação individual**. `icp_eligibility_status='unverified'`, `receivables_structurability_status='unknown'` e `funding_gap_status='unknown'` permanecem constantes na view para impedir pontuação indevida.
+
+**Não promover ou qualificar automaticamente os 51 registros somente por terem CNPJ válido.** O próximo KPI é o número de empresas realmente aderentes, não o número de cadastros resolvidos.
