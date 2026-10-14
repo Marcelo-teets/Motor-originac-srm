@@ -1,15 +1,16 @@
-Motor Originação SRM — controlled M2/A2 human triage release
-Requested 2026-10-14 America/Sao_Paulo
-Base main SHA: 0107d74fd55883224695da6df718e708eb8ec2b6
-Target: exact new main HEAD after merging this reviewed release request.
+Motor Originação SRM — V5 FIDC commercial review UI deployment
+Requested: 2026-10-14 (America/Sao_Paulo)
+Baseline main: 3527b69ff534c4c8cbb66efa865461e95b3ab0d1
+Target: exact HEAD of main when this reviewed PR merges.
 
-Reviewed PR #608: source-traced, zero-copy FIDC assignor commercial review
-view from verified CVM and registry sources; explicit ICP/receivables/funding
-gap unknown; flags for humans only; CNPJ roots for economic dedupe.
-Migration: db/neon/20261014_neon_fidc_commercial_review_v5.sql
-included in migration plan, release allowlist and runtime contract.
+Reviewed PR #611: Candidate Decision Queue gained a read-only tab for CVM FIDC assignors,
+with registry identity, source links, registration exceptions, and
+ICP / receivables / funding gap explicitly marked unknown. Human review
+required: no candidate promotion, no artificial scores, no extra storage.
+Also includes #610 V5 updated checkpoint/tracker documentation.
 
-Must pass main SHA, CI, migration ledger/parity, healthy Neon storage guard,
-Vercel immutable prebuilt READY, runtime health and Auth smoke.
-No data deletion, no automatic promotion or scoring, no user bootstrap
-without human participation, no broad collection.
+Canonical release only by .github/workflows/vercel-production-deploy.yml;
+require green CI, SHA pin, Neon migration ledger/parity, budget guard normal,
+Vercel prebuilt production READY, runtime and Auth smokes. Do not start
+Auth admin bootstrap D-07 without user present. Do not enable dataset=all,
+delete any production data, or create mock commercial results.
