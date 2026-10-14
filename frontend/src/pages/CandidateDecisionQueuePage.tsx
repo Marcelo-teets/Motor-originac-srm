@@ -153,7 +153,6 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (queue === 'fidc_assignors') return undefined;
     let active = true;
     const load = async () => {
       try {
@@ -236,6 +235,7 @@ export function CandidateDecisionQueuePage() {
   }), [session?.access_token]);
 
   useEffect(() => {
+    if (queue === 'fidc_assignors') return undefined;
     let active = true;
     const load = async () => {
       try {
@@ -312,7 +312,7 @@ export function CandidateDecisionQueuePage() {
         </div>
       </Card>
 
-      <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
+      {queue === 'fidc_assignors' ? <FidcAssignorQueue headers={headers} /> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
         {loading ? <p className="table-helper">Calculando prioridade e próxima ação...</p> : items.length ? (
           <div className="fidc-table-wrap">
             <table className="dense-table">
@@ -334,7 +334,7 @@ export function CandidateDecisionQueuePage() {
           <button type="button" className="secondary" disabled={pagination.offset + pagination.limit >= pagination.total || loading} onClick={() => setPagination((current) => ({ ...current, offset: current.offset + current.limit }))}>Próxima</button>
           {stats.duplicateGroups ? <Pill tone="warning">{stats.duplicateGroups} grupos duplicados</Pill> : <Pill tone="success">sem duplicatas exatas</Pill>}
         </div>
-      </Card>
+      </Card>}
     </div>
   );
 }
