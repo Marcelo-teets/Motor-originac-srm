@@ -25,6 +25,35 @@ export const normalizeCandidateDecisionQueueQuery = (query: CandidateDecisionQue
 export class CandidateDecisionQueueService {
   private readonly client = getDataClient();
 
+  async listFidcAssignors() {
+    if (!this.client) throw new Error('Neon data client not configured for FIDC commercial review.');
+    // Non-materialized, source-backed review queue. This endpoint never
+    // promotes companies or treats registry identity as eligibility.
+    const rows = await this.client.select('fidc_assignor_commercial_review_v5', {
+      select: [
+        'cnpj', 'cnpj_root', 'legal_name', 'registration_status',
+        'registry_url', 'cvm_evidence_url', 'cvm_reference_date',
+        'review_lane', 'recommended_review_action',
+        'icp_eligibility_status', 'receivables_structurability_status',
+        'funding_gap_status', 'distinct_funds', 'evidence_links',
+        'auto_promotion_authorized',
+      ].join(','),
+      orderBy: { column: 'cnpj', ascending: true },
+      limit: 100,
+    });
+    return {
+      items: rows,
+      stats: {
+        total: rows.length,
+        registered: rows.filter((row) => Boolean(row.legal_name)).length,
+        needsIdentity: rows.filter((row) => !row.legal_name).length,
+        exceptionReview: rows.filter((row) => row.review_lane === 'registration_exception_review').length,
+        regulatedReview: rows.filter((row) => row.review_lane === 'regulated_entity_review').length,
+      },
+      promotionAllowed: false,
+    };
+  }
+
   async list(query: CandidateDecisionQueueQuery = {}) {
     if (!this.client) throw new Error('Neon data client not configured for Candidate Decision Queue.');
     const normalized = normalizeCandidateDecisionQueueQuery(query);
