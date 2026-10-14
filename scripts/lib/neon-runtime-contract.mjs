@@ -45,6 +45,7 @@ export const REQUIRED_RELATIONS = Object.freeze([
   'public.enrichments',
   'public.external_api_usage_monthly',
   'public.fidc_assignor_identity_queue_v5',
+  'public.fidc_assignor_commercial_review_v5',
   'public.fidc_assignor_registry_identities',
   'public.investors',
   'public.lead_score_snapshots',

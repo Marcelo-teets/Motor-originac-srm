@@ -8,6 +8,7 @@ export const APPROVED_V5_PENDING_MIGRATIONS = Object.freeze([
   'db/neon/20261013_neon_fidc_registry_provider_fallback.sql',
   'db/neon/20261013_neon_fidc_cnpjws_publica_third_provider.sql',
   'db/neon/20261013_neon_vc_portfolio_unverified_icp_backfill.sql',
+  'db/neon/20261014_neon_fidc_commercial_review_v5.sql',
 ]);
 
 export const verifyApprovedNeonPendingMigrations = ({
