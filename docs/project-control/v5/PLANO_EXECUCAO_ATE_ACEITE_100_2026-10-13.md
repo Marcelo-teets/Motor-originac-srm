@@ -1,3 +1,5 @@
+**Atualização de evidências de 14/10/2026:** [`CHECKPOINT_MVP_2026-10-14.md`](CHECKPOINT_MVP_2026-10-14.md). O baseline de 13/10 abaixo é histórico; M1 cobertura cadastral já passou de 20 para 51/85. O status corrente da execução e do release #609 deve ser medido no GitHub/Neon.
+
 # Motor Originação — plano de execução até aceite de 100% do MVP
 
 **Versão:** 13/10/2026 · **base de código:** `de969c69c02ad222e9909ad4be0cd946edfb40fe` · **ambiente:** Neon production + Vercel via GitHub Actions.

@@ -293,3 +293,46 @@ acceptance_execution_2026_10_13:
     A8_mvp_acceptance: pending
   release_policy: "PR, green CI and parity, reviewed deploy-request PR, Vercel READY matching main, Neon/Auth smoke"
   evidence_note: "Targets are not accomplishments; seven days must actually elapse and D-07 needs the user."
+
+acceptance_checkpoint_2026_10_14:
+  plan: "docs/project-control/v5/CHECKPOINT_MVP_2026-10-14.md"
+  audited_main_before_triage_pr: "f64713a7f27cf88e4571fbb49a5ed0afa6ad86dd"
+  triage_implementation_pr: 608
+  triage_release_pr: 609
+  neon_production:
+    guard: normal
+    approximate_bytes: 79167488
+    branches: 6
+    backup_preserved: true
+  registry:
+    total_cvm_assignor_cnpj: 85
+    corroborated_legal_names: 51
+    no_legal_name_yet: 34
+    registrations_active: 44
+    registrations_inapt: 7
+    distinct_cnpj_roots: 84
+  business:
+    discovered_candidates: 50
+    captured_market_vehicle: 31
+    captured_operating_company: 14
+    captured_operating_issuer: 3
+    promoted_operating_issuer: 2
+    candidate_cnpj_valid: 0
+    companies: 2
+    qualification_snapshots: 0
+    score_snapshots: 0
+    lead_score_snapshots: 0
+    ranking_v2: 0
+    pipeline: 0
+    user_profiles: 0
+  milestone_statuses:
+    A0_infrastructure: prod_ready_before_release_609
+    A1_registry_coverage: target_50_reached_51_names_human_review_pending
+    A2_commercial_icp_review: read_only_triage_merged_release_pending
+    A3_promotion: blocked_human_evidence
+    A4_receivables_headcount: blocked_company_identity
+    A5_scoring_ranking: blocked_no_qualified_companies
+    A6_auth_ui: waiting_real_admin_bootstrap_with_user
+    A7_recurring: needs_7_real_calendar_days
+    A8_acceptance: not_met
+  integrity_rule: "Commercial ICP, receivables and funding gap remain unknown until corroborated; do not fabricate leads."
