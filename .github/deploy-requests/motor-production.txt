@@ -1,20 +1,15 @@
-Motor Originação SRM — source-integrity and controlled identity release
-Requested 2026-10-13 America/Sao_Paulo
-Base main SHA: 28bcf76f43d41c77fe0cf4a5d834f9f16b939dcb
-Target exact main HEAD created by merging this PR.
+Motor Originação SRM — controlled M2/A2 human triage release
+Requested 2026-10-14 America/Sao_Paulo
+Base main SHA: 0107d74fd55883224695da6df718e708eb8ec2b6
+Target: exact new main HEAD after merging this reviewed release request.
 
-Changes since previous production release:
-- #602 one-CNPJ live CNPJ.ws smoke, successful.
-- #603 twenty-CNPJ bounded batch, successful (total 41 registry identities).
-- #605 deterministic VC portfolio cache and tests (CI green).
-- #604 guarded SQL migration: correct 14 historical VC portfolio
-  hypotheses wrongly stored as verified fintech/embedded finance/FIDC facts;
-  preserves original evidence and search hypotheses, no DELETE.
-- #606 bounded final ten-CNPJ cloud batch workflow.
+Reviewed PR #608: source-traced, zero-copy FIDC assignor commercial review
+view from verified CVM and registry sources; explicit ICP/receivables/funding
+gap unknown; flags for humans only; CNPJ roots for economic dedupe.
+Migration: db/neon/20261014_neon_fidc_commercial_review_v5.sql
+included in migration plan, release allowlist and runtime contract.
 
-Release gates: green CI and Neon Runtime Parity, canonical migration
-ledger/allowlist, Neon guard healthy, Vercel prebuilt deployment READY,
-Auth/runtime smoke, and production SHA parity.
-Only through .github/workflows/vercel-production-deploy.yml.
-No automatic entity promotion, credit scoring, user bootstrap, or data
-deletion. Backup preserved. M1 registry coverage is separate from ICP fit.
+Must pass main SHA, CI, migration ledger/parity, healthy Neon storage guard,
+Vercel immutable prebuilt READY, runtime health and Auth smoke.
+No data deletion, no automatic promotion or scoring, no user bootstrap
+without human participation, no broad collection.
