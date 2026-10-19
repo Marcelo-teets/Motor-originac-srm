@@ -145,6 +145,7 @@ export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
 
   const changeSelected = (cnpj: string) => {
     setSelectedCnpj(cnpj);
+    setHistory([]);
     setDisposition('needs_evidence');
     setRationale('');
     setNextAction('');
@@ -162,6 +163,7 @@ export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
       return;
     }
     setSaving(true);
+    let writeConfirmed = false;
     setNotice(null);
     setError(null);
     try {
@@ -173,6 +175,7 @@ export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
         }),
       }) as { reviewRecorded?: boolean };
       if (data?.reviewRecorded !== true) throw new Error('O backend não confirmou a gravação.');
+      writeConfirmed = true;
       setAcknowledged(false);
       setRationale('');
       setNextAction('');
@@ -186,8 +189,10 @@ export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
       setLatest(parseRows<ReviewRow>(latestRows));
       setHistory(parseRows<ReviewRow>(historyRows));
     } catch (saveError) {
-      // If the write succeeded but refresh failed, the notice is kept: no fake state.
-      setError(saveError instanceof Error ? saveError.message : 'Falha ao registrar ou atualizar o histórico.');
+      // Never tell the user the POST failed when only the read-after-write did.
+      setError(writeConfirmed
+        ? 'Parecer gravado no backend, porém falhou a atualização do histórico. Reabra o CNPJ para conferir.'
+        : saveError instanceof Error ? saveError.message : 'Falha ao registrar o parecer.');
     } finally {
       setSaving(false);
     }
