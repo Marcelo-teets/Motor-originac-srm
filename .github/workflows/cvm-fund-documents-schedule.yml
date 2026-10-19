@@ -96,7 +96,7 @@ jobs:
     timeout-minutes: 180
     env:
       MOTOR_NEON_DATABASE_URL: ${{ secrets.MOTOR_NEON_DATABASE_URL }}
-SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
+      SCHEDULE_EXPRESSION: ${{ github.event.schedule || '' }}
       REQUESTED_DATASET: ${{ inputs.dataset || '' }}
       REQUESTED_REFERENCE: ${{ inputs.reference || '' }}
       REQUESTED_MAX_ROWS: ${{ inputs.max_rows || '' }}
