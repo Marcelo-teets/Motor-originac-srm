@@ -1,15 +1,20 @@
-Motor Originação SRM — production FIDC unauthenticated API smoke gate
-Requested: 2026-10-19 (America/Sao_Paulo)
-Baseline main: 79f1140dc325ced4efd8305490a94e82922758eb
-Release target: exact HEAD of main created on merge of this authorized release request.
+Motor Originação SRM — V5 first-party credit research intake
+Requested 2026-10-19 America/Sao_Paulo
+Baseline main 40d05c15807497c9912f2152aa0bf9bdfc4e0780; publish only the reviewed merge HEAD.
 
-Scope: merged PR #622 only.
-- Add CI regression coverage for FIDC negative-path auth.
-- Add production deploy gate after canonical Auth smoke: four anonymous HTTP probes
-  (CVM source list, latest audit records, single CNPJ history, POST empty JSON).
-- Reject publicly readable FIDC business data, redirect-to-login fallbacks and SPA HTML.
-- No migration, company write, review write, user enrollment, score/ranking write.
-- Do not enable MOTOR_AUTH_BOOTSTRAP_ENABLED (requires user present for D-07).
-- Require unchanged Neon migration ledger, healthy storage guard, build/CI green,
-  canonical Vercel prebuilt deployment READY and exact GitHub SHA parity.
-- If endpoint authorization fails, stop release and repair via a separate reviewed PR.
+Merged PR #624: four documented Brazilian legal entities captured for identity review.
+- Sources: first-party official contracts for Asaas, DM Financeira, TUDO/meutudo,
+  and RecargaPay's formal lender RP Financeira.
+- Creditas already exists in discovered_company_candidates; do not duplicate.
+- New candidates have status=captured, commercial_queue=false, human review pending,
+  no Company Master promotion and unknown funding gap/portfolio ownership/ticket.
+- Release the single reviewed migration:
+  db/neon/20261019_neon_first_party_credit_research_candidates_v5.sql
+- Idempotent insertion skips candidates with an existing non-discarded matching CNPJ,
+  uses partial dedupe_key index, requires valid CNPJ checksum and primary source.
+- No qualification, lead score, ranking, pipeline, invoice, deal, synthetic user
+  or human review inserts. No manual SQL or stack parallelism.
+- Require migrations ledger, CI/Neon parity, healthy budget, Vercel production READY,
+  runtime Auth and anonymous FIDC audit smoke, exact GitHub main SHA parity.
+- Human identity approval, regulatory verification and credit qualification remain
+  separate; D-07 first administrative signup requires a real user present.
