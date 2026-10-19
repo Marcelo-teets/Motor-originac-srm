@@ -136,3 +136,17 @@ test('A7 only counts confirmed real observed source-backed monitoring outputs, e
   assert.match(source,/m\.observed_vs_inferred = 'observed'/);
   assert.match(source,/coalesce\(nullif\(btrim\(m\.url\), ''\), nullif\(btrim\(m\.evidence_url\), ''\)\) is not null/);
 });
+
+test('A2 counts only attributed source-backed reviews by a verified human user', async () => {
+  const { readFileSync } = await import('node:fs');
+  const s = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs', import.meta.url), 'utf8');
+  assert.match(s,/from public\.fidc_assignor_human_reviews_v5 r/);
+  assert.match(s,/join public\.user_profiles p on p\.id = r\.reviewer_user_id/);
+  assert.match(s,/join neon_auth\."user" u on u\.id = p\.id/);
+  assert.match(s,/p\.status = 'active'/);
+  assert.match(s,/u\."emailVerified" = true/);
+  assert.match(s,/lower\(btrim\(r\.reviewer_email\)\) = lower\(btrim\(u\.email\)\)/);
+  assert.match(s,/char_length\(btrim\(r\.rationale\)\) >= 30/);
+  assert.match(s,/char_length\(btrim\(r\.next_action\)\) >= 10/);
+  assert.match(s,/r\.cvm_evidence_url like 'https:\/\/%'/);
+});
