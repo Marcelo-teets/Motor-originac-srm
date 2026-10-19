@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { mayReferFidcToIdentity, validateFidcReviewDraft } from '../frontend/src/lib/fidcReviewSubmission.ts';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
@@ -196,4 +197,54 @@ test('AI task plans remain editable and require explicit human creation', () => 
   assert.match(taskAiComposer, /approvalRequired/);
   assert.match(taskAiComposer, /createdIds\.includes/);
   assert.match(main, /task-center-v2\.css/);
+});
+
+test('FIDC human review UI is restricted to actual god_mode and unavailable until audited backend releases', async () => {
+  const [page, component] = await Promise.all([
+    read('frontend/src/pages/CandidateDecisionQueuePage.tsx'),
+    read('frontend/src/components/FidcHumanReviewPanel.tsx'),
+  ]);
+  assert.match(page, /FidcHumanReviewPanel headers=\{headers\} isGodMode=\{isGodMode\}/);
+  assert.match(component, /if \(!isGodMode\)/);
+  assert.match(component, /status === 'unavailable'/);
+  assert.match(component, /reviewError.*statusCode.*404/);
+  assert.match(component, /status !== 'ready' \|\| saving/);
+  assert.match(component, /method: 'POST'/);
+  assert.match(component, /data\?\.reviewRecorded !== true/);
+  assert.match(component, /read-after-write/i);
+  assert.match(component, /NÃO foi promovida/);
+  assert.doesNotMatch(component, /localStorage|autoPromote|setItem\(/);
+});
+
+test('FIDC human review refuses claims of identity referral without active operating registry', () => {
+  const source = {
+    cnpj: '12345678000190',
+    legal_name: 'Originação Exemplo',
+    review_lane: 'business_model_due_diligence',
+    registration_status: 'ATIVA',
+    cvm_evidence_url: 'https://dados.cvm.gov.br/fidc',
+    registry_url: null,
+    recommended_review_action: 'Confirmar recebíveis',
+  };
+  const draft = {
+    disposition: 'refer_to_identity_review',
+    rationale: 'Foi constatado apenas um vínculo CVM: verificar todas as alegações antes da promoção.',
+    nextAction: 'Encaminhar o dossiê para revisão de identidade.',
+    acknowledged: true,
+  };
+  assert.equal(mayReferFidcToIdentity(source), true);
+  assert.equal(validateFidcReviewDraft(source, draft), null);
+  assert.match(validateFidcReviewDraft({ ...source, registration_status: 'INAPTA' }, draft), /exige empresa operacional/);
+  assert.match(validateFidcReviewDraft({ ...source, review_lane: 'regulated_entity_review' }, draft), /exige empresa operacional/);
+  assert.match(validateFidcReviewDraft({ ...source, cvm_evidence_url: null }, draft), /fonte CVM verificável/);
+  assert.match(validateFidcReviewDraft(source, { ...draft, acknowledged: false }), /Confirme/);
+  assert.match(validateFidcReviewDraft(source, { ...draft, rationale: 'FIDC' }), /30 e 3.000/);
+  assert.match(validateFidcReviewDraft(source, { ...draft, nextAction: 'Ver' }), /10 e 1.000/);
+});
+
+test('FIDC human review submits only source id, disposition, rationale and next action', async () => {
+  const component = await read('frontend/src/components/FidcHumanReviewPanel.tsx');
+  assert.match(component, /cnpj: selected\.cnpj, disposition,/);
+  assert.match(component, /rationale: rationale\.trim\(\), nextAction: nextAction\.trim\(\)/);
+  assert.doesNotMatch(component, /reviewerUserId:|reviewerEmail:|decisionEligible:|creditApproved:/);
 });
