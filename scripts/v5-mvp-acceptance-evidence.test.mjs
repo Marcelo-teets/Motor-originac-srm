@@ -164,3 +164,18 @@ test('A3-A5 needs verified CNPJ, provenance and human-approved credit evidence b
   assert.match(block,/r\.evidence is not null/);
   assert.match(block,/r\.status='approved'/);
 });
+
+test('D-07 reports orphan Auth identity without approving access', () => {
+ const report=evaluateV5Acceptance({metrics:{...metrics,auth_identity_count:'1',auth_identities_without_profile:'1',bootstrap_claims:'0'},monitoringDays:sevenElapsed()});
+ assert.equal(report.gates.find(g=>g.gate==='D-07')?.status,'blocked');
+ assert.equal(report.diagnostics.authIdentitiesWithoutProfile,1);
+ assert.equal(report.diagnostics.bootstrapClaims,0);
+ assert.match(formatV5AcceptanceSummary(report),/sem perfil institucional: 1/);
+});
+test('D-07 diagnostics never mutate Neon Auth or profiles',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const source=readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs',import.meta.url),'utf8');
+ assert.match(source,/from neon_auth\."user"\) as auth_identity_count/);
+ assert.match(source,/from private\.auth_bootstrap_claim\) as bootstrap_claims/);
+ assert.match(source,/BEGIN TRANSACTION READ ONLY/);
+});
