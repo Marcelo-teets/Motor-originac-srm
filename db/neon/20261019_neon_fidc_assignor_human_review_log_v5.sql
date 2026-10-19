@@ -22,6 +22,20 @@ create table if not exists public.fidc_assignor_human_reviews_v5 (
 create index if not exists fidc_assignor_human_reviews_cnpj_created_idx
   on public.fidc_assignor_human_reviews_v5 (cnpj, created_at desc, id desc);
 
+-- Audit integrity: a human review is a historical event, never edited in place.
+create or replace function public.reject_fidc_assignor_review_mutation_v5()
+returns trigger language plpgsql security invoker set search_path = '' as $
+begin
+  raise exception 'fidc_review_history_is_immutable' using errcode = '55000';
+end;
+$;
+drop trigger if exists fidc_assignor_review_immutable_v5 on public.fidc_assignor_human_reviews_v5;
+create trigger fidc_assignor_review_immutable_v5
+  before update or delete on public.fidc_assignor_human_reviews_v5
+  for each row execute function public.reject_fidc_assignor_review_mutation_v5();
+revoke all on function public.reject_fidc_assignor_review_mutation_v5()
+  from public, anonymous, authenticated;
+
 alter table public.fidc_assignor_human_reviews_v5 enable row level security;
 revoke all on public.fidc_assignor_human_reviews_v5 from public, anonymous, authenticated;
 grant select, insert on public.fidc_assignor_human_reviews_v5 to neondb_owner;
