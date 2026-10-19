@@ -61,3 +61,12 @@ test('FIDC human review migration enforces source, role, append-only audit and n
   assert.doesNotMatch(sql, /insert into public\.(?:companies|pipeline|qualification_snapshots|score_snapshots)/i);
   assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes('db/neon/20261019_neon_fidc_assignor_human_review_log_v5.sql'));
 });
+
+test('FIDC audit migration uses valid dollar-quoted PL/pgSQL bodies', () => {
+  const sql = readFileSync(new URL('../db/neon/20261019_neon_fidc_assignor_human_review_log_v5.sql', import.meta.url), 'utf8');
+  const delimiters = sql.match(/\$\$/g) ?? [];
+  assert.equal(delimiters.length, 4, 'two PL/pgSQL functions must have balanced dollar quotes');
+  assert.match(sql, /reject_fidc_assignor_review_mutation_v5\(\)[\s\S]*?as \$\$\s*begin/);
+  assert.match(sql, /record_fidc_assignor_human_review_v5\([\s\S]*?as \$\$\s*declare/);
+  assert.doesNotMatch(sql, /\bas \$\s*\n/i, 'a single dollar sign is not a PL/pgSQL delimiter');
+});
