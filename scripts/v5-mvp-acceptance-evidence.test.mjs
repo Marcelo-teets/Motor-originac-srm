@@ -88,3 +88,29 @@ test('A7 only accepts outputs linked to successful connector runs from the same 
   assert.match(source, /r\.outputs_written > 0/);
   assert.match(source, /r\.started_at at time zone 'America\/Sao_Paulo'/);
 });
+
+test('production acceptance reports historical orphan output diagnostics without treating them as A7 evidence', () => {
+  const withLineage = {
+    ...metrics,
+    total_connector_runs: '416',
+    total_monitoring_outputs: '310',
+    orphan_monitoring_outputs: '310',
+    last_connector_started_at: '2026-10-19T20:18:04.960Z',
+    last_output_captured_at: '2026-10-19T20:18:02.704Z',
+  };
+  const report = evaluateV5Acceptance({metrics:withLineage,monitoringDays:sevenElapsed()});
+  assert.equal(report.diagnostics.totalConnectorRuns,416);
+  assert.equal(report.diagnostics.totalMonitoringOutputs,310);
+  assert.equal(report.diagnostics.outputsWithoutRunId,310);
+  assert.equal(report.gates.find(g=>g.gate==='A7')?.status,'blocked');
+  assert.match(formatV5AcceptanceSummary(report),/sem run_id: 310/);
+  assert.ok(report.warnings.some(message=>message.includes('lack run_id')));
+});
+
+test('lineage diagnostics are queried read-only and cannot manufacture a successful A7 run', async () => {
+  const {readFileSync}=await import('node:fs');
+  const contents=readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs',import.meta.url),'utf8');
+  assert.match(contents,/from public\.monitoring_outputs where run_id is null/);
+  assert.match(contents,/from public\.source_connector_runs\) as total_connector_runs/);
+  assert.match(contents,/BEGIN TRANSACTION READ ONLY/);
+});
