@@ -1,20 +1,17 @@
-Motor Originação SRM — V5 FIDC commercial review and audited human decision release
+Motor Originação SRM — release retry after reviewed FIDC PL/pgSQL fix
 Requested: 2026-10-19 (America/Sao_Paulo)
-Baseline main: e310555802cd7160f6497310d66f78bfc8fd4d0c
-Target: exact HEAD of main upon merge of this reviewed deployment request PR.
+Baseline main: 114faeabb5dcc05e3870496aaf0a6512b11120a2
+Target: exact HEAD main SHA created by this reviewed release-request merge.
 
-Included reviewed PRs:
-- #613: source-backed FIDC review lanes, human diligence checklist, search and evidence filtering.
-- #614: append-only human review audit table, latest history, authenticated god_mode API,
-  PostgreSQL actor/evidence enforcement and approved tracked Neon migration.
-- #615: React UI recording, latest/history read-after-write and fail-closed backend absence.
+Scope:
+- PRs #613, #614, #615: real CVM FIDC human-review UI, immutable audit journal and API.
+- PR #617: repaired PostgreSQL dollar-quoting for immutable-audit trigger function.
+- This request follows failed GitHub Actions production run 39302563381, which stopped before prebuilt Vercel deployment; migration did not persist and ledger is empty for 20261019 audit migration.
 
-Release protocol:
-- Only .github/workflows/vercel-production-deploy.yml via this request on main.
-- Strict Neon migration allowlist and ledger; no standalone SQL on production.
-- CI, Neon parity and healthy storage guard are required to proceed.
-- Deploy immutable Vercel prebuilt production from exact main SHA, runtime/Auth smoke.
-- Auth D-07 needs the actual administrator present; no synthetic user, review or decision.
-- No automated promotion, scoring, pipeline write, dataset=all or destructive cleanup.
-- Do not report operational acceptance until a real human-authenticated test and
-  five evidenced ICP companies have completed the qualification/ranking pipeline.
+Mandatory governance:
+- .github/workflows/vercel-production-deploy.yml, not direct Vercel or SQL.
+- Neon V5 approved allowlist/ledger, parity and healthy storage guard.
+- GitHub SHA must match Vercel production READY deployment SHA.
+- Runtime, Auth and safety smoke checks; stop on any failure.
+- Never fabricate human reviewer/credit qualification, write mock leads or bulk-promote CVM identities.
+- Do not enable dataset=all, delete production data or bypass Auth D-07.
