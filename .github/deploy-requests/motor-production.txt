@@ -18,3 +18,8 @@ Release protocol:
 - No automated promotion, scoring, pipeline write, dataset=all or destructive cleanup.
 - Do not report operational acceptance until a real human-authenticated test and
   five evidenced ICP companies have completed the qualification/ranking pipeline.
+
+Release retry — 2026-10-19
+Prior run: https://github.com/Marcelo-teets/Motor-originac-srm/actions/runs/39302563381
+Failure: PL/pgSQL trigger quoted as single $; corrected in reviewed and CI-green PR #617.
+This new request targets the exact main HEAD after its own merge; migrations remain transactional and gated.
