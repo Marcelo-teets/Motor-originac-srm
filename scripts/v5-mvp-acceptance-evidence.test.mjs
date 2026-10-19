@@ -125,3 +125,14 @@ test('D-07 requires a verified, unbanned Neon Auth identity linked to the active
   assert.match(sqlSource, /p\.status = 'active'/);
   assert.match(sqlSource, /lower\(btrim\(p\.email\)\) = lower\(btrim\(u\.email\)\)/);
 });
+
+test('A7 only counts confirmed real observed source-backed monitoring outputs, excluding partial and synthetic traces', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs',import.meta.url),'utf8');
+  assert.match(source,/join public\.source_connector_runs r on r\.id = m\.run_id/);
+  assert.match(source,/r\.status = 'completed'/);
+  assert.match(source,/m\.connector_status = 'real'/);
+  assert.match(source,/m\.status = 'processed'/);
+  assert.match(source,/m\.observed_vs_inferred = 'observed'/);
+  assert.match(source,/coalesce\(nullif\(btrim\(m\.url\), ''\), nullif\(btrim\(m\.evidence_url\), ''\)\) is not null/);
+});
