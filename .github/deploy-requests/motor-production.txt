@@ -15,3 +15,5 @@ Mandatory governance:
 - Runtime, Auth and safety smoke checks; stop on any failure.
 - Never fabricate human reviewer/credit qualification, write mock leads or bulk-promote CVM identities.
 - Do not enable dataset=all, delete production data or bypass Auth D-07.
+
+Preflight rechecked after PR #617: source view includes 85 CNPJs; user_profiles=0; ledger audit migration=0; new audit table absent. This release is a code/migration publication, not a human acceptance sign-off.
