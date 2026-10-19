@@ -134,7 +134,11 @@ const queueTabs: Array<{ value: QueueType; label: string; description: string }>
   { value: 'fidc_assignors', label: 'Cedentes FIDC', description: 'evidência CVM e revisão de ICP, sem promoção automática' },
 ];
 
-function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
+function FidcAssignorQueue({ headers, canReview, onReviewCnpj }: {
+  headers: Record<string, string>;
+  canReview: boolean;
+  onReviewCnpj: (cnpj: string) => void;
+}) {
   const [items, setItems] = useState<FidcReviewItem[]>([]);
   const [lane, setLane] = useState('business_model_due_diligence');
   const [query, setQuery] = useState('');
@@ -237,6 +241,11 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
                     <button type="button" className="secondary" onClick={() => void copyReviewChecklist(item)}>
                       Copiar checklist de diligência
                     </button>
+                    {canReview ? (
+                      <button type="button" className="secondary" onClick={() => onReviewCnpj(item.cnpj)}>
+                        Abrir ficha de parecer
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -250,6 +259,13 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
 
 export function CandidateDecisionQueuePage() {
   const { session, isGodMode } = useAuth();
+  const [reviewRequest, setReviewRequest] = useState<{ cnpj: string; version: number } | null>(null);
+
+  const openFidcReview = (cnpj: string) => {
+    if (!isGodMode) return;
+    setReviewRequest((current) => ({ cnpj, version: (current?.version ?? 0) + 1 }));
+    document.getElementById('fidc-human-review-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   const [queue, setQueue] = useState<QueueType>('commercial');
   const [priority, setPriority] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
@@ -343,7 +359,7 @@ export function CandidateDecisionQueuePage() {
         </div>
       </Card> : null}
 
-      {queue === 'fidc_assignors' ? <><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} /><FidcAssignorQueue headers={headers} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
+      {queue === 'fidc_assignors' ? <><section id="fidc-human-review-workspace" aria-label="Ficha de parecer FIDC"><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} reviewRequest={reviewRequest} /></section><FidcAssignorQueue headers={headers} canReview={isGodMode} onReviewCnpj={openFidcReview} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
         {loading ? <p className="table-helper">Calculando prioridade e próxima ação...</p> : items.length ? (
           <div className="fidc-table-wrap">
             <table className="dense-table">
