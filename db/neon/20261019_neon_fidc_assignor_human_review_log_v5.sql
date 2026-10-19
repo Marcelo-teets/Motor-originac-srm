@@ -24,11 +24,11 @@ create index if not exists fidc_assignor_human_reviews_cnpj_created_idx
 
 -- Audit integrity: a human review is a historical event, never edited in place.
 create or replace function public.reject_fidc_assignor_review_mutation_v5()
-returns trigger language plpgsql security invoker set search_path = '' as $
+returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
   raise exception 'fidc_review_history_is_immutable' using errcode = '55000';
 end;
-$;
+$$;
 drop trigger if exists fidc_assignor_review_immutable_v5 on public.fidc_assignor_human_reviews_v5;
 create trigger fidc_assignor_review_immutable_v5
   before update or delete on public.fidc_assignor_human_reviews_v5
