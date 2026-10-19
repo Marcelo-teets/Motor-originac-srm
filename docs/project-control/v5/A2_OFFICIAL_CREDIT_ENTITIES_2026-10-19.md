@@ -1,7 +1,7 @@
 # A2 — Captura de empresas reais com produto de crédito ou recebíveis (19/10/2026)
 
 ## Objetivo
-Substituir descobertas genéricas do portfólio de VC por **identidade jurídica e evidência contratual primária** para análise de originação. Incluídas quatro identidades operacionais novas na fila de **revisão de identidade** do Motor; a quinta (Creditas) **já existia** duas vezes no `discovered_company_candidates`, portanto recebe apenas enriquecimento rastreável, preservando origem Kaszek e o status anterior.
+Substituir descobertas genéricas do portfólio de VC por **identidade jurídica e evidência contratual primária** para análise de originação. **Esta migration é complementar à PR #624:** ela captura somente duas entidades adicionais (DM Instituição de Pagamento e RecargaPay Instituição de Pagamento), distintas das financeiras DM SCFI e RP Financeira já incluídas pela #624. Asaas e meutudo também já foram capturadas na #624. A Creditas **já existia** duas vezes em `discovered_company_candidates` e recebe apenas enriquecimento documental, preservando origem Kaszek e status anterior.
 
 A migration versionada `db/neon/20261019_neon_official_credit_diligence_a2.sql` usa apenas `discovered_company_candidates` e `search_profiles` existentes. Não cria um CRM paralelo e não escreve `companies`, `score_snapshots`, `qualification_snapshots`, `lead_score_snapshots`, `ranking_v2` ou `pipeline`.
 
@@ -30,4 +30,6 @@ A migration versionada `db/neon/20261019_neon_official_credit_diligence_a2.sql` 
 4. Verificar headcount e porte, política de crédito/risco, capital/ticket, funding gap e timing; registrar fonte, data e responsável.
 5. Registrar revisão de identidade de um usuário real autorizado, sem inserir empresas automaticamente; então `qualification → patterns → score → thesis → ranking → pipeline`.
 
-**Status:** 5 grupos em diligência, 0 novas empresas aprovadas, 0 pareceres humanos nesta migration. D-07 (bootstrap humano Auth) e A3–A8 continuam pendentes. A nova captura **não encerra o MVP**.
+**Status:** duas entidades de pagamento adicionais em diligência, duas capturas existentes da Creditas enriquecidas, quatro candidatas da PR #624 preservadas sem duplicação e cinco grupos de pesquisa, **zero empresas aprovadas automaticamente**, zero pareceres humanos nesta migration. D-07 (bootstrap humano Auth) e A3–A8 continuam pendentes. A nova captura **não encerra o MVP**.
+
+**Governança de merge:** a PR #624 foi mesclada durante o desenvolvimento desta adição. Verificar o merge da PR #626/release para confirmar as quatro entidades já capturadas e combinar allowlist e migration plan pela main atual, sem sobrescrever entradas de migrations revisadas.
