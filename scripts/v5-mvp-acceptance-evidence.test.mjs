@@ -51,3 +51,15 @@ test('candidate count alone is not equivalent to five finance-qualified opportun
   assert.equal(result.gates[2].status,'blocked');
   assert.equal(result.status,'blocked');
 });
+
+test('daily acceptance evidence workflow runs after its rollout and every day without modifying production', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workflow = readFileSync(new URL('../.github/workflows/v5-daily-acceptance-evidence.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /^on:\s*\n\s+push:\s*\n\s+branches: \[main\]/m);
+  assert.match(workflow, /\.github\/workflows\/v5-daily-acceptance-evidence\.yml/);
+  assert.match(workflow, /cron: '13 13 \* \* \*'/);
+  assert.match(workflow, /node scripts\/v5-mvp-acceptance-evidence\.mjs/);
+  assert.match(workflow, /scripts\/v5-mvp-acceptance-evidence\.test\.mjs/);
+  assert.match(workflow, /if-no-files-found: warn/);
+  assert.doesNotMatch(workflow, /\bMOTOR_AUTH_BOOTSTRAP_ENABLED\b|\bINSERT INTO\b|\bUPDATE public\./);
+});
