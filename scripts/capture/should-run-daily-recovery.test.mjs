@@ -43,7 +43,7 @@ test('daily recovery workflow cannot contain YAML-invalid plain run scalars with
 
 test('capture health only recognizes completed and persisted outputs', () => {
   const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
-  assert.match(source, /where status = 'completed' and outputs_written > 0/);
+  assert.match(source, /where r\.status = 'completed' and r\.outputs_written > 0/);
   assert.match(source, /recoveryDue\(latestEffectiveCapture, nowIso\)/);
   assert.doesNotMatch(source, /recoveryDue\(latestCronCapture, now\.toISOString\(\)\)/);
   const result = assessPersistedRecovery({ attempts: 6, completed: 4, effective: 2, outputsWritten: 8, release: 'verified' });
@@ -85,4 +85,13 @@ test('calendar-based health does not loosen current-invocation or Neon storage g
   assert.match(workflow, /CAPTURE_RECOVERY_STARTED_AT/);
   assert.match(workflow, /MAX_CAPTURE_TARGETS: '8'/);
   assert.match(workflow, /MAX_PARALLELISM: '1'/);
+});
+
+test('recovery gates require persisted outputs bound to completed runs on the same Sao Paulo date', () => {
+  const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
+  assert.equal((source.match(/m\\.run_id = r\\.id/g) ?? []).length, 2);
+  assert.match(source, /linked_outputs > 0/);
+  assert.match(source, /sum\\(linked_outputs\\)/);
+  assert.doesNotMatch(source, /sum\\(outputs_written\\) filter/);
+  assert.match(source, /m\\.captured_at at time zone 'America\\/Sao_Paulo'/);
 });
