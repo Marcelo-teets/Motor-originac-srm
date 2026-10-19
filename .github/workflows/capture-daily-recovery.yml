@@ -78,4 +78,6 @@ jobs:
         run: node scripts/capture/should-run-daily-recovery.mjs --verify
       - name: Report paused storage gate
         if: steps.storage.outputs.blocked == 'true'
-        run: echo 'Daily recovery paused by Neon storage guard: NOT an accepted healthy monitoring day.' >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        run: |
+          echo 'Daily recovery paused by Neon storage guard: NOT an accepted healthy monitoring day.' >> "$GITHUB_STEP_SUMMARY"
