@@ -51,3 +51,10 @@ test('monitoring outputs and source documents trace to their exact connector run
   assert.equal((persistence.match(/run_id: runRows\[index\]!\.id/g) ?? []).length, 2);
   assert.doesNotMatch(persistence, /runIdByCompany/);
 });
+
+test('the internal persisted connector run is stamped with its recovery release', () => {
+  assert.ok(persistence.includes("reason.startsWith('github_actions_direct_capture:')"));
+  assert.ok(persistence.includes("release: reason.slice('github_actions_direct_capture:'.length)"));
+  assert.ok(persistence.includes("run_id: runRows[index]!.id"));
+  assert.ok(runner.includes('github_actions_direct_capture:'));
+});
