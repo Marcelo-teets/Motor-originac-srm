@@ -1,20 +1,22 @@
-Motor Originação SRM — V5 first-party credit research intake
-Requested 2026-10-19 America/Sao_Paulo
-Baseline main 40d05c15807497c9912f2152aa0bf9bdfc4e0780; publish only the reviewed merge HEAD.
+Motor Originação SRM — A2 verified legal entity resolution for Brazilian credit origination
+Date: 2026-10-19 America/Sao_Paulo
+Base main: ea3a2fbf50bf2a62ce1008161b560233830a1282
+Deployment target: exact main HEAD after merge of this reviewed release request.
 
-Merged PR #624: four documented Brazilian legal entities captured for identity review.
-- Sources: first-party official contracts for Asaas, DM Financeira, TUDO/meutudo,
-  and RecargaPay's formal lender RP Financeira.
-- Creditas already exists in discovered_company_candidates; do not duplicate.
-- New candidates have status=captured, commercial_queue=false, human review pending,
-  no Company Master promotion and unknown funding gap/portfolio ownership/ticket.
-- Release the single reviewed migration:
-  db/neon/20261019_neon_first_party_credit_research_candidates_v5.sql
-- Idempotent insertion skips candidates with an existing non-discarded matching CNPJ,
-  uses partial dedupe_key index, requires valid CNPJ checksum and primary source.
-- No qualification, lead score, ranking, pipeline, invoice, deal, synthetic user
-  or human review inserts. No manual SQL or stack parallelism.
-- Require migrations ledger, CI/Neon parity, healthy budget, Vercel production READY,
-  runtime Auth and anonymous FIDC audit smoke, exact GitHub main SHA parity.
-- Human identity approval, regulatory verification and credit qualification remain
-  separate; D-07 first administrative signup requires a real user present.
+Business scope:
+- #624 and #626 already deployed four researched credit legal entities: Asaas IP,
+  DM SCFI, TUDO Serviços, RP Financeira (CNPJ and first-party documents).
+- #625 supplements the other legal entities DM Instituição de Pagamento
+  and RecargaPay Instituição de Pagamento and source-backed Creditas SCD evidence.
+- Approved migration: db/neon/20261019_neon_official_credit_diligence_a2.sql.
+- Maintain separately legal creditors, financial intermediaries and distributors.
+- Source-backed research CAPTURE only; no funding gap, ticket, risk, score or loan tape asserted.
+- Never create Company Master records, qualification snapshots, rankings,
+  pipeline records, user_profiles or human reviews on seed.
+
+Safety/release control:
+- Only official .github/workflows/vercel-production-deploy.yml via protected request merge.
+- Neon release allowlist, ledger, parity, storage guard; exact main SHA = Vercel READY.
+- Runtime, Auth smoke and four unauthenticated FIDC endpoint HTTP 401 checks.
+- RB-03/D-07 first god_mode user only with human present. Keep bootstrap closed.
+- Preserve existing five-group A2 documentation; CNPJ checksum alone is not RFB current status.
