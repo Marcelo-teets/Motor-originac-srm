@@ -4,6 +4,7 @@ import { Card, DataStatusBanner, EmptyState, PageIntro, Pill, Stat } from '../co
 import { useAuth } from '../lib/auth';
 import { safeExternalUrl } from '../lib/safeUrl';
 import { buildApiUrl } from '../lib/runtimeConfig';
+import { FidcHumanReviewPanel } from '../components/FidcHumanReviewPanel';
 
 type QueueType = 'commercial' | 'identity' | 'market_map' | 'promoted' | 'fidc_assignors';
 
@@ -218,7 +219,7 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
 }
 
 export function CandidateDecisionQueuePage() {
-  const { session } = useAuth();
+  const { session, isGodMode } = useAuth();
   const [queue, setQueue] = useState<QueueType>('commercial');
   const [priority, setPriority] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
@@ -312,7 +313,7 @@ export function CandidateDecisionQueuePage() {
         </div>
       </Card>
 
-      {queue === 'fidc_assignors' ? <FidcAssignorQueue headers={headers} /> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
+      {queue === 'fidc_assignors' ? <><FidcAssignorQueue headers={headers} /><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
         {loading ? <p className="table-helper">Calculando prioridade e próxima ação...</p> : items.length ? (
           <div className="fidc-table-wrap">
             <table className="dense-table">
