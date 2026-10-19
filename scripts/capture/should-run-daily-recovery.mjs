@@ -46,13 +46,37 @@ export const checkDailyRecovery = async ({
   }
 };
 
+
+export const verifyPersistedRecovery = async ({
+  connectionString = process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL,
+  release = process.env.CAPTURE_RELEASE || 'motor-v5-daily-recovery',
+} = {}) => {
+  if (!connectionString) throw new Error('Missing Neon credentials for recovery audit verification');
+  if (!new URL(connectionString).hostname.endsWith('.neon.tech')) throw new Error('Recovery audit verification must use Neon');
+  const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 8_000, statement_timeout: 8_000 });
+  try {
+    const { rows } = await pool.query(`
+      select count(*)::integer as attempts,
+             count(*) filter (where status='completed')::integer as completed
+      from public.source_connector_runs
+      where scope_type='company' and trigger_type='cron'
+        and started_at >= now() - interval '45 minutes'
+        and metadata->>'release' = $1
+    `, [release]);
+    const attempts = Number(rows[0]?.attempts ?? 0);
+    if (attempts === 0) throw new Error('Recovery runner returned without persisting any real company-source attempts');
+    return { passed: true, attempts, completed: Number(rows[0]?.completed ?? 0), release };
+  } finally { await pool.end(); }
+};
+
 const isDirect = Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href);
 if (isDirect) {
-  checkDailyRecovery().then((result) => {
+  const command = process.argv.includes('--verify') ? verifyPersistedRecovery() : checkDailyRecovery();
+  command.then((result) => {
     const output = JSON.stringify(result);
     console.log(output);
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nreason=${result.reason}\n`);
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Daily bounded capture recovery\n\n- Run required: ${result.run}\n- Last cron company capture: ${result.latestCronCapture ?? 'none'}\n- Cooldown: ${result.cooldownHours}h\n- Reason: ${result.reason}\n\n`);
+    if (process.env.GITHUB_OUTPUT && 'run' in result) appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nreason=${result.reason}\n`);
+    if (process.env.GITHUB_STEP_SUMMARY && 'run' in result) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Daily bounded capture recovery\n\n- Run required: ${result.run}\n- Last cron company capture: ${result.latestCronCapture ?? 'none'}\n- Cooldown: ${result.cooldownHours}h\n- Reason: ${result.reason}\n\n`);
   }).catch((error) => {
     console.error(error instanceof Error ? error.stack : String(error));
     process.exitCode = 1;
