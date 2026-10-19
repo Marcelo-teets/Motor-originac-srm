@@ -313,7 +313,7 @@ export function CandidateDecisionQueuePage() {
         </div>
       </Card>
 
-      {queue === 'fidc_assignors' ? <><FidcAssignorQueue headers={headers} /><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
+      {queue === 'fidc_assignors' ? <><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} /><FidcAssignorQueue headers={headers} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
         {loading ? <p className="table-helper">Calculando prioridade e próxima ação...</p> : items.length ? (
           <div className="fidc-table-wrap">
             <table className="dense-table">
