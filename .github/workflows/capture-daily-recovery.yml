@@ -70,10 +70,16 @@ jobs:
         id: due
         if: steps.storage.outputs.blocked != 'true'
         run: node scripts/capture/should-run-daily-recovery.mjs
-      - name: Capture only when no recent direct cron audit exists
+      - name: Mark start of this recovery invocation
+        if: steps.storage.outputs.blocked != 'true' && steps.due.outputs.run == 'true'
+        shell: bash
+        run: echo "CAPTURE_RECOVERY_STARTED_AT=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - name: Capture only when no recent EFFECTIVE direct cron audit exists
         if: steps.storage.outputs.blocked != 'true' && steps.due.outputs.run == 'true'
         run: bash scripts/capture/bounded-capture-fanout.sh
-      - name: Confirm actual capture audit persisted
+      - name: Confirm this invocation persisted completed capture with outputs
+        # Historical releases or empty status=completed attempts do not satisfy health.
+
         if: steps.storage.outputs.blocked != 'true' && steps.due.outputs.run == 'true'
         run: node scripts/capture/should-run-daily-recovery.mjs --verify
       - name: Report paused storage gate
