@@ -22,6 +22,9 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     ? null : count(key);
   const diagnostics = {
     totalConnectorRuns: diagnosticCount('total_connector_runs'),
+    authIdentityCount: diagnosticCount('auth_identity_count'),
+    authIdentitiesWithoutProfile: diagnosticCount('auth_identities_without_profile'),
+    bootstrapClaims: diagnosticCount('bootstrap_claims'),
     totalMonitoringOutputs: diagnosticCount('total_monitoring_outputs'),
     outputsWithoutRunId: diagnosticCount('orphan_monitoring_outputs'),
     lastConnectorStartedAt: metrics.last_connector_started_at ?? null,
@@ -70,6 +73,12 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     diagnostics,
     warnings: [
       'Counts do not establish opportunity quality; human credit review and final institutional signoff remain mandatory.',
+      ...(diagnostics.authIdentitiesWithoutProfile !== null && diagnostics.authIdentitiesWithoutProfile > 0
+        ? [`${diagnostics.authIdentitiesWithoutProfile} Neon Auth identities have no institutional profile. D-07 requires the controlled human bootstrap procedure.`]
+        : []),
+      ...(administratorCount === 0 && diagnostics.authIdentityCount === 0 && diagnostics.bootstrapClaims === 0
+        ? ['D-07 initial administrator is not enrolled. The bootstrap must be attended by the authorized person and switched off immediately after enrollment.']
+        : []),
       ...(diagnostics.outputsWithoutRunId !== null && diagnostics.outputsWithoutRunId > 0
         ? [`${diagnostics.outputsWithoutRunId} monitoring outputs lack run_id and cannot satisfy A7 lineage.`]
         : []),
@@ -100,6 +109,9 @@ select
  ) as fidc_human_reviews,
  (select count(*) from public.discovered_company_candidates) as candidates,
  (select count(*) from public.source_connector_runs) as total_connector_runs,
+ (select count(*) from neon_auth."user") as auth_identity_count,
+ (select count(*) from neon_auth."user" au where not exists (select 1 from public.user_profiles up where up.id::text = au.id::text)) as auth_identities_without_profile,
+ (select count(*) from private.auth_bootstrap_claim) as bootstrap_claims,
  (select count(*) from public.monitoring_outputs) as total_monitoring_outputs,
  (select count(*) from public.monitoring_outputs where run_id is null) as orphan_monitoring_outputs,
  (select max(started_at) from public.source_connector_runs) as last_connector_started_at,
@@ -200,6 +212,10 @@ export const formatV5AcceptanceSummary = (report) => [
   '| Gate | Situação | Evidência |',
   '| --- | --- | --- |',
   ...report.gates.map(g => `| ${g.gate} | ${g.status} | ${JSON.stringify(g.evidence).replaceAll('|', '/')} |`),
+  '',
+  '### Diagnóstico de Auth e bootstrap (não cria usuários)',
+  `Identidades Neon Auth: ${report.diagnostics?.authIdentityCount ?? 'indisponível'}; sem perfil institucional: ${report.diagnostics?.authIdentitiesWithoutProfile ?? 'indisponível'}; reivindicações bootstrap: ${report.diagnostics?.bootstrapClaims ?? 'indisponível'}.`,
+  'Ativação humana: consultar docs/AUTH_USER_PROFILES_RUNBOOK.md e RB-03 em docs/project-control/v5/RUNBOOKS_OPERACAO_V5.md.',
   '',
   '### Diagnóstico de rastreabilidade (não concede aprovação)',
   `Execuções registradas: ${report.diagnostics?.totalConnectorRuns ?? 'indisponível'}; outputs: ${report.diagnostics?.totalMonitoringOutputs ?? 'indisponível'}; sem run_id: ${report.diagnostics?.outputsWithoutRunId ?? 'indisponível'}.`,
