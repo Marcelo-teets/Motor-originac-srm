@@ -316,12 +316,12 @@ export function CandidateDecisionQueuePage() {
       <DataStatusBanner source="real" note="A fila é calculada no Neon com lineage, CNPJ, evento, recência, volume, identidade e semântica econômica da entidade." />
       {error ? <Card title="Falha operacional" subtitle="Nenhuma decisão foi executada" tone="accent">{error}</Card> : null}
 
-      <section className="grid cols-4">
+      {queue !== 'fidc_assignors' ? <section className="grid cols-4">
         <Card title="Fila comercial" subtitle="Emissores operacionais"><Stat label="Candidatas" value={String(stats.commercialCandidates)} helper={`${stats.p1Commercial} P1 · ${stats.p2Commercial} P2`} /></Card>
         <Card title="Mapa de estruturas" subtitle="Veículos e intermediários"><Stat label="Registros" value={String(stats.marketMapCandidates)} helper="usar para encontrar a parte econômica" /></Card>
         <Card title="Identidade" subtitle="Reconciliação pendente"><Stat label="Candidatas" value={String(stats.identityCandidates)} helper={`${stats.validCnpj} CNPJs válidos no universo`} /></Card>
         <Card title="Company Master" subtitle="Entidades promovidas"><Stat label="Empresas" value={String(stats.promotedCandidates)} helper={`${stats.promotionReady} prontas para finalização humana`} /></Card>
-      </section>
+      </section> : null}
 
       <Card title="Filas de decisão" subtitle="Cada registro tem uma finalidade econômica diferente" className="dense-card">
         <div className="decision-strip">
