@@ -1,0 +1,81 @@
+name: Capture Daily Recovery
+
+# Runs the EXISTING bounded capture engine only if no company cron capture
+# has been recorded in the past 20 hours. This is a safety-net for skipped
+# GitHub schedules, not a parallel ingestion system.
+on:
+  schedule:
+    - cron: '25 13 * * *'
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/capture-daily-recovery.yml'
+      - 'scripts/capture/should-run-daily-recovery.mjs'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/capture-daily-recovery.yml'
+      - 'scripts/capture/should-run-daily-recovery.mjs'
+      - 'scripts/capture/should-run-daily-recovery.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: motor-capture-daily-recovery
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test scripts/capture/should-run-daily-recovery.test.mjs
+
+  capture:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      CAPTURE_CADENCE: daily
+      CAPTURE_RELEASE: motor-v5-daily-recovery
+      MAX_CAPTURE_TARGETS: '8'
+      MAX_PARALLELISM: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install existing runtime dependencies
+        run: npm ci --ignore-scripts
+      - name: Load canonical Neon connection from Vercel vault
+        run: bash scripts/load-neon-from-vercel.sh
+      - name: Validate storage budget for bounded recovery
+        id: storage
+        run: node scripts/check-neon-storage-budget.mjs --requested-rows=8 --trigger=schedule
+      - name: Check if daily recovery is needed
+        id: due
+        if: steps.storage.outputs.blocked != 'true'
+        run: node scripts/capture/should-run-daily-recovery.mjs
+      - name: Capture only when no recent direct cron audit exists
+        if: steps.storage.outputs.blocked != 'true' && steps.due.outputs.run == 'true'
+        run: bash scripts/capture/bounded-capture-fanout.sh
+      - name: Confirm actual capture audit persisted
+        if: steps.storage.outputs.blocked != 'true' && steps.due.outputs.run == 'true'
+        run: node scripts/capture/should-run-daily-recovery.mjs --verify
+      - name: Report paused storage gate
+        if: steps.storage.outputs.blocked == 'true'
+        run: echo 'Daily recovery paused by Neon storage guard: NOT an accepted healthy monitoring day.' >> "$GITHUB_STEP_SUMMARY"
