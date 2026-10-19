@@ -11,6 +11,9 @@ declare
   v_guard constant text := $guard$
       -- A2 evidence-only records are pending human legal-entity reconciliation.
       and lower(coalesce(c.raw_payload->>'human_identity_review_required','false')) <> 'true'
+      and lower(coalesce(c.raw_payload->>'humanApprovalRequired','false')) <> 'true'
+      and lower(coalesce(c.raw_payload->>'companyMasterPromotionAuthorized','true')) <> 'false'
+      and lower(coalesce(c.raw_payload->>'identity_review_status','')) <> 'pending'
       and lower(coalesce(c.raw_payload #>> '{official_corporate_terms,human_identity_review_required}','false')) <> 'true'
       and lower(coalesce(c.raw_payload->>'commercial_queue','true')) <> 'false'$guard$;
 begin
