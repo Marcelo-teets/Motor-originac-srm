@@ -1,29 +1,23 @@
-Motor Originação SRM — production parity after capture recovery + V5 daily acceptance evidence
-Requested: 2026-10-19 America/Sao_Paulo
-Reviewed main baseline: dc2872a1d24c298ab29b32b3d9dec82964f4348d
-Release target: EXACT HEAD main SHA created by merging this request.
+Motor Originação SRM — release official daily capture effectiveness gate
+Requested 2026-10-19 America/Sao_Paulo
+Reviewed main baseline: 3a356e31eadad52c933c5ac36a835b2ce94c695a
+Required release SHA: exact main merge-commit of THIS reviewed release request.
 
-Recent merged PRs:
-- #633: bounded daily recovery on existing company/source CaptureRuntimeService with
-  Neon storage budget guard, max 8 targets, parallelism 1 and real per-attempt audit.
-- #634: repaired invalid GitHub Actions YAML, real capture on run 39318043951.
-  Neon source_connector_runs: 6 release-tagged attempts, 4 outputs on first run.
-- #632: read-only seven-day acceptance evidence for Auth, FIDC human reviews, five
-  companies with complete Gold provenance and uninterrupted monitoring.
-- #635: one-time trigger to verify the daily acceptance workflow; run 39318651278
-  succeeded and reported blocked gates as expected, no synthetic approvals.
-
-Observed production SHA mismatch:
-- main dc2872a1d24c298ab29b32b3d9dec82964f4348d
-- Vercel READY before request d0c29c6db32b070d8fa6bade08d2c9b6d2b66fe2
-- Production Auth Smoke run 39318893822 failed ONLY due SHA mismatch.
-This release must restore exact SHA parity and pass the standard runtime/Neon/Auth/FIDC
-smokes via .github/workflows/vercel-production-deploy.yml.
-
-Constraints:
-- Do not enable privileged sign-up: RB-03/D-07 requires a real human owner present.
-- Do not fabricate reviews, eligible receivables, funding gap, scores, ranking or pipeline.
-- No manual SQL, destructive changes, dataset=all, parallel stack or direct Vercel deploy.
-- Require official migration allowlist, Neon storage healthy, READY SHA parity and Auth smoke.
-- The product remains acceptance-blocked until a real reviewer + 7 elapsed days + five
-  evidence-backed DCM opportunities and final institutional signoff.
+Scope:
+- #639: on Sao Paulo calendar days, run the next day's 10:25 BRT recovery even
+  if yesterday's late capture was under 20h ago; retain an eight-hour minimum
+  safety gap and block extra captures once today's effective output exists.
+- #637: count an actual successful company-source cron only when status=completed
+  AND outputs_written>0; failed/partial/zero-output runs cannot suppress recovery.
+- Verify only the current recovery invocation with CAPTURE_RECOVERY_STARTED_AT,
+  completed status and strictly positive persisted outputs. An older successful
+  execution with the same release label cannot pass this new gate.
+- Same existing bounded CaptureRuntimeService and 8 targets/1 parallelism.
+- GitHub Actions Capture Daily Recovery #39320715713 SUCCESS; production Neon
+  healthy budget guard, latest effective 2026-10-19T20:18:01Z, legitimate skip
+  because a real effective capture already existed on that São Paulo calendar day.
+- No database migration or business write, no auth bootstrap and no mock data.
+- All production CI, Neon budget/parity, Vercel immutable prebuild,
+  runtime/Auth and FIDC anonymous 401 smoke checks remain mandatory.
+- Do not claim seven elapsed days, five credit-qualified opportunities or human
+  acceptance as a result of this deployment.
