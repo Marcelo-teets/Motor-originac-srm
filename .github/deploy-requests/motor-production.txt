@@ -18,3 +18,14 @@ Merged PR #624: four documented Brazilian legal entities captured for identity r
   runtime Auth and anonymous FIDC audit smoke, exact GitHub main SHA parity.
 - Human identity approval, regulatory verification and credit qualification remain
   separate; D-07 first administrative signup requires a real user present.
+
+
+Release request 2026-10-19 — A2 identity-only credit candidates (#625)
+Main baseline ea3a2fbf50bf2a62ce1008161b560233830a1282; deploy exact resulting main SHA after approval and merge.
+New migration: db/neon/20261019_neon_official_credit_diligence_a2.sql;
+adds only two identity-pending corporate candidates (DM IP, RecargaPay IP) and
+source-backed legal-name/CNPJ reconciliation for existing Creditas captures.
+Financial group lenders remain distinct: DM Financeira, RP Financeira and the IPs.
+No scores, qualification, reviewer, company master or pipeline writes.
+Official pipeline gates: approved migration allowlist, Neon parity, storage guard,
+Vercel READY SHA, production health & Auth smoke. Human review D-07 is pending.
