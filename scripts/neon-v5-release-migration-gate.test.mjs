@@ -48,6 +48,8 @@ test('FIDC human review migration enforces source, role, append-only audit and n
   const sql = readFileSync(path, 'utf8');
   assert.match(sql, /create table if not exists public\.fidc_assignor_human_reviews_v5/i);
   assert.match(sql, /enable row level security/i);
+  assert.match(sql, /before update or delete on public\.fidc_assignor_human_reviews_v5/i);
+  assert.match(sql, /fidc_review_history_is_immutable/);
   assert.match(sql, /security invoker/i);
   assert.match(sql, /request\.jwt\.claim\.sub/);
   assert.match(sql, /u\.role = 'god_mode'/);
