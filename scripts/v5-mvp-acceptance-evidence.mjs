@@ -17,6 +17,16 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
   const administratorCount = count('active_admins');
   const humanReviewCount = count('fidc_human_reviews');
   const goldQualifiedCount = count('evidence_complete_companies');
+  // Diagnostics describe observed lineage debt without granting any acceptance gate.
+  const diagnosticCount = (key) => metrics[key] === undefined || metrics[key] === null
+    ? null : count(key);
+  const diagnostics = {
+    totalConnectorRuns: diagnosticCount('total_connector_runs'),
+    totalMonitoringOutputs: diagnosticCount('total_monitoring_outputs'),
+    outputsWithoutRunId: diagnosticCount('orphan_monitoring_outputs'),
+    lastConnectorStartedAt: metrics.last_connector_started_at ?? null,
+    lastOutputCapturedAt: metrics.last_output_captured_at ?? null,
+  };
   const normalizedDays = monitoringDays.map((row) => {
     const sourceRuns = Number(row.successful_connector_runs);
     const connectorOutputs = Number(row.connector_outputs);
@@ -57,7 +67,13 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     schema: 'motor.v5.acceptance-evidence.1',
     status: gates.every(x => x.status === 'verified') ? 'awaiting_final_human_signoff' : 'blocked',
     gates,
-    warnings: ['Counts do not establish opportunity quality; human credit review and final institutional signoff remain mandatory.'],
+    diagnostics,
+    warnings: [
+      'Counts do not establish opportunity quality; human credit review and final institutional signoff remain mandatory.',
+      ...(diagnostics.outputsWithoutRunId !== null && diagnostics.outputsWithoutRunId > 0
+        ? [`${diagnostics.outputsWithoutRunId} monitoring outputs lack run_id and cannot satisfy A7 lineage.`]
+        : []),
+    ],
   };
 };
 
@@ -66,6 +82,11 @@ select
  (select count(*) from public.user_profiles where status = 'active' and role = 'god_mode') as active_admins,
  (select count(*) from public.fidc_assignor_human_reviews_v5) as fidc_human_reviews,
  (select count(*) from public.discovered_company_candidates) as candidates,
+ (select count(*) from public.source_connector_runs) as total_connector_runs,
+ (select count(*) from public.monitoring_outputs) as total_monitoring_outputs,
+ (select count(*) from public.monitoring_outputs where run_id is null) as orphan_monitoring_outputs,
+ (select max(started_at) from public.source_connector_runs) as last_connector_started_at,
+ (select max(captured_at) from public.monitoring_outputs) as last_output_captured_at,
  (select count(*) from public.discovered_company_candidates where metadata->>'researchCohort'='fidc_dcm_first_party_credit_v5') as first_party_research_candidates,
  (select count(*) from public.companies c
    where exists (select 1 from public.company_credit_reviews r where r.company_id=c.id and r.status='approved')
@@ -139,6 +160,10 @@ export const formatV5AcceptanceSummary = (report) => [
   '| Gate | Situação | Evidência |',
   '| --- | --- | --- |',
   ...report.gates.map(g => `| ${g.gate} | ${g.status} | ${JSON.stringify(g.evidence).replaceAll('|', '/')} |`),
+  '',
+  '### Diagnóstico de rastreabilidade (não concede aprovação)',
+  `Execuções registradas: ${report.diagnostics?.totalConnectorRuns ?? 'indisponível'}; outputs: ${report.diagnostics?.totalMonitoringOutputs ?? 'indisponível'}; sem run_id: ${report.diagnostics?.outputsWithoutRunId ?? 'indisponível'}.`,
+  `Última execução: ${report.diagnostics?.lastConnectorStartedAt ?? 'indisponível'}; última captura: ${report.diagnostics?.lastOutputCapturedAt ?? 'indisponível'}.`,
   '',
   'Não declarar 100% sem sign-off institucional, aprovação humana e sete dias completos de monitoramento real.',
   '',
