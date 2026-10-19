@@ -27,3 +27,14 @@ Constraints:
 - Require official migration allowlist, Neon storage healthy, READY SHA parity and Auth smoke.
 - The product remains acceptance-blocked until a real reviewer + 7 elapsed days + five
   evidence-backed DCM opportunities and final institutional signoff.
+
+
+Governed release request — A2 identity opt-out, 2026-10-19.
+Baseline main 07b32da1d33ae5613a1fa3672d69636714d81d0b. Pin EXACT current main SHA after reviewed PR merge.
+Release PR #640: block deterministic candidate auto-promotion for human-identity-review-required,
+identity_review_status=pending, commercial_queue=false and companyMasterPromotionAuthorized=false.
+Migration db/neon/20261019_neon_a2_human_identity_autoresolver_guard.sql is allowlisted.
+Apply only from existing migration ledger + production workflow; no SQL outside pipeline.
+Keep no synthetic users/reviews/scores, do not activate D-07 admin without human present.
+Verify Neon PG function guard, no increased Company Master, Vercel READY SHA parity,
+Auth and anonymous denial smoke; if any gate fails do not treat deploy as complete.
