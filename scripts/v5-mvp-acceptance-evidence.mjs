@@ -125,6 +125,10 @@ with calendar as (
  join public.source_connector_runs r on r.id = m.run_id
    and r.status = 'completed'
    and r.outputs_written > 0
+   and m.connector_status = 'real'
+   and m.status = 'processed'
+   and m.observed_vs_inferred = 'observed'
+   and coalesce(nullif(btrim(m.url), ''), nullif(btrim(m.evidence_url), '')) is not null
    and (r.started_at at time zone 'America/Sao_Paulo')::date
      = (m.captured_at at time zone 'America/Sao_Paulo')::date
  group by 1
