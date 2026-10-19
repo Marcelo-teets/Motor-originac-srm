@@ -4,6 +4,9 @@ Reviewed main baseline: 3a356e31eadad52c933c5ac36a835b2ce94c695a
 Required release SHA: exact main merge-commit of THIS reviewed release request.
 
 Scope:
+- #639: on Sao Paulo calendar days, run the next day's 10:25 BRT recovery even
+  if yesterday's late capture was under 20h ago; retain an eight-hour minimum
+  safety gap and block extra captures once today's effective output exists.
 - #637: count an actual successful company-source cron only when status=completed
   AND outputs_written>0; failed/partial/zero-output runs cannot suppress recovery.
 - Verify only the current recovery invocation with CAPTURE_RECOVERY_STARTED_AT,
@@ -12,7 +15,7 @@ Scope:
 - Same existing bounded CaptureRuntimeService and 8 targets/1 parallelism.
 - GitHub Actions Capture Daily Recovery #39320715713 SUCCESS; production Neon
   healthy budget guard, latest effective 2026-10-19T20:18:01Z, legitimate skip
-  because cooldown=20h has not elapsed.
+  because a real effective capture already existed on that São Paulo calendar day.
 - No database migration or business write, no auth bootstrap and no mock data.
 - All production CI, Neon budget/parity, Vercel immutable prebuild,
   runtime/Auth and FIDC anonymous 401 smoke checks remain mandatory.
