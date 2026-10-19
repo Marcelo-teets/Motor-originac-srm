@@ -63,3 +63,11 @@ test('daily acceptance evidence workflow runs after its rollout and every day wi
   assert.match(workflow, /if-no-files-found: warn/);
   assert.doesNotMatch(workflow, /\bMOTOR_AUTH_BOOTSTRAP_ENABLED\b|\bINSERT INTO\b|\bUPDATE public\./);
 });
+
+test('seven healthy calendar dates with a missing date do not count as consecutive', () => {
+  const m={...metrics,active_admins:1,fidc_human_reviews:2,evidence_complete_companies:5};
+  const healthy=sevenElapsed().map(d=>({...d,successful_connector_runs:1,connector_outputs:1,monitoring_outputs:1}));
+  healthy[3]={...healthy[3],local_day:'2026-10-11'};
+  const evaluated=evaluateV5Acceptance({metrics:m,monitoringDays:healthy});
+  assert.equal(evaluated.gates.find(g=>g.gate==='A7').status,'blocked');
+});
