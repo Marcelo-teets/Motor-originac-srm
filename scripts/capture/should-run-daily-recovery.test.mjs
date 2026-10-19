@@ -89,9 +89,9 @@ test('calendar-based health does not loosen current-invocation or Neon storage g
 
 test('recovery gates require persisted outputs bound to completed runs on the same Sao Paulo date', () => {
   const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
-  assert.equal((source.match(/m\\.run_id = r\\.id/g) ?? []).length, 2);
+  assert.equal((source.match(/m\.run_id = r\.id/g) ?? []).length, 2);
   assert.match(source, /linked_outputs > 0/);
-  assert.match(source, /sum\\(linked_outputs\\)/);
-  assert.doesNotMatch(source, /sum\\(outputs_written\\) filter/);
-  assert.match(source, /m\\.captured_at at time zone 'America\\/Sao_Paulo'/);
+  assert.match(source, /sum\(linked_outputs\)/);
+  assert.doesNotMatch(source, /sum\(outputs_written\) filter/);
+  assert.match(source, /m\.captured_at at time zone 'America\/Sao_Paulo'/);
 });
