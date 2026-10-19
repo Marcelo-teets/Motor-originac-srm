@@ -150,3 +150,17 @@ test('A2 counts only attributed source-backed reviews by a verified human user',
   assert.match(s,/char_length\(btrim\(r\.next_action\)\) >= 10/);
   assert.match(s,/r\.cvm_evidence_url like 'https:\/\/%'/);
 });
+
+test('A3-A5 needs verified CNPJ, provenance and human-approved credit evidence before counting a gold company', async () => {
+  const {readFileSync}=await import('node:fs');
+  const sql=readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs',import.meta.url),'utf8');
+  const block=sql.split('(select count(*) from public.companies c')[1]?.split(') as evidence_complete_companies')[0];
+  assert.ok(block, 'gold company acceptance SQL block must exist');
+  assert.match(block,/c\.cnpj_valid is true/);
+  assert.match(block,/c\.source_trace <> '\{\}'::jsonb/);
+  assert.match(block,/join public\.user_profiles p on p\.id = r\.reviewer_user_id/);
+  assert.match(block,/join neon_auth\."user" u on u\.id = p\.id/);
+  assert.match(block,/r\.reviewed_at is not null/);
+  assert.match(block,/r\.evidence is not null/);
+  assert.match(block,/r\.status='approved'/);
+});

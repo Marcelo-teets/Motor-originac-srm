@@ -106,7 +106,26 @@ select
  (select max(captured_at) from public.monitoring_outputs) as last_output_captured_at,
  (select count(*) from public.discovered_company_candidates where metadata->>'researchCohort'='fidc_dcm_first_party_credit_v5') as first_party_research_candidates,
  (select count(*) from public.companies c
-   where exists (select 1 from public.company_credit_reviews r where r.company_id=c.id and r.status='approved')
+   where c.cnpj_valid is true
+     and c.source_trace is not null
+     and jsonb_typeof(c.source_trace) in ('object', 'array')
+     and c.source_trace <> '{}'::jsonb
+     and c.source_trace <> '[]'::jsonb
+     and exists (select 1 from public.company_credit_reviews r
+       join public.user_profiles p on p.id = r.reviewer_user_id
+       join neon_auth."user" u on u.id = p.id
+       where r.company_id=c.id and r.status='approved'
+         and r.reviewed_at is not null
+         and p.status='active'
+         and u."emailVerified" = true
+         and coalesce(u.banned, false)=false
+         and char_length(btrim(r.rationale)) >= 30
+         and char_length(btrim(r.next_action)) >= 10
+         and r.evidence is not null
+         and r.evidence <> '{}'::jsonb
+         and r.evidence <> '[]'::jsonb
+         and r.evidence <> 'null'::jsonb
+     )
      and exists (select 1 from public.qualification_snapshots q where q.company_id=c.id)
      and exists (select 1 from public.company_patterns p where p.company_id=c.id)
      and exists (select 1 from public.score_snapshots s where s.company_id=c.id)
