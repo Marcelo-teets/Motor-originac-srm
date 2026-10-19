@@ -63,3 +63,28 @@ test('daily acceptance evidence workflow runs after its rollout and every day wi
   assert.match(workflow, /if-no-files-found: warn/);
   assert.doesNotMatch(workflow, /\bMOTOR_AUTH_BOOTSTRAP_ENABLED\b|\bINSERT INTO\b|\bUPDATE public\./);
 });
+
+test('A7 refuses seven healthy but non-consecutive dates', () => {
+  const healthy = sevenElapsed().map(day => ({
+    ...day, successful_connector_runs: 1, connector_outputs: 1, monitoring_outputs: 1,
+  }));
+  const withGap = healthy.map((day, index) =>
+    index === 3 ? { ...day, local_day: '2026-10-08' } : day);
+  const result = evaluateV5Acceptance({ metrics, monitoringDays: withGap });
+  assert.equal(result.gates.find(gate => gate.gate === 'A7')?.status, 'blocked');
+});
+
+test('A7 rejects impossible calendar dates rather than silently slicing malformed input', () => {
+  const invalidDays = sevenElapsed();
+  invalidDays[0] = { ...invalidDays[0], local_day: '2026-02-30' };
+  assert.throws(() => evaluateV5Acceptance({ metrics, monitoringDays: invalidDays }), /Invalid monitoring date/);
+});
+
+test('A7 only accepts outputs linked to successful connector runs from the same local date', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs', import.meta.url), 'utf8');
+  assert.match(source, /join public\.source_connector_runs r on r\.id = m\.run_id/);
+  assert.match(source, /r\.status = 'completed'/);
+  assert.match(source, /r\.outputs_written > 0/);
+  assert.match(source, /r\.started_at at time zone 'America\/Sao_Paulo'/);
+});
