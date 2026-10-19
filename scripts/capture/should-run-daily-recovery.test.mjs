@@ -44,7 +44,7 @@ test('daily recovery workflow cannot contain YAML-invalid plain run scalars with
 test('capture health only recognizes completed and persisted outputs', () => {
   const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
   assert.match(source, /where status = 'completed' and outputs_written > 0/);
-  assert.match(source, /recoveryDue\(latestEffectiveCapture, now\.toISOString\(\)\)/);
+  assert.match(source, /recoveryDue\(latestEffectiveCapture, nowIso\)/);
   assert.doesNotMatch(source, /recoveryDue\(latestCronCapture, now\.toISOString\(\)\)/);
   const result = assessPersistedRecovery({ attempts: 6, completed: 4, effective: 2, outputsWritten: 8, release: 'verified' });
   assert.deepEqual(result, { passed: true, attempts: 6, completed: 4, effective: 2, outputsWritten: 8, release: 'verified' });
