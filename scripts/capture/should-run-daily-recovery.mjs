@@ -4,21 +4,36 @@ import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const { Pool } = pg;
-export const CAPTURE_COOLDOWN_HOURS = 20;
+export const MIN_RECOVERY_GAP_HOURS = 8;
+export const CAPTURE_RECOVERY_TIMEZONE = 'America/Sao_Paulo';
+
+const saoPauloDay = (iso) => {
+  const date = new Date(iso);
+  assert.ok(!Number.isNaN(date.getTime()), 'Invalid calendar timestamp');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CAPTURE_RECOVERY_TIMEZONE, year: 'numeric',
+    month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
 
 /**
- * Scheduling guard only: DO NOT infer this proves source health or successful
- * capture. The existing bounded runner records real results separately.
+ * A seven-calendar-day SLA is not a rolling 20-hour SLA. A successful run
+ * yesterday afternoon must not block today's 10:25 BRT recovery. But we
+ * require a minimum 8-hour safety gap and at most one effective run per
+ * São Paulo calendar day. Storage budget and bounded batch also gate writes.
  */
-export const recoveryDue = (latestIso, nowIso, cooldownHours = CAPTURE_COOLDOWN_HOURS) => {
+export const recoveryDue = (latestIso, nowIso, minimumGapHours = MIN_RECOVERY_GAP_HOURS) => {
   const now = Date.parse(nowIso);
   assert.ok(Number.isFinite(now), 'nowIso must be a valid timestamp');
-  assert.ok(Number.isFinite(cooldownHours) && cooldownHours > 0);
+  assert.ok(Number.isFinite(minimumGapHours) && minimumGapHours > 0);
   if (latestIso == null) return true;
   const latest = Date.parse(latestIso);
   if (!Number.isFinite(latest)) throw new Error('Invalid latest capture timestamp');
   if (latest > now) throw new Error('Capture timestamp is in the future');
-  return now - latest >= cooldownHours * 60 * 60 * 1000;
+  if (saoPauloDay(latestIso) === saoPauloDay(nowIso)) return false;
+  return now - latest >= minimumGapHours * 60 * 60 * 1000;
 };
 
 export const checkDailyRecovery = async ({
@@ -44,11 +59,17 @@ export const checkDailyRecovery = async ({
     const latestEffectiveCapture = asIso(rows[0]?.latest_effective_capture);
     // Failures, partial executions and zero-output completions must NOT
     // suppress today's recovery. A recent healthy capture does suppress it.
-    const run = recoveryDue(latestEffectiveCapture, now.toISOString());
+    const nowIso = now.toISOString();
+    const run = recoveryDue(latestEffectiveCapture, nowIso);
+    const capturedToday = latestEffectiveCapture != null
+      && saoPauloDay(latestEffectiveCapture) === saoPauloDay(nowIso);
     return {
-      run, latestCronCapture, latestEffectiveCapture, now: now.toISOString(),
-      cooldownHours: CAPTURE_COOLDOWN_HOURS,
-      reason: run ? 'no_effective_company_capture_during_cooldown' : 'recent_company_capture_with_outputs',
+      run, latestCronCapture, latestEffectiveCapture, now: nowIso,
+      localDate: saoPauloDay(nowIso), timeZone: CAPTURE_RECOVERY_TIMEZONE,
+      minimumGapHours: MIN_RECOVERY_GAP_HOURS,
+      reason: run ? 'no_effective_capture_today_with_safe_gap'
+        : capturedToday ? 'effective_capture_already_today'
+          : 'minimum_gap_not_elapsed',
     };
   } finally {
     await pool.end();
@@ -110,7 +131,7 @@ if (isDirect) {
     const output = JSON.stringify(result);
     console.log(output);
     if (process.env.GITHUB_OUTPUT && 'run' in result) appendFileSync(process.env.GITHUB_OUTPUT, `run=${result.run}\nreason=${result.reason}\n`);
-    if (process.env.GITHUB_STEP_SUMMARY && 'run' in result) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Daily bounded capture recovery\n\n- Run required: ${result.run}\n- Last cron company attempt: ${result.latestCronCapture ?? 'none'}\n- Last effective capture with real outputs: ${result.latestEffectiveCapture ?? 'none'}\n- Cooldown: ${result.cooldownHours}h\n- Reason: ${result.reason}\n\n`);
+    if (process.env.GITHUB_STEP_SUMMARY && 'run' in result) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Daily bounded capture recovery\n\n- Run required: ${result.run}\n- Last cron company attempt: ${result.latestCronCapture ?? 'none'}\n- Last effective capture with real outputs: ${result.latestEffectiveCapture ?? 'none'}\n- Sao Paulo calendar date: ${result.localDate}\n- Minimum safety gap: ${result.minimumGapHours}h\n- Reason: ${result.reason}\n\n`);
   }).catch((error) => {
     console.error(error instanceof Error ? error.stack : String(error));
     process.exitCode = 1;
