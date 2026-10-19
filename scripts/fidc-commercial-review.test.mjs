@@ -54,3 +54,11 @@ test('FIDC review checklist is a non-persistent draft with CVM lineage and unkno
   assert.match(content, /não altera o banco/);
   assert.doesNotMatch(content, /decisão: aprovada/i);
 });
+
+test('FIDC tab does not confuse unrelated generic candidate KPIs with assignor review counts', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(new URL('../frontend/src/pages/CandidateDecisionQueuePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /queue !== 'fidc_assignors' \? <section className="grid cols-4">/);
+  assert.match(page, /queue !== 'fidc_assignors' \? <Card title="Filtros"/);
+  assert.match(page, /<FidcAssignorQueue headers=\{headers\} \/>/);
+});
