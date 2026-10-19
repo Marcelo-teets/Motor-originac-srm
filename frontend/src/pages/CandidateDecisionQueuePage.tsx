@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth';
 import { safeExternalUrl } from '../lib/safeUrl';
 import { buildApiUrl } from '../lib/runtimeConfig';
 import { FidcHumanReviewPanel } from '../components/FidcHumanReviewPanel';
+import { buildFidcReviewChecklist, FIDC_REVIEW_LANES, filterFidcReviewItems, type FidcReviewItem } from '../lib/fidcCommercialReview';
 
 type QueueType = 'commercial' | 'identity' | 'market_map' | 'promoted' | 'fidc_assignors';
 
@@ -133,24 +134,12 @@ const queueTabs: Array<{ value: QueueType; label: string; description: string }>
   { value: 'fidc_assignors', label: 'Cedentes FIDC', description: 'evidência CVM e revisão de ICP, sem promoção automática' },
 ];
 
-type FidcReviewItem = {
-  cnpj: string;
-  legal_name: string | null;
-  registration_status: string | null;
-  registry_url: string | null;
-  cvm_evidence_url: string | null;
-  review_lane: string;
-  recommended_review_action: string;
-  icp_eligibility_status: string;
-  receivables_structurability_status: string;
-  funding_gap_status: string;
-  distinct_funds: number;
-  evidence_links: number;
-  auto_promotion_authorized: boolean;
-};
-
 function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
   const [items, setItems] = useState<FidcReviewItem[]>([]);
+  const [lane, setLane] = useState('business_model_due_diligence');
+  const [query, setQuery] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -164,7 +153,7 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
         if (!response.ok) throw new Error(String(payload?.error ?? 'Falha ao carregar revisão FIDC.'));
         if (!active) return;
         const rows = payload?.data?.items;
-        setItems(Array.isArray(rows) ? rows : []);
+        setItems(Array.isArray(rows) ? rows as FidcReviewItem[] : []);
         setError(null);
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : 'Falha ao carregar revisão.');
@@ -176,44 +165,85 @@ function FidcAssignorQueue({ headers }: { headers: Record<string, string> }) {
     return () => { active = false; };
   }, [headers]);
 
+  const filteredItems = useMemo(() => filterFidcReviewItems(items, query, lane), [items, query, lane]);
   const registered = items.filter((item) => Boolean(item.legal_name)).length;
+  const pending = items.filter((item) => item.review_lane === 'registry_lookup_pending').length;
   const exceptions = items.filter((item) => item.review_lane === 'registration_exception_review').length;
+
+  const copyReviewChecklist = async (item: FidcReviewItem) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard indisponível.');
+      await navigator.clipboard.writeText(buildFidcReviewChecklist(item));
+      setCopied(item.cnpj);
+      setCopyError(null);
+    } catch {
+      setCopied(null);
+      setCopyError('Não foi possível copiar. Confirme a permissão de área de transferência do navegador.');
+    }
+  };
+
   return (
     <Card
-      title="Cedentes identificados na CVM — fila de revisão"
-      subtitle={`${items.length} CNPJs distintos · ${registered} com identidade cadastral · ${exceptions} com exceção cadastral`}
+      title="Cedentes identificados na CVM — triagem humana"
+      subtitle={`${items.length} CNPJs distintos · ${registered} com razão social · ${pending} cadastros pendentes · ${exceptions} exceções`}
       className="dense-card"
     >
       <p className="table-helper">
-        CNPJ e participação em FIDC são sinais de origem, não comprovação de fit, funding gap ou recebíveis
-        elegíveis. A revisão humana é obrigatória antes de promover uma empresa.
+        Participação em FIDC não prova aderência ao ICP, recebíveis estruturáveis nem funding gap.
+        A lista é apenas para diligência, sem aprovação, score ou promoção automática.
       </p>
+      <div className="filters-row">
+        <label>Etapa de revisão
+          <select value={lane} onChange={(event) => { setLane(event.target.value); setCopied(null); }}>
+            <option value="">Todas as etapas</option>
+            {FIDC_REVIEW_LANES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label} ({items.filter((item) => item.review_lane === entry.value).length})</option>)}
+          </select>
+        </label>
+        <label>Razão social, CNPJ ou situação
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setCopied(null); }} placeholder="Buscar evidência cadastral" />
+        </label>
+        <button type="button" className="secondary" onClick={() => { setLane(''); setQuery(''); setCopied(null); }}>Limpar filtros</button>
+      </div>
       {error ? <p role="alert">{error}</p> : null}
-      {loading ? <p className="table-helper">Carregando evidências do Neon...</p> : items.length ? (
+      {copyError ? <p role="alert">{copyError}</p> : null}
+      {copied ? <p role="status">Checklist do CNPJ {formatCnpj(copied)} copiado. Rascunho sem gravação no banco.</p> : null}
+      {loading ? <p className="table-helper">Carregando evidências do Neon...</p> : (
+        <p className="table-helper" aria-live="polite">Exibindo {filteredItems.length} de {items.length} CNPJs. A ordem considera etapa, quantidade de evidências e nome; não é score de crédito.</p>
+      )}
+      {!loading && filteredItems.length ? (
         <div className="fidc-table-wrap">
           <table className="dense-table">
             <thead><tr><th>Empresa/CNPJ</th><th>Fonte verificável</th><th>Estado de revisão</th><th>Próxima ação</th></tr></thead>
-            <tbody>{items.map((item) => (
+            <tbody>{filteredItems.map((item) => (
               <tr key={item.cnpj}>
                 <td><strong>{item.legal_name || 'Razão social pendente'}</strong>
                   <div className="table-helper mono">{formatCnpj(item.cnpj)}</div>
                   <div className="table-helper">{item.registration_status || 'Cadastro não verificado'}</div></td>
                 <td><div className="table-helper">{item.evidence_links} vínculo(s) · {item.distinct_funds} fundo(s)</div>
-                  {safeExternalUrl(item.cvm_evidence_url) ? <a href={safeExternalUrl(item.cvm_evidence_url)} target="_blank" rel="noreferrer" className="table-helper">CVM — origem</a> : null}
+                  {safeExternalUrl(item.cvm_evidence_url) ? <a href={safeExternalUrl(item.cvm_evidence_url)} target="_blank" rel="noreferrer" className="table-helper">CVM — evidência</a> : null}
                   {safeExternalUrl(item.registry_url) ? <div><a href={safeExternalUrl(item.registry_url)} target="_blank" rel="noreferrer" className="table-helper">Registro cadastral</a></div> : null}
+                  {item.cvm_reference_date ? <div className="table-helper">Referência CVM: {item.cvm_reference_date}</div> : null}
                 </td>
-                <td><Pill tone={item.review_lane === 'registration_exception_review' ? 'warning' : 'default'}>{item.review_lane.replace(/_/g, ' ')}</Pill>
-                  <div className="table-helper">ICP: {item.icp_eligibility_status || 'não verificado'}</div>
-                  <div className="table-helper">Recebíveis: {item.receivables_structurability_status || 'desconhecido'}</div>
-                  <div className="table-helper">Funding gap: {item.funding_gap_status || 'desconhecido'}</div>
+                <td><Pill tone={item.review_lane === 'registration_exception_review' ? 'warning' : 'default'}>
+                  {FIDC_REVIEW_LANES.find((entry) => entry.value === item.review_lane)?.label || 'Revisão pendente'}
+                </Pill>
+                  <div className="table-helper">ICP: {item.icp_eligibility_status || 'unverified'}</div>
+                  <div className="table-helper">Recebíveis: {item.receivables_structurability_status || 'unknown'}</div>
+                  <div className="table-helper">Funding gap: {item.funding_gap_status || 'unknown'}</div>
                   <div className="table-helper">Promoção automática: não</div>
                 </td>
-                <td><strong>{item.recommended_review_action || 'Verificar identidade e modelo de negócio'}</strong></td>
+                <td><strong>{item.recommended_review_action || 'Verificar identidade e modelo de negócio'}</strong>
+                  <div className="pill-row top-gap">
+                    <button type="button" className="secondary" onClick={() => void copyReviewChecklist(item)}>
+                      Copiar checklist de diligência
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}</tbody>
           </table>
         </div>
-      ) : !error ? <EmptyState title="Nenhum cedente identificado." description="A fila depende de vínculos CVM com CNPJ válido e linhagem." /> : null}
+      ) : !loading && !error ? <EmptyState title={items.length ? 'Sem casos para este filtro.' : 'Nenhum cedente identificado.'} description="A triagem só usa identidade e vínculos CVM rastreáveis. Ajuste os filtros sem inferir elegibilidade." /> : null}
     </Card>
   );
 }
@@ -287,12 +317,12 @@ export function CandidateDecisionQueuePage() {
       <DataStatusBanner source="real" note="A fila é calculada no Neon com lineage, CNPJ, evento, recência, volume, identidade e semântica econômica da entidade." />
       {error ? <Card title="Falha operacional" subtitle="Nenhuma decisão foi executada" tone="accent">{error}</Card> : null}
 
-      <section className="grid cols-4">
+      {queue !== 'fidc_assignors' ? <section className="grid cols-4">
         <Card title="Fila comercial" subtitle="Emissores operacionais"><Stat label="Candidatas" value={String(stats.commercialCandidates)} helper={`${stats.p1Commercial} P1 · ${stats.p2Commercial} P2`} /></Card>
         <Card title="Mapa de estruturas" subtitle="Veículos e intermediários"><Stat label="Registros" value={String(stats.marketMapCandidates)} helper="usar para encontrar a parte econômica" /></Card>
         <Card title="Identidade" subtitle="Reconciliação pendente"><Stat label="Candidatas" value={String(stats.identityCandidates)} helper={`${stats.validCnpj} CNPJs válidos no universo`} /></Card>
         <Card title="Company Master" subtitle="Entidades promovidas"><Stat label="Empresas" value={String(stats.promotedCandidates)} helper={`${stats.promotionReady} prontas para finalização humana`} /></Card>
-      </section>
+      </section> : null}
 
       <Card title="Filas de decisão" subtitle="Cada registro tem uma finalidade econômica diferente" className="dense-card">
         <div className="decision-strip">
@@ -304,14 +334,14 @@ export function CandidateDecisionQueuePage() {
         </div>
       </Card>
 
-      <Card title="Filtros" subtitle="A fila é paginada no backend" className="dense-card">
+      {queue !== 'fidc_assignors' ? <Card title="Filtros" subtitle="A fila é paginada no backend" className="dense-card">
         <div className="filters-row">
           <label>Prioridade<select value={priority} onChange={(event) => { setPriority(event.target.value); setPagination((current) => ({ ...current, offset: 0 })); }}><option value="">Todas</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option><option value="MAP1">MAP1</option><option value="MAP2">MAP2</option><option value="MAP3">MAP3</option><option value="MONITOR">Monitor</option></select></label>
           <label>Empresa ou CNPJ<input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { setSearch(searchDraft.trim()); setPagination((current) => ({ ...current, offset: 0 })); } }} placeholder="Buscar na fila" /></label>
           <button type="button" onClick={() => { setSearch(searchDraft.trim()); setPagination((current) => ({ ...current, offset: 0 })); }}>Buscar</button>
           {(search || priority) ? <button type="button" className="secondary" onClick={() => { setSearch(''); setSearchDraft(''); setPriority(''); setPagination((current) => ({ ...current, offset: 0 })); }}>Limpar</button> : null}
         </div>
-      </Card>
+      </Card> : null}
 
       {queue === 'fidc_assignors' ? <><FidcHumanReviewPanel headers={headers} isGodMode={isGodMode} /><FidcAssignorQueue headers={headers} /></> : <Card title={queueTabs.find((tab) => tab.value === queue)?.label ?? 'Fila'} subtitle={`${pageStart}-${pageEnd} de ${pagination.total} registros`} className="dense-card">
         {loading ? <p className="table-helper">Calculando prioridade e próxima ação...</p> : items.length ? (
