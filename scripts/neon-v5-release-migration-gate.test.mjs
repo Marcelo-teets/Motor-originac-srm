@@ -41,3 +41,23 @@ test('bronze index cleanup keeps canonical index and checks strict definition eq
   assert.ok(sql.includes('drop index public.idx_bronze_historical_dataset_ref'));
   assert.doesNotMatch(sql, /drop (?:table|schema)/i);
 });
+
+
+test('FIDC human review migration enforces source, role, append-only audit and no automatic promotion', () => {
+  const path = new URL('../db/neon/20261019_neon_fidc_assignor_human_review_log_v5.sql', import.meta.url);
+  const sql = readFileSync(path, 'utf8');
+  assert.match(sql, /create table if not exists public\.fidc_assignor_human_reviews_v5/i);
+  assert.match(sql, /enable row level security/i);
+  assert.match(sql, /before update or delete on public\.fidc_assignor_human_reviews_v5/i);
+  assert.match(sql, /fidc_review_history_is_immutable/);
+  assert.match(sql, /security invoker/i);
+  assert.match(sql, /request\.jwt\.claim\.sub/);
+  assert.match(sql, /u\.role = 'god_mode'/);
+  assert.match(sql, /u\.status = 'active'/);
+  assert.match(sql, /from public\.fidc_assignor_commercial_review_v5/i);
+  assert.match(sql, /fidc_review_identity_referral_requires_active_operating_registry/);
+  assert.match(sql, /'needs_evidence','no_go','refer_to_identity_review'/);
+  assert.doesNotMatch(sql, /update public\.(?:companies|pipeline|qualification_snapshots|score_snapshots)/i);
+  assert.doesNotMatch(sql, /insert into public\.(?:companies|pipeline|qualification_snapshots|score_snapshots)/i);
+  assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes('db/neon/20261019_neon_fidc_assignor_human_review_log_v5.sql'));
+});
