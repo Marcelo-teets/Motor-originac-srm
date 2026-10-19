@@ -1,6 +1,10 @@
 name: Motor V5 Daily Acceptance Evidence
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v5-daily-acceptance-evidence.yml'
   schedule:
     - cron: '13 13 * * *'
   workflow_dispatch:
