@@ -31,3 +31,12 @@ RP Financeira, RecargaPay IP, meutudo and Creditas) against future automatic pro
 Neon approved migration + ledger + parity; Vercel prebuilt + READY SHA; Auth and
 anonymous API denial smokes. No direct DB changes or fake commercial outcomes.
 D-07/5 Gold companies/7 daily monitoring days remain human/time gated.
+
+
+Release request — 2026-10-19 / evidence-gates after 61fa9c11bc81
+- Publish exact current main SHA after this request merges, via the official Vercel prebuilt workflow.
+- Include #649 lineage diagnostics, #651 D-07 verified Auth, #653 A7 observed source-backed outputs,
+  #654 human-reviewed A2, #656 fiscal identity and credit qualification gate, and #655 Auth bootstrap readiness.
+- Execute official CI, approved migrations parity, Neon growth budget guard, Auth/anonymous smoke and production SHA parity.
+- No authorization bootstrap, credential change, invented company, fake review or historical lineage backfill.
+- Accept institutional completion only when genuine human D-07/A2, five verified firms and seven elapsed days pass.
