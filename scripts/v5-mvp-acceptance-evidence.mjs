@@ -87,7 +87,17 @@ select
      and coalesce(u.banned, false) = false
      and lower(btrim(p.email)) = lower(btrim(u.email))
  ) as active_admins,
- (select count(*) from public.fidc_assignor_human_reviews_v5) as fidc_human_reviews,
+ (select count(*) from public.fidc_assignor_human_reviews_v5 r
+   join public.user_profiles p on p.id = r.reviewer_user_id
+   join neon_auth."user" u on u.id = p.id
+   where p.status = 'active'
+     and u."emailVerified" = true
+     and coalesce(u.banned, false) = false
+     and lower(btrim(r.reviewer_email)) = lower(btrim(u.email))
+     and char_length(btrim(r.rationale)) >= 30
+     and char_length(btrim(r.next_action)) >= 10
+     and r.cvm_evidence_url like 'https://%'
+ ) as fidc_human_reviews,
  (select count(*) from public.discovered_company_candidates) as candidates,
  (select count(*) from public.source_connector_runs) as total_connector_runs,
  (select count(*) from public.monitoring_outputs) as total_monitoring_outputs,
