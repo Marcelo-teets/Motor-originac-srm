@@ -160,15 +160,10 @@ export class CapturePersistenceService {
       metadata: result.run.diagnostics ?? {},
     }));
 
-    const runIdByCompany = new Map<string, string>();
-    results.forEach((result, index) => {
-      const runRow = runRows[index];
-      if (result.run.companyId && runRow) runIdByCompany.set(result.run.companyId, runRow.id);
-    });
-
     const allOutputs = results.flatMap((result) => result.outputs);
-    const outputRows = allOutputs.map((output) => ({
+    const outputRows = results.flatMap((result, index) => result.outputs.map((output) => ({
       id: output.id,
+      run_id: runRows[index]!.id,
       company_id: output.companyId,
       source_id: output.sourceId,
       output_type: 'raw',
@@ -189,7 +184,7 @@ export class CapturePersistenceService {
       confidence_score: output.confidenceScore,
       connector_status: output.connectorStatus,
       observed_vs_inferred: 'observed',
-    }));
+    })));
 
     const outputIdByCompanyAndSource = new Map<string, string>();
     allOutputs.forEach((output) => {
@@ -197,9 +192,9 @@ export class CapturePersistenceService {
     });
 
     const allDocuments = results.flatMap((result) => result.documents);
-    const documentRows = allDocuments.map((doc: CanonicalSourceDocument) => ({
+    const documentRows = results.flatMap((result, index) => result.documents.map((doc: CanonicalSourceDocument) => ({
       id: doc.id,
-      run_id: doc.companyId ? runIdByCompany.get(doc.companyId) ?? null : null,
+      run_id: runRows[index]!.id,
       company_id: doc.companyId,
       source_id: doc.sourceId,
       document_type: doc.documentType,
@@ -218,7 +213,7 @@ export class CapturePersistenceService {
       confidence_score: doc.confidenceScore ?? null,
       confidence: doc.confidenceScore ?? null,
       quality_status: 'pending',
-    }));
+    })));
 
     const documentById = new Map(allDocuments.map((doc) => [doc.id, doc]));
     const treatmentByOutputId = new Map<string, TreatmentResultRecord>();
