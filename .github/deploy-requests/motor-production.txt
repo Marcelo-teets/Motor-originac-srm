@@ -1,18 +1,15 @@
-Motor Originação SRM — V5 A2 one-click FIDC review UI release
+Motor Originação SRM — production FIDC unauthenticated API smoke gate
 Requested: 2026-10-19 (America/Sao_Paulo)
-Baseline main: 810f5820b093f341283efd2523dabff3895b1de1
-Target: exact HEAD main SHA when this reviewed release request merges.
+Baseline main: 79f1140dc325ced4efd8305490a94e82922758eb
+Release target: exact HEAD of main created on merge of this authorized release request.
 
-Scope:
-- Merged PR #620: one-click source CVM assignor → audited human-review form.
-- Only React UI and frontend contract tests; no new migration, new API, schema or data inserts.
-- Existing audit ledger, immutable trigger, RLS and authentication gates remain unchanged.
-- Use exclusively .github/workflows/vercel-production-deploy.yml via this request.
-
-Acceptance and safeguards:
-- CI green, Neon parity healthy, database storage growth guard healthy.
-- GitHub main SHA = Vercel production READY SHA, runtime and public Auth smoke pass.
-- D-07 real administrator bootstrap still blocked until user personally registers in controlled window;
-  do not generate synthetic review or bypass authenticated god_mode.
-- No company promotion, credit eligibility, qualification, ranking, pipeline or fake funding gap.
-- No deletion, dataset=all, direct SQL on Neon, manual deploy or Vercel automatic Git deploy.
+Scope: merged PR #622 only.
+- Add CI regression coverage for FIDC negative-path auth.
+- Add production deploy gate after canonical Auth smoke: four anonymous HTTP probes
+  (CVM source list, latest audit records, single CNPJ history, POST empty JSON).
+- Reject publicly readable FIDC business data, redirect-to-login fallbacks and SPA HTML.
+- No migration, company write, review write, user enrollment, score/ranking write.
+- Do not enable MOTOR_AUTH_BOOTSTRAP_ENABLED (requires user present for D-07).
+- Require unchanged Neon migration ledger, healthy storage guard, build/CI green,
+  canonical Vercel prebuilt deployment READY and exact GitHub SHA parity.
+- If endpoint authorization fails, stop release and repair via a separate reviewed PR.
