@@ -29,3 +29,12 @@ Financial group lenders remain distinct: DM Financeira, RP Financeira and the IP
 No scores, qualification, reviewer, company master or pipeline writes.
 Official pipeline gates: approved migration allowlist, Neon parity, storage guard,
 Vercel READY SHA, production health & Auth smoke. Human review D-07 is pending.
+
+
+Final V5 A2 deployment checkpoint 2026-10-19
+Canonical main baseline bb4c67894bc01fba8fd37a164e2b30e6625893ee. Target is exact main head after release PR merge.
+Also includes #629 (five-group source-backed diligence documentation) and #630
+(workflow YAML nesting fixes for source schedule audit and CVM fund document schedule).
+No new DDL. Re-run official idempotent migrations/parity/storage guard, prebuilt
+Vercel READY, Auth/runtime/negative-anonymous smokes. Human D-07 still pending.
+Do not fabricate credit qualification, company promotion or successful login.
