@@ -1,19 +1,18 @@
-Motor Originação SRM — release retry after reviewed FIDC PL/pgSQL fix
+Motor Originação SRM — V5 A2 one-click FIDC review UI release
 Requested: 2026-10-19 (America/Sao_Paulo)
-Baseline main: 114faeabb5dcc05e3870496aaf0a6512b11120a2
-Target: exact HEAD main SHA created by this reviewed release-request merge.
+Baseline main: 810f5820b093f341283efd2523dabff3895b1de1
+Target: exact HEAD main SHA when this reviewed release request merges.
 
 Scope:
-- PRs #613, #614, #615: real CVM FIDC human-review UI, immutable audit journal and API.
-- PR #617: repaired PostgreSQL dollar-quoting for immutable-audit trigger function.
-- This request follows failed GitHub Actions production run 39302563381, which stopped before prebuilt Vercel deployment; migration did not persist and ledger is empty for 20261019 audit migration.
+- Merged PR #620: one-click source CVM assignor → audited human-review form.
+- Only React UI and frontend contract tests; no new migration, new API, schema or data inserts.
+- Existing audit ledger, immutable trigger, RLS and authentication gates remain unchanged.
+- Use exclusively .github/workflows/vercel-production-deploy.yml via this request.
 
-Mandatory governance:
-- .github/workflows/vercel-production-deploy.yml, not direct Vercel or SQL.
-- Neon V5 approved allowlist/ledger, parity and healthy storage guard.
-- GitHub SHA must match Vercel production READY deployment SHA.
-- Runtime, Auth and safety smoke checks; stop on any failure.
-- Never fabricate human reviewer/credit qualification, write mock leads or bulk-promote CVM identities.
-- Do not enable dataset=all, delete production data or bypass Auth D-07.
-
-Preflight rechecked after PR #617: source view includes 85 CNPJs; user_profiles=0; ledger audit migration=0; new audit table absent. This release is a code/migration publication, not a human acceptance sign-off.
+Acceptance and safeguards:
+- CI green, Neon parity healthy, database storage growth guard healthy.
+- GitHub main SHA = Vercel production READY SHA, runtime and public Auth smoke pass.
+- D-07 real administrator bootstrap still blocked until user personally registers in controlled window;
+  do not generate synthetic review or bypass authenticated god_mode.
+- No company promotion, credit eligibility, qualification, ranking, pipeline or fake funding gap.
+- No deletion, dataset=all, direct SQL on Neon, manual deploy or Vercel automatic Git deploy.
