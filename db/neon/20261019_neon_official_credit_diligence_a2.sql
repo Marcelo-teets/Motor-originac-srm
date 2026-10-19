@@ -31,6 +31,8 @@ SELECT
   '[]'::jsonb, 0.70, 'captured', 'official-terms:20261019:' || cnpj,
   jsonb_build_object(
     'origin','official_corporate_terms_observation',
+    'candidate_role','operating_company',
+    'commercial_queue',false,
     'captured_at_date','2026-10-19',
     'source_url', source_url, 'legal_name_observed',legal_name,
     'economic_role_observed',economic_role,'counterparties_to_reconcile',counterparties,
@@ -60,6 +62,8 @@ UPDATE public.discovered_company_candidates
 SET cnpj_valid = public.is_valid_cnpj_checksum('32997490000139'),
     legal_name = 'Creditas Sociedade de Crédito Direto S.A.',
     raw_payload = raw_payload || jsonb_build_object(
+      'candidate_role','operating_company',
+      'commercial_queue',false,
       'official_corporate_terms',
       jsonb_build_object(
         'observed_at','2026-10-19',
