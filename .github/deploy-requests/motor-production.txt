@@ -21,3 +21,13 @@ Scope:
   runtime/Auth and FIDC anonymous 401 smoke checks remain mandatory.
 - Do not claim seven elapsed days, five credit-qualified opportunities or human
   acceptance as a result of this deployment.
+
+
+Reviewed A2 human identity resolver rollout — 2026-10-19.
+Current main baseline f887c717622361cd4ebbad429ede6aa4ca646b60; publish exact SHA of resulting release commit.
+New migration from merged #640: db/neon/20261019_neon_a2_human_identity_autoresolver_guard.sql.
+Protect all human-review pending primary-source candidates (Asaas, DM entities,
+RP Financeira, RecargaPay IP, meutudo and Creditas) against future automatic promotion.
+Neon approved migration + ledger + parity; Vercel prebuilt + READY SHA; Auth and
+anonymous API denial smokes. No direct DB changes or fake commercial outcomes.
+D-07/5 Gold companies/7 daily monitoring days remain human/time gated.
