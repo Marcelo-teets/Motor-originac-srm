@@ -31,3 +31,28 @@ RP Financeira, RecargaPay IP, meutudo and Creditas) against future automatic pro
 Neon approved migration + ledger + parity; Vercel prebuilt + READY SHA; Auth and
 anonymous API denial smokes. No direct DB changes or fake commercial outcomes.
 D-07/5 Gold companies/7 daily monitoring days remain human/time gated.
+
+
+Release request — 2026-10-19 / V5 evidence safety improvements
+Reviewed current main baseline: eb7cc2ea7a5dde225d26f7eb1bbe8f5c7becb377
+Deploy exactly the resulting release-request merge SHA, through the existing
+.github/workflows/vercel-production-deploy.yml prebuilt path; one release only.
+
+Included merged changes:
+- #649: detailed read-only diagnostics for source run/output lineage.
+- #651: D-07 counts verified Neon Auth-linked active God Mode only.
+- #653: A7 counts real observed source-backed outputs of completed runs only.
+- #654: A2 counts verified human source-backed FIDC reviews only.
+- #656: A3-A5 accepts fiscally validated evidence-backed companies with
+  authenticated credit-review approval, plus existing full gold pipeline.
+
+Preserve existing production Neon schema, data, identities and credentials.
+No new DDL, migration, bootstrap, fake approvals or historical backfill in
+this release request. Respect existing migration allowlists and storage guard.
+CI must be green; require runtime deployment SHA parity, Auth smoke, CAPTURE
+health, anonymous FIDC review denial and Vercel automatic-Git-disabled guard.
+
+IMPORTANT: This release does NOT satisfy human/Auth/commercial gates:
+D-07=0, A2=0, qualified gold companies=0, A7 elapsed full days=0/7
+at last source-backed database audit. Today's newly linked captures do not
+count as seven complete days. Do not claim MVP 100%.
