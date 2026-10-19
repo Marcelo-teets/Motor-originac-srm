@@ -126,6 +126,9 @@ test('A2 legal-source identities cannot be auto-promoted by the deterministic re
   assert.match(sql, /human_identity_review_required/);
   assert.match(sql, /official_corporate_terms,human_identity_review_required/);
   assert.match(sql, /commercial_queue/);
+  assert.match(sql, /humanApprovalRequired/);
+  assert.match(sql, /companyMasterPromotionAuthorized/);
+  assert.match(sql, /identity_review_status/);
   assert.match(sql, /refuse_unreviewed_patch/);
   assert.match(sql, /lower\(coalesce\(c\.raw_payload->>'human_identity_review_required','false'\)\) <> 'true'/);
   assert.match(sql, /lower\(coalesce\(c\.raw_payload->>'commercial_queue','true'\)\) <> 'false'/);
@@ -136,9 +139,14 @@ test('A2 legal-source identities cannot be auto-promoted by the deterministic re
 test('A2 official credit entities remain human-review-pending across discovery inputs', () => {
   const firstParty = readFileSync(new URL('../db/neon/20261019_neon_first_party_credit_research_candidates_v5.sql', import.meta.url), 'utf8');
   const followUp = readFileSync(new URL('../db/neon/20261019_neon_official_credit_diligence_a2.sql', import.meta.url), 'utf8');
+  assert.match(firstParty, /'humanApprovalRequired',\s*true/);
+  assert.match(firstParty, /'companyMasterPromotionAuthorized',\s*false/);
+  assert.match(firstParty, /'identity_review_status',\s*'pending'/);
+  assert.match(firstParty, /'commercial_queue',\s*false/);
+  assert.match(followUp, /'human_identity_review_required',true/);
+  assert.match(followUp, /'commercial_queue',false/);
   for (const sql of [firstParty, followUp]) {
-    assert.match(sql, /human_identity_review_required/);
-    assert.match(sql, /'commercial_queue',false/);
     assert.doesNotMatch(sql, /'funding_gap','verified'/);
+    assert.doesNotMatch(sql, /update public\.companies/i);
   }
 });
