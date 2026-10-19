@@ -228,6 +228,15 @@ jobs:
           REQUIRE_CAPTCHA_SITE_KEY=false \
           node scripts/smoke-auth-production.mjs
 
+      - name: Validate FIDC human-review endpoints reject anonymous access
+        shell: bash
+        env:
+          BASE_URL: https://motor-originac-srm.vercel.app
+        run: |
+          set -euo pipefail
+          # No bearer, cookie, user creation or review payload is sent.
+          node scripts/smoke-fidc-audit-access.mjs
+
       - name: Run strict CAPTCHA smoke when configured
         shell: bash
         env:
