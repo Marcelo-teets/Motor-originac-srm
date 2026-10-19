@@ -157,7 +157,13 @@ export class CapturePersistenceService {
       outputs_written: result.outputs.length,
       signals_written: result.signals.length,
       enrichments_written: result.enrichments.length,
-      metadata: result.run.diagnostics ?? {},
+      metadata: {
+        ...(result.run.diagnostics ?? {}),
+        captureReason: reason,
+        ...(reason.startsWith('github_actions_direct_capture:')
+          ? { release: reason.slice('github_actions_direct_capture:'.length) }
+          : {}),
+      },
     }));
 
     const allOutputs = results.flatMap((result) => result.outputs);
