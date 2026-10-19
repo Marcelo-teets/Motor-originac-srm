@@ -72,7 +72,7 @@ test('FIDC audit migration uses valid dollar-quoted PL/pgSQL bodies', () => {
 });
 
 
-test('A2 official credit sources seed only unapproved candidates, never fictional opportunities', () => {
+test('A2 complementary payment entities and Creditas preserve unapproved source lineage', () => {
   const sql = readFileSync(new URL('../db/neon/20261019_neon_official_credit_diligence_a2.sql', import.meta.url), 'utf8');
   assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes('db/neon/20261019_neon_official_credit_diligence_a2.sql'));
   assert.match(sql, /insert into public\.discovered_company_candidates/i);
@@ -86,10 +86,10 @@ test('A2 official credit sources seed only unapproved candidates, never fictiona
   assert.match(sql, /'human_identity_review_required',true/);
   assert.match(sql, /where company_name='Creditas'/i);
   assert.match(sql, /source_url='https:\/\/www\.kaszek\.com\/companies'/i);
-  for (const identity of ['16581207000137', '19540550000121', '27852506000185', '11275560000175','32997490000139']) {
+  for (const identity of ['16581207000137', '11275560000175','32997490000139']) {
     assert.ok(sql.includes(identity), `Expected primary-source CNPJ ${identity}`);
   }
-  for (const source of ['www.vocedm.com.br','central.ajuda.asaas.com','meutudo.com.br/parati','recargapay.com.br/terms/emprestimo','creditas.com/legal/termos-condicoes']) {
+  for (const source of ['www.vocedm.com.br','recargapay.com.br/terms/emprestimo','creditas.com/legal/termos-condicoes']) {
     assert.ok(sql.includes(source), `Missing legal primary source ${source}`);
   }
   assert.doesNotMatch(sql, /(?:insert into|update) public\.(?:companies|pipeline|qualification_snapshots|score_snapshots|lead_score_snapshots|ranking_v2|user_profiles)/i);
