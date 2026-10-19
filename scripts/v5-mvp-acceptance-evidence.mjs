@@ -79,7 +79,14 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
 
 const METRICS_SQL = `
 select
- (select count(*) from public.user_profiles where status = 'active' and role = 'god_mode') as active_admins,
+ (select count(*) from public.user_profiles p
+   join neon_auth."user" u on u.id = p.id
+   where p.status = 'active'
+     and p.role = 'god_mode'
+     and u."emailVerified" = true
+     and coalesce(u.banned, false) = false
+     and lower(btrim(p.email)) = lower(btrim(u.email))
+ ) as active_admins,
  (select count(*) from public.fidc_assignor_human_reviews_v5) as fidc_human_reviews,
  (select count(*) from public.discovered_company_candidates) as candidates,
  (select count(*) from public.source_connector_runs) as total_connector_runs,
