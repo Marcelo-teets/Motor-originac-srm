@@ -7,6 +7,7 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const runner = await read('scripts/capture/run-bounded-capture-batch.ts');
 const shell = await read('scripts/capture/bounded-capture-fanout.sh');
 const workflow = await read('.github/workflows/capture.yml');
+const persistence = await read('backend/src/services/capturePersistenceService.ts');
 
 test('scheduled capture executes the canonical runtime directly on GitHub Actions', () => {
   assert.match(runner, /createPlatformRepository\('database'\)/);
@@ -41,4 +42,12 @@ test('workflow loads canonical Neon persistence from the Vercel vault and retain
   assert.match(workflow, /timeout-minutes: 120/);
   assert.doesNotMatch(workflow, /CAPTURE_URL:/);
   assert.doesNotMatch(workflow, /TARGETS_URL:/);
+});
+
+
+test('monitoring outputs and source documents trace to their exact connector run', () => {
+  assert.match(persistence, /results\.flatMap\(\(result, index\) => result\.outputs\.map/);
+  assert.match(persistence, /results\.flatMap\(\(result, index\) => result\.documents\.map/);
+  assert.equal((persistence.match(/run_id: runRows\[index\]!\.id/g) ?? []).length, 2);
+  assert.doesNotMatch(persistence, /runIdByCompany/);
 });
