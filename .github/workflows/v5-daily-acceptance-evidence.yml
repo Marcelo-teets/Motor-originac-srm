@@ -1,0 +1,77 @@
+name: Motor V5 Daily Acceptance Evidence
+
+on:
+  schedule:
+    - cron: '13 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: motor-v5-daily-acceptance-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: team_PJwucES3YmFbxf57HE52Bw0v
+      VERCEL_PROJECT_ID: prj_hsB473e7bNF0xOd6CEUwo7WFgNYs
+      VERCEL_PROJECT_NAME: motor-originac-srm
+      VERCEL_CLI_VERSION: 50.28.0
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate evaluator regression tests
+        run: node --test scripts/v5-mvp-acceptance-evidence.test.mjs
+
+      - name: Read canonical Vercel production Neon connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" || { echo "Canonical Vercel production vault unavailable"; exit 1; }
+          mkdir -p .vercel
+          cat > .vercel/project.json <<JSON
+          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID","projectName":"$VERCEL_PROJECT_NAME"}
+          JSON
+          npx --yes "vercel@$VERCEL_CLI_VERSION" pull --yes --environment=production --token="$VERCEL_TOKEN"
+          test -f .vercel/.env.production.local
+
+      - name: Evaluate seven fully elapsed days of genuine monitoring
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          export V5_REPORT_PATH="$RUNNER_TEMP/motor-v5-acceptance-evidence.json"
+          # SELECT only: no new users, reviews, companies, scores, source runs, or data mutations.
+          node scripts/v5-mvp-acceptance-evidence.mjs
+          if grep -q '"status": "blocked"' "$V5_REPORT_PATH"; then
+            echo "::warning::MVP V5 acceptance still blocked by production evidence."
+          fi
+
+      - name: Publish sanitized acceptance evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-v5-acceptance-evidence
+          path: ${{ runner.temp }}/motor-v5-acceptance-evidence.json
+          retention-days: 14
+          if-no-files-found: warn
