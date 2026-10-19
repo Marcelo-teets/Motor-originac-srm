@@ -29,3 +29,11 @@ test('capture recovery workflow only reuses bounded engine and canonical Neon co
   assert.match(yml, /scripts\/capture\/should-run-daily-recovery\.mjs --verify/);
   assert.doesNotMatch(yml, /\bMOTOR_AUTH_BOOTSTRAP_ENABLED\b|\bCREATE TABLE\b/);
 });
+
+test('daily recovery workflow cannot contain YAML-invalid plain run scalars with colon-space', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/capture-daily-recovery.yml', import.meta.url), 'utf8');
+  assert.match(yml, /- name: Report paused storage gate[\s\S]*?run: \|\s*\n\s+echo 'Daily recovery paused by Neon storage guard: NOT an accepted healthy monitoring day\.'/);
+  // YAML plain scalars may not contain an unescaped colon followed by whitespace.
+  // Keep shell commands containing ":" in a block scalar, not run: echo '...: ...'.
+  assert.doesNotMatch(yml, /^\s+run:\s*(?![|>])[^\n]*:\s+[^\n]*$/m);
+});
