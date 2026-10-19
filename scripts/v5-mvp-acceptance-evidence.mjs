@@ -33,7 +33,17 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
   });
   const dates = normalizedDays.map((d) => d.date);
   assert.equal(new Set(dates).size, dates.length, 'Duplicate monitoring dates');
-  const continuous = normalizedDays.length === 7 && normalizedDays.every(d => d.healthy);
+  const consecutiveDates = normalizedDays.length === 7 && (() => {
+    const sortedDates = [...dates].sort();
+    return sortedDates.every((day, index) => {
+      if (index === 0) return true;
+      const previousDate = new Date(`${sortedDates[index - 1]}T00:00:00Z`);
+      const currentDate = new Date(`${day}T00:00:00Z`);
+      return Number.isFinite(currentDate.getTime())
+        && currentDate.getTime() - previousDate.getTime() === 86400000;
+    });
+  })();
+  const continuous = consecutiveDates && normalizedDays.every(d => d.healthy);
   const gates = [
     guard('D-07', administratorCount >= 1, { activeAdministrativeProfiles: administratorCount }),
     guard('A2', humanReviewCount >= 1, { auditRecordedByHumans: humanReviewCount }),
