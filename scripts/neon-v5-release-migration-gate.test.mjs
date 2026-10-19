@@ -70,3 +70,23 @@ test('FIDC audit migration uses valid dollar-quoted PL/pgSQL bodies', () => {
   assert.match(sql, /record_fidc_assignor_human_review_v5\([\s\S]*?as \$\$\s*declare/);
   assert.doesNotMatch(sql, /\bas \$\s*\n/i, 'a single dollar sign is not a PL/pgSQL delimiter');
 });
+
+test('first-party credit research adds only unapproved, source-linked identity candidates', () => {
+  const sql = readFileSync(new URL('../db/neon/20261019_neon_first_party_credit_research_candidates_v5.sql', import.meta.url), 'utf8');
+  assert.match(sql, /insert into public\.discovered_company_candidates/i);
+  assert.match(sql, /'commercial_queue', false/);
+  assert.match(sql, /'humanApprovalRequired', true/);
+  assert.match(sql, /'identity_review_status', 'pending'/);
+  assert.match(sql, /'fundingGap', 'unknown'/);
+  assert.match(sql, /'portfolioOwnership', 'unknown'/);
+  assert.match(sql, /'ticketFit', 'unknown'/);
+  assert.match(sql, /'formalRegistryStatus', 'unverified'/);
+  assert.match(sql, /on conflict \(dedupe_key\) where dedupe_key is not null do nothing/i);
+  assert.match(sql, /and not exists \(/i);
+  for (const cnpj of ['19540550000121','91669747000192','27852506000185','44431743000191']) {
+    assert.ok(sql.includes(cnpj), `missing documented legal entity ${cnpj}`);
+  }
+  assert.doesNotMatch(sql, /insert into public\.(?:companies|qualification_snapshots|score_snapshots|lead_score_snapshots|ranking_v2|pipeline)/i);
+  assert.doesNotMatch(sql, /update public\.(?:companies|qualification_snapshots|score_snapshots|lead_score_snapshots|ranking_v2|pipeline)/i);
+  assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes('db/neon/20261019_neon_first_party_credit_research_candidates_v5.sql'));
+});
