@@ -114,3 +114,14 @@ test('lineage diagnostics are queried read-only and cannot manufacture a success
   assert.match(contents,/from public\.source_connector_runs\) as total_connector_runs/);
   assert.match(contents,/BEGIN TRANSACTION READ ONLY/);
 });
+
+test('D-07 requires a verified, unbanned Neon Auth identity linked to the active god_mode profile', async () => {
+  const { readFileSync } = await import('node:fs');
+  const sqlSource = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs', import.meta.url), 'utf8');
+  assert.match(sqlSource, /join neon_auth\."user" u on u\.id = p\.id/);
+  assert.match(sqlSource, /u\."emailVerified" = true/);
+  assert.match(sqlSource, /coalesce\(u\.banned, false\) = false/);
+  assert.match(sqlSource, /p\.role = 'god_mode'/);
+  assert.match(sqlSource, /p\.status = 'active'/);
+  assert.match(sqlSource, /lower\(btrim\(p\.email\)\) = lower\(btrim\(u\.email\)\)/);
+});
