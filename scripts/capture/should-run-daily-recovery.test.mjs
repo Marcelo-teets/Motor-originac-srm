@@ -1,21 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { recoveryDue, assessPersistedRecovery, CAPTURE_COOLDOWN_HOURS } from './should-run-daily-recovery.mjs';
+import { recoveryDue, assessPersistedRecovery, MIN_RECOVERY_GAP_HOURS, CAPTURE_RECOVERY_TIMEZONE } from './should-run-daily-recovery.mjs';
 import { readFileSync } from 'node:fs';
 
 const clock = '2026-10-19T19:00:00.000Z';
-test('daily fallback is due only if no company-source cron attempt exists for 20h', () => {
-  assert.equal(CAPTURE_COOLDOWN_HOURS, 20);
+test('daily recovery is based on Sao Paulo calendar days, not 20 rolling hours', () => {
+  assert.equal(MIN_RECOVERY_GAP_HOURS, 8);
+  assert.equal(CAPTURE_RECOVERY_TIMEZONE, 'America/Sao_Paulo');
   assert.equal(recoveryDue(null, clock), true);
-  assert.equal(recoveryDue('2026-10-18T22:59:59.000Z', clock), true);
-  assert.equal(recoveryDue('2026-10-18T23:00:00.000Z', clock), true);
-  assert.equal(recoveryDue('2026-10-18T23:00:01.000Z', clock), false);
-  assert.equal(recoveryDue('2026-10-19T18:30:00.000Z', clock), false);
+  assert.equal(recoveryDue('2026-10-19T20:18:00Z', '2026-10-20T13:25:00Z'), true);
+  assert.equal(recoveryDue('2026-10-19T23:40:00Z', '2026-10-20T02:30:00Z'), false);
+  assert.equal(recoveryDue('2026-10-20T02:30:00Z', '2026-10-20T04:30:00Z'), false);
+  assert.equal(recoveryDue('2026-10-20T02:59:00Z', '2026-10-20T13:25:00Z'), true);
+  assert.equal(recoveryDue('2026-10-20T11:00:00Z', '2026-10-20T22:10:00Z'), false);
 });
 test('rejects impossible/future timestamps rather than skipping data capture silently', () => {
   assert.throws(() => recoveryDue('invalid', clock), /Invalid latest capture timestamp/);
   assert.throws(() => recoveryDue('2026-10-20T00:00:00Z', clock), /in the future/);
   assert.throws(() => recoveryDue(null, 'invalid'), /nowIso must be/);
+  assert.throws(() => recoveryDue(null, clock, -1), /minimumGapHours/);
 });
 test('capture recovery workflow only reuses bounded engine and canonical Neon connection', () => {
   const yml = readFileSync(new URL('../../.github/workflows/capture-daily-recovery.yml', import.meta.url), 'utf8');
@@ -68,4 +71,18 @@ test('the recovery verifier cannot pass on another invocation or on old attempts
   assert.match(yml, /steps\.storage\.outputs\.blocked != 'true'/);
   assert.match(yml, /MAX_CAPTURE_TARGETS: '8'/);
   assert.match(yml, /MAX_PARALLELISM: '1'/);
+});
+
+test('calendar-based health does not loosen current-invocation or Neon storage gates', () => {
+  const service = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../../.github/workflows/capture-daily-recovery.yml', import.meta.url), 'utf8');
+  assert.match(service, /America\/Sao_Paulo/);
+  assert.match(service, /MIN_RECOVERY_GAP_HOURS = 8/);
+  assert.match(service, /saoPauloDay\(latestIso\) === saoPauloDay\(nowIso\)/);
+  assert.match(service, /reason: run \? 'no_effective_capture_today_with_safe_gap'/);
+  assert.doesNotMatch(service, /CAPTURE_COOLDOWN_HOURS = 20/);
+  assert.match(workflow, /cron: '25 13 \* \* \*'/);
+  assert.match(workflow, /CAPTURE_RECOVERY_STARTED_AT/);
+  assert.match(workflow, /MAX_CAPTURE_TARGETS: '8'/);
+  assert.match(workflow, /MAX_PARALLELISM: '1'/);
 });
