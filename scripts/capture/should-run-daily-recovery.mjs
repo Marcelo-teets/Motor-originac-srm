@@ -46,13 +46,19 @@ export const checkDailyRecovery = async ({
   const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 8_000, statement_timeout: 8_000 });
   try {
     const { rows } = await pool.query(`
-      select max(started_at) as latest_cron_capture,
-             max(started_at) filter (
-               where status = 'completed' and outputs_written > 0
+      select max(r.started_at) as latest_cron_capture,
+             max(r.started_at) filter (
+               where r.status = 'completed' and r.outputs_written > 0
+                 and exists (
+                   select 1 from public.monitoring_outputs m
+                   where m.run_id = r.id
+                     and (m.captured_at at time zone 'America/Sao_Paulo')::date
+                       = (r.started_at at time zone 'America/Sao_Paulo')::date
+                 )
              ) as latest_effective_capture
-      from public.source_connector_runs
-      where scope_type = 'company'
-        and trigger_type = 'cron'
+      from public.source_connector_runs r
+      where r.scope_type = 'company'
+        and r.trigger_type = 'cron'
     `);
     const asIso = (value) => value instanceof Date ? value.toISOString() : value == null ? null : String(value);
     const latestCronCapture = asIso(rows[0]?.latest_cron_capture);
@@ -109,16 +115,26 @@ export const verifyPersistedRecovery = async ({
   const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 8_000, statement_timeout: 8_000 });
   try {
     const { rows } = await pool.query(`
+      with scoped_runs as (
+        select r.status, r.outputs_written,
+               (select count(*)::integer
+                from public.monitoring_outputs m
+                where m.run_id = r.id
+                  and (m.captured_at at time zone 'America/Sao_Paulo')::date
+                    = (r.started_at at time zone 'America/Sao_Paulo')::date
+               ) as linked_outputs
+        from public.source_connector_runs r
+        where r.scope_type='company' and r.trigger_type='cron'
+          and r.started_at >= $2::timestamptz
+          and r.metadata->>'release' = $1
+      )
       select count(*)::integer as attempts,
              count(*) filter (where status='completed')::integer as completed,
-             count(*) filter (where status='completed' and outputs_written > 0)::integer as effective,
-             coalesce(sum(outputs_written) filter (
-               where status='completed' and outputs_written > 0
+             count(*) filter (where status='completed' and outputs_written > 0 and linked_outputs > 0)::integer as effective,
+             coalesce(sum(linked_outputs) filter (
+               where status='completed' and outputs_written > 0 and linked_outputs > 0
              ),0)::integer as outputs_written
-      from public.source_connector_runs
-      where scope_type='company' and trigger_type='cron'
-        and started_at >= $2::timestamptz
-        and metadata->>'release' = $1
+      from scoped_runs
     `, [release, startedAt]);
     return assessPersistedRecovery({ ...rows[0], outputsWritten: rows[0]?.outputs_written, release });
   } finally { await pool.end(); }
