@@ -1,16 +1,20 @@
-Motor Originação SRM — V5 FIDC commercial review UI deployment
-Requested: 2026-10-14 (America/Sao_Paulo)
-Baseline main: 3527b69ff534c4c8cbb66efa865461e95b3ab0d1
-Target: exact HEAD of main when this reviewed PR merges.
+Motor Originação SRM — V5 FIDC commercial review and audited human decision release
+Requested: 2026-10-19 (America/Sao_Paulo)
+Baseline main: e310555802cd7160f6497310d66f78bfc8fd4d0c
+Target: exact HEAD of main upon merge of this reviewed deployment request PR.
 
-Reviewed PR #611: Candidate Decision Queue gained a read-only tab for CVM FIDC assignors,
-with registry identity, source links, registration exceptions, and
-ICP / receivables / funding gap explicitly marked unknown. Human review
-required: no candidate promotion, no artificial scores, no extra storage.
-Also includes #610 V5 updated checkpoint/tracker documentation.
+Included reviewed PRs:
+- #613: source-backed FIDC review lanes, human diligence checklist, search and evidence filtering.
+- #614: append-only human review audit table, latest history, authenticated god_mode API,
+  PostgreSQL actor/evidence enforcement and approved tracked Neon migration.
+- #615: React UI recording, latest/history read-after-write and fail-closed backend absence.
 
-Canonical release only by .github/workflows/vercel-production-deploy.yml;
-require green CI, SHA pin, Neon migration ledger/parity, budget guard normal,
-Vercel prebuilt production READY, runtime and Auth smokes. Do not start
-Auth admin bootstrap D-07 without user present. Do not enable dataset=all,
-delete any production data, or create mock commercial results.
+Release protocol:
+- Only .github/workflows/vercel-production-deploy.yml via this request on main.
+- Strict Neon migration allowlist and ledger; no standalone SQL on production.
+- CI, Neon parity and healthy storage guard are required to proceed.
+- Deploy immutable Vercel prebuilt production from exact main SHA, runtime/Auth smoke.
+- Auth D-07 needs the actual administrator present; no synthetic user, review or decision.
+- No automated promotion, scoring, pipeline write, dataset=all or destructive cleanup.
+- Do not report operational acceptance until a real human-authenticated test and
+  five evidenced ICP companies have completed the qualification/ranking pipeline.
