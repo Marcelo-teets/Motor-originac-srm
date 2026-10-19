@@ -60,5 +60,5 @@ test('FIDC tab does not confuse unrelated generic candidate KPIs with assignor r
   const page = await readFile(new URL('../frontend/src/pages/CandidateDecisionQueuePage.tsx', import.meta.url), 'utf8');
   assert.match(page, /queue !== 'fidc_assignors' \? <section className="grid cols-4">/);
   assert.match(page, /queue !== 'fidc_assignors' \? <Card title="Filtros"/);
-  assert.match(page, /<FidcAssignorQueue headers=\{headers\} \/>/);
+  assert.match(page, /<FidcAssignorQueue headers=\{headers\} canReview=\{isGodMode\} onReviewCnpj=\{openFidcReview\} \/>/);
 });

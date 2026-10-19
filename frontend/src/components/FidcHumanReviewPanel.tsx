@@ -23,6 +23,7 @@ type ReviewRow = {
 type ReviewPanelProps = {
   headers: Record<string, string>;
   isGodMode: boolean;
+  reviewRequest?: { cnpj: string; version: number } | null;
 };
 
 type AuditStatus = 'checking' | 'ready' | 'unavailable' | 'error';
@@ -41,7 +42,7 @@ const formatReviewedAt = (value: string) => {
   return Number.isNaN(date.getTime()) ? 'data indisponível' : date.toLocaleString('pt-BR');
 };
 
-export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
+export function FidcHumanReviewPanel({ headers, isGodMode, reviewRequest }: ReviewPanelProps) {
   const [sources, setSources] = useState<FidcReviewSource[]>([]);
   const [latest, setLatest] = useState<ReviewRow[]>([]);
   const [history, setHistory] = useState<ReviewRow[]>([]);
@@ -153,6 +154,14 @@ export function FidcHumanReviewPanel({ headers, isGodMode }: ReviewPanelProps) {
     setNotice(null);
     setError(null);
   };
+
+  // A row click can arrive before source and permission checks finish.
+  // Resolve it only against the latest real CVM list; never manufacture a case.
+  useEffect(() => {
+    if (!isGodMode || status !== 'ready' || !reviewRequest) return;
+    if (!sources.some((source) => source.cnpj === reviewRequest.cnpj)) return;
+    changeSelected(reviewRequest.cnpj);
+  }, [reviewRequest?.cnpj, reviewRequest?.version, sources, status, isGodMode]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

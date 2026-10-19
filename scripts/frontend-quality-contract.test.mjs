@@ -204,7 +204,7 @@ test('FIDC human review UI is restricted to actual god_mode and unavailable unti
     read('frontend/src/pages/CandidateDecisionQueuePage.tsx'),
     read('frontend/src/components/FidcHumanReviewPanel.tsx'),
   ]);
-  assert.match(page, /FidcHumanReviewPanel headers=\{headers\} isGodMode=\{isGodMode\}/);
+  assert.match(page, /FidcHumanReviewPanel headers=\{headers\} isGodMode=\{isGodMode\} reviewRequest=\{reviewRequest\}/);
   assert.match(component, /if \(!isGodMode\)/);
   assert.match(component, /status === 'unavailable'/);
   assert.match(component, /reviewError.*statusCode.*404/);
@@ -247,4 +247,22 @@ test('FIDC human review submits only source id, disposition, rationale and next 
   assert.match(component, /cnpj: selected\.cnpj, disposition,/);
   assert.match(component, /rationale: rationale\.trim\(\), nextAction: nextAction\.trim\(\)/);
   assert.doesNotMatch(component, /reviewerUserId:|reviewerEmail:|decisionEligible:|creditApproved:/);
+});
+
+test('FIDC rows open the authenticated review form without promoting companies', async () => {
+  const [page, panel] = await Promise.all([
+    read('frontend/src/pages/CandidateDecisionQueuePage.tsx'),
+    read('frontend/src/components/FidcHumanReviewPanel.tsx'),
+  ]);
+  assert.match(page, /canReview=\{isGodMode\}/);
+  assert.match(page, /onReviewCnpj=\{openFidcReview\}/);
+  assert.match(page, /if \(!isGodMode\) return;/);
+  assert.match(page, /setReviewRequest\(\(current\) => \(\{ cnpj, version: \(current\?\.version \?\? 0\) \+ 1 \}\)\)/);
+  assert.match(page, /onClick=\{\(\) => onReviewCnpj\(item\.cnpj\)\}/);
+  assert.match(page, /fidc-human-review-workspace/);
+  assert.match(panel, /if \(!isGodMode \|\| status !== 'ready' \|\| !reviewRequest\) return;/);
+  assert.match(panel, /sources\.some\(\(source\) => source\.cnpj === reviewRequest\.cnpj\)/);
+  assert.match(panel, /changeSelected\(reviewRequest\.cnpj\)/);
+  assert.match(panel, /reviewRequest\?\.version/);
+  assert.doesNotMatch(page, /onClick=.*(?:creditApproved|autoPromote|createCompany)/);
 });
