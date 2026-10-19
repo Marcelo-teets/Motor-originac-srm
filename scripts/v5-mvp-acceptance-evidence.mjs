@@ -23,8 +23,13 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     const monitoringOutputs = Number(row.monitoring_outputs);
     assert.ok([sourceRuns, connectorOutputs, monitoringOutputs].every(v => Number.isSafeInteger(v) && v >= 0),
       'Invalid monitoring day counters');
+    const localDate = String(row.local_day);
+    assert.match(localDate, /^\d{4}-\d{2}-\d{2}$/, 'Invalid monitoring date');
+    const utcMidnight = Date.parse(`${localDate}T00:00:00.000Z`);
+    assert.ok(Number.isFinite(utcMidnight) && new Date(utcMidnight).toISOString().slice(0, 10) === localDate,
+      'Invalid monitoring date');
     return {
-      date: String(row.local_day).slice(0, 10),
+      date: localDate,
       successfulConnectorRuns: sourceRuns,
       connectorOutputs,
       monitoringOutputs,
@@ -33,7 +38,10 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
   });
   const dates = normalizedDays.map((d) => d.date);
   assert.equal(new Set(dates).size, dates.length, 'Duplicate monitoring dates');
-  const continuous = normalizedDays.length === 7 && normalizedDays.every(d => d.healthy);
+  const sortedDayStarts = dates.map(date => Date.parse(`${date}T00:00:00.000Z`)).sort((a, b) => a - b);
+  const consecutiveCalendarDays = sortedDayStarts.length === 7
+    && sortedDayStarts.every((dayStart, index) => index === 0 || dayStart - sortedDayStarts[index - 1] === 86400000);
+  const continuous = consecutiveCalendarDays && normalizedDays.every(d => d.healthy);
   const gates = [
     guard('D-07', administratorCount >= 1, { activeAdministrativeProfiles: administratorCount }),
     guard('A2', humanReviewCount >= 1, { auditRecordedByHumans: humanReviewCount }),
@@ -83,8 +91,15 @@ with calendar as (
  from public.source_connector_runs
  group by 1
 ), outputs as (
- select (captured_at at time zone 'America/Sao_Paulo')::date as local_day,
- count(*) as monitoring_outputs from public.monitoring_outputs group by 1
+ select (m.captured_at at time zone 'America/Sao_Paulo')::date as local_day,
+ count(*) as monitoring_outputs
+ from public.monitoring_outputs m
+ join public.source_connector_runs r on r.id = m.run_id
+   and r.status = 'completed'
+   and r.outputs_written > 0
+   and (r.started_at at time zone 'America/Sao_Paulo')::date
+     = (m.captured_at at time zone 'America/Sao_Paulo')::date
+ group by 1
 )
 select c.local_day::text as local_day,
  coalesce(connector.successful_connector_runs,0)::integer as successful_connector_runs,
