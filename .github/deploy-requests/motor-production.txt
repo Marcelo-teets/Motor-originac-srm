@@ -89,3 +89,11 @@ PR #666 CI and Neon Runtime Parity passed. Retain rollout policy: versioned
 prebuilt deploy; validate exact SHA, production database and Auth smokes, and
 restore createDeployments=disabled. If smoke fails, stop rollout and investigate.
 Release is a security boundary correction, not D-07/A2/A3-A5/A7 approval.
+
+Release request — 2026-10-20 / institutional email OTP recovery
+Reviewed main baseline: 9753960a6617660e03fa20e4adb134604aa6e73c
+Publish exact resulting release-request main merge SHA through controlled Vercel prebuilt workflow.
+Scope: merged #669 adds first-party Neon Better Auth email-verification OTP endpoints, client calls and React login verify/resend UI. Official Neon provider remains the verifier, and upstream session material is never forwarded by the OTP admission endpoints.
+No database migration, credential write, synthetic login, forced account verification or bootstrap.
+CI and Neon Runtime Parity on #669 success; gate publication on approved schema/storage, exact SHA and Auth/FIDC anonymous smoke. Auth human verification remains pending until a real institutional user enters their received code and signs in.
+Existing no-autodeploy and rollback control policies remain in force.
