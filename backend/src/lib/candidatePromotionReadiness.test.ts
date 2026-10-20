@@ -71,3 +71,15 @@ test('assertion returns a 422-compatible error', () => {
       && error.blockers.includes('eligible_company_link_missing'),
   );
 });
+
+test('recognizes official 2026 alphanumeric CNPJ only after real identity evidence and approval', () => {
+  assert.equal(isValidCnpjChecksum('00.000.000/E08G-12'), true);
+  assert.equal(isValidCnpjChecksum('00.000.000/E08G-13'), false);
+  const approved = candidate({ cnpj: '00.000.000/E08G-12', dedupeKey: 'cnpj:00000000E08G12' });
+  assert.equal(evaluateCandidatePromotionReadiness(approved).ready, true);
+  const withoutApproval = candidate({ cnpj: '00.000.000/E08G-12',
+    rawPayload: { identity_evidence_url:'https://example.org/company', legal_name_verified:true,
+      identity_review_status:'pending' },
+  });
+  assert.ok(evaluateCandidatePromotionReadiness(withoutApproval).blockers.includes('identity_review_not_approved'));
+});
