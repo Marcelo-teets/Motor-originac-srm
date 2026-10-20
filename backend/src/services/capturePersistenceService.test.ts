@@ -23,9 +23,9 @@ const sampleTreatment = (sourceId: string, outputId: string): TreatmentResultRec
   lineage: { source: sourceId },
 });
 
-const sampleResult = (sourceId: string, outputId: string, companyId: string | undefined = 'company-1'): CaptureEngineResult => ({
+const sampleResult = (sourceId: string, outputId: string, companyId: string | null = 'company-1'): CaptureEngineResult => ({
   run: {
-    companyId,
+    companyId: companyId ?? undefined,
     sourceId,
     scopeType: companyId ? 'company' : 'global',
     triggerType: 'scheduled',
@@ -81,7 +81,7 @@ test('multiple source treatments for the same company retain their own exact run
 });
 
 test('global-scoped capture still persists treatment results when the run has no company ID', async () => {
-  const written = await persistInMemory([sampleResult('source-global', 'output-global', undefined)]);
+  const written = await persistInMemory([sampleResult('source-global', 'output-global', null)]);
   const run = written.data_treatment_runs?.[0];
   const result = written.data_treatment_results?.[0];
   assert.ok(run);
