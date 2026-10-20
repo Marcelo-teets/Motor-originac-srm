@@ -3,6 +3,8 @@ import express from 'express';
 import {
   authMiddleware,
   changePassword,
+  sendEmailVerificationOtp,
+  confirmEmailVerificationOtp,
   clearAuthSessionCookie,
   readAuthSessionCookie,
   refreshAuthSession,
@@ -209,6 +211,28 @@ app.post('/auth/session', wrap(async (req, res) => {
     ...flow.session,
     user: { ...flow.session.user, role: profile.role, email: profile.email ?? flow.session.user.email },
   }));
+}));
+
+// Public verification endpoints are intentionally before authMiddleware: the
+// identity isn't permitted to access platform data until verification passes.
+app.post('/auth/email/send-code', wrap(async (req, res) => {
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) {
+    throw Object.assign(new Error('Informe um e-mail válido.'), { statusCode: 400 });
+  }
+  await sendEmailVerificationOtp(email);
+  res.json(ok('real', { accepted: true }));
+}));
+
+app.post('/auth/email/verify-code', wrap(async (req, res) => {
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  const otp = String(req.body?.otp ?? '').trim();
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254 ||
+    !/^\\d{6,8}$/.test(otp)) {
+    throw Object.assign(new Error('Informe e-mail válido e código numérico recebido.'), { statusCode: 400 });
+  }
+  await confirmEmailVerificationOtp(email, otp);
+  res.json(ok('real', { verified: true }));
 }));
 
 app.post('/auth/password/request', wrap(async (req, res) => {
