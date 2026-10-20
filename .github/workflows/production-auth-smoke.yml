@@ -10,7 +10,7 @@ on:
         default: https://motor-originac-srm.vercel.app
         type: string
       expected_sha:
-        description: Expected production commit SHA; empty uses the workflow SHA
+        description: Optional production release SHA; empty checks live frontend/backend parity
         required: false
         default: ''
         type: string
@@ -40,7 +40,10 @@ jobs:
     timeout-minutes: 10
     env:
       BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://motor-originac-srm.vercel.app' }}
-      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || github.event.deployment.sha }}
+      # deployment_status can refer to a docs-only main SHA that was never released.
+      # Always check live frontend/backend SHA parity; pin exact release SHA only when
+      # explicitly supplied by a manual run. Official release workflow pins SHA.
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || '' }}
       REQUIRE_CAPTCHA_SITE_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.require_captcha_site_key || false }}
 
     steps:
