@@ -46,6 +46,35 @@ const inspectReadOnly = async (url) => {
       tables[row.table_name] ??= { columns: {}, count: null, lastUpdated: null };
       tables[row.table_name].columns[row.column_name] = row.data_type;
     }
+    // Catalog metadata only: detect historical FK deletion-policy drift before any cutover.
+    const fkResult = await client.query(
+      `select rel.relname as table_name, ref.relname as referenced_table,
+        (select array_agg(a.attname order by k.ord)
+         from unnest(c.conkey) with ordinality as k(attnum, ord)
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum) as columns,
+        (select array_agg(a.attname order by k.ord)
+         from unnest(c.confkey) with ordinality as k(attnum, ord)
+         join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum) as referenced_columns,
+        case c.confdeltype when 'a' then 'NO ACTION' when 'r' then 'RESTRICT'
+          when 'c' then 'CASCADE' when 'n' then 'SET NULL'
+          when 'd' then 'SET DEFAULT' else 'UNKNOWN' end as on_delete
+       from pg_constraint c
+       join pg_class rel on rel.oid = c.conrelid
+       join pg_namespace ns on ns.oid = rel.relnamespace
+       join pg_class ref on ref.oid = c.confrelid
+       where c.contype = 'f' and ns.nspname = 'public'
+         and rel.relname = any($1::text[])
+       order by rel.relname, ref.relname`,
+      [TABLES],
+    );
+    for (const fk of fkResult.rows) {
+      if (!tables[fk.table_name]) continue;
+      tables[fk.table_name].foreignKeys ??= [];
+      tables[fk.table_name].foreignKeys.push({
+        columns: fk.columns, referencedTable: fk.referenced_table,
+        referencedColumns: fk.referenced_columns, onDelete: fk.on_delete,
+      });
+    }
     for (const name of TABLES) {
       const item = tables[name];
       if (!item) continue;
@@ -82,12 +111,25 @@ export const compareReadOnlyInventories = (supabase, neon) => {
     const changedType = Object.keys(sb.columns)
       .filter(key => key in ne.columns && sb.columns[key] !== ne.columns[key])
       .map(key => ({ column: key, supabase: sb.columns[key], neon: ne.columns[key] }));
+    const fkIdentity = (fk) => JSON.stringify([
+      fk.columns, fk.referencedTable, fk.referencedColumns,
+    ]);
+    const sbForeignKeys = new Map((sb.foreignKeys ?? []).map(fk => [fkIdentity(fk), fk.onDelete]));
+    const neForeignKeys = new Map((ne.foreignKeys ?? []).map(fk => [fkIdentity(fk), fk.onDelete]));
+    const foreignKeyDeleteDifferences = [...new Set([
+      ...sbForeignKeys.keys(), ...neForeignKeys.keys(),
+    ])].filter(key => sbForeignKeys.get(key) !== neForeignKeys.get(key))
+      .map(key => ({
+        relation: JSON.parse(key),
+        supabase: sbForeignKeys.get(key) ?? null,
+        neon: neForeignKeys.get(key) ?? null,
+      }));
     return {
       table, supabasePresent: true, neonPresent: true,
       rowCounts: { supabase: sb.count, neon: ne.count },
       latestUpdated: { supabase: sb.lastUpdated, neon: ne.lastUpdated },
-      supabaseOnly, neonOnly, changedType,
-      schemaMismatch: Boolean(supabaseOnly.length || neonOnly.length || changedType.length),
+      supabaseOnly, neonOnly, changedType, foreignKeyDeleteDifferences,
+      schemaMismatch: Boolean(supabaseOnly.length || neonOnly.length || changedType.length || foreignKeyDeleteDifferences.length),
     };
   });
   return {
