@@ -116,27 +116,71 @@ export const verifyPersistedRecovery = async ({
   try {
     const { rows } = await pool.query(`
       with scoped_runs as (
-        select r.status, r.outputs_written,
-               (select count(*)::integer
-                from public.monitoring_outputs m
-                where m.run_id = r.id
-                  and (m.captured_at at time zone 'America/Sao_Paulo')::date
-                    = (r.started_at at time zone 'America/Sao_Paulo')::date
-               ) as linked_outputs
+        select r.id, r.status, r.outputs_written,
+               count(m.id)::integer as linked_any_day,
+               count(m.id) filter (
+                 where (m.captured_at at time zone 'America/Sao_Paulo')::date
+                   = (r.started_at at time zone 'America/Sao_Paulo')::date
+               )::integer as linked_outputs
         from public.source_connector_runs r
+        left join public.monitoring_outputs m on m.run_id = r.id
         where r.scope_type='company' and r.trigger_type='cron'
           and r.started_at >= $2::timestamptz
           and r.metadata->>'release' = $1
+        group by r.id
       )
       select count(*)::integer as attempts,
              count(*) filter (where status='completed')::integer as completed,
-             count(*) filter (where status='completed' and outputs_written > 0 and linked_outputs > 0)::integer as effective,
+             count(*) filter (
+               where status='completed' and outputs_written > 0 and linked_outputs > 0
+             )::integer as effective,
              coalesce(sum(linked_outputs) filter (
                where status='completed' and outputs_written > 0 and linked_outputs > 0
-             ),0)::integer as outputs_written
+             ),0)::integer as outputs_written,
+             coalesce(sum(outputs_written),0)::integer as reported_outputs,
+             coalesce(sum(linked_any_day),0)::integer as linked_any_day,
+             coalesce(sum(linked_outputs),0)::integer as linked_same_day,
+             count(*) filter (where status='completed' and outputs_written > 0)::integer
+               as completed_reporting_outputs,
+             count(*) filter (
+               where status='completed' and outputs_written > 0
+                 and linked_any_day > 0 and linked_outputs = 0
+             )::integer as completed_with_only_other_day_links,
+             (select count(*)::integer
+                from public.source_connector_runs other
+               where other.scope_type='company' and other.trigger_type='cron'
+                 and other.started_at >= $2::timestamptz
+                 and coalesce(other.metadata->>'release','') <> $1
+             ) as other_release_runs
       from scoped_runs
     `, [release, startedAt]);
-    return assessPersistedRecovery({ ...rows[0], outputsWritten: rows[0]?.outputs_written, release });
+    const evidence = rows[0] ?? {};
+    try {
+      return assessPersistedRecovery({
+        attempts: evidence.attempts,
+        completed: evidence.completed,
+        effective: evidence.effective,
+        outputsWritten: evidence.outputs_written,
+        release,
+      });
+    } catch (error) {
+      // Numeric-only diagnostics: never leak credentials, customer content or row payloads.
+      // This does not relax any acceptance gate; the job remains failed.
+      console.error('[capture-recovery-evidence]', JSON.stringify({
+        release,
+        startedAt,
+        attempts: Number(evidence.attempts ?? 0),
+        completed: Number(evidence.completed ?? 0),
+        effective: Number(evidence.effective ?? 0),
+        reportedOutputs: Number(evidence.reported_outputs ?? 0),
+        linkedOutputsAnyDay: Number(evidence.linked_any_day ?? 0),
+        linkedOutputsSameDay: Number(evidence.linked_same_day ?? 0),
+        completedReportingOutputs: Number(evidence.completed_reporting_outputs ?? 0),
+        completedWithOnlyOtherDayLinks: Number(evidence.completed_with_only_other_day_links ?? 0),
+        otherReleaseRuns: Number(evidence.other_release_runs ?? 0),
+      }));
+      throw error;
+    }
   } finally { await pool.end(); }
 };
 
