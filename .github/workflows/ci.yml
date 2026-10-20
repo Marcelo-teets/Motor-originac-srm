@@ -61,6 +61,9 @@ jobs:
       - name: Validate Vercel runtime stability contract
         run: npm run test:vercel-runtime-stability
 
+      - name: Test production health smoke fail-closed behavior
+        run: node --test scripts/smoke/vercel-health-smoke.test.mjs
+
       - name: Validate public Auth environment synchronization
         run: npm run test:auth-public-env
 

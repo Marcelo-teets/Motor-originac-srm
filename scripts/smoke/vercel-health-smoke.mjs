@@ -4,6 +4,14 @@ const bearerToken = process.env.SMOKE_BEARER_TOKEN || '';
 const attempts = Number(process.env.SMOKE_ATTEMPTS || 12);
 const delayMs = Number(process.env.SMOKE_DELAY_MS || 10000);
 const expectedDataProvider = process.env.EXPECTED_DATA_PROVIDER || '';
+const unauthenticatedOnly = process.env.SMOKE_UNAUTHENTICATED_ONLY === 'true';
+
+// A 401-only smoke cannot establish that the production database and core tables
+// are operational. Never report it as healthy unless explicitly requested.
+if (!bearerToken && !unauthenticatedOnly) {
+  console.error('SMOKE_BEARER_TOKEN is required for authenticated health diagnostics. Set SMOKE_UNAUTHENTICATED_ONLY=true for an explicit 401-only check.');
+  process.exit(2);
+}
 
 const requiredTables = [
   'companies',
@@ -67,7 +75,7 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
   try {
     await assertUnauthenticatedIsRejected();
 
-    if (!bearerToken) {
+    if (unauthenticatedOnly) {
       console.log(JSON.stringify({
         ok: true,
         url,
