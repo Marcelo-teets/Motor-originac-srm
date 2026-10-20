@@ -43,6 +43,9 @@ jobs:
       - name: Validate real-evidence V5 acceptance evaluator
         run: node --test scripts/v5-mvp-acceptance-evidence.test.mjs
 
+      - name: Validate read-only Supabase/Neon cutover inventory policy
+        run: node --test scripts/data-plane-cutover-inventory.test.mjs
+
       - name: Validate MVP closure runtime contract
         run: npm run test:mvp-closure-runtime
 
