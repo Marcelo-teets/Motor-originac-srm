@@ -3,7 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { neonAuth } from '../lib/neonAuth';
 
-type AccessMode = 'login' | 'register' | 'bootstrap';
+type AccessMode = 'login' | 'register' | 'bootstrap' | 'verify';
 
 export function LoginPage() {
   const { login, acceptSession, loading, isAuthenticated } = useAuth();
@@ -13,6 +13,7 @@ export function LoginPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +36,27 @@ export function LoginPage() {
   if (isAuthenticated) return <Navigate to="/" replace />;
 
   const busy = loading || submitting;
-  const needsName = mode !== 'login';
+  const needsName = mode === 'register' || mode === 'bootstrap';
+  const needsPassword = mode !== 'verify';
+
+  const sendVerificationCode = async () => {
+    if (!email.trim()) {
+      setError('Informe o e-mail da sua conta para receber o código.');
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    setSubmitting(true);
+    try {
+      await neonAuth.sendEmailVerificationCode(email.trim());
+      setMode('verify');
+      setSuccess('Se o e-mail estiver cadastrado, o Neon enviará um código de verificação.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao solicitar código.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -44,6 +65,14 @@ export function LoginPage() {
     setSubmitting(true);
 
     try {
+      if (mode === 'verify') {
+        await neonAuth.verifyEmailCode(email.trim(), verificationCode.trim());
+        setPassword('');
+        setVerificationCode('');
+        setMode('login');
+        setSuccess('E-mail confirmado. Entre com sua senha para acessar a plataforma.');
+        return;
+      }
       if (mode === 'login') {
         await login(email.trim(), password);
         return;
@@ -86,13 +115,15 @@ export function LoginPage() {
       <main className="auth-panel auth-form-panel">
         <div>
           <p className="eyebrow">Acesso seguro</p>
-          <h2>{mode === 'login' ? 'Entrar na plataforma' : mode === 'bootstrap' ? 'Configurar acesso administrador' : 'Solicitar acesso'}</h2>
+          <h2>{mode === 'login' ? 'Entrar na plataforma' : mode === 'bootstrap' ? 'Configurar acesso administrador' : mode === 'verify' ? 'Confirmar e-mail' : 'Solicitar acesso'}</h2>
           <p className="auth-copy">
             {mode === 'login'
               ? 'Use seu e-mail e senha. A sessão é mantida em cookie seguro no domínio do Motor.'
               : mode === 'bootstrap'
                 ? 'Bootstrap privilegiado habilitado temporariamente para a configuração inicial.'
-                : 'Novos cadastros entram como pendentes e precisam de liberação antes de acessar dados de originação.'}
+                : mode === 'verify'
+                  ? 'Digite o código enviado ao seu e-mail. O Motor não recebe nem armazena esse código permanentemente.'
+                  : 'Novos cadastros entram como pendentes e precisam de liberação antes de acessar dados de originação.'}
           </p>
         </div>
 
@@ -134,30 +165,50 @@ export function LoginPage() {
             />
           </label>
 
-          <label>
-            <span>Senha</span>
-            <div className="password-field">
+          {needsPassword ? (
+            <label>
+              <span>Senha</span>
+              <div className="password-field">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  minLength={mode === 'login' ? undefined : 10}
+                  disabled={busy}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                  disabled={busy}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+            </label>
+          ) : (
+            <label>
+              <span>Código de verificação</span>
               <input
-                type={showPassword ? 'text' : 'password'}
-                name="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                minLength={mode === 'login' ? undefined : 10}
+                type="text"
+                name="verification-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6,8}"
+                minLength={6}
+                maxLength={8}
+                value={verificationCode}
+                onChange={(event) => setVerificationCode(event.target.value.replace(/[^0-9]/g, ''))}
                 disabled={busy}
                 required
+                autoFocus
               />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword((current) => !current)}
-                disabled={busy}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-          </label>
+            </label>
+          )}
 
           <div className="auth-row-between">
             <span className="table-helper">Acesso protegido pelo Neon</span>
@@ -167,17 +218,36 @@ export function LoginPage() {
           {error ? <div className="auth-alert auth-alert-error" role="alert" aria-live="assertive">{error}</div> : null}
           {success ? <div className="auth-alert auth-alert-success" role="status">{success}</div> : null}
 
-          <button type="submit" disabled={busy || !email.trim() || !password || (needsName && !name.trim())}>
+          <button type="submit" disabled={busy || !email.trim() || (needsPassword && !password) || (mode === 'verify' && !/^[0-9]{6,8}$/.test(verificationCode)) || (needsName && !name.trim())}>
             {busy
               ? 'Processando...'
               : mode === 'login'
                 ? 'Entrar'
                 : mode === 'bootstrap'
                   ? 'Criar GOD-MODE'
-                  : 'Criar cadastro pendente'}
+                  : mode === 'verify'
+                    ? 'Confirmar e-mail'
+                    : 'Criar cadastro pendente'}
           </button>
 
-          {!bootstrapAvailable && initialized ? (
+          {mode === 'login' ? (
+            <button type="button" className="secondary" disabled={busy || !email.trim()} onClick={() => void sendVerificationCode()}>
+              Enviar código para verificar meu e-mail
+            </button>
+          ) : null}
+
+          {mode === 'verify' ? (
+            <>
+              <button type="button" className="secondary" disabled={busy} onClick={() => void sendVerificationCode()}>
+                Reenviar código
+              </button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => { setMode('login'); setError(null); setSuccess(null); }}>
+                Voltar para entrar
+              </button>
+            </>
+          ) : null}
+
+          {!bootstrapAvailable && initialized && mode !== 'verify' ? (
             <button
               type="button"
               className="secondary"
@@ -192,9 +262,9 @@ export function LoginPage() {
             </button>
           ) : null}
 
-          {!bootstrapAvailable && !initialized ? (
+          {!bootstrapAvailable && !initialized && mode !== 'verify' ? (
             <div className="auth-alert auth-alert-warning" role="status">
-              A plataforma ainda aguarda a configuração controlada do primeiro administrador.
+              A ativação do acesso institucional exige uma conta administrativa com e-mail verificado.
             </div>
           ) : null}
         </form>

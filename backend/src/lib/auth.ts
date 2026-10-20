@@ -241,6 +241,37 @@ export const signUpWithPassword = async (
   }), 'Não foi possível criar o primeiro acesso.')
 );
 
+// Neon Managed Better Auth ships the Email OTP plugin. Only its first-party
+// API is called here; the OTP is never generated, logged, or persisted by Motor.
+// Sending/verifying is available before platform admission, because unverified
+// users cannot pass the protected-session boundary.
+export const sendEmailVerificationOtp = async (email: string) => {
+  const response = await neonAuthRequest('/email-otp/send-verification-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.trim().toLowerCase(), type: 'email-verification' }),
+  });
+  const payload = await readJsonObject(response);
+  if (!response.ok) {
+    if (response.status === 429) throw withStatus('Muitas tentativas. Aguarde antes de solicitar novo código.', 429);
+    throw withStatus('Não foi possível enviar o código de verificação. Confirme as configurações do Neon Auth.', 502);
+  }
+  return { accepted: true };
+};
+
+export const confirmEmailVerificationOtp = async (email: string, otp: string) => {
+  const response = await neonAuthRequest('/email-otp/verify-email', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.trim().toLowerCase(), otp: otp.trim() }),
+  });
+  // An upstream verification response may include session material; never
+  // forward it or Set-Cookie to the browser through this admission endpoint.
+  if (!response.ok) {
+    if (response.status === 429) throw withStatus('Muitas tentativas. Solicite outro código mais tarde.', 429);
+    throw withStatus('Código inválido ou expirado. Solicite um novo código.', 400);
+  }
+  return { verified: true };
+};
+
 export const requestPasswordReset = async (email: string, redirectTo: string) => {
   const response = await neonAuthRequest('/request-password-reset', {
     method: 'POST',
