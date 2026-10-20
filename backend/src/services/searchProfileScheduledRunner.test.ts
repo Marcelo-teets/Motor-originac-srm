@@ -190,3 +190,43 @@ test('runner records failures without aborting the batch', async () => {
   assert.equal(summary.executed, 1);
   assert.equal(summary.results.find((item) => item.searchProfileId === 'sp_1')!.action, 'failed');
 });
+
+test('runner isolates a history lookup outage, does not duplicate that profile, and continues the batch', async () => {
+  const captured: string[] = [];
+  const summary = await runScheduledSearchProfiles({
+    listSearchProfiles: async () => [profile('sp_1'), profile('sp_2'), profile('sp_3')],
+    listRuns: async (id) => {
+      if (id === 'sp_2') throw new Error('database history temporarily unavailable');
+      return [];
+    },
+    runCapture: async (id) => {
+      captured.push(id);
+      return summaryFor(id);
+    },
+  });
+
+  assert.deepEqual(captured, ['sp_1', 'sp_3']);
+  assert.equal(summary.executed, 2);
+  assert.equal(summary.failed, 1);
+  assert.equal(summary.results[1]?.action, 'failed');
+  assert.match(summary.results[1]?.note ?? '', /histórico.*database history temporarily unavailable/);
+  assert.equal(summary.results[2]?.action, 'executed');
+});
+
+test('runner never counts queued or running capture responses as executed', async () => {
+  for (const runStatus of ['queued', 'running', 'failed'] as const) {
+    const summary = await runScheduledSearchProfiles({
+      listSearchProfiles: async () => [profile('sp_1')],
+      listRuns: async () => [],
+      runCapture: async (id) => ({
+        ...summaryFor(id),
+        run: run({ searchProfileId: id, runStatus, notes: 'not completed' }),
+      }),
+    });
+    assert.equal(summary.executed, 0, `runStatus=${runStatus}`);
+    assert.equal(summary.failed, 1, `runStatus=${runStatus}`);
+    assert.equal(summary.results[0]?.action, 'failed');
+    assert.equal(summary.results[0]?.runStatus, runStatus);
+    assert.match(summary.results[0]?.note ?? '', /Captura não concluída/);
+  }
+});
