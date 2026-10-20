@@ -1,11 +1,13 @@
 name: Capture Daily Recovery
 
-# Runs the EXISTING bounded capture engine only if no company cron capture
-# has been recorded in the past 20 hours. This is a safety-net for skipped
-# GitHub schedules, not a parallel ingestion system.
+# Uses the EXISTING bounded capture engine only when no A7-eligible company
+# output exists today and an 8h safety gap elapsed. A second afternoon check
+# handles a skipped/late GitHub scheduled morning run; the SQL check and
+# concurrency guard prevent needless duplicate ingestion.
 on:
   schedule:
     - cron: '25 13 * * *'
+    - cron: '25 17 * * *'  # second chance at 14:25 São Paulo, not an unconditional capture
   workflow_dispatch: {}
   push:
     branches: [main]
