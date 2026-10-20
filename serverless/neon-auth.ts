@@ -4,6 +4,7 @@
 // request of a warm instance.
 const loadVerifier = () => import('../backend/src/lib/neonJwt.js');
 const loadPostgres = () => import('../backend/src/lib/postgres.js');
+const loadIdentityPolicy = () => import('../backend/src/lib/institutionalIdentity.js');
 
 type NeonUser = {
   id: string;
@@ -45,14 +46,23 @@ export const verifyActiveIdentity = async (accessToken: string): Promise<NeonIde
   const client = getNeonPostgresClient(databaseUrl());
   if (!client) throw Object.assign(new Error('Neon database is not configured.'), { statusCode: 503 });
 
-  const rows = await client.select('user_profiles', {
-    select: 'role,status',
-    filters: [{ column: 'id', operator: 'eq', value: user.id }],
-    limit: 1,
-  });
-  const profile = rows[0] as { role?: string; status?: string } | undefined;
-  if (!profile) throw Object.assign(new Error('User profile not found.'), { statusCode: 403 });
-  if (profile.status !== 'active') throw Object.assign(new Error('User access is not active.'), { statusCode: 403 });
+  const rows = await client.query<{
+    role: string; status: string; profile_email: string | null;
+    auth_email: string | null; email_verified: boolean; auth_banned: boolean | null;
+  }>(`select p.role, p.status, p.email as profile_email,
+           a.email as auth_email, a."emailVerified" as email_verified,
+           a.banned as auth_banned
+       from public.user_profiles p
+       join neon_auth."user" a on a.id = p.id
+       where p.id = $1
+       limit 1`, [user.id]);
+  const profile = rows[0];
+  const { hasVerifiedTokenIdentity } = await loadIdentityPolicy();
+  if (!profile || profile.status !== 'active' ||
+    !hasVerifiedTokenIdentity(user.email, profile.profile_email, profile.auth_email,
+      profile.email_verified, profile.auth_banned)) {
+    throw Object.assign(new Error('Institutional identity is unverified or inactive.'), { statusCode: 403 });
+  }
 
   return {
     user,
