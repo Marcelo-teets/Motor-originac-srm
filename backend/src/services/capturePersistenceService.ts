@@ -424,10 +424,12 @@ export class CapturePersistenceService {
       errors.push(`enrichments: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const treatmentRunIdByCompany = new Map<string, string>();
-    const treatmentRunRows = results.map((result) => {
-      const runId = crypto.randomUUID();
-      if (result.run.companyId) treatmentRunIdByCompany.set(result.run.companyId, runId);
+    // A company may be captured by several sources in one batch. A company-keyed
+    // map silently overwrote earlier run IDs and attributed their treatment
+    // results to the last source. Keep lineage by exact result index instead.
+    const treatmentRunIds = results.map(() => crypto.randomUUID());
+    const treatmentRunRows = results.map((result, index) => {
+      const runId = treatmentRunIds[index]!;
       const treatments = result.treatmentResults;
       return {
         id: runId,
@@ -450,9 +452,8 @@ export class CapturePersistenceService {
       };
     });
 
-    const treatmentResultRows = results.flatMap((result) => {
-      const treatmentRunId = result.run.companyId ? treatmentRunIdByCompany.get(result.run.companyId) : undefined;
-      if (!treatmentRunId) return [];
+    const treatmentResultRows = results.flatMap((result, index) => {
+      const treatmentRunId = treatmentRunIds[index]!;
       return result.treatmentResults.map((treatment) => ({
         id: crypto.randomUUID(),
         treatment_run_id: treatmentRunId,
