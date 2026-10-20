@@ -109,3 +109,30 @@ test('failed recovery exposes numeric-only linkage diagnostics without relaxing 
     attempts: 6, completed: 6, effective: 0, outputsWritten: 0, release: 'motor-v5-daily-recovery',
   }), /no completed company-source capture/);
 });
+
+test('recovery due and persisted-run verifier require source-backed observed processed real evidence just like A7', () => {
+  const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
+  // checkDailyRecovery and verifyPersistedRecovery must apply all four source
+  // validity conditions independently, rather than using only outputs_written.
+  for (const pattern of [
+    /m\.connector_status = 'real'/g,
+    /m\.status = 'processed'/g,
+    /m\.observed_vs_inferred = 'observed'/g,
+    /coalesce\(nullif\(btrim\(m\.url\), ''\), nullif\(btrim\(m\.evidence_url\), ''\)\) is not null/g,
+  ]) assert.equal((source.match(pattern) ?? []).length, 2);
+  assert.match(source, /where r\.status = 'completed' and r\.outputs_written > 0/);
+  assert.match(source, /where status='completed' and outputs_written > 0 and linked_outputs > 0/);
+});
+
+test('two daily recovery schedule windows preserve the bounded single-writer and storage gates', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/capture-daily-recovery.yml', import.meta.url), 'utf8');
+  assert.match(yml, /cron: '25 13 \* \* \*'/);
+  assert.match(yml, /cron: '25 17 \* \* \*'/);
+  assert.match(yml, /cancel-in-progress: false/);
+  assert.match(yml, /MAX_CAPTURE_TARGETS: '8'/);
+  assert.match(yml, /MAX_PARALLELISM: '1'/);
+  assert.match(yml, /steps\.storage\.outputs\.blocked != 'true' && steps\.due\.outputs\.run == 'true'/);
+  assert.match(yml, /scripts\/capture\/should-run-daily-recovery\.mjs --verify/);
+  assert.match(yml, /scripts\/check-neon-storage-budget\.mjs --requested-rows=8 --trigger=schedule/);
+  assert.doesNotMatch(yml, /manual_capture_override|skip_evidence_checks/i);
+});
