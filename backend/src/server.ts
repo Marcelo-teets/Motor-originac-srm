@@ -217,7 +217,7 @@ app.post('/auth/session', wrap(async (req, res) => {
 // identity isn't permitted to access platform data until verification passes.
 app.post('/auth/email/send-code', wrap(async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     throw Object.assign(new Error('Informe um e-mail válido.'), { statusCode: 400 });
   }
   await sendEmailVerificationOtp(email);
@@ -227,8 +227,8 @@ app.post('/auth/email/send-code', wrap(async (req, res) => {
 app.post('/auth/email/verify-code', wrap(async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
   const otp = String(req.body?.otp ?? '').trim();
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254 ||
-    !/^\\d{6,8}$/.test(otp)) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 ||
+    !/^\d{6,8}$/.test(otp)) {
     throw Object.assign(new Error('Informe e-mail válido e código numérico recebido.'), { statusCode: 400 });
   }
   await confirmEmailVerificationOtp(email, otp);
