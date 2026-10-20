@@ -1,5 +1,27 @@
 # Recuperação de dados legados (Supabase → Neon) — TEMPORÁRIO
 
+> **Atualização auditada em 20/10/2026 — prevalece sobre o estado de 06/10 abaixo:**
+> O Supabase institucional `hdghpmssudrqhsbvrdyt` voltou a aceitar consultas
+> SQL de leitura: 74 empresas, 1.426 candidatas, 27.448 monitoring outputs,
+> 1.090 qualifications, 5.319 scores e 15 registros de pipeline.
+> O Neon em produção (2 empresas, 318 outputs) tem um estado e esquema distintos.
+> **Não execute o importador legado nem apague esta pasta:** o destino final
+> prescrito pelo cérebro mestre é Supabase, e o runtime temporário está no Neon.
+> A decisão de cutover/importação requer reconciliação, backup, versão, rollback,
+> teste em branch isolado e aprovação humana. Os passos Supabase→Neon abaixo
+> documentam um procedimento histórico, não uma autorização de execução.
+>
+> **Auditoria de identidade somente leitura:** execute
+> `node migration/supabase-recovery/identity-reconciliation-preflight.mjs`
+> com `MOTOR_SUPABASE_AUDIT_DATABASE_URL` e `MOTOR_NEON_DATABASE_URL`
+> fornecidas pelo cofre autorizado. O comando retorna **apenas contagens** e
+> código 2 enquanto a importação estiver bloqueada; nunca imprime CNPJs ou IDs.
+> Confirmado em SQL read-only: zero CNPJs ou UUIDs de empresas coincidentes
+> entre os bancos; 78 códigos de `source_catalog` coincidentes, **zero UUIDs**
+> coincidentes. Portanto, é obrigatório remapear source IDs e suas dependências
+> antes de qualquer migração, sem duplicar fontes por UUID.
+>
+
 Esta pasta é a **única** parte do repositório que ainda conversa com o Supabase.
 Ela existe só para tirar os dados do projeto legado `hdghpmssudrqhsbvrdyt` e
 carregá-los no Neon (`steep-poetry-38942951`). O runtime (api/, serverless/,
