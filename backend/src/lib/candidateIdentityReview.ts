@@ -1,4 +1,5 @@
 import { isValidCnpjChecksum } from './candidatePromotionReadiness.js';
+import { normalizeCnpjIdentity } from './cnpjIdentity.js';
 
 export type CandidateIdentityApprovalInput = {
   candidateId: string;
@@ -39,7 +40,7 @@ export class CandidateIdentityReviewValidationError extends Error {
 }
 
 const clean = (value: unknown) => String(value ?? '').trim();
-const digits = (value: unknown) => clean(value).replace(/\D/g, '');
+// Preserve letters in valid 2026 alphanumeric CNPJs; no digit-only truncation.
 
 const validHttpUrl = (value: string) => {
   try {
@@ -56,7 +57,7 @@ export function normalizeCandidateIdentityApprovalInput(
   reviewer: { userId?: string; email?: string } = {},
 ): CandidateIdentityApprovalInput {
   const legalName = clean(raw.legalName ?? raw.legal_name);
-  const cnpj = digits(raw.cnpj);
+  const cnpj = normalizeCnpjIdentity(raw.cnpj);
   const website = clean(raw.website);
   const identitySourceUrl = clean(raw.identitySourceUrl ?? raw.identity_source_url);
   const evidenceSummary = clean(raw.evidenceSummary ?? raw.evidence_summary);

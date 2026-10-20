@@ -1,4 +1,5 @@
 import { getDataClient } from '../lib/dataClient.js';
+import { normalizeCnpjIdentity, isValidCnpjIdentity } from '../lib/cnpjIdentity.js';
 import {
   discoverStrategicPublicResources,
   streamStrategicPublicResource,
@@ -28,22 +29,8 @@ export type StrategicTargetCompanyRow = {
   metadata?: Record<string, unknown> | null;
 };
 
-export const normalizeCnpj = (value: unknown) => String(value ?? '').replace(/\D/g, '');
-
-export const isValidCnpj = (value: unknown) => {
-  const digits = normalizeCnpj(value);
-  if (digits.length !== 14 || /^(\d)\1{13}$/.test(digits)) return false;
-
-  const calculateDigit = (base: string, weights: number[]) => {
-    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * weights[index]!, 0);
-    const remainder = sum % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-
-  const first = calculateDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  const second = calculateDigit(`${digits.slice(0, 12)}${first}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  return digits.endsWith(`${first}${second}`);
-};
+export const normalizeCnpj = normalizeCnpjIdentity;
+export const isValidCnpj = isValidCnpjIdentity;
 
 export const isEligibleStrategicMonitoringTarget = (row: StrategicTargetCompanyRow) => {
   const metadata = row.metadata ?? {};

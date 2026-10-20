@@ -1,4 +1,5 @@
 import type { DiscoveredCandidateDraft } from './candidatePromotion.js';
+import { isValidCnpjIdentity } from './cnpjIdentity.js';
 
 export type CandidatePromotionCandidate = DiscoveredCandidateDraft & {
   candidateStatus: 'captured' | 'deduped' | 'promoted' | 'discarded';
@@ -18,21 +19,7 @@ export class CandidatePromotionBlockedError extends Error {
   }
 }
 
-const digits = (value?: string) => String(value ?? '').replace(/\D/g, '');
-
-export const isValidCnpjChecksum = (value?: string) => {
-  const cnpj = digits(value);
-  if (cnpj.length !== 14 || /^(\d)\1{13}$/.test(cnpj)) return false;
-  const calculate = (base: string, weights: number[]) => {
-    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * weights[index], 0);
-    const remainder = sum % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-  const first = calculate(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  if (first !== Number(cnpj[12])) return false;
-  const second = calculate(cnpj.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  return second === Number(cnpj[13]);
-};
+export const isValidCnpjChecksum = isValidCnpjIdentity;
 
 const asBoolean = (value: unknown) => value === true || value === 'true';
 

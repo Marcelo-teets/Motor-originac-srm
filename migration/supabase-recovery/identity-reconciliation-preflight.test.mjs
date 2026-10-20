@@ -8,9 +8,9 @@ const source = (id, code) => ({ id, code });
 
 test('matching source codes never imply UUID compatibility or permission to merge', () => {
   const report = evaluateIdentityReconciliation(
-    { companies: [company('c1','12.345.678/0001-90'),company('c2','01.234.567/0001-89')],
+    { companies: [company('c1','11.444.777/0001-61'),company('c2','17.770.708/0001-24')],
       sources: [source('source-legacy','cvm_fidc'),source('source-only','rss_new')] },
-    { companies: [company('c3','12.345.678/0001-90'),company('c4','22.222.222/0001-22')],
+    { companies: [company('c3','11.444.777/0001-61'),company('c4','00.000.000/E08G-12')],
       sources: [source('source-new','CVM_FIDC'),source('source-unique','other')] },
   );
   assert.equal(report.cutoverApproved, false);
@@ -23,14 +23,14 @@ test('matching source codes never imply UUID compatibility or permission to merg
   assert.equal(report.sources.matchedCodeDifferentUuid, 1);
   assert.equal(report.sources.supabase, 2);
   assert.equal(report.sources.neon, 2);
-  assert.doesNotMatch(JSON.stringify(report), /12\.345\.678|cvm_fidc|source-legacy/);
+  assert.doesNotMatch(JSON.stringify(report), /11\.444\.777|cvm_fidc|source-legacy/);
 });
 
 test('duplicate and invalid company identity cannot be silently promoted', () => {
   const report = evaluateIdentityReconciliation(
-    { companies: [company('1','12345678000190'),company('2','12345678000190'),company('3','')],
+    { companies: [company('1','11444777000161'),company('2','11444777000161'),company('3','')],
       sources: [source('4','CVM'),source('5',' cvm '),source('6',null)] },
-    { companies: [company('1','98765432000178')],sources: [source('7','CVM')] },
+    { companies: [company('1','17770708000124')],sources: [source('7','CVM')] },
   );
   assert.equal(report.companies.duplicateCnpjGroups.supabase, 1);
   assert.equal(report.companies.matchedUuidDifferentCnpj, 1);

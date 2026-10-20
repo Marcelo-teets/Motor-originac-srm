@@ -63,3 +63,14 @@ test('rejects valid CNPJs without explicit real-data governance metadata', () =>
     metadata: {},
   }), false);
 });
+
+test('preserves valid RFB-2026 alphanumeric CNPJ while enforcing real monitoring eligibility', () => {
+  assert.equal(normalizeCnpj('00.000.000/e08g-12'), '00000000E08G12');
+  assert.equal(isValidCnpj('00.000.000/E08G-12'), true);
+  assert.equal(isValidCnpj('00.000.000/E08G-13'), false);
+  const row = realReviewedCompany({ cnpj: '00.000.000/E08G-12' });
+  assert.equal(isEligibleStrategicMonitoringTarget(row), true);
+  assert.equal(isEligibleStrategicMonitoringTarget({
+    ...row, metadata: { ...row.metadata, identity_verified: false },
+  }), false);
+});
