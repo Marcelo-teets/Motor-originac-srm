@@ -1,5 +1,6 @@
 import type { AuthUser } from './auth.js';
 import { getDataClient } from './dataClient.js';
+import { hasVerifiedInstitutionalIdentity, hasVerifiedTokenIdentity } from './institutionalIdentity.js';
 
 export type UserRole = 'god_mode' | 'common';
 export type UserStatus = 'active' | 'invited' | 'disabled';
@@ -53,6 +54,26 @@ export const getUserProfileById = async (userId: string) => {
   return rows[0] ? normalizedProfile(rows[0]) : null;
 };
 
+// Always query the identity provider as well as the application profile. An
+// active row alone must never authorize an unverified/banned identity.
+export const getVerifiedActiveUserProfileById = async (userId: string, tokenEmail?: string) => {
+  const rows = await client().query<{
+    id: string; status: string; email: string | null;
+    auth_email: string | null; email_verified: boolean; auth_banned: boolean | null;
+    [key: string]: unknown;
+  }>(`select p.*, a.email as auth_email, a."emailVerified" as email_verified,
+           a.banned as auth_banned
+       from public.user_profiles p
+       join neon_auth."user" a on a.id = p.id
+       where p.id = $1
+       limit 1`, [userId]);
+  const row = rows[0];
+  if (!row || row.status !== 'active') return null;
+  if (!hasVerifiedInstitutionalIdentity(row.email, row.auth_email, row.email_verified, row.auth_banned)) return null;
+  if (tokenEmail !== undefined && !hasVerifiedTokenIdentity(tokenEmail, row.email, row.auth_email, row.email_verified, row.auth_banned)) return null;
+  return normalizedProfile(row);
+};
+
 export const ensureUserProfile = async (user: AuthUser, defaults: { role?: UserRole; status?: UserStatus; fullName?: string | null } = {}) => {
   const existing = await getUserProfileById(user.id);
   if (existing) return existing;
@@ -96,21 +117,21 @@ export const updateOwnUserProfile = async (
 };
 
 export const requireGodModeProfile = async (userId: string) => {
-  const profile = await getUserProfileById(userId);
-  if (!profile || profile.role !== 'god_mode' || profile.status !== 'active') {
+  const profile = await getVerifiedActiveUserProfileById(userId);
+  if (!profile || profile.role !== 'god_mode') {
     throw Object.assign(new Error('god_mode_required'), { statusCode: 403 });
   }
   return profile;
 };
 
 export const hasActiveGodModeProfile = async () => {
-  const rows = await client().select('user_profiles', {
-    filters: [
-      { column: 'role', operator: 'eq', value: 'god_mode' },
-      { column: 'status', operator: 'eq', value: 'active' },
-    ],
-    limit: 1,
-  }) as Record<string, unknown>[];
+  const rows = await client().query(`select 1
+    from public.user_profiles p
+    join neon_auth."user" a on a.id = p.id
+    where p.role = 'god_mode' and p.status = 'active'
+      and a."emailVerified" = true and coalesce(a.banned, false) = false
+      and lower(btrim(p.email)) = lower(btrim(a.email))
+    limit 1`);
   return rows.length > 0;
 };
 
