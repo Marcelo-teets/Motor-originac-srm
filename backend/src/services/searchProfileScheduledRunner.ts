@@ -94,7 +94,20 @@ export async function runScheduledSearchProfiles(
       continue;
     }
 
-    const runs = await deps.listRuns(profile.id);
+    // A transient history read failure must not abort the entire batch or trigger
+    // a duplicate capture with unknown cadence/lease state.
+    let runs: SearchProfileRunRecord[];
+    try {
+      runs = await deps.listRuns(profile.id);
+    } catch (error) {
+      results.push({
+        searchProfileId: profile.id,
+        profileName: profile.name,
+        action: 'failed',
+        note: `Falha ao consultar histórico do profile: ${error instanceof Error ? error.message : 'Unknown history error'}`,
+      });
+      continue;
+    }
     const last = latestRun(runs);
 
     if (last && (last.runStatus === 'running' || last.runStatus === 'queued')) {
@@ -127,12 +140,16 @@ export async function runScheduledSearchProfiles(
       results.push({
         searchProfileId: profile.id,
         profileName: profile.name,
-        action: summary.run.runStatus === 'failed' ? 'failed' : 'executed',
+        // Only a persisted "completed" run may be reported as executed.
+        // Queued/running/failed states are not successful capture evidence.
+        action: summary.run.runStatus === 'completed' ? 'executed' : 'failed',
         runStatus: summary.run.runStatus,
         candidatesFound: summary.run.candidatesFound,
         candidatesInserted: summary.run.candidatesInserted,
         dedupedAgainstExisting: summary.dedupedAgainstExisting,
-        note: summary.run.notes,
+        note: summary.run.runStatus === 'completed'
+          ? summary.run.notes
+          : `Captura não concluída (status=${summary.run.runStatus}). ${summary.run.notes ?? ''}`.trim(),
       });
     } catch (error) {
       results.push({
