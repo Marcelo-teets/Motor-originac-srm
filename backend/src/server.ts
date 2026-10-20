@@ -22,6 +22,7 @@ import {
 import {
   ensureUserProfile,
   getUserProfileById,
+  getVerifiedActiveUserProfileById,
   hasActiveGodModeProfile,
   listUserProfiles,
   requireGodModeProfile,
@@ -180,7 +181,7 @@ app.post('/auth/login', wrap(async (req, res) => {
   const flow = await signInWithPassword(email, password);
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
-  if (profile.status !== 'active') {
+  if (profile.status !== 'active' || !(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
     // Do not leave a live upstream session behind for a rejected login.
     await signOutAuth(flow.sessionToken).catch(() => undefined);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
@@ -199,7 +200,7 @@ app.post('/auth/session', wrap(async (req, res) => {
   const flow = await refreshAuthSession(sessionToken);
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
-  if (profile.status !== 'active') {
+  if (profile.status !== 'active' || !(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
     clearAuthSessionCookie(res);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
   }
@@ -254,8 +255,8 @@ app.use(wrap(async (req, _res, next) => {
     next();
     return;
   }
-  const profile = await getUserProfileById(userId);
-  if (!profile || profile.status !== 'active') {
+  const profile = await getVerifiedActiveUserProfileById(userId, req.authUser!.email);
+  if (!profile) {
     activeProfileCache.delete(userId);
     throw Object.assign(new Error('Este acesso está desativado ou ainda não foi aprovado.'), { statusCode: 403 });
   }
