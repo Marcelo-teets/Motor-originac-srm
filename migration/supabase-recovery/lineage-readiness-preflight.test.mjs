@@ -15,11 +15,11 @@ test('tracks weighted evidence that source codes map while UUIDs differ', () => 
   ];
   references.company_signals.source_id = [{ id: 'src-old-1', rows: 3 }];
   const result = evaluateLineageCoverage({
-    companies: [{ id: 'co-old', cnpj: '12.345.678/0001-90' }],
+    companies: [{ id: 'co-old', cnpj: '11.444.777/0001-61' }],
     sources: [{ id: 'src-old-1', code: 'CVM_FIDC' }, { id: 'src-old-2', code: 'LEGACY_MISSING' }],
     references,
   }, {
-    companies: [{ id: 'co-new', cnpj: '12.345.678/0001-90' }],
+    companies: [{ id: 'co-new', cnpj: '11.444.777/0001-61' }],
     sources: [{ id: 'src-new-1', code: ' cvm_fidc ' }],
   });
   const get = (table, reference) => result.comparisons.find(r => r.table === table && r.reference === reference);
@@ -30,7 +30,7 @@ test('tracks weighted evidence that source codes map while UUIDs differ', () => 
   assert.equal(result.unmappedSourceRows, 30);
   assert.equal(result.importAllowed, false);
   assert.equal(result.cutoverApproved, false);
-  assert.doesNotMatch(JSON.stringify(result), /CVM_FIDC|12\.345\.678|src-old/);
+  assert.doesNotMatch(JSON.stringify(result), /CVM_FIDC|11\.444\.777|src-old/);
 });
 
 test('detects ambiguous destination natural keys and missing source parents', () => {
@@ -56,9 +56,9 @@ test('all matched parent keys still require branch, FK, rollback and human signo
   const references = refs();
   references.pipeline.company_id = [{ id: 'old', rows: 15 }];
   const result = evaluateLineageCoverage({
-    companies: [{ id: 'old', cnpj: '12345678000190' }], sources: [], references,
+    companies: [{ id: 'old', cnpj: '11444777000161' }], sources: [], references,
   }, {
-    companies: [{ id: 'new', cnpj: '12345678000190' }], sources: [],
+    companies: [{ id: 'new', cnpj: '11444777000161' }], sources: [],
   });
   assert.equal(result.allKnownParentReferencesMappable, true);
   assert.equal(result.cutoverApproved, false);
@@ -71,10 +71,10 @@ test('fails closed on incomplete input and non-finite grouped counters', () => {
   const references = refs();
   references.pipeline.company_id = [{ id: 'old', rows: 'broken' }];
   const result = evaluateLineageCoverage({
-    companies: [{ id: 'old', cnpj: '12345678000190' }],
+    companies: [{ id: 'old', cnpj: '11444777000161' }],
     sources: [], references,
   }, {
-    companies: [{ id: 'new', cnpj: '12345678000190' }], sources: [],
+    companies: [{ id: 'new', cnpj: '11444777000161' }], sources: [],
   });
   assert.equal(result.importAllowed, false);
   const entry = result.comparisons.find(r => r.table === 'pipeline' && r.reference === 'company_id');
