@@ -91,3 +91,19 @@ test('actual database audit reads only aggregates and FK parent IDs, and never e
   assert.doesNotMatch(src, /\bINSERT INTO\b|\bDELETE FROM\b|\bUPDATE public\b|\bCREATE TABLE\b/i);
   assert.doesNotMatch(src, /console\.log\(.*(?:sources|companies|cnpj)\)/i);
 });
+
+test('alphanumeric companies with verified checksum are matchable only in theory', () => {
+  const references = refs();
+  references.pipeline.company_id = [{ id: 'legacy-alphanum', rows: 4 }];
+  const report = evaluateLineageCoverage({
+    companies: [{ id:'legacy-alphanum',cnpj:'00.000.000/E08G-12' }],
+    sources: [], references,
+  }, {
+    companies: [{ id:'active-alphanum',cnpj:'00000000e08g12' }],
+    sources: [],
+  });
+  const entry = report.comparisons.find(x => x.table === 'pipeline' && x.reference === 'company_id');
+  assert.equal(entry.mappableByUniqueNaturalKey, 4);
+  assert.equal(report.importAllowed, false);
+  assert.doesNotMatch(JSON.stringify(report),/00000000E08G12/);
+});
