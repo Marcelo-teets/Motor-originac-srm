@@ -56,3 +56,24 @@ IMPORTANT: This release does NOT satisfy human/Auth/commercial gates:
 D-07=0, A2=0, qualified gold companies=0, A7 elapsed full days=0/7
 at last source-backed database audit. Today's newly linked captures do not
 count as seven complete days. Do not claim MVP 100%.
+
+
+Release request — 2026-10-19 / V5 QA hardening (PRs #661, #662, #663)
+Reviewed current main baseline: dfde1d7e8b2c6764d7d3e5339d912c8d5001be39
+Deploy exactly the resulting reviewed release-request merge SHA, from main,
+using the existing immutable Vercel prebuilt workflow and guardrails.
+
+Included already merged and green-CI changes:
+- #661: production health smoke must fail closed without CRON_SECRET-backed authenticated diagnostics; five regression tests.
+- #662: Search Profile scheduled discovery isolates history-read errors per profile and counts only completed run statuses as successful; regression tests.
+- #663: treatment results retain the exact source-scoped treatment-run ID, including batches with multiple sources for the same company; regression tests.
+
+Preflight and acceptance:
+- CI + Neon runtime parity + storage free-budget guard green.
+- Vercel READY release SHA matches exact current main.
+- production HTTP /api/data-capture/health has authenticated real Neon tables.
+- Auth production smoke, anonymous FIDC denial, automatic Git deployment disabled.
+- Do not bootstrap Auth, promote candidates, write fabricated commercial scores,
+  backfill unattributed monitoring rows, or bypass company identity/review gates.
+- This release does not certify five qualified deals or seven full monitoring
+  days; those are separate evidence-based human and calendar gates.
