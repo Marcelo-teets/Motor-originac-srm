@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { assertAuditConnections } from './data-plane-cutover-inventory.mjs';
+import { canonicalCnpjKey } from './cnpj-normalization.mjs';
 
 // Do not import this into the active runtime. Reconciliation is offline only.
 // Raw CNPJs, source codes, and UUIDs remain in memory and are NEVER serialized.
@@ -17,11 +18,7 @@ export const DEPENDENCIES = Object.freeze({
 
 const normalizeId = value => String(value ?? '').trim().toLowerCase();
 const normalizeCode = value => String(value ?? '').trim().toLowerCase();
-const normalizeCnpj = value => String(value ?? '').replace(/\D/g, '');
-const companyKey = value => {
-  const code = normalizeCnpj(value);
-  return code.length === 14 && !/^(\d)\1{13}$/.test(code) ? code : '';
-};
+const companyKey = canonicalCnpjKey;
 
 const countValues = values => {
   const map = new Map();
