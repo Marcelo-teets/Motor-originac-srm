@@ -52,6 +52,10 @@ export const checkDailyRecovery = async ({
                  and exists (
                    select 1 from public.monitoring_outputs m
                    where m.run_id = r.id
+                     and m.connector_status = 'real'
+                     and m.status = 'processed'
+                     and m.observed_vs_inferred = 'observed'
+                     and coalesce(nullif(btrim(m.url), ''), nullif(btrim(m.evidence_url), '')) is not null
                      and (m.captured_at at time zone 'America/Sao_Paulo')::date
                        = (r.started_at at time zone 'America/Sao_Paulo')::date
                  )
@@ -119,7 +123,11 @@ export const verifyPersistedRecovery = async ({
         select r.id, r.status, r.outputs_written,
                count(m.id)::integer as linked_any_day,
                count(m.id) filter (
-                 where (m.captured_at at time zone 'America/Sao_Paulo')::date
+                 where m.connector_status = 'real'
+                   and m.status = 'processed'
+                   and m.observed_vs_inferred = 'observed'
+                   and coalesce(nullif(btrim(m.url), ''), nullif(btrim(m.evidence_url), '')) is not null
+                   and (m.captured_at at time zone 'America/Sao_Paulo')::date
                    = (r.started_at at time zone 'America/Sao_Paulo')::date
                )::integer as linked_outputs
         from public.source_connector_runs r
