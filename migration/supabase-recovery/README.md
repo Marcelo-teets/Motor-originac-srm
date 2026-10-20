@@ -27,6 +27,16 @@
 > faltam mapeamentos, backups, testes de FKs e aceite humano. Não usar este
 > relatório como `manifest` de importação ou prova de elegibilidade DCM.
 >
+> **Compatibilidade CNPJ alfanumérico (Receita Federal, 31/07/2026):**
+> inscrições novas podem utilizar letras nas primeiras 12 posições e dois
+> dígitos verificadores numéricos. A chave de reconciliação agora usa uppercase
+> e cálculo modulo-11 com valores ASCII menos 48, preservando o legado numérico.
+> Exemplos oficiais verificáveis: `00.000.000/E08G-12` e
+> `12.ABC.345/01DE-35`. Um checksum válido **não substitui** identidade
+> legal comprovada nem autorização de promoção ou migração. A verificação de
+> igualdade dos bancos nunca copia dados ou aprova automaticamente o cutover.
+> Fonte normativa: https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/documentos-tecnicos/cnpj
+>
 > **Auditoria de identidade somente leitura:** execute
 > `node migration/supabase-recovery/identity-reconciliation-preflight.mjs`
 > com `MOTOR_SUPABASE_AUDIT_DATABASE_URL` e `MOTOR_NEON_DATABASE_URL`
