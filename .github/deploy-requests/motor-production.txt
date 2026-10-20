@@ -77,3 +77,15 @@ Preflight and acceptance:
   backfill unattributed monitoring rows, or bypass company identity/review gates.
 - This release does not certify five qualified deals or seven full monitoring
   days; those are separate evidence-based human and calendar gates.
+
+
+Release request — 2026-10-20 / verified institutional Auth runtime boundary
+Reviewed main baseline: 68519910067cddca9c89903533abfb5617f42e61
+Publish exact full SHA of resulting reviewed release-request merge commit.
+Scope: #666; both Express and Vercel serverless protected routes now require a
+current verified, unbanned Neon Auth identity with profile and JWT email parity.
+No database or Auth account modifications. No bypass of human verification.
+PR #666 CI and Neon Runtime Parity passed. Retain rollout policy: versioned
+prebuilt deploy; validate exact SHA, production database and Auth smokes, and
+restore createDeployments=disabled. If smoke fails, stop rollout and investigate.
+Release is a security boundary correction, not D-07/A2/A3-A5/A7 approval.
