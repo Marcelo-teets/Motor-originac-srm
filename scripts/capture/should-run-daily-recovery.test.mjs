@@ -95,3 +95,17 @@ test('recovery gates require persisted outputs bound to completed runs on the sa
   assert.doesNotMatch(source, /sum\(outputs_written\) filter/);
   assert.match(source, /m\.captured_at at time zone 'America\/Sao_Paulo'/);
 });
+
+test('failed recovery exposes numeric-only linkage diagnostics without relaxing gate', () => {
+  const source = readFileSync(new URL('./should-run-daily-recovery.mjs', import.meta.url), 'utf8');
+  assert.match(source, /\[capture-recovery-evidence\]/);
+  assert.match(source, /linked_any_day/);
+  assert.match(source, /linked_same_day/);
+  assert.match(source, /completed_with_only_other_day_links/);
+  assert.match(source, /other_release_runs/);
+  assert.match(source, /throw error;/);
+  assert.doesNotMatch(source, /select\s+\*\s+from public\.monitoring_outputs/i);
+  assert.throws(() => assessPersistedRecovery({
+    attempts: 6, completed: 6, effective: 0, outputsWritten: 0, release: 'motor-v5-daily-recovery',
+  }), /no completed company-source capture/);
+});
