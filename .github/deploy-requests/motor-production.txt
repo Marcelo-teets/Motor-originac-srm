@@ -110,3 +110,19 @@ captured, 8h safety interval and Neon storage guard still gate any runs.
 CI #1954 and workflow-specific Capture Daily Recovery #19 validation successful.
 No schema migration, no manual data mutations, no Auth bootstrap, no fake evidence.
 Do not count absent historical days or treat CI/release as commercial signoff.
+
+
+Release request — 2026-10-20 / RFB-2026 alphanumeric CNPJ identity
+Reviewed main baseline: 116675e07379036d8dc723314fcbf466427b6674
+Publish exact SHA of the eventual reviewed release-request merge commit via
+canonical versioned Vercel prebuilt pipeline.
+Scope: #676 central identity checksum now accepts numeric legacy and alphanumeric
+2026 CNPJ (ASCII minus 48 / modulo 11), preserving letters through candidate
+human identity review, guarded company promotion, strategic monitoring target
+eligibility and company alias generation. Recovery-only parity is quarantined
+outside active runtime.
+CI #1967, Neon Runtime Parity #157 and QSA Source Hierarchy Probe #72 all SUCCESS.
+No schema changes, no user/credit review updates, no forced company promotion,
+no connector query change, no backfill or synthetic lineage.
+Gate rollout on exact SHA, Auth anonymous denial and FIDC/API smokes, and validate
+rollback. Existing seven-day capture and human credit approval gates remain blocked.
