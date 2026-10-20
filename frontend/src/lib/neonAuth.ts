@@ -111,6 +111,20 @@ export const neonAuth = {
     return request<SessionData>('/auth/session', { method: 'POST' });
   },
 
+  async sendEmailVerificationCode(email: string) {
+    await request<{ accepted: boolean }>('/auth/email/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async verifyEmailCode(email: string, otp: string) {
+    await request<{ verified: boolean }>('/auth/email/verify-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
+    });
+  },
+
   async sendPasswordRecovery(email: string) {
     await request<{ accepted: boolean }>('/auth/password/request', {
       method: 'POST',
