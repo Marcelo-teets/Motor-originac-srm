@@ -49,3 +49,15 @@ test('requires a substantive rejection reason', () => {
   });
   assert.equal(rejected.candidateId, 'candidate-1');
 });
+
+test('preserves an alphanumeric CNPJ when approving a legal identity with evidence', () => {
+  const identity = normalizeCandidateIdentityApprovalInput('candidate-alpha', {
+    legalName: 'Banco do Brasil S.A.',
+    cnpj: '00.000.000/e08g-12',
+    website: 'https://www.bb.com.br',
+    identitySourceUrl: 'https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2026/julho/receita-federal-gera-o-primeiro-cnpj-em-formato-alfanumerico',
+    evidenceSummary: 'Receita Federal divulgou a primeira inscrição alfanumérica de uma filial do Banco do Brasil, em 31 de julho de 2026.',
+    confidence: 0.95,
+  });
+  assert.equal(identity.cnpj, '00000000E08G12');
+});
