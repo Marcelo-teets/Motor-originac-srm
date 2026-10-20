@@ -29,7 +29,10 @@ const countValues = values => {
   return map;
 };
 
-const sum = entries => entries.reduce((total, entry) => total + Number(entry.rows), 0);
+const sum = entries => entries.reduce((total, entry) => {
+  const count = Number(entry.rows);
+  return Number.isSafeInteger(count) && count >= 0 ? total + count : total;
+}, 0);
 
 export const evaluateLineageCoverage = (supabase, neon) => {
   assert.ok(Array.isArray(supabase?.companies) && Array.isArray(neon?.companies), 'Missing company parents');
