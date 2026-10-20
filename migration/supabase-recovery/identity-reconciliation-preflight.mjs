@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { assertAuditConnections } from './data-plane-cutover-inventory.mjs';
+import { canonicalCnpjKey } from './cnpj-normalization.mjs';
 
 // Identity-only, read-only comparison. Business identifiers never leave this
 // process; the emitted result contains counts and gates, not CNPJ, UUID or email.
-const corporateTaxId = (input) => {
-  const value = String(input ?? '').replace(/\D/g, '');
-  return value.length === 14 && !/^(\d)\1{13}$/.test(value) ? value : null;
-};
+const corporateTaxId = (input) => canonicalCnpjKey(input) || null;
 const key = (input) => typeof input === 'string' ? input.trim().toLowerCase() : '';
 const id = (input) => typeof input === 'string' ? input.trim().toLowerCase() : '';
 
