@@ -11,6 +11,22 @@
 > teste em branch isolado e aprovação humana. Os passos Supabase→Neon abaixo
 > documentam um procedimento histórico, não uma autorização de execução.
 >
+> **Gate de dependências históricas (read-only, 20/10/2026):**
+> `node migration/supabase-recovery/lineage-readiness-preflight.mjs`
+> utiliza as mesmas duas URLs autorizadas do inventário e não escreve em
+> nenhum banco. Ele contabiliza as referências `company_id` e `source_id`
+> de monitoring outputs, signals, connector runs, qualification, scores e
+> pipeline, avaliando cobertura teórica por CNPJ e `metadata.code`, sem
+> imprimir identificadores, CNPJs, nomes, e-mails ou payloads.
+> Medição diretamente por SQL de leitura: 19.282/27.448 outputs, 12.162/22.515
+> signals com fonte e 5.041/6.242 connector runs com fonte têm **código**
+> presente no catálogo Neon; isto **não prova** correspondência de UUID ou
+> qualidade e não habilita importação. As demais referências exigem
+> reconciliação de catálogo e relacionamentos antes de qualquer restauração.
+> Resultado sempre `importAllowed=false`; código de saída 2 indica que
+> faltam mapeamentos, backups, testes de FKs e aceite humano. Não usar este
+> relatório como `manifest` de importação ou prova de elegibilidade DCM.
+>
 > **Auditoria de identidade somente leitura:** execute
 > `node migration/supabase-recovery/identity-reconciliation-preflight.mjs`
 > com `MOTOR_SUPABASE_AUDIT_DATABASE_URL` e `MOTOR_NEON_DATABASE_URL`
