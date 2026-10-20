@@ -97,3 +97,16 @@ Scope: merged #669 adds first-party Neon Better Auth email-verification OTP endp
 No database migration, credential write, synthetic login, forced account verification or bootstrap.
 CI and Neon Runtime Parity on #669 success; gate publication on approved schema/storage, exact SHA and Auth/FIDC anonymous smoke. Auth human verification remains pending until a real institutional user enters their received code and signs in.
 Existing no-autodeploy and rollback control policies remain in force.
+
+
+Release request — 2026-10-20 / real-source-backed A7 recovery consistency
+Reviewed main baseline: 239cdf7f3220458e1d84f29df3b2c8f2e8ddff3f.
+Exact main SHA after THIS release request's merge must be published via the
+controlled immutable Vercel prebuilt workflow; no direct gitSource deploy.
+Scope: #671 aligns the existing daily recovery checker and per-invocation
+verification with A7's real+processed+observed+source URL output requirement.
+Secondary 17:25 UTC daily recovery schedule is CONDITIONAL; today already
+captured, 8h safety interval and Neon storage guard still gate any runs.
+CI #1954 and workflow-specific Capture Daily Recovery #19 validation successful.
+No schema migration, no manual data mutations, no Auth bootstrap, no fake evidence.
+Do not count absent historical days or treat CI/release as commercial signoff.
