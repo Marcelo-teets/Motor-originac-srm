@@ -37,12 +37,16 @@ const fold = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/
 
 export function filterFidcReviewItems(items: readonly FidcReviewItem[], search: string, lane: string) {
   const query = fold(search.trim());
-  const digitQuery = search.replace(/\D/g, '');
+  // Only punctuation is insignificant in a CNPJ, never its letters. Avoid
+  // matching the numeric fragment of an alphanumeric identity to another tax ID.
+  const identityQuery = search.trim().toUpperCase().replace(/[.\/\-\s]/g, '');
+  const searchByIdentity = /^[A-Z0-9]{4,14}$/.test(identityQuery);
   return items.filter((item) => {
     if (lane && item.review_lane !== lane) return false;
     if (!query) return true;
     const searchable = fold([item.legal_name, item.cnpj, item.registration_status].filter(Boolean).join(' '));
-    return searchable.includes(query) || (digitQuery.length >= 4 && item.cnpj.replace(/\D/g, '').includes(digitQuery));
+    const canonicalCnpj = item.cnpj.toUpperCase().replace(/[.\/\-\s]/g, '');
+    return searchable.includes(query) || (searchByIdentity && canonicalCnpj.includes(identityQuery));
   }).sort((a, b) => {
     const laneDiff = (laneOrder.get(a.review_lane) ?? 99) - (laneOrder.get(b.review_lane) ?? 99);
     if (laneDiff) return laneDiff;
