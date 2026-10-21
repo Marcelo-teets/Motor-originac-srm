@@ -1,7 +1,7 @@
 import type { PlatformRepository } from '../repositories/platformRepository.js';
 import { env } from '../lib/env.js';
 import { selectMonitoringCompanies } from '../lib/boundedCapture.js';
-import { isCompanyDecisionEligible } from '../lib/companyDecisionEligibility.js';
+import { isCompanyApprovedForCreditDerivation } from '../lib/companyDecisionEligibility.js';
 import { DataCaptureEngine } from '../modules/data-capture/dataCaptureEngine.js';
 import { filterCaptureResultsForDecision } from '../modules/data-capture/captureDecisionGate.js';
 import { filterCaptureResultsForEntityRelevance } from '../modules/data-capture/captureEntityRelevanceGate.js';
@@ -79,7 +79,7 @@ export class CaptureRuntimeService {
         .filter((companyId): companyId is string => Boolean(companyId)),
     );
     const decisionCompanies = targetCompanies.filter((company) =>
-      isCompanyDecisionEligible(company) && companiesWithEligibleEvidence.has(company.id));
+      isCompanyApprovedForCreditDerivation(company) && companiesWithEligibleEvidence.has(company.id));
 
     const derived = await this.derivedSync.sync({
       companies: decisionCompanies,
