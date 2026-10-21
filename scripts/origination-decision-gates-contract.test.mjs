@@ -32,3 +32,14 @@ test('firmographic enrichment is governed and cannot become identity authority',
   assert.match(sql, /'identityAuthority',false/);
   assert.match(sql, /'scheduled',false/);
 });
+
+test('capture decision and direct derived persistence both require approved human credit-review gate', async () => {
+  const eligibility = await readFile(new URL('../backend/src/lib/companyDecisionEligibility.ts', import.meta.url),'utf8');
+  const runtime = await readFile(new URL('../backend/src/services/captureRuntimeService.ts', import.meta.url),'utf8');
+  const derived = await readFile(new URL('../backend/src/services/captureDerivedSyncService.ts', import.meta.url),'utf8');
+  assert.match(eligibility, /review\?\.reviewId && review\.status === 'approved' && review\.outcome === 'eligible'/);
+  assert.match(eligibility, /if \(!isCompanyDecisionEligible\(company\)\) return false/);
+  assert.match(runtime, /isCompanyApprovedForCreditDerivation\(company\) && companiesWithEligibleEvidence\.has\(company\.id\)/);
+  assert.match(derived, /if \(!isCompanyApprovedForCreditDerivation\(company\)\) return null/);
+  assert.match(derived, /if \(!result \|\| result\.outputs\.length === 0\) return null/);
+});
