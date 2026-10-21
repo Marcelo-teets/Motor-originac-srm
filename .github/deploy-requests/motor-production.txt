@@ -169,3 +169,18 @@ fragments of a different company. CI #1987 and Neon Runtime Parity #161 SUCCESS.
 No DB migration, no auth user creation, no human credit opinion, no auto promotion
 or synthetic evidence. Preserve storage guard, smoke auth/FIDC access, rollback
 and exact SHA check. D07/A2/A3-A5/A7 and Supabase/Neon reconciliation remain blocked.
+
+
+Release request — 2026-10-21 / preserve alpha CNPJ through candidate promotion identity
+Reviewed main baseline: d823a789575ef4439244573e21dc9d3c9d013c35
+Publish exact eventual merged release request commit SHA through existing immutable Vercel prebuilt workflow.
+Scope #689: canonical RFB-2026 CNPJ 12 alphanumeric + two numeric check
+digits now survives discovery candidate, dedupe key, deterministic company UUID
+and Company Master seed. Avoid deriving company identity from similar names
+after accidentally stripping alpha CNPJ letters. Promotion readiness still
+requires checksum, official evidence and human identity review/Company Master link.
+CI #1991 and Neon Runtime Parity #162 SUCCESS.
+No schema mutation, no credential change, no auto-promotion, no synthetic
+credit review, no score backfill, no new connector/data-plane.
+Run storage budget and Auth/FIDC production smokes, require exact git SHA,
+READY deployment and rollback availability. A2/A3-A5/A7/D07 gates unchanged.
