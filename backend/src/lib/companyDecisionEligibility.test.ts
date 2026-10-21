@@ -5,6 +5,7 @@ import {
   attachCompanyDecisionMetadata,
   evaluateCompanyDecisionEligibility,
   isCompanyApprovedForCreditDerivation,
+  isCompanyDecisionEligible,
   isCompanyEntityEligible,
   isCompanyMonitoringEligible,
   markCompanyAsDemoSeed,
