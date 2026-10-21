@@ -62,3 +62,17 @@ test('FIDC tab does not confuse unrelated generic candidate KPIs with assignor r
   assert.match(page, /queue !== 'fidc_assignors' \? <Card title="Filtros"/);
   assert.match(page, /<FidcAssignorQueue headers=\{headers\} canReview=\{isGodMode\} onReviewCnpj=\{openFidcReview\} \/>/);
 });
+
+test('FIDC human triage filters complete alphanumeric CNPJ without collapsing it to numeric fragments', () => {
+  const items = [
+    sample({ cnpj: '00000000E08G12', legal_name: 'Cedente Alfa' }),
+    sample({ cnpj: '000000000012', legal_name: 'Cedente Distinto' }),
+  ];
+  const full = filterFidcReviewItems(items, '00.000.000/e08g-12', '');
+  assert.deepEqual(full.map(x => x.cnpj), ['00000000E08G12']);
+  const partial = filterFidcReviewItems(items, 'E08G', '');
+  assert.deepEqual(partial.map(x => x.cnpj), ['00000000E08G12']);
+  const numeric = filterFidcReviewItems(items, '000000000012', '');
+  assert.deepEqual(numeric.map(x => x.cnpj), ['000000000012']);
+  assert.equal(items[0].cnpj, '00000000E08G12');
+});
