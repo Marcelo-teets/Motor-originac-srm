@@ -179,3 +179,40 @@ test('D-07 diagnostics never mutate Neon Auth or profiles',async()=>{
  assert.match(source,/from private\.auth_bootstrap_claim\) as bootstrap_claims/);
  assert.match(source,/BEGIN TRANSACTION READ ONLY/);
 });
+
+test('A7 daily counts only distinct completed direct capture runs carrying eligible output evidence', async () => {
+  const { readFileSync } = await import('node:fs');
+  const contents = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs', import.meta.url), 'utf8');
+  const daysSql = contents.split('const DAYS_SQL = ')[1]?.split('export const collectV5Acceptance')[0];
+  assert.ok(daysSql, 'Read-only A7 SQL must remain explicit');
+  assert.match(daysSql, /join public\.source_connector_runs r on r\.id = m\.run_id/);
+  assert.match(daysSql, /r\.scope_type = 'company'/);
+  assert.match(daysSql, /r\.trigger_type = 'cron'/);
+  assert.match(daysSql, /r\.status = 'completed'/);
+  assert.match(daysSql, /r\.outputs_written > 0/);
+  assert.match(daysSql, /m\.connector_status = 'real'/);
+  assert.match(daysSql, /m\.status = 'processed'/);
+  assert.match(daysSql, /m\.observed_vs_inferred = 'observed'/);
+  assert.match(daysSql, /count\(distinct run_id\)::integer as successful_connector_runs/);
+  assert.match(daysSql, /count\(output_id\)::integer as connector_outputs/);
+  assert.match(daysSql, /count\(output_id\)::integer as monitoring_outputs/);
+  assert.doesNotMatch(daysSql, /sum\(outputs_written\)/);
+  assert.doesNotMatch(daysSql, /count\(\*\) filter \(where status = 'completed'\)/);
+  assert.match(daysSql, /left join daily d on d\.local_day=c\.local_day/);
+});
+
+test('A7 acceptance still blocks a day with no real linked monitoring output despite audited run attempts', () => {
+  const humanGates = {
+    ...metrics, active_admins: '1', fidc_human_reviews: '1',
+    evidence_complete_companies: '5',
+  };
+  const seven = sevenElapsed().map(day => ({
+    ...day, successful_connector_runs: 2, connector_outputs: 2, monitoring_outputs: 2,
+  }));
+  seven[2] = {
+    ...seven[2], successful_connector_runs: 0, connector_outputs: 0, monitoring_outputs: 0,
+  };
+  const report = evaluateV5Acceptance({ metrics: humanGates, monitoringDays: seven });
+  assert.equal(report.gates.find(g => g.gate === 'A7')?.status, 'blocked');
+  assert.equal(report.status, 'blocked');
+});
