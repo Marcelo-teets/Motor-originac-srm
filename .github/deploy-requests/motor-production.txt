@@ -199,3 +199,18 @@ No DB schema changes, no historical rewrite, no user/credit review fabrication,
 no auto-promotion, no secrets, no Supabase/Neon parallel runtime.
 Require storage budget, auth/FIDC anonymous-denial smoke, exact SHA/aliases,
 READY deployment and rollback. Human onboarding and A7 7-day gate still pending.
+
+
+Release request — 2026-10-21 / actionable identity review navigation
+Reviewed main baseline: 86a5af6724c299c777d3a6cfbbf8a62f8c2d07c5
+Publish the exact eventual merged release-request SHA via canonical immutable
+Vercel prebuilt production workflow (no automatic parallel deployments).
+Scope #693: default Capture Inbox to identity queue (20 queue entries today,
+including 8 operating-company records, whereas commercial has zero operating);
+navigate the exact candidateId into existing human identity-review workspace;
+display candidate priority_score as TRIAGE priority, not credit qualification.
+No identity approval, review record, financial score, promotion, direct DML,
+Auth mutation, schema migration or evidence injection.
+Frontend quality contract, typecheck/build, CI and Neon parity green.
+Require immutable SHA/alias match, storage budget, anonymous Auth and FIDC
+denial smokes, rollback availability. D07/A2/A3-A5/A7 not auto-approved.
