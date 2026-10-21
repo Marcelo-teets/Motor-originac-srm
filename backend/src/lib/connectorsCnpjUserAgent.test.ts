@@ -56,7 +56,7 @@ test('RFB-2026 alphanumeric CNPJ never becomes a truncated provider request or o
       assert.equal(result.status, 'partial');
       assert.equal(result.data.cnpj, '00000000E08G12');
       assert.equal(result.data.error, 'provider_alphanumeric_support_unverified');
-      assert.equal(result.data.providerCallSkipped, true);
+      assert.equal('providerCallSkipped' in result.data && result.data.providerCallSkipped, true);
       assert.match(result.endpoint, /00000000E08G12$/);
       assert.doesNotMatch(result.endpoint, /000000000012$/);
     }
@@ -82,7 +82,7 @@ test('invalid checksum and malformed numeric CNPJ are refused before provider re
       for (const result of results) {
         assert.equal(result.status, 'partial');
         assert.equal(result.data.error, 'invalid_cnpj_identity');
-        assert.equal(result.data.providerCallSkipped, true);
+        assert.equal('providerCallSkipped' in result.data && result.data.providerCallSkipped, true);
       }
     }
     assert.equal(attemptedFetches, 0);
