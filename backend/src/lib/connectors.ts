@@ -1,5 +1,6 @@
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
 import { ingestFreeOfficialCompanySources } from './connectors/freeOfficialDataSources.js';
+import { isValidCnpjIdentity, normalizeCnpjIdentity } from './cnpjIdentity.js';
 import { captureCompanyCareers, captureTechSignalsLatam, type PeopleCapitalCapture } from './peopleCapitalSignals.js';
 import { persistPeopleCapitalCaptures, type PeopleCapitalCaptureEnvelope } from './peopleCapitalPersistence.js';
 
@@ -179,8 +180,26 @@ const readCappedText = async (response: Response) => {
   return text.length > MAX_CONNECTOR_BODY_BYTES ? text.slice(0, MAX_CONNECTOR_BODY_BYTES) : text;
 };
 
+// Provider compatibility differs from the official RFB-2026 identity format.
+// These legacy proxy endpoints have no confirmed alphanumeric lookup contract:
+// NEVER strip letters, fabricate a numeric lookup or generate an observed signal.
+export const preparePublicRegistryCnpjLookup = (value: string) => {
+  const normalized = normalizeCnpjIdentity(value);
+  if (!isValidCnpjIdentity(normalized)) return { normalized, blockedReason: 'invalid_cnpj_identity' as const };
+  if (/[A-Z]/.test(normalized)) return { normalized, blockedReason: 'provider_alphanumeric_support_unverified' as const };
+  return { normalized, blockedReason: null };
+};
+
+const skippedPublicRegistryCnpjLookup = (normalized: string, reason: string, endpoint: string) => ({
+  status: 'partial' as const,
+  data: { fallback: true, cnpj: normalized, error: reason, providerCallSkipped: true },
+  endpoint,
+});
+
 export async function fetchBrasilApiCompany(cnpj: string) {
-  const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g, '')}`;
+  const lookup = preparePublicRegistryCnpjLookup(cnpj);
+  const endpoint = `https://brasilapi.com.br/api/cnpj/v1/${lookup.normalized}`;
+  if (lookup.blockedReason) return skippedPublicRegistryCnpjLookup(lookup.normalized, lookup.blockedReason, endpoint);
   try {
     const response = await connectorFetch(endpoint, 'application/json', {
       'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
@@ -200,8 +219,9 @@ export async function fetchBrasilApiCompany(cnpj: string) {
 // Minha Receita publishes a public API backed by the monthly Receita CNPJ dump.
 // This is still a proxy source, NOT an authoritative credit or promotion signal.
 export async function fetchMinhaReceitaCompany(cnpj: string) {
-  const digits = cnpj.replace(/\D/g, '');
-  const endpoint = `https://minhareceita.org/${digits}`;
+  const lookup = preparePublicRegistryCnpjLookup(cnpj);
+  const endpoint = `https://minhareceita.org/${lookup.normalized}`;
+  if (lookup.blockedReason) return skippedPublicRegistryCnpjLookup(lookup.normalized, lookup.blockedReason, endpoint);
   try {
     const response = await connectorFetch(endpoint, 'application/json', {
       'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
@@ -212,7 +232,7 @@ export async function fetchMinhaReceitaCompany(cnpj: string) {
   } catch (error) {
     return {
       status: 'partial' as const,
-      data: { fallback: true, cnpj: digits, error: error instanceof Error ? error.message : 'unknown_error' },
+      data: { fallback: true, cnpj: lookup.normalized, error: error instanceof Error ? error.message : 'unknown_error' },
       endpoint,
     };
   }
@@ -221,8 +241,9 @@ export async function fetchMinhaReceitaCompany(cnpj: string) {
 // Public CNPJ.ws API: at most three calls per minute per source IP, unauthenticated.
 // Use only after existing BrasilAPI/Minha Receita fail; batch runner rate-limits.
 export async function fetchCnpjWsPublicCompany(cnpj: string) {
-  const digits = cnpj.replace(/\D/g, '');
-  const endpoint = `https://publica.cnpj.ws/cnpj/${digits}`;
+  const lookup = preparePublicRegistryCnpjLookup(cnpj);
+  const endpoint = `https://publica.cnpj.ws/cnpj/${lookup.normalized}`;
+  if (lookup.blockedReason) return skippedPublicRegistryCnpjLookup(lookup.normalized, lookup.blockedReason, endpoint);
   try {
     const response = await connectorFetch(endpoint, 'application/json', {
       'User-Agent': PUBLIC_REGISTRY_USER_AGENT,
@@ -233,7 +254,7 @@ export async function fetchCnpjWsPublicCompany(cnpj: string) {
   } catch (error) {
     return {
       status: 'partial' as const,
-      data: { fallback: true, cnpj: digits, error: error instanceof Error ? error.message : 'unknown_error' },
+      data: { fallback: true, cnpj: lookup.normalized, error: error instanceof Error ? error.message : 'unknown_error' },
       endpoint,
     };
   }
