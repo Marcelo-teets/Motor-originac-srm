@@ -184,3 +184,18 @@ No schema mutation, no credential change, no auto-promotion, no synthetic
 credit review, no score backfill, no new connector/data-plane.
 Run storage budget and Auth/FIDC production smokes, require exact git SHA,
 READY deployment and rollback availability. A2/A3-A5/A7/D07 gates unchanged.
+
+
+Release request — 2026-10-21 / human reviewed credit gate on derived financial outputs
+Reviewed main baseline: 9bc12eceaf1dc21415f084f41c8144d706262fca
+Publish exact eventual main merge SHA via existing immutable Vercel prebuilt workflow.
+Scope: PR #691 ensures source-backed raw monitoring is collected normally while
+qualification_snapshots, company_patterns, score_snapshots, lead_score_snapshots
+and pipeline decisions require a real decision-eligible Company Master plus
+identified human creditReview status approved/outcome eligible. The capture
+orchestrator AND derived sync recheck this gate and reject empty output sets.
+CI and Neon Runtime Parity green after contract tests updated to stricter rule.
+No DB schema changes, no historical rewrite, no user/credit review fabrication,
+no auto-promotion, no secrets, no Supabase/Neon parallel runtime.
+Require storage budget, auth/FIDC anonymous-denial smoke, exact SHA/aliases,
+READY deployment and rollback. Human onboarding and A7 7-day gate still pending.
