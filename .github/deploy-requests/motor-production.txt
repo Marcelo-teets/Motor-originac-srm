@@ -126,3 +126,19 @@ No schema changes, no user/credit review updates, no forced company promotion,
 no connector query change, no backfill or synthetic lineage.
 Gate rollout on exact SHA, Auth anonymous denial and FIDC/API smokes, and validate
 rollback. Existing seven-day capture and human credit approval gates remain blocked.
+
+
+Release request — 2026-10-21 / public registry CNPJ truncation safety
+Reviewed main baseline: 395b2fc541df49e0bc88074229ed83bd5d804057
+Publish EXACT new main release-request merge SHA via production immutable prebuilt workflow.
+Scope: #680 prevents BrasilAPI, MinhaReceita and public CNPJws connectors from
+stripping letters from 2026 alphanumeric CNPJ into unrelated numeric lookups.
+Unsupported provider format or invalid checksum must produce partial evidence
+with providerCallSkipped, without making any HTTP call or credit signal.
+Valid legacy numeric CNPJ requests remain unchanged.
+CI run #1973 and Neon Runtime Parity run #159 successful.
+No migrations, database mutations, user verification, fabricated opportunities,
+retroactive human credit approval, credential changes or connector scope expansion.
+Confirm immutable SHA, no automatic Git deployments, storage budget, Auth denial
+smokes, FIDC review authorization and rollback availability. Seven full calendar
+days and five evidence-complete real credit leads remain separate acceptance gates.
