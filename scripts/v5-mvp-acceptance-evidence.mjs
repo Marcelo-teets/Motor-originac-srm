@@ -153,17 +153,17 @@ const DAYS_SQL = `
 with calendar as (
  select ((now() at time zone 'America/Sao_Paulo')::date - (n + 1)) as local_day
  from generate_series(0,6) as series(n)
-), connector as (
- select (started_at at time zone 'America/Sao_Paulo')::date as local_day,
- count(*) filter (where status = 'completed') as successful_connector_runs,
- coalesce(sum(outputs_written) filter (where status = 'completed'),0) as connector_outputs
- from public.source_connector_runs
- group by 1
-), outputs as (
+), eligible as (
+ -- One evidence-backed output has exactly one originating persisted run.
+ -- The direct GitHub runner also writes a separate audit row: that row
+ -- carries reported outputs_written but no linked monitoring_outputs and
+ -- must NEVER inflate completed runs or the A7 output counters.
  select (m.captured_at at time zone 'America/Sao_Paulo')::date as local_day,
- count(*) as monitoring_outputs
+        r.id as run_id, m.id as output_id
  from public.monitoring_outputs m
  join public.source_connector_runs r on r.id = m.run_id
+   and r.scope_type = 'company'
+   and r.trigger_type = 'cron'
    and r.status = 'completed'
    and r.outputs_written > 0
    and m.connector_status = 'real'
@@ -172,15 +172,20 @@ with calendar as (
    and coalesce(nullif(btrim(m.url), ''), nullif(btrim(m.evidence_url), '')) is not null
    and (r.started_at at time zone 'America/Sao_Paulo')::date
      = (m.captured_at at time zone 'America/Sao_Paulo')::date
+), daily as (
+ select local_day,
+        count(distinct run_id)::integer as successful_connector_runs,
+        count(output_id)::integer as connector_outputs,
+        count(output_id)::integer as monitoring_outputs
+ from eligible
  group by 1
 )
 select c.local_day::text as local_day,
- coalesce(connector.successful_connector_runs,0)::integer as successful_connector_runs,
- coalesce(connector.connector_outputs,0)::integer as connector_outputs,
- coalesce(outputs.monitoring_outputs,0)::integer as monitoring_outputs
+ coalesce(d.successful_connector_runs,0)::integer as successful_connector_runs,
+ coalesce(d.connector_outputs,0)::integer as connector_outputs,
+ coalesce(d.monitoring_outputs,0)::integer as monitoring_outputs
 from calendar c
-left join connector on connector.local_day=c.local_day
-left join outputs on outputs.local_day=c.local_day
+left join daily d on d.local_day=c.local_day
 order by c.local_day desc
 `;
 
