@@ -42,3 +42,25 @@ test('unique historical source keys remain eligible only for diagnostic mapping'
   assert.equal(report.ambiguousSourceKey, 0);
   assert.equal(result.cutoverApproved, false);
 });
+
+test('multiple historical companies using one verified natural key cannot be mapped as one entity', () => {
+  const items = references();
+  items.pipeline.company_id = [{ id: 'older-a', rows: 7 }];
+  const result = evaluateLineageCoverage({
+    companies: [
+      { id: 'older-a', cnpj: '00.000.000/E08G-12' },
+      { id: 'older-b', cnpj: '00000000e08g12' },
+    ],
+    sources: [], references: items,
+  }, {
+    companies: [{ id: 'current-one', cnpj: '00000000E08G12' }],
+    sources: [],
+  });
+  const report = result.comparisons.find(row =>
+    row.table === 'pipeline' && row.reference === 'company_id');
+  assert.equal(report.ambiguousSourceKey, 7);
+  assert.equal(report.mappableByUniqueNaturalKey, 0);
+  assert.equal(result.unmappedCompanyRows, 7);
+  assert.equal(result.importAllowed, false);
+  assert.doesNotMatch(JSON.stringify(result), /00000000E08G12|older-a/);
+});
