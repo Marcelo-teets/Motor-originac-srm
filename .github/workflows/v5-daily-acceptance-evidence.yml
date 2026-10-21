@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/v5-daily-acceptance-evidence.yml'
+      - 'scripts/v5-mvp-acceptance-evidence.mjs'
+      - 'scripts/v5-mvp-acceptance-evidence.test.mjs'
   schedule:
     - cron: '13 13 * * *'
   workflow_dispatch:
