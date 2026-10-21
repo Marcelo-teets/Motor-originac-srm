@@ -40,7 +40,8 @@ jobs:
     timeout-minutes: 10
     env:
       BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://motor-originac-srm.vercel.app' }}
-      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || github.event.deployment.sha }}
+      # Auto-triggered deployments validate actual frontend/backend SHA parity; only manual runs pin a requested release SHA.
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || '' }}
       REQUIRE_CAPTCHA_SITE_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.require_captcha_site_key || false }}
 
     steps:
