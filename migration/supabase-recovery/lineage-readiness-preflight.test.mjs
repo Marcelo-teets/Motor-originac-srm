@@ -107,3 +107,38 @@ test('alphanumeric companies with verified checksum are matchable only in theory
   assert.equal(report.importAllowed, false);
   assert.doesNotMatch(JSON.stringify(report),/00000000E08G12/);
 });
+
+
+test('duplicate source natural keys never qualify as unique lineage mappings', () => {
+  const references = refs();
+  references.pipeline.company_id = [{ id: 'legacy-a', rows: 7 }];
+  references.monitoring_outputs.source_id = [
+    { id: 'source-a', rows: 3 }, { id: 'source-b', rows: 5 },
+  ];
+  const report = evaluateLineageCoverage({
+    companies: [
+      { id: 'legacy-a', cnpj: '11444777000161' },
+      { id: 'legacy-b', cnpj: '11.444.777/0001-61' },
+    ],
+    sources: [
+      { id: 'source-a', code: 'CVM_FIDC' },
+      { id: 'source-b', code: ' cvm_fidc ' },
+    ],
+    references,
+  }, {
+    companies: [{ id: 'neon-company', cnpj: '11444777000161' }],
+    sources: [{ id: 'neon-source', code: 'cvm_fidc' }],
+  });
+  const pipeline = report.comparisons.find(x => x.table === 'pipeline' && x.reference === 'company_id');
+  const outputs = report.comparisons.find(x => x.table === 'monitoring_outputs' && x.reference === 'source_id');
+  assert.equal(pipeline.ambiguousSourceKey, 7);
+  assert.equal(pipeline.mappableByUniqueNaturalKey, 0);
+  assert.equal(outputs.ambiguousSourceKey, 8);
+  assert.equal(outputs.mappableByUniqueNaturalKey, 0);
+  assert.equal(report.unmappedCompanyRows, 7);
+  assert.equal(report.unmappedSourceRows, 8);
+  assert.equal(report.allKnownParentReferencesMappable, false);
+  assert.equal(report.importAllowed, false);
+  assert.equal(report.cutoverApproved, false);
+  assert.doesNotMatch(JSON.stringify(report), /CVM_FIDC|11444777000161|legacy-a|source-a/);
+});
