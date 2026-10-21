@@ -156,3 +156,16 @@ No database migration, synthetic receivables, forced customer qualification,
 new users, credit reviews or credentials.
 Require storage guard, immutable SHA match, anonymous Auth/FIDC denial smokes,
 alias ownership and rollback readiness. D-07/A2/A3-A5/A7 remain separately gated.
+
+
+Release request — 2026-10-21 / prevent alpha CNPJ misidentification in FIDC human review
+Reviewed main baseline: 9efd452d367ab3f42832f28183254680a0e1315c
+Publish exact eventual release-request main merge SHA by existing immutable Vercel prebuilt workflow.
+Scope: #687 FIDC human review submission/history preserves RFB-2026
+alphanumeric identity and rejects unsupported writes with explicit 422
+until a versioned DB migration is approved; legacy numeric CNPJ unchanged.
+React FIDC review search preserves alpha letters instead of matching numeric
+fragments of a different company. CI #1987 and Neon Runtime Parity #161 SUCCESS.
+No DB migration, no auth user creation, no human credit opinion, no auto promotion
+or synthetic evidence. Preserve storage guard, smoke auth/FIDC access, rollback
+and exact SHA check. D07/A2/A3-A5/A7 and Supabase/Neon reconciliation remain blocked.
