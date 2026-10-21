@@ -216,3 +216,20 @@ test('A7 acceptance still blocks a day with no real linked monitoring output des
   assert.equal(report.gates.find(g => g.gate === 'A7')?.status, 'blocked');
   assert.equal(report.status, 'blocked');
 });
+
+test('A7 workflow reruns read-only acceptance on evaluator and regression changes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const workflow = readFileSync(new URL('../.github/workflows/v5-daily-acceptance-evidence.yml', import.meta.url),'utf8');
+  const pushScope = workflow.split('  push:')[1]?.split('  schedule:')[0];
+  assert.ok(pushScope, 'daily evidence workflow must have a tracked push scope');
+  for (const file of [
+    '.github/workflows/v5-daily-acceptance-evidence.yml',
+    'scripts/v5-mvp-acceptance-evidence.mjs',
+    'scripts/v5-mvp-acceptance-evidence.test.mjs',
+  ]) {
+    assert.ok(pushScope.includes(file), 'Evidence must run after a change to ' + file);
+  }
+  assert.match(workflow, /cron: '13 13 \* \* \*'/);
+  assert.match(workflow, /BEGIN TRANSACTION READ ONLY|node scripts\/v5-mvp-acceptance-evidence.mjs/);
+  assert.doesNotMatch(workflow, /INSERT INTO|UPDATE public\.|MOTOR_AUTH_BOOTSTRAP_ENABLED/);
+});
