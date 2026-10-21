@@ -38,10 +38,12 @@ export const evaluateLineageCoverage = (supabase, neon) => {
   const parents = {
     company_id: {
       source: new Map(supabase.companies.map(row => [normalizeId(row.id), companyKey(row.cnpj)])),
+      sourceKeyMultiplicity: countValues(supabase.companies.map(row => companyKey(row.cnpj))),
       target: countValues(neon.companies.map(row => companyKey(row.cnpj))),
     },
     source_id: {
       source: new Map(supabase.sources.map(row => [normalizeId(row.id), normalizeCode(row.code)])),
+      sourceKeyMultiplicity: countValues(supabase.sources.map(row => normalizeCode(row.code))),
       target: countValues(neon.sources.map(row => normalizeCode(row.code))),
     },
   };
@@ -55,7 +57,7 @@ export const evaluateLineageCoverage = (supabase, neon) => {
         table, reference: column, referencedRows: sum(list),
         mappableByUniqueNaturalKey: 0, missingSourceParent: 0,
         missingParentNaturalKey: 0, unmatchedTargetKey: 0,
-        ambiguousTargetKey: 0, invalidCountRows: 0,
+        ambiguousSourceKey: 0, ambiguousTargetKey: 0, invalidCountRows: 0,
       };
       for (const row of list) {
         const number = Number(row.rows);
@@ -71,6 +73,10 @@ export const evaluateLineageCoverage = (supabase, neon) => {
         const naturalKey = indexed.source.get(id);
         if (!naturalKey) {
           stats.missingParentNaturalKey += number;
+          continue;
+        }
+        if ((indexed.sourceKeyMultiplicity.get(naturalKey) ?? 0) !== 1) {
+          stats.ambiguousSourceKey += number;
           continue;
         }
         const candidates = indexed.target.get(naturalKey) ?? 0;
