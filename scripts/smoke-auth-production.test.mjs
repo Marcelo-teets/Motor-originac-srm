@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { runAuthProductionSmoke } from './smoke-auth-production.mjs';
 
@@ -187,4 +188,51 @@ test('rejects a backend that is not using Neon data provider', async () => {
     server.close();
     await once(server, 'close');
   }
+});
+
+test('automatic deployment smoke accepts deployed SHA parity without pinning an unpublished main', async () => {
+  const { server, baseUrl } = await startServer();
+  try {
+    const report = await runSmoke({ baseUrl, expectedSha: undefined });
+    assert.equal(report.status, 'passed');
+    assert.equal(report.expectedSha, null);
+    assert.equal(report.deployedSha, sha);
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('automatic deployment smoke still rejects frontend/backend SHA disagreement', async () => {
+  const metadata = buildMetadata();
+  metadata.commitSha = 'abcdefabcdefabcdefabcdefabcdefabcdefabcd';
+  const { server, baseUrl } = await startServer({ metadata });
+  try {
+    await assert.rejects(
+      runSmoke({ baseUrl, expectedSha: undefined }),
+      /Frontend SHA .* backend SHA .* inconsistent/,
+    );
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('manual deployment smoke rejects a SHA other than the explicitly expected release', async () => {
+  const { server, baseUrl } = await startServer();
+  try {
+    await assert.rejects(
+      runSmoke({ baseUrl, expectedSha: 'f798400e79c3a4a35bf0734ef7e83535f0520bf5' }),
+      /does not match expected SHA/,
+    );
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('Auth workflow pins manual release SHA but not automatic deployment_status to main', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/production-auth-smoke.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /deployment_status:/);
+  assert.match(workflow, /EXPECTED_SHA:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && \(inputs\.expected_sha \|\| github\.sha\) \|\| '' \}\}/);
 });
