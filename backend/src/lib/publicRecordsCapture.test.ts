@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { capturePublicRecords } from './publicRecordsCapture.js';
+import { capturePublicRecords, publicRecordCompanySearchQuery } from './publicRecordsCapture.js';
 import { searchPncpContracts } from './pncpContracts.js';
 import { searchQueridoDiario } from './queridoDiario.js';
 import { companySeeds } from '../data/platformSeeds.js';
@@ -135,4 +135,37 @@ test('capturePublicRecords returns empty bundle without registered or planned so
     new Date().toISOString(),
   );
   assert.deepEqual(planned, { outputs: [], signals: [], enrichments: [] });
+});
+
+test('PNCP uses entire RFB-2026 alphanumeric CNPJ instead of any numeric substring', async () => {
+  const alphaCompany = { ...company, cnpj: '00.000.000/E08G-12' };
+  assert.equal(publicRecordCompanySearchQuery(alphaCompany), '00000000E08G12');
+  const originalFetch = globalThis.fetch;
+  const lookups: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    lookups.push(String(input));
+    return new Response(JSON.stringify({ total: 0, items: [] }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const output = await capturePublicRecords(alphaCompany, [pncpSource], new Date().toISOString());
+    assert.equal(lookups.length, 1);
+    const query = new URL(lookups[0]!).searchParams.get('q');
+    assert.equal(query, '00000000E08G12');
+    assert.notEqual(query, '000000000012', 'never search a truncated CNPJ');
+    assert.equal(output.outputs.length, 1);
+    assert.equal(output.outputs[0]!.normalizedPayload.query, '00000000E08G12');
+    assert.equal(output.signals.length, 0, 'zero source hits cannot become a financial signal');
+    assert.equal(output.enrichments.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('PNCP keeps numeric legacy identity and legal-name fallback for invalid CNPJ', () => {
+  assert.equal(publicRecordCompanySearchQuery({ ...company, cnpj: '11.444.777/0001-61' }), '11444777000161');
+  assert.equal(publicRecordCompanySearchQuery({
+    ...company, cnpj: '00.000.000/E08G-13', legalName: 'Empresa Legal Revisada Ltda.',
+  }), 'Empresa Legal Revisada Ltda.');
 });

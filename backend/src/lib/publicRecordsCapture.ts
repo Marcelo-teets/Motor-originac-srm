@@ -1,4 +1,5 @@
 import { inferSourceCode } from './connectors.js';
+import { isValidCnpjIdentity, normalizeCnpjIdentity } from './cnpjIdentity.js';
 import { searchPncpContracts, type PncpSearchResult } from './pncpContracts.js';
 import { searchQueridoDiario, type GazetteSearchResult } from './queridoDiario.js';
 import type { CompanySeed, CompanySignal, EnrichmentRecord, MonitoringOutput, SourceCatalogEntry } from '../types/platform.js';
@@ -23,7 +24,13 @@ const findSource = (sources: SourceCatalogEntry[], runtimeCode: string) => sourc
   .map(runtimeSource)
   .find((source) => source.runtimeCode === runtimeCode);
 
-const cnpjDigits = (company: CompanySeed) => company.cnpj.replace(/\D/g, '');
+// PNCP search accepts text queries. Preserve a checksum-valid RFB-2026 CNPJ
+// completely; never send a truncated numeric substring for a new registration.
+// If company identity is missing/invalid, retain the existing legal-name path.
+export const publicRecordCompanySearchQuery = (company: CompanySeed): string =>
+  isValidCnpjIdentity(company.cnpj)
+    ? normalizeCnpjIdentity(company.cnpj)
+    : company.legalName || company.tradeName;
 
 const buildOutput = (
   company: CompanySeed,
@@ -55,7 +62,7 @@ const buildOutput = (
 const capturePncp = async (company: CompanySeed, source: RuntimeSource, collectedAt: string): Promise<CaptureBundle> => {
   let result: PncpSearchResult | null = null;
   try {
-    result = await searchPncpContracts(cnpjDigits(company) || company.legalName);
+    result = await searchPncpContracts(publicRecordCompanySearchQuery(company));
   } catch {
     result = null;
   }
@@ -74,7 +81,7 @@ const capturePncp = async (company: CompanySeed, source: RuntimeSource, collecte
     status,
     confidence,
     sourceUrl: 'https://pncp.gov.br/app/contratos',
-    payload: { query: cnpjDigits(company) || company.legalName, total: result?.total ?? 0, hits: result?.hits ?? [] },
+    payload: { query: publicRecordCompanySearchQuery(company), total: result?.total ?? 0, hits: result?.hits ?? [] },
   });
 
   const signals: CompanySignal[] = result?.hits.length
@@ -195,7 +202,7 @@ export async function capturePublicRecords(company: CompanySeed, sources: Source
   const gazetteSource = findSource(sources, 'src_querido_diario_api');
 
   const tasks: Array<Promise<CaptureBundle>> = [];
-  if (pncpSource && (cnpjDigits(company) || company.legalName)) tasks.push(capturePncp(company, pncpSource, collectedAt));
+  if (pncpSource && (publicRecordCompanySearchQuery(company))) tasks.push(capturePncp(company, pncpSource, collectedAt));
   if (gazetteSource && (company.legalName || company.tradeName)) tasks.push(captureQueridoDiario(company, gazetteSource, collectedAt));
 
   if (!tasks.length) return emptyBundle();
