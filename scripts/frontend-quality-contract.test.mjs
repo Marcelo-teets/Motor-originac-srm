@@ -266,3 +266,20 @@ test('FIDC rows open the authenticated review form without promoting companies',
   assert.match(panel, /reviewRequest\?\.version/);
   assert.doesNotMatch(page, /onClick=.*(?:creditApproved|autoPromote|createCompany)/);
 });
+
+
+test('Capture Inbox starts with actionable identity diligence, not an issuer-only queue', async () => {
+  const [inbox, review] = await Promise.all([
+    read('frontend/src/pages/CandidateDecisionQueuePage.tsx'),
+    read('frontend/src/pages/CandidateIdentityReviewPage.tsx'),
+  ]);
+  assert.match(inbox, /useState<QueueType>\('identity'\)/);
+  assert.match(inbox, /prioridade de triagem \{item\.priorityScore\}/);
+  assert.match(inbox, /\/identity-review\?candidateId=\$\{encodeURIComponent\(item\.id\)\}/);
+  assert.match(review, /const requestedCandidateId = searchParams\.get\('candidateId'\)/);
+  assert.match(review, /consumedDeepLink\.current = requestedCandidateId;/);
+  assert.match(review, /selectCandidate\(candidate\);/);
+  assert.match(review, /consumedDeepLink\.current === requestedCandidateId/);
+  assert.match(review, /if \(!candidate\) return;/);
+  assert.doesNotMatch(inbox, /useState<QueueType>\('commercial'\)/);
+});
