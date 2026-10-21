@@ -142,3 +142,17 @@ retroactive human credit approval, credential changes or connector scope expansi
 Confirm immutable SHA, no automatic Git deployments, storage budget, Auth denial
 smokes, FIDC review authorization and rollback availability. Seven full calendar
 days and five evidence-complete real credit leads remain separate acceptance gates.
+
+
+Release request — 2026-10-21 / full alphanumeric CNPJ in PNCP public contract query
+Reviewed main baseline: 0fec0f9cdd5c216513437aa2c00ab71171e6a8a5
+Request EXACT eventual reviewed release commit SHA through immutable canonical Vercel prebuilt.
+Scope #682: preserve checksum-valid full RFB-2026 alphanumeric CNPJ instead
+of stripping letters for public PNCP contract search and monitoring evidence.
+Company legal-name fallback remains for invalid/missing ID; no hits = no signal.
+Neon Runtime Parity #160 and CI #1977 SUCCESS; prior provider safety release
+#681 already READY on canonical Vercel deployment at exact SHA.
+No database migration, synthetic receivables, forced customer qualification,
+new users, credit reviews or credentials.
+Require storage guard, immutable SHA match, anonymous Auth/FIDC denial smokes,
+alias ownership and rollback readiness. D-07/A2/A3-A5/A7 remain separately gated.
