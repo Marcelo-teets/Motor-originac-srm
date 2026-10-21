@@ -84,7 +84,9 @@ test('captureOpenFinanceParticipation matches by exact normalized name only (nev
 test('captureOpenFinanceParticipation memoizes the directory fetch per run', async () => {
   const company: CompanySeed = { ...baseCompany, cnpj: '12.345.678/0001-90' };
   await withStubbedFetch(directoryPayload, async (calls) => {
-    const collectedAt = new Date().toISOString();
+    // Fixed run key avoids millisecond collision with preceding tests sharing
+    // module-level memoization. This verifies fetch once within THIS run.
+    const collectedAt = '2030-01-01T00:00:00.000Z';
     await Promise.all([
       captureOpenFinanceParticipation(company, [source], collectedAt),
       captureOpenFinanceParticipation({ ...company, id: 'other' }, [source], collectedAt),
