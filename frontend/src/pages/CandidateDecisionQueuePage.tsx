@@ -266,7 +266,9 @@ export function CandidateDecisionQueuePage() {
     setReviewRequest((current) => ({ cnpj, version: (current?.version ?? 0) + 1 }));
     document.getElementById('fidc-human-review-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
-  // Identity due diligence is the active working queue while no leads have passed\n  // human credit approval. The commercial tab remains available separately.\n  const [queue, setQueue] = useState<QueueType>('identity');
+  // Identity due diligence is the active working queue while no leads have passed
+  // human credit approval. The commercial tab remains available separately.
+  const [queue, setQueue] = useState<QueueType>('identity');
   const [priority, setPriority] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
