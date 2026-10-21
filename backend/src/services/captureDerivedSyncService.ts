@@ -1,4 +1,5 @@
 import { getDataClient } from '../lib/dataClient.js';
+import { isCompanyApprovedForCreditDerivation } from '../lib/companyDecisionEligibility.js';
 import { buildQualificationSnapshot } from '../lib/qualification.js';
 import { detectCompanyPatterns } from '../lib/patterns.js';
 import { computeLeadScore } from '../lib/scoring.js';
@@ -174,8 +175,11 @@ export class CaptureDerivedSyncService {
     const resultByCompany = new Map(input.captureResults.map((result) => [result.run.companyId, result]));
     const derived = input.companies
       .map((company) => {
+        // Defense in depth: even a direct service call cannot bypass the
+        // approved human credit-review gate that the runtime normally applies.
+        if (!isCompanyApprovedForCreditDerivation(company)) return null;
         const result = resultByCompany.get(company.id);
-        if (!result) return null;
+        if (!result || result.outputs.length === 0) return null;
         const outputs = result.outputs;
         const enrichedCompany = normalizeCompanyWithCapture(company, result);
         const qualification = buildQualificationSnapshot({ company: enrichedCompany, monitoringOutputs: outputs, generatedAt });
