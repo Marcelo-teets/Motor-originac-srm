@@ -3,6 +3,7 @@ import type { CompanySeed, SearchProfile } from '../types/platform.js';
 import type { DiscoverySourceHit } from './discoveryCapture.js';
 import { buildDiscoveryDedupeKey, normalizeDomain, normalizeCompanyName } from './discoveryCapture.js';
 import { applyCandidateCommercialSemantics } from './candidateCommercialSemantics.js';
+import { normalizeCnpjIdentity } from './cnpjIdentity.js';
 
 export type DiscoveredCandidateDraft = {
   searchProfileId?: string;
@@ -26,9 +27,13 @@ export type DiscoveredCandidateDraft = {
   rawPayload: Record<string, unknown>;
 };
 
+// Identity normalization is not identity approval: legal evidence, RFB checksum,
+// reviewer and Company Master linkage are enforced by promotion readiness.
+// Preserve all 12 alphanumeric RFB-2026 characters instead of stripping letters
+// and falling back to a name-derived UUID (which could merge two companies).
 const normalizeCnpj = (value: string | undefined) => {
-  const digits = String(value ?? '').replace(/\D/g, '');
-  return digits.length === 14 ? digits : '';
+  const normalized = normalizeCnpjIdentity(value);
+  return /^[A-Z0-9]{12}[0-9]{2}$/.test(normalized) ? normalized : '';
 };
 
 export const deterministicCompanyUuid = (candidate: Pick<DiscoveredCandidateDraft, 'companyName' | 'cnpj'>) => {

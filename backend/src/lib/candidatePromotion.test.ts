@@ -89,3 +89,35 @@ test('regulatory evidence for debt instrument is not accidentally erased by VC-o
   assert.equal(result.geography,'Brasil');
   assert.equal(result.rawPayload.profileAttributeVerification,undefined);
 });
+
+test('RFB-2026 alphanumeric CNPJ is preserved in discovery and Company Master seed', () => {
+  const profile = {
+    id: 'profile', geography:'Brasil', segment:'Fintech', subsegment:'Crédito',
+    companyType:'Tech-based', creditProduct:'Recebíveis', targetStructure:'FIDC', receivables:[],
+  } as SearchProfile;
+  const draft = discoveryHitToCandidateDraft(profile, {
+    companyName: 'Empresa Alfa', cnpj:'00.000.000/e08g-12',
+    sourceRef:'official_registry:2026',
+    sourceUrl:'https://www.gov.br/receitafederal',
+    evidenceSummary:'Inscrição com CNPJ alfanumérico observada em evidência documental da Receita Federal',
+    confidence:0.95,rawPayload:{ origin:'official_registry' },
+  });
+  assert.equal(draft.cnpj, '00000000E08G12');
+  const seed = candidateDraftToCompanySeed(draft);
+  assert.equal(seed.cnpj, '00000000E08G12');
+  assert.equal(seed.id, deterministicCompanyUuid({
+    companyName:'Nome alternativo legítimo',cnpj:'00000000E08G12',
+  }));
+});
+
+test('alphanumeric CNPJ identity survives masking and never collapses into a name/numeric fragment', () => {
+  const alpha = deterministicCompanyUuid(candidate({ cnpj:'00.000.000/E08G-12' }));
+  const sameAlpha = deterministicCompanyUuid(candidate({
+    cnpj:'00000000e08g12',companyName:'Nome comercial diferente',
+  }));
+  assert.equal(alpha,sameAlpha);
+  assert.notEqual(alpha,deterministicCompanyUuid(candidate({ cnpj:'00.000.000/E08H-01' })));
+  assert.notEqual(alpha,deterministicCompanyUuid(candidate({ cnpj:'000000000012' })));
+  assert.notEqual(alpha,deterministicCompanyUuid(candidate({ cnpj:undefined })));
+  assert.equal(candidateDraftToCompanySeed(candidate({ cnpj:'00.000.000/E08H-01' })).cnpj,'00000000E08H01');
+});
