@@ -5,8 +5,8 @@ const runtimeSource = readFileSync(new URL('../backend/src/services/captureRunti
 
 assert.match(
   runtimeSource,
-  /import \{ isCompanyDecisionEligible \} from '\.\.\/lib\/companyDecisionEligibility\.js';/,
-  'capture runtime must use the canonical Company Master decision gate',
+  /import \{ isCompanyApprovedForCreditDerivation \} from '\.\.\/lib\/companyDecisionEligibility\.js';/,
+  'capture runtime must require approved human credit review as well as Company Master eligibility',
 );
 assert.match(
   runtimeSource,
@@ -55,8 +55,8 @@ assert.match(
 );
 assert.match(
   runtimeSource,
-  /isCompanyDecisionEligible\(company\) && companiesWithEligibleEvidence\.has\(company\.id\)/,
-  'derived decision artifacts require both Company Master eligibility and at least one eligible evidence output',
+  /isCompanyApprovedForCreditDerivation\(company\) && companiesWithEligibleEvidence\.has\(company\.id\)/,
+  'derived decision artifacts require human credit approval, Company Master eligibility and actual evidence',
 );
 assert.match(
   runtimeSource,

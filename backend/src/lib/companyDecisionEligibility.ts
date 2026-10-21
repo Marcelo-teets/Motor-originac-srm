@@ -142,6 +142,15 @@ export function evaluateCompanyDecisionEligibility(company: CompanySeed): Compan
 
 export const isCompanyDecisionEligible = (company: CompanySeed) => evaluateCompanyDecisionEligibility(company).eligible;
 
+// Derived credit artifacts require a persisted human credit-review identity
+// in addition to the generic Company Master decision flag. An identity-only
+// company may still be monitored but must not receive an invented score.
+export const isCompanyApprovedForCreditDerivation = (company: CompanySeed): boolean => {
+  if (!isCompanyDecisionEligible(company)) return false;
+  const review = (company as DecisionAwareCompany).creditReview;
+  return Boolean(review?.reviewId && review.status === 'approved' && review.outcome === 'eligible');
+};
+
 export const isCompanyEntityEligible = (company: CompanySeed) => {
   const current = company as DecisionAwareCompany;
   return current.dataStatus === 'real'

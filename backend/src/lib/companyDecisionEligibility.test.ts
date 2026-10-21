@@ -4,6 +4,8 @@ import type { CompanySeed } from '../types/platform.js';
 import {
   attachCompanyDecisionMetadata,
   evaluateCompanyDecisionEligibility,
+  isCompanyApprovedForCreditDerivation,
+  isCompanyDecisionEligible,
   isCompanyEntityEligible,
   isCompanyMonitoringEligible,
   markCompanyAsDemoSeed,
@@ -116,4 +118,44 @@ test('qualification or scoring exclusions override an approval', () => {
   const result = evaluateCompanyDecisionEligibility(company);
   assert.equal(result.eligible, false);
   assert.equal(result.reason, 'manual_hold');
+});
+
+test('capture scoring requires an identifiable approved human credit review beyond decision_eligible flag', () => {
+  const metadata = {
+    data_status: 'real',
+    identity_review_status: 'approved',
+    identity_verified: true,
+    decision_eligible: true,
+    excluded_from_scoring: false,
+    excluded_from_qualification: false,
+  };
+  const flagOnly = attachCompanyDecisionMetadata(baseCompany(), metadata);
+  assert.equal(isCompanyDecisionEligible(flagOnly), true);
+  assert.equal(isCompanyApprovedForCreditDerivation(flagOnly), false);
+
+  const valid = attachCompanyDecisionMetadata(baseCompany(), {
+    ...metadata,
+    credit_review_id: 'human-review-123',
+    credit_review_status: 'approved',
+    qualification_status: 'eligible',
+    credit_review_evidence: [{ url: 'https://example.org/source' }],
+  });
+  assert.equal(isCompanyApprovedForCreditDerivation(valid), true);
+
+  for (const patch of [
+    { credit_review_status: 'rejected' },
+    { qualification_status: 'monitor_only' },
+    { credit_review_id: '' },
+    { decision_eligible: false },
+    { data_status: 'mock' },
+  ]) {
+    const blocked = attachCompanyDecisionMetadata(baseCompany(), {
+      ...metadata,
+      credit_review_id: 'human-review-123',
+      credit_review_status: 'approved',
+      qualification_status: 'eligible',
+      ...patch,
+    });
+    assert.equal(isCompanyApprovedForCreditDerivation(blocked), false, JSON.stringify(patch));
+  }
 });
