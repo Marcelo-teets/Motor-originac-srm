@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeFidcHumanReviewSubmission } from './fidcAssignorHumanReviewService.js';
+import { normalizeFidcHumanReviewSubmission, normalizeFidcReviewCnpj } from './fidcAssignorHumanReviewService.js';
 
 const valid = {
   cnpj: '12.345.678/0001-90',
@@ -47,4 +47,14 @@ test('FIDC review cannot smuggle reviewer identity or promotional action through
   assert.equal('autoPromote' in value, false);
   assert.equal('decisionEligible' in value, false);
   assert.equal('pipelineStage' in value, false);
+});
+
+test('FIDC human review rejects alphanumeric CNPJ explicitly until SQL source/history support a versioned migration', () => {
+  assert.throws(() => normalizeFidcReviewCnpj('00.000.000/E08G-12'),
+    /Alphanumeric CNPJ review requires a versioned source\/DB migration/);
+  assert.throws(() => normalizeFidcHumanReviewSubmission({
+    ...valid, cnpj: '00.000.000/E08G-12',
+  }), /Alphanumeric CNPJ review requires a versioned source\/DB migration/);
+  assert.equal(normalizeFidcReviewCnpj('11.444.777/0001-61'), '11444777000161');
+  assert.notEqual(normalizeFidcReviewCnpj('11.444.777/0001-61'), '000000000012');
 });

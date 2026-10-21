@@ -1,5 +1,6 @@
 import { getDataClient } from '../lib/dataClient.js';
 import { requireGodModeProfile } from '../lib/userProfiles.js';
+import { normalizeCnpjIdentity } from '../lib/cnpjIdentity.js';
 
 export type FidcHumanReviewDisposition = 'needs_evidence' | 'no_go' | 'refer_to_identity_review';
 
@@ -17,11 +18,23 @@ const allowed = new Set<FidcHumanReviewDisposition>([
 const rejected = (reason: string, statusCode = 400) =>
   Object.assign(new Error(reason), { statusCode });
 
+// DB v5 FIDC source/review views and append-only constraint are numeric-only.
+// Never remove alpha characters: that could read or write history under a
+// different tax identity. This is a compatibility gate, not identity rejection.
+export const normalizeFidcReviewCnpj = (input: unknown): string => {
+  const cnpj = typeof input === 'string' ? normalizeCnpjIdentity(input) : '';
+  if (/[A-Z]/.test(cnpj)) {
+    throw rejected('Alphanumeric CNPJ review requires a versioned source/DB migration.', 422);
+  }
+  if (!/^\d{14}$/.test(cnpj)) throw rejected('CNPJ must contain exactly 14 digits.');
+  return cnpj;
+};
+
 export const normalizeFidcHumanReviewSubmission = (input: unknown): FidcHumanReviewSubmission => {
   const body = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {};
-  const cnpj = typeof body.cnpj === 'string' ? body.cnpj.replace(/\D/g, '') : '';
+  const cnpj = normalizeFidcReviewCnpj(body.cnpj);
   const disposition = body.disposition;
   const rationale = typeof body.rationale === 'string' ? body.rationale.trim() : '';
   const nextAction = typeof body.nextAction === 'string' ? body.nextAction.trim() : '';
@@ -40,11 +53,7 @@ export const normalizeFidcHumanReviewSubmission = (input: unknown): FidcHumanRev
   return { cnpj, disposition: disposition as FidcHumanReviewDisposition, rationale, nextAction };
 };
 
-const normalizedCnpj = (input: unknown) => {
-  const value = typeof input === 'string' ? input.replace(/\D/g, '') : '';
-  if (!/^\d{14}$/.test(value)) throw rejected('Invalid CNPJ for FIDC review history.');
-  return value;
-};
+const normalizedCnpj = normalizeFidcReviewCnpj;
 
 export class FidcAssignorHumanReviewService {
   private readonly client = getDataClient();
