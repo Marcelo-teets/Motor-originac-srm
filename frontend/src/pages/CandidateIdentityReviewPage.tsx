@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, DataStatusBanner, EmptyState, PageIntro, Pill, Stat } from '../components/UI';
 import { useAuth } from '../lib/auth';
 import { buildApiUrl } from '../lib/runtimeConfig';
@@ -80,6 +81,9 @@ const formatCnpj = (value: string) => {
 
 export function CandidateIdentityReviewPage() {
   const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedCandidateId = searchParams.get('candidateId');
+  const consumedDeepLink = useRef<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [form, setForm] = useState<ReviewForm>(emptyForm);
@@ -147,6 +151,16 @@ export function CandidateIdentityReviewPage() {
     setError(null);
     setSuccess(null);
   };
+
+  // Navigation from Capture Inbox selects the exact candidate once, without
+  // submitting a review or blocking the analyst from choosing another record.
+  useEffect(() => {
+    if (!requestedCandidateId || consumedDeepLink.current === requestedCandidateId || loading) return;
+    const candidate = candidates.find((entry) => entry.id === requestedCandidateId);
+    if (!candidate) return;
+    consumedDeepLink.current = requestedCandidateId;
+    selectCandidate(candidate);
+  }, [candidates, loading, requestedCandidateId]);
 
   const updateField = (field: keyof ReviewForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
 
