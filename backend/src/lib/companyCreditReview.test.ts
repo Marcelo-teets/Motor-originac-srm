@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   CompanyCreditReviewValidationError,
   normalizeCompanyCreditReviewAction,
@@ -56,4 +57,15 @@ test('accepts only governed outcomes', () => {
 
 test('normalizes an explicit materialization command', () => {
   assert.deepEqual(normalizeCompanyCreditReviewMaterialization({ company_id: companyId }), { companyId });
+});
+
+test('company credit-review RPCs use verified Neon Auth identity, never profile role alone', () => {
+  const runtime = readFileSync(new URL('../services/companyCreditReviewRuntime.ts', import.meta.url), 'utf8');
+  const profiles = readFileSync(new URL('./userProfiles.ts', import.meta.url), 'utf8');
+  assert.match(runtime, /import \{ requireGodModeProfile \} from '\.\.\/lib\/userProfiles\.js'/);
+  assert.match(runtime, /async requireGodMode\(userId: string\) \{\s*\/\/[\s\S]*?return requireGodModeProfile\(userId\);/);
+  assert.doesNotMatch(runtime, /select:\s*'id,role,status'/);
+  assert.match(profiles, /join neon_auth\."user" a on a\.id = p\.id/);
+  assert.match(profiles, /hasVerifiedInstitutionalIdentity\(row\.email, row\.auth_email, row\.email_verified, row\.auth_banned\)/);
+  assert.match(profiles, /if \(!profile \|\| profile\.role !== 'god_mode'\)/);
 });
