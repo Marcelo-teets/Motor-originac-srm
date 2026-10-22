@@ -229,3 +229,20 @@ Enforce storage guard, anonymous Auth/FIDC/credit denial smokes, SHA parity,
 production READY, alias integrity and rollback.
 D07 human verification, A2 reviews, A3-A5 5 source-backed companies and A7
 seven COMPLETE calendar days remain open gates.
+
+Release request — 2026-10-22 / FIDCS provider CNPJ identity safety (#698)
+Reviewed main baseline: afebc56cc2594fde9760105abdd1861d2e6ce2b5
+Publish exactly the resulting release-request merge SHA through the existing
+.github/workflows/vercel-production-deploy.yml controlled immutable prebuilt flow.
+Scope:
+- The canonical RFB-2026 alphanumeric CNPJ remains intact. For FIDCS.com.br,
+  unsupported alphanumeric identifiers fail closed (HTTP 422), with zero provider
+  requests and zero synthetic fund matches; malformed identifiers return 400.
+- Numeric legacy valid CNPJs continue under checksum validation. Batch skips
+  alpha/invalid identities instead of truncating them into another company.
+- #698 tests + CI and Neon parity passed before code merge; production release
+  still requires current-main CI, Auth/FIDC anonymous access smoke, READY SHA,
+  database guard, runtime verification and automatic-Git-disabled confirmation.
+- No migrations, DB rewrites, credential changes, credit qualification,
+  automatic reviews or synthetic commercial signoff in this release.
+- D-07/A2/A3-A5/A7 remain independently evidence-gated; never claim V5 complete.
