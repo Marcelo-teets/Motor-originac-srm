@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from './vercelTypes.js';
-import type { FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
+import { normalizeCnpj, type FidcsFundSnapshot } from '../backend/src/lib/fidcsComBr.js';
 import { verifyActiveIdentity, verifyGodModeIdentity } from '../serverless/neon-auth.js';
 import { requireNeonDataClient } from '../serverless/neon-data.js';
 import { isCronAuthorized } from '../serverless/http.js';
@@ -19,9 +19,12 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const errorStatus = (error: unknown) => typeof (error as any)?.statusCode === 'number' ? (error as any).statusCode : 500;
 const loadFidcsModule = () => import('../backend/src/lib/fidcsComBr.js');
 const normalizeCnpjInput = (value: string) => {
-  const digits = value.replace(/\D/g, '');
-  if (digits.length !== 14) throw new ApiError('CNPJ deve conter 14 dígitos.', 400);
-  return digits;
+  try {
+    return normalizeCnpj(value);
+  } catch (error) {
+    const message = errorMessage(error);
+    throw new ApiError(message, /alfanumérico/i.test(message) ? 422 : 400);
+  }
 };
 
 const writeJson = (res: VercelResponse, statusCode: number, payload: unknown) => {
@@ -111,12 +114,15 @@ const latestFidcCnpjs = async (limit: number) => {
     [Math.min(limit * 10, 200)],
   );
   const seen = new Set<string>();
-  return rows.filter((row) => {
-    const cnpj = String(row.fund_cnpj ?? '').replace(/\D/g, '');
-    if (cnpj.length !== 14 || seen.has(cnpj)) return false;
+  return rows.flatMap((row) => {
+    // An unsupported alpha identifier must not become a different numeric fund.
+    let cnpj: string;
+    try { cnpj = normalizeCnpj(String(row.fund_cnpj ?? '')); }
+    catch { return []; }
+    if (seen.has(cnpj)) return [];
     seen.add(cnpj);
-    return true;
-  }).slice(0, limit).map((row) => ({ ...row, fund_cnpj: normalizeCnpjInput(String(row.fund_cnpj)) }));
+    return [{ ...row, fund_cnpj: cnpj }];
+  }).slice(0, limit);
 };
 
 const persistSnapshot = async (snapshot: FidcsFundSnapshot) => serviceRpc<string>('persist_fidcs_validation', { p_snapshot: snapshot });
