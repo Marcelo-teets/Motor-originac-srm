@@ -1,7 +1,7 @@
 import { getDataClient } from '../lib/dataClient.js';
+import { requireGodModeProfile } from '../lib/userProfiles.js';
 import type { CompanyCreditReviewOutcome } from '../lib/companyCreditReview.js';
 
-type UserProfileRow = { id: string; role: string; status: string };
 type Reviewer = { userId: string; email?: string };
 type CompanyRow = { id: string; stage?: string | null; metadata?: Record<string, unknown> | null };
 type PipelineRow = { id: string; stage?: string | null; notes?: string | null };
@@ -65,19 +65,10 @@ export class CompanyCreditReviewRuntime {
   }
 
   async requireGodMode(userId: string) {
-    const client = this.requireClient();
-    const rows = await client.select('user_profiles', {
-      select: 'id,role,status',
-      filters: [{ column: 'id', value: userId }],
-      limit: 1,
-    }) as UserProfileRow[];
-    const profile = rows[0];
-    if (!profile || profile.role !== 'god_mode' || profile.status !== 'active') {
-      const error = new Error('god_mode_required') as Error & { statusCode?: number };
-      error.statusCode = 403;
-      throw error;
-    }
-    return profile;
+    // A profile row alone is not institutional authorization. Reuse the
+    // canonical Neon Auth + profile verification (same user id, matching
+    // email, verified, not banned and active god_mode) before every review RPC.
+    return requireGodModeProfile(userId);
   }
 
   async list(reviewer: Reviewer, limit = 100) {
