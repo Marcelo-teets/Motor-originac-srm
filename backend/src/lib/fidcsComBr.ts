@@ -1,3 +1,4 @@
+import { isValidCnpjIdentity, normalizeCnpjIdentity } from './cnpjIdentity.js';
 import { createHash } from 'node:crypto';
 
 export type FidcsFundSnapshot = {
@@ -30,10 +31,15 @@ const htmlToText = (html: string) => decodeHtml(html
 
 const capture = (text: string, pattern: RegExp) => text.match(pattern)?.[1]?.trim() || null;
 
+// The provider's alphanumeric CNPJ contract has not been verified. Never
+// turn an alpha ID into a numeric one or query/persist the wrong fund.
 export const normalizeCnpj = (value: string) => {
-  const digits = value.replace(/\D/g, '');
-  if (digits.length !== 14) throw new Error('CNPJ deve conter 14 dígitos.');
-  return digits;
+  const identity = normalizeCnpjIdentity(value);
+  if (!isValidCnpjIdentity(identity)) throw new Error('CNPJ inválido: identidade e dígitos verificadores devem ser válidos.');
+  if (/[A-Z]/.test(identity)) {
+    throw new Error('CNPJ alfanumérico ainda não homologado no FIDCS.com.br: consulta bloqueada sem truncar a identidade.');
+  }
+  return identity;
 };
 
 export const formatCnpj = (value: string) => {
