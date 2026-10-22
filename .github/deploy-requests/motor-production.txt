@@ -214,3 +214,18 @@ Auth mutation, schema migration or evidence injection.
 Frontend quality contract, typecheck/build, CI and Neon parity green.
 Require immutable SHA/alias match, storage budget, anonymous Auth and FIDC
 denial smokes, rollback availability. D07/A2/A3-A5/A7 not auto-approved.
+
+
+Release request — 2026-10-22 / verified institutional identity required for credit-review actions
+Reviewed main baseline: 22b23f76a606cc70655fd8a45158f71f1b150610
+Publish only the reviewed release-request main merge SHA through official immutable Vercel prebuilt workflow.
+Scope: #696 requires canonical Neon Auth email verified, matching user/profile emails,
+unbanned status and active god_mode profile for ALL company-credit-review RPCs.
+Existing serverless verifyActiveIdentity remains in place; defense-in-depth extends
+to CompanyCreditReviewRuntime.requireGodMode (no profile-only authorization).
+CI and Neon Runtime Parity passed on exact PR head. No customer/user creation,
+OTP bypass, database mutation, approval, score promotion or parallel stack.
+Enforce storage guard, anonymous Auth/FIDC/credit denial smokes, SHA parity,
+production READY, alias integrity and rollback.
+D07 human verification, A2 reviews, A3-A5 5 source-backed companies and A7
+seven COMPLETE calendar days remain open gates.
