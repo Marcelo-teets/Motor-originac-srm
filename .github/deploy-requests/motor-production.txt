@@ -246,3 +246,22 @@ Scope:
 - No migrations, DB rewrites, credential changes, credit qualification,
   automatic reviews or synthetic commercial signoff in this release.
 - D-07/A2/A3-A5/A7 remain independently evidence-gated; never claim V5 complete.
+
+Release request — 2026-10-22 / 5th primary-contract research candidate, Jeitto (A2)
+Reviewed main baseline: 5dd7aecc981c758d62245d645f341f21289bde0a
+Release only the resulting exact current-main SHA using immutable Vercel prebuilt
+workflow; Neon V5 reviewed migrations and ledger/parity checks must pass.
+Changes:
+- #700: add a single deduplicated Jeitto / JEITTO SOLUÇÕES DIGITAIS LTDA.
+  CNPJ 20.937.849/0001-01 as captured, first-party documented, identity
+  review PENDING, NOT commercially approved.
+- Official terms (Jan/2026) show CCB product with variable creditor; ownership,
+  FIDC eligibility, balance, funding gap and ticket remain unknown.
+- No automatic creation/promotion to companies, qualification, score or pipeline.
+- Approved migration: db/neon/20261022_neon_jeitto_first_party_credit_candidate_a2.sql
+  with checksum, idempotence, dedupe, immutable source URL and human-review gates.
+Post-release read-only validation:
+- exactly one captured CNPJ in the source-backed coorte if no existing duplicate;
+- verify no automatic credit review/score/qualification, no adverse data overwrite;
+- Vercel READY / SHA, Auth smoke and FIDC anonymous 401; keep Git deployment off.
+- D-07/A2/A3-A5/A7 remain independent unfulfilled acceptance gates.
