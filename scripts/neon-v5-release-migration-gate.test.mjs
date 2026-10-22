@@ -150,3 +150,25 @@ test('A2 official credit entities remain human-review-pending across discovery i
     assert.doesNotMatch(sql, /update public\.companies/i);
   }
 });
+
+test('Jeitto source-backed CCB candidate is not automatically qualified or promoted', () => {
+  const file = 'db/neon/20261022_neon_jeitto_first_party_credit_candidate_a2.sql';
+  assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes(file), 'Jeitto evidence must be reviewed in the migration allowlist');
+  const sql = readFileSync(new URL('../' + file, import.meta.url), 'utf8');
+  assert.match(sql, /20937849000101/);
+  assert.match(sql, /https:\/\/jeitto\.com\.br\/terms\/termos-e-condicoes-de-uso/);
+  assert.match(sql, /public\.is_valid_cnpj_checksum\(s\.cnpj\)/);
+  assert.match(sql, /'commercial_queue', false/);
+  assert.match(sql, /'human_identity_review_required', true/);
+  assert.match(sql, /'humanApprovalRequired', true/);
+  assert.match(sql, /'companyMasterPromotionAuthorized', false/);
+  assert.match(sql, /'identity_review_status', 'pending'/);
+  assert.match(sql, /'portfolioOwnership', 'unknown'/);
+  assert.match(sql, /'fundingGap', 'unknown'/);
+  assert.match(sql, /'ticketFit', 'unknown'/);
+  assert.match(sql, /'approval_status', 'NOT_APPROVED'/);
+  assert.match(sql, /and not exists \(/i);
+  assert.match(sql, /on conflict \(dedupe_key\) where dedupe_key is not null do nothing/i);
+  assert.doesNotMatch(sql, /(?:insert\s+into|update|delete\s+from)\s+public\.(?:companies|company_credit_reviews|qualification_snapshots|score_snapshots|lead_score_snapshots|ranking_v2|pipeline|user_profiles)/i);
+  assert.doesNotMatch(sql, /(?:drop|truncate)\s+(?:table|schema)/i);
+});
