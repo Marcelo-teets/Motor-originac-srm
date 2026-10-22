@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatCnpj, normalizeCnpj, parseFidcsFundHtml } from './fidcsComBr.js';
+import { fetchFidcsFundSnapshot, formatCnpj, normalizeCnpj, parseFidcsFundHtml } from './fidcsComBr.js';
 
 test('normaliza e formata CNPJ', () => {
   assert.equal(normalizeCnpj('63.350.255/0001-02'), '63350255000102');
@@ -32,4 +32,28 @@ test('extrai snapshot público sem promover FIDCS a fonte canônica', () => {
 
 test('rejeita página de outro fundo', () => {
   assert.throws(() => parseFidcsFundHtml('<p>11.111.111/0001-11</p>', '63350255000102', 'https://fidcs.com.br/fundo/63350255000102'));
+});
+
+// RFB-2026 IDs retain their letters; FIDCS.com.br has no verified alpha
+// lookup contract. Fail closed before fetch rather than matching another fund.
+test('não consulta CNPJ alfanumérico em provedor não homologado', async () => {
+  const alpha = '00.000.000/E08G-12';
+  assert.throws(() => normalizeCnpj(alpha), /alfanumérico.*consulta bloqueada/i);
+  assert.throws(() => formatCnpj(alpha), /alfanumérico/i);
+  const originalFetch = globalThis.fetch;
+  let requested = 0;
+  globalThis.fetch = (async () => { requested++; throw new Error('unexpected upstream request'); }) as typeof fetch;
+  try {
+    await assert.rejects(fetchFidcsFundSnapshot(alpha), /alfanumérico/i);
+    assert.equal(requested, 0, 'an unverified provider must never receive truncated alpha CNPJ');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('rejeita entradas extras, checksum inválido e fragmentos numéricos de CNPJ alfa', () => {
+  assert.throws(() => normalizeCnpj('63.350.255/0001-02A'), /inválido/i);
+  assert.throws(() => normalizeCnpj('000000000812'), /inválido/i);
+  assert.throws(() => normalizeCnpj('63.350.255/0001-03'), /inválido/i);
+  assert.equal(normalizeCnpj('63.350.255/0001-02'), '63350255000102');
 });
