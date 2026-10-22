@@ -23,6 +23,7 @@ test('rejects impossible/future timestamps rather than skipping data capture sil
 test('capture recovery workflow only reuses bounded engine and canonical Neon connection', () => {
   const yml = readFileSync(new URL('../../.github/workflows/capture-daily-recovery.yml', import.meta.url), 'utf8');
   assert.match(yml, /schedule:\s*\n\s*- cron: '25 13 \* \* \*'/);
+  assert.match(yml, /cron: '17 19 \* \* \*'/);
   assert.match(yml, /scripts\/load-neon-from-vercel\.sh/);
   assert.match(yml, /scripts\/check-neon-storage-budget\.mjs --requested-rows=8 --trigger=schedule/);
   assert.match(yml, /scripts\/capture\/bounded-capture-fanout\.sh/);
