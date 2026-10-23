@@ -74,8 +74,8 @@ jobs:
             echo '## Supabase → Google Drive full export'
             echo
             echo '- project: `hdghpmssudrqhsbvrdyt`'
-            echo '- mode: GitHub artifact (Google OAuth independent)'
-            echo '- next hop: connected Google Drive folder `Motor Originação - Backup Supabase Completo - 2026-10-01`'
+            echo '- mode: encrypted GitHub artifact (AES-256-GCM; Google OAuth independent)'
+            echo '- next hop: offline authenticated restore after approved data recovery plan'
             echo '- database: all discovered PostgREST tables/views + repository schema candidates'
             echo '- auth: supported Admin Users export'
             echo '- storage: bucket/object metadata + raw object copy when readable'
@@ -126,7 +126,7 @@ jobs:
           console.log('Complete backup gate: OK');
           NODE
 
-- name: Encrypt and authenticate complete backup
+      - name: Encrypt and authenticate complete backup
         if: success()
         shell: bash
         env:
