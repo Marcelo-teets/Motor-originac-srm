@@ -10,6 +10,8 @@ test('passes a project well below limits',()=> {
 
 test('hard stops at 85 percent before any plan ceiling',()=> {
   assert.equal(evaluate({...baseline,storageBytes:425_000_000}).allowed,false);
+  assert.equal(evaluate({...baseline,computeHours:80}).allowed,false);
+  assert.equal(evaluate({...baseline,computeHours:79.99}).allowed,true);
   assert.equal(evaluate({...baseline,computeHours:85}).allowed,false);
   assert.equal(evaluate({...baseline,dataTransferBytes:4_250_000_000}).allowed,false);
   assert.equal(evaluate({...baseline,branches:9}).allowed,false);
