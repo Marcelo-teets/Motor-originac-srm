@@ -23,25 +23,27 @@ export const parseEncryptionKey = (encoded) => {
   return key;
 };
 
-export const verifyEncryptedArchive = async (encryptedPath, key, expectedSha256) => {
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('Invalid AES-256 key.');
+const readEnvelope = async (encryptedPath) => {
   const file = await open(encryptedPath, 'r');
-  let iv, tag, length;
   try {
-    length = (await file.stat()).size;
+    const length = (await file.stat()).size;
     if (length <= HEADER_BYTES + TAG_BYTES) throw new Error('Truncated encrypted recovery archive.');
     const header = Buffer.alloc(HEADER_BYTES);
-    const trailer = Buffer.alloc(TAG_BYTES);
+    const tag = Buffer.alloc(TAG_BYTES);
     if ((await file.read(header, 0, header.length, 0)).bytesRead !== HEADER_BYTES ||
-        (await file.read(trailer, 0, TAG_BYTES, length - TAG_BYTES)).bytesRead !== TAG_BYTES ||
+        (await file.read(tag, 0, TAG_BYTES, length - TAG_BYTES)).bytesRead !== TAG_BYTES ||
         !header.subarray(0, MAGIC.length).equals(MAGIC)) {
       throw new Error('Invalid encrypted recovery archive envelope.');
     }
-    iv = header.subarray(MAGIC.length);
-    tag = trailer;
+    return { iv: header.subarray(MAGIC.length), tag, length };
   } finally {
     await file.close();
   }
+};
+
+export const verifyEncryptedArchive = async (encryptedPath, key, expectedSha256) => {
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('Invalid AES-256 key.');
+  const { iv, tag, length } = await readEnvelope(encryptedPath);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const digest = createHash('sha256');
@@ -53,6 +55,29 @@ export const verifyEncryptedArchive = async (encryptedPath, key, expectedSha256)
   const actual = digest.digest('hex');
   if (actual !== expectedSha256) throw new Error('Recovery archive digest mismatch.');
   return { authenticated: true, sha256: actual, encryptedBytes: length };
+};
+
+// Recovery is explicit and local; decrypted plaintext is never uploaded by CI.
+// A wrong key or tampered ciphertext deletes its incomplete output immediately.
+export const decryptArchiveToFile = async (encryptedPath, plaintextPath, key) => {
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new Error('Invalid AES-256 key.');
+  if (encryptedPath === plaintextPath) throw new Error('Source and destination must differ.');
+  const { iv, tag, length } = await readEnvelope(encryptedPath);
+  const output = await open(plaintextPath, 'wx', 0o600);
+  await output.close();
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  try {
+    await pipeline(
+      createReadStream(encryptedPath, { start: HEADER_BYTES, end: length - TAG_BYTES - 1 }),
+      decipher,
+      createWriteStream(plaintextPath, { flags: 'w', mode: 0o600 }),
+    );
+    return { authenticated: true, plaintextBytes: (await stat(plaintextPath)).size };
+  } catch (error) {
+    await rm(plaintextPath, { force: true });
+    throw error;
+  }
 };
 
 export const encryptAndVerifyArchive = async (plaintextPath, encryptedPath, key) => {
@@ -83,14 +108,21 @@ export const encryptAndVerifyArchive = async (plaintextPath, encryptedPath, key)
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const [plaintextPath, encryptedPath] = process.argv.slice(2);
-    if (!plaintextPath || !encryptedPath || plaintextPath === encryptedPath) {
-      throw new Error('Provide separate plaintext archive and encrypted output paths.');
+    const args = process.argv.slice(2);
+    const decrypt = args[0] === '--decrypt';
+    const [source, destination] = decrypt ? args.slice(1) : args;
+    if (!source || !destination || source === destination) {
+      throw new Error('Provide separate input and output archive paths.');
     }
     const key = parseEncryptionKey(process.env.RECOVERY_ENCRYPTION_KEY_B64);
-    const report = await encryptAndVerifyArchive(plaintextPath, encryptedPath, key);
-    console.log(JSON.stringify({ status: 'encrypted_and_verified', authenticated: report.authenticated,
-      encryptedBytes: report.encryptedBytes, envelope: 'AES-256-GCM/MOTORBK1' }));
+    if (decrypt) {
+      const report = await decryptArchiveToFile(source, destination, key);
+      console.log(JSON.stringify({ status: 'decrypted_and_authenticated', plaintextBytes: report.plaintextBytes }));
+    } else {
+      const report = await encryptAndVerifyArchive(source, destination, key);
+      console.log(JSON.stringify({ status: 'encrypted_and_verified', authenticated: report.authenticated,
+        encryptedBytes: report.encryptedBytes, envelope: 'AES-256-GCM/MOTORBK1' }));
+    }
   } catch (error) {
     console.error('Recovery encryption gate failed:', error instanceof Error ? error.message : 'unknown');
     process.exitCode = 1;
