@@ -63,28 +63,50 @@ Histórico: `776be89` (37963933776) ✅; `4422eaa` (37967451209) ❌ corrigido p
 
 ---
 
-## RB-03 · Janela de bootstrap do admin (F0-06, decisão D-07)
+## RB-03 · Recuperação segura do administrador e verificação de e-mail (D-07)
 
-**Pré-condição:** Marcelo disponível por ~15 minutos, com o e-mail que vai usar no Motor.
+**Estado confirmado em 23/10/2026 (SELECT read-only):** existem 2 identidades
+Neon Auth, 1 perfil `god_mode + active`, 1 claim de bootstrap e **zero**
+identidades com `emailVerified=true`. Portanto, **o administrador já tem perfil,
+mas não consegue passar o gate de e-mail verificado**. Não é um projeto vazio.
 
-1. Confirmar o usuário residual (o e-mail esperado é `motor-auth-smoke-…@example.com`):
+**Procedimento prioritário, sem alterar contas nem reabrir bootstrap:**
+
+1. Na tela oficial `https://motor-originac-srm.vercel.app/login`,
+   o **titular da conta administrativa existente** informa seu próprio e-mail,
+   seleciona **Enviar código para verificar meu e-mail** e consulta sua caixa de
+   entrada. Nunca enviar senha, OTP, token ou link de sessão ao GitHub/chat.
+2. O titular digita o código na tela **Confirmar e-mail**. A verificação
+   ocorre exclusivamente pelo proxy first-party para o Neon Managed Auth.
+   Depois entra normalmente com e-mail e senha; nenhuma execução automática
+   aprova `user_profiles`, crédito ou acessos de outra pessoa.
+3. Conferir sem expor e-mails ou IDs:
    ```sql
-   select id, email, "createdAt" from neon_auth."user";
-   select count(*) from public.user_profiles;
-   select count(*) from private.auth_bootstrap_claim;
-   ```
-2. Apagar o usuário de smoke (Neon MCP `delete_auth_user` com o `id` acima). Conferir que `neon_auth."user"` ficou com 0.
-3. Ligar o bootstrap: na Vercel (Production), `MOTOR_AUTH_BOOTSTRAP_ENABLED=true`, depois **Redeploy pelo dashboard da Vercel** no deployment de produção atual. **Não** use o RB-01 aqui: o passo de sync de Auth do `vercel-production-deploy.yml` força `MOTOR_AUTH_BOOTSTRAP_ENABLED=false` a cada deploy (`scripts/sync-public-auth-env-to-vercel.mjs`).
-4. **Marcelo** se cadastra em `https://motor-originac-srm.vercel.app` e faz o primeiro login.
-5. Conferir:
-   ```sql
-   select role, status from public.user_profiles;   -- esperado: god_mode, active
-   select count(*) from private.auth_bootstrap_claim; -- esperado: 1
-   ```
-6. **Imediatamente:** rodar o RB-01. O deploy oficial volta `MOTOR_AUTH_BOOTSTRAP_ENABLED` para `false` e publica de novo. Conferir na Vercel que a variável ficou `false`.
-7. Rodar `production-auth-smoke.yml` e confirmar verde.
+   select count(*) as verified_active_admins
+   from public.user_profiles p join neon_auth."user" a on a.id=p.id
+   where p.role='god_mode' and p.status='active'
+     and a."emailVerified"=true and coalesce(a.banned,false)=false
+     and lower(btrim(p.email))=lower(btrim(a.email));
 
-**Nunca** deixar o bootstrap ligado sem o Marcelo na tela: o primeiro cadastro vira `god_mode`.
+   select count(*) as bootstrap_claims from private.auth_bootstrap_claim;
+   ```
+   Esperado: `verified_active_admins=1` e `bootstrap_claims=1`.
+   Executar o smoke oficial `production-auth-smoke.yml` depois da
+   confirmação. D-07 somente passa quando o avaliador V5 apontar o vínculo
+   Auth institucional **verificado**, não apenas `user_profiles.active`.
+4. Se o código não chegar ou o Neon rejeitar verificação, revisar o
+   provedor de e-mail/OTP autorizado, logs de erro e limites no Neon; **não**
+   marcar `emailVerified` por SQL, não forjar sessão/JWT, não trocar o
+   administrador e não apagar o usuário histórico como tentativa de correção.
+   Registrar o bloqueio e solicitar intervenção do titular/provedor.
+
+**Bootstrap inicial é recurso excepcional, não reparo de e-mail.** O procedimento
+histórico que excluía um usuário de smoke e religava
+`MOTOR_AUTH_BOOTSTRAP_ENABLED=true` **não se aplica quando já existem
+identidades e claim**. Qualquer recuperação destrutiva/irreversível exige
+backup verificado, inventário das identidades, revisão de risco, autorização
+específica e janela assistida. Nunca ativar bootstrap público desassistido.
+O workflow oficial deve manter `MOTOR_AUTH_BOOTSTRAP_ENABLED=false`.
 
 ---
 

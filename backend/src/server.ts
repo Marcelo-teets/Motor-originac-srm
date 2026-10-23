@@ -183,10 +183,17 @@ app.post('/auth/login', wrap(async (req, res) => {
   const flow = await signInWithPassword(email, password);
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
-  if (profile.status !== 'active' || !(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
-    // Do not leave a live upstream session behind for a rejected login.
+  if (profile.status !== 'active') {
     await signOutAuth(flow.sessionToken).catch(() => undefined);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  }
+  if (!(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
+    // Do not leave an upstream session or admit an unverified/banned identity.
+    // The same public login page already offers the first-party Neon email OTP.
+    await signOutAuth(flow.sessionToken).catch(() => undefined);
+    throw Object.assign(new Error(
+      'Identidade institucional não verificada ou bloqueada. Se ainda não confirmou seu e-mail, use "Enviar código para verificar meu e-mail" nesta tela.',
+    ), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
@@ -202,9 +209,13 @@ app.post('/auth/session', wrap(async (req, res) => {
   const flow = await refreshAuthSession(sessionToken);
   const authUser = await verifyNeonJwt(flow.session.access_token);
   const profile = await ensureUserProfile(authUser);
-  if (profile.status !== 'active' || !(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
+  if (profile.status !== 'active') {
     clearAuthSessionCookie(res);
     throw Object.assign(new Error('Este acesso está desativado.'), { statusCode: 403 });
+  }
+  if (!(await getVerifiedActiveUserProfileById(authUser.id, authUser.email))) {
+    clearAuthSessionCookie(res);
+    throw Object.assign(new Error('Identidade institucional não verificada ou bloqueada. Confirme seu e-mail antes de entrar novamente.'), { statusCode: 403 });
   }
   setAuthSessionCookie(res, flow.sessionToken);
   res.json(ok('real', {
