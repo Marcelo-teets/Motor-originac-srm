@@ -4,6 +4,7 @@ export const FREE = Object.freeze({
   projectId: 'steep-poetry-38942951',
   storageBytes: 500_000_000,
   computeHours: 100,
+  computeStopHours: 80, // preserve 5h headroom before the 85h provider quota
   dataTransferBytes: 5_000_000_000,
   maxBranches: 10,
   maxPlanCu: 2,
@@ -48,7 +49,7 @@ export function evaluate({storageBytes,computeHours,dataTransferBytes,branches,m
   if(count===null) reasons.push('branch_metric_unavailable');
   if(cu===null) reasons.push('compute_config_unavailable');
   if(storage!==null && storage>=FREE.storageBytes*FREE.stopAt) reasons.push('storage_headroom_low');
-  if(compute!==null && compute>=FREE.computeHours*FREE.stopAt) reasons.push('compute_headroom_low');
+  if(compute!==null && compute>=FREE.computeStopHours) reasons.push('compute_headroom_low');
   if(transfer!==null && transfer>=FREE.dataTransferBytes*FREE.stopAt) reasons.push('transfer_headroom_low');
   if(count!==null && count>=FREE.maxAllowedBranches) reasons.push('branch_headroom_low');
   if(cu!==null && cu>FREE.maxAutoscaleCu) reasons.push('compute_max_exceeds_guard');
