@@ -108,7 +108,7 @@ jobs:
             printf '%s\n' "- Budget allowed: ${BUDGET_ALLOWED:-unknown}"
             printf '%s\n' "- Reasons: ${BUDGET_REASONS:-not_checked}"
             printf '%s\n' '- Storage stop: 425 MB of 500 MB (85%)'
-            printf '%s\n' '- Compute stop: 85 estimated upper-bound CU-hours of 100 (85%)'
+            printf '%s\n' '- Compute stop: 80 estimated upper-bound CU-hours (5h before provider 85h hard cap)'
             printf '%s\n' '- Branch ceiling: 9 of 10; verify automatic preview cleanup'
             printf '%s\n' '- Endpoint ceiling: max 1 CU (requires post-cutover activation)'
             printf '%s\n' '- Unknown metrics fail closed; cannot guarantee against out-of-band writes or between-check spikes.'
