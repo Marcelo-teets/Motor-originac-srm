@@ -1,5 +1,39 @@
 # Recuperação de dados legados (Supabase → Neon) — TEMPORÁRIO
 
+
+> **Controle de confidencialidade — 23/10/2026:** o workflow manual
+> `legacy-data-recovery.yml` deve publicar **somente um artefato AES-256-GCM
+> autenticado**, jamais CSV/NDJSON/objetos ou arquivos Auth em texto claro.
+> Um export completo depende de `SUPABASE_URL`,
+> `SUPABASE_SERVICE_ROLE_KEY` e `RECOVERY_ENCRYPTION_KEY_B64` configurados
+> exclusivamente como **GitHub Actions Secrets**. O último é uma chave aleatória
+> de 32 bytes em base64 canônico; **guarde uma cópia recuperável fora do GitHub
+> antes de executar**, em um cofre seguro controlado, pois sem ela o backup
+> não pode ser restaurado. Nunca envie a chave em chat, commit, logs ou issue.
+>
+> O fluxo valida primeiro a completude do export; em seguida compacta num
+> runner efêmero, criptografa, decifra em memória para conferir autenticação
+> e digest SHA-256, publica somente `supabase-recovery-encrypted.bin`
+> e remove o arquivo TAR temporário. Sem chave, sem integridade ou com
+> export incompleto, **nenhum artefato é enviado**. O arquivo de origem
+> permanece intacto; não há import/cutover automático.
+>
+> **Restauração controlada no Codespace privado**, apenas após recuperar a
+> chave pelo cofre autorizado (não imprimir em terminal compartilhado):
+>
+> ```bash
+> # RECOVERY_ENCRYPTION_KEY_B64 deve existir somente no ambiente seguro
+> node migration/supabase-recovery/encrypted-export.mjs --decrypt \
+>   /caminho/seguro/supabase-recovery-encrypted.bin \
+>   /tmp/motor-supabase-recovered.tar.gz
+> tar -tzf /tmp/motor-supabase-recovered.tar.gz | head
+> ```
+>
+> A restauração valida a tag GCM antes de aceitar o resultado e apaga saída
+> incompleta quando falhar. Não extrair, publicar ou importar o TAR sem plano
+> de acesso, retenção, remapeamento de PK/FK e destino aprovado.
+>
+
 > **Atualização auditada em 20/10/2026 — prevalece sobre o estado de 06/10 abaixo:**
 > O Supabase institucional `hdghpmssudrqhsbvrdyt` voltou a aceitar consultas
 > SQL de leitura: 74 empresas, 1.426 candidatas, 27.448 monitoring outputs,
