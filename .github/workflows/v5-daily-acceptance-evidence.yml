@@ -73,6 +73,25 @@ jobs:
             echo "::warning::MVP V5 acceptance still blocked by production evidence."
           fi
 
+      - name: Export live A2 primary-source human diligence queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          export A2_REPORT_PATH="$RUNNER_TEMP/motor-a2-diligence-report.json"
+          node scripts/a2-diligence-report.mjs
+
+      - name: Upload A2 diligence queue artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: motor-a2-diligence-report
+          path: ${{ runner.temp }}/motor-a2-diligence-report.json
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Publish sanitized acceptance evidence artifact
         if: always()
         uses: actions/upload-artifact@v4
