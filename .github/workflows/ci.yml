@@ -40,6 +40,9 @@ jobs:
       - name: Validate People & Capital Intelligence contract
         run: npm run test:people-capital
 
+      - name: Validate production Auth smoke event contract
+        run: node --test scripts/production-auth-smoke-trigger.test.mjs
+
       - name: Validate A2 human-diligence report contract
         run: npm run test:a2-diligence
 
