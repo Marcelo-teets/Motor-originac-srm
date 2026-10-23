@@ -1,7 +1,9 @@
 name: Production Auth Smoke
 
 on:
-  deployment_status:
+  # The reviewed Vercel Production Deploy workflow already runs strict Auth
+  # smoke against its immutable deployed SHA. Deployment-status events may
+  # report a Git SHA even when no production artifact was published.
   workflow_dispatch:
     inputs:
       base_url:
@@ -30,18 +32,12 @@ concurrency:
 
 jobs:
   smoke:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.deployment_status.state == 'success' &&
-       (github.event.deployment.ref == 'main' ||
-        github.event.deployment.environment == 'Production' ||
-        github.event.deployment.environment == 'production'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://motor-originac-srm.vercel.app' }}
-      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && (inputs.expected_sha || github.sha) || github.event.deployment.sha }}
-      REQUIRE_CAPTCHA_SITE_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.require_captcha_site_key || false }}
+      BASE_URL: ${{ inputs.base_url }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+      REQUIRE_CAPTCHA_SITE_KEY: ${{ inputs.require_captcha_site_key }}
 
     steps:
       - name: Checkout deployment contract
