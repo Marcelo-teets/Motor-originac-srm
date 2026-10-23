@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   export:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -29,17 +30,21 @@ jobs:
       MAX_ROWS_PER_SHEET: '50000'
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: main
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24
 
       - name: Validate required secrets
+        env:
+          RECOVERY_ENCRYPTION_KEY_B64: ${{ secrets.RECOVERY_ENCRYPTION_KEY_B64 }}
         shell: bash
         run: |
           set -euo pipefail
           missing=()
-          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+          for name in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY RECOVERY_ENCRYPTION_KEY_B64; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -50,7 +55,7 @@ jobs:
       - name: Validate exporter syntax
         run: node --check migration/supabase-recovery/supabase-full-drive-export.mjs
 
-      - name: Export Supabase to Google Drive
+      - name: Export source to ephemeral runner (no raw artifact)
         id: export
         shell: bash
         run: |
@@ -60,17 +65,6 @@ jobs:
           if [ -n "$SUMMARY_LINE" ]; then
             printf '%s\n' "${SUMMARY_LINE#FINAL_SUMMARY=}" > /tmp/run_summary.json
           fi
-
-      - name: Upload export artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: supabase-full-export-${{ github.run_id }}
-          path: tmp/supabase-full-export
-          if-no-files-found: warn
-          compression-level: 0
-          retention-days: 7
-          include-hidden-files: true
 
       - name: Publish execution summary
         if: always()
@@ -131,3 +125,31 @@ jobs:
           }
           console.log('Complete backup gate: OK');
           NODE
+
+- name: Encrypt and authenticate complete backup
+        if: success()
+        shell: bash
+        env:
+          RECOVERY_ENCRYPTION_KEY_B64: ${{ secrets.RECOVERY_ENCRYPTION_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          tar -C "$EXPORT_ROOT" -czf "$RUNNER_TEMP/supabase-recovery-plain.tar.gz" .
+          node migration/supabase-recovery/encrypted-export.mjs \
+            "$RUNNER_TEMP/supabase-recovery-plain.tar.gz" \
+            "$RUNNER_TEMP/supabase-recovery-encrypted.bin"
+          echo 'Authenticated AES-256-GCM ciphertext only; retain recovery key outside GitHub.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload encrypted backup only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-encrypted-recovery-${{ github.run_id }}
+          path: ${{ runner.temp }}/supabase-recovery-encrypted.bin
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Remove temporary plaintext archive
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/supabase-recovery-plain.tar.gz"
