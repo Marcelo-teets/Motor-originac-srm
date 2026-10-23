@@ -1,3 +1,5 @@
+import { isValidCnpjIdentity, normalizeCnpjIdentity } from './cnpjIdentity.js';
+
 export type ExistingCompanyMatchCandidate = {
   id: string;
   name: string;
@@ -24,7 +26,10 @@ const normalizeName = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '');
 
-const normalizeCnpj = (value?: string) => String(value ?? '').replace(/\D/g, '');
+const normalizeCnpj = (value?: string) => {
+  const identity = normalizeCnpjIdentity(value);
+  return isValidCnpjIdentity(identity) ? identity : '';
+};
 
 const normalizeDomain = (value?: string) => {
   if (!value) return '';
@@ -41,15 +46,16 @@ export const findBestCompanyMatch = (
   existingCompanies: ExistingCompanyMatchCandidate[],
 ): CandidateCompanyMatch | null => {
   const candidateCnpj = normalizeCnpj(candidate.cnpj);
-  if (candidateCnpj.length === 14) {
+  // A supplied but invalid tax ID is an identity conflict, not permission to
+  // fall back to a website or name and attach another legal entity.
+  if (String(candidate.cnpj ?? '').trim() && !candidateCnpj) return null;
+  if (candidateCnpj) {
     const cnpjMatch = existingCompanies.find((item) => normalizeCnpj(item.cnpj) === candidateCnpj);
-    if (cnpjMatch) {
-      return {
-        companyId: cnpjMatch.id,
-        confidence: 1,
-        matchMethod: 'cnpj',
-      };
-    }
+    // For a valid tax ID, never link by shared group website/brand when the
+    // existing legal identity differs (or has no verified CNPJ).
+    return cnpjMatch
+      ? { companyId: cnpjMatch.id, confidence: 1, matchMethod: 'cnpj' }
+      : null;
   }
 
   const candidateDomain = normalizeDomain(candidate.website);
