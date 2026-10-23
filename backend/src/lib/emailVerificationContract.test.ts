@@ -37,3 +37,27 @@ test('login page offers code request, verification and resend without bypassing 
   assert.match(client, /'\/auth\/email\/send-code'/);
   assert.match(client, /'\/auth\/email\/verify-code'/);
 });
+
+test('login and refresh refuse unverified identities but point account holder to OTP recovery', () => {
+  const server = read('../server.ts');
+  const login = server.slice(server.indexOf("app.post('/auth/login'"), server.indexOf("app.post('/auth/session'"));
+  const session = server.slice(server.indexOf("app.post('/auth/session'"), server.indexOf("app.post('/auth/email/send-code'"));
+  assert.match(login, /getVerifiedActiveUserProfileById\(authUser\.id, authUser\.email\)/);
+  assert.match(login, /signOutAuth\(flow\.sessionToken\)/);
+  assert.match(login, /Enviar código para verificar meu e-mail/);
+  assert.ok(login.indexOf('getVerifiedActiveUserProfileById') < login.indexOf('setAuthSessionCookie'));
+  assert.match(session, /getVerifiedActiveUserProfileById\(authUser\.id, authUser\.email\)/);
+  assert.match(session, /clearAuthSessionCookie\(res\)/);
+  assert.ok(session.indexOf('getVerifiedActiveUserProfileById') < session.indexOf('setAuthSessionCookie'));
+  assert.doesNotMatch(login + session, /"emailVerified"\s*=\s*true|update\s+neon_auth/i);
+});
+
+test('administrative recovery documentation never instructs deleting a user to reopen claimed bootstrap', () => {
+  const docs = read('../../../docs/project-control/v5/RUNBOOKS_OPERACAO_V5.md');
+  const rb03 = docs.slice(docs.indexOf('## RB-03'), docs.indexOf('## RB-04'));
+  assert.match(rb03, /verified_active_admins/);
+  assert.match(rb03, /Enviar código para verificar meu e-mail/);
+  assert.match(rb03, /bootstrap_claims/);
+  assert.match(rb03, /NÃO|não/);
+  assert.doesNotMatch(rb03, /delete_auth_user|Apagar o usuário de smoke/);
+});
