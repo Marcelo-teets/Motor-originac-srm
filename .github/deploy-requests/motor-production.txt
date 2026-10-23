@@ -265,3 +265,23 @@ Post-release read-only validation:
 - verify no automatic credit review/score/qualification, no adverse data overwrite;
 - Vercel READY / SHA, Auth smoke and FIDC anonymous 401; keep Git deployment off.
 - D-07/A2/A3-A5/A7 remain independent unfulfilled acceptance gates.
+
+Release request — 2026-10-23 / Discovery CNPJ conflict fail-closed (#705)
+Reviewed main baseline: 82c24aab680721a24a10a29b9798a66e31afb6c3
+Deploy exactly the resulting reviewed release-request SHA via the
+existing Vercel Production Deploy immutable prebuilt workflow.
+
+- #705: SearchProfileCaptureService now only auto-links a candidate with a
+  supplied valid RFB-2026 CNPJ when Company Master has the SAME canonical CNPJ.
+  Conflicting or invalid CNPJ cannot silently fall back to a shared site/name.
+  No-CNPJ exact domain/name fallback remains as before.
+- Tested numeric and alphanumeric identifiers, checksum/fragment rejection,
+  same-company valid match, and no-CNPJ legacy discovery behavior.
+- CI, Neon Runtime Parity and full main CI must be green.
+- Production checks: reviewed SHA on frontend+runtime, READY deployment,
+  Neon migration parity/storage headroom, Auth production smoke and FIDC
+  anonymous-access 401, disabled auto-Git deployment and rollback candidate.
+- #703 scheduler efficiency and #704 source backup encryption are already
+  integrated; this release does NOT run source export, modify passwords,
+  create humans, approve credit, import legacy rows or change stack.
+- D-07/A2/A3-A5/A7 remain evidence/human gated; no MVP-100% assertion.
