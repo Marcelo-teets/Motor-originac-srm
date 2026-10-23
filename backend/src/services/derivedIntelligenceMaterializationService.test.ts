@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectCompaniesForDerivedMaterialization } from './derivedIntelligenceMaterializationService.js';
+import { DerivedIntelligenceMaterializationService, selectCompaniesForDerivedMaterialization } from './derivedIntelligenceMaterializationService.js';
+import type { PlatformRepository } from '../repositories/platformRepository.js';
 import type { CompanySeed, LeadScoreSnapshot, MonitoringOutput, QualificationSnapshot } from '../types/platform.js';
 
 const company = (id: string): CompanySeed => ({
@@ -102,4 +103,49 @@ test('canonical SQL eligibility set can block a company even when local metadata
     eligibleCompanyIds: new Set(),
   });
   assert.deepEqual(due, []);
+});
+
+test('empty canonical SQL gate skips all expensive repository snapshot scans', async () => {
+  const reads: string[] = [];
+  const repository = Object.fromEntries([
+    'listCompanies', 'listQualificationSnapshots', 'listLeadScoreSnapshots', 'listMonitoringOutputs',
+  ].map((name) => [name, async () => { reads.push(name); throw new Error('snapshot scan must not run'); }])) as unknown as PlatformRepository;
+  const sqlQueries: string[] = [];
+  const client = {
+    query: async (sql: string) => { sqlQueries.push(sql); return []; },
+  } as unknown as NonNullable<ConstructorParameters<typeof DerivedIntelligenceMaterializationService>[1]>;
+  const summary = await new DerivedIntelligenceMaterializationService(repository, client).run();
+  assert.equal(summary.status, 'real');
+  assert.equal(summary.consideredCompanies, 0);
+  assert.equal(summary.dueCompanies, 0);
+  assert.equal(summary.recomputedCompanies, 0);
+  assert.deepEqual(summary.errors, []);
+  assert.deepEqual(reads, []);
+  assert.equal(sqlQueries.length, 1);
+  assert.match(sqlQueries[0]!, /public\.is_company_decision_eligible\(c\.id\)/);
+});
+
+test('the canonical gate still loads snapshots when an approved company exists', async () => {
+  const reads: string[] = [];
+  const repository = {
+    listCompanies: async () => { reads.push('companies'); return [company('a')]; },
+    listQualificationSnapshots: async () => { reads.push('qualifications'); return [qualification('a', '2026-10-23T09:10:00Z')]; },
+    listLeadScoreSnapshots: async () => { reads.push('lead'); return [lead('a', '2026-10-23T09:10:00Z')]; },
+    listMonitoringOutputs: async () => { reads.push('outputs'); return [output('a', '2026-10-23T09:05:00Z')]; },
+  } as unknown as PlatformRepository;
+  const client = { query: async () => [{ id: 'a' }] } as unknown as NonNullable<ConstructorParameters<typeof DerivedIntelligenceMaterializationService>[1]>;
+  const summary = await new DerivedIntelligenceMaterializationService(repository, client).run();
+  assert.equal(summary.status, 'real');
+  assert.equal(summary.consideredCompanies, 1);
+  assert.equal(summary.dueCompanies, 0);
+  assert.deepEqual(reads.sort(), ['companies', 'lead', 'outputs', 'qualifications']);
+});
+
+test('a SQL gate failure cannot masquerade as a healthy no-op', async () => {
+  const client = { query: async () => { throw new Error('canonical eligibility unavailable'); } } as unknown as NonNullable<ConstructorParameters<typeof DerivedIntelligenceMaterializationService>[1]>;
+  const repository = {} as PlatformRepository;
+  await assert.rejects(
+    new DerivedIntelligenceMaterializationService(repository, client).run(),
+    /canonical eligibility unavailable/,
+  );
 });

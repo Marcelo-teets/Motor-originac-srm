@@ -92,11 +92,15 @@ export type DerivedMaterializationSummary = {
 export class DerivedIntelligenceMaterializationService {
   private readonly repository: PlatformRepository;
   private readonly platform: PlatformService;
-  private readonly client = getDataClient();
+  private readonly client: ReturnType<typeof getDataClient>;
 
-  constructor(repository: PlatformRepository = createPlatformRepository('database')) {
+  constructor(
+    repository: PlatformRepository = createPlatformRepository('database'),
+    client: ReturnType<typeof getDataClient> = getDataClient(),
+  ) {
     this.repository = repository;
     this.platform = new PlatformService(repository);
+    this.client = client;
   }
 
   async run(limit = 25): Promise<DerivedMaterializationSummary> {
@@ -117,37 +121,21 @@ export class DerivedIntelligenceMaterializationService {
       };
     }
 
-    const [companies, qualifications, leadScores, monitoringOutputs, canonicalEligibleRows] = await Promise.all([
-      this.repository.listCompanies(),
-      this.repository.listQualificationSnapshots(),
-      this.repository.listLeadScoreSnapshots(),
-      this.repository.listMonitoringOutputs(),
-      this.client.query<{ id: string }>(
-        `select c.id
+    // Query the authoritative SQL credit-review gate before loading snapshots.
+    // Without approved companies there is nothing to materialize. The scheduled
+    // worker must not scan the entire monitoring history every 15 minutes.
+    const canonicalEligibleRows = await this.client.query<{ id: string }>(
+      `select c.id
          from public.companies c
          where public.is_company_decision_eligible(c.id)
          order by c.id`,
-      ),
-    ]);
-
-    // The SQL gate is the canonical authority in persistent runtime. The
-    // TypeScript helper remains only as the memory/test fallback used by
-    // selectCompaniesForDerivedMaterialization when no canonical set is given.
+    );
     const canonicalEligibleCompanyIds = new Set(canonicalEligibleRows.map((row) => String(row.id)));
-
-    const due = selectCompaniesForDerivedMaterialization({
-      companies,
-      qualifications,
-      leadScores,
-      monitoringOutputs,
-      eligibleCompanyIds: canonicalEligibleCompanyIds,
-      limit,
-    });
 
     const summary: DerivedMaterializationSummary = {
       status: 'real',
       consideredCompanies: canonicalEligibleCompanyIds.size,
-      dueCompanies: due.length,
+      dueCompanies: 0,
       recomputedCompanies: 0,
       pipelineRowsTouched: 0,
       qualificationsWritten: 0,
@@ -158,6 +146,26 @@ export class DerivedIntelligenceMaterializationService {
       errors: [],
       companies: [],
     };
+
+    // Fail closed on SQL permission/query errors above, and return an honest
+    // zero-work summary only when the canonical gate succeeds with zero rows.
+    if (canonicalEligibleCompanyIds.size === 0) return summary;
+
+    const [companies, qualifications, leadScores, monitoringOutputs] = await Promise.all([
+      this.repository.listCompanies(),
+      this.repository.listQualificationSnapshots(),
+      this.repository.listLeadScoreSnapshots(),
+      this.repository.listMonitoringOutputs(),
+    ]);
+    const due = selectCompaniesForDerivedMaterialization({
+      companies,
+      qualifications,
+      leadScores,
+      monitoringOutputs,
+      eligibleCompanyIds: canonicalEligibleCompanyIds,
+      limit,
+    });
+    summary.dueCompanies = due.length;
 
     for (const item of due) {
       try {
