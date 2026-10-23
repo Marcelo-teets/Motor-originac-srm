@@ -285,3 +285,24 @@ existing Vercel Production Deploy immutable prebuilt workflow.
   integrated; this release does NOT run source export, modify passwords,
   create humans, approve credit, import legacy rows or change stack.
 - D-07/A2/A3-A5/A7 remain evidence/human gated; no MVP-100% assertion.
+
+Release request — 2026-10-23 / verified-email recovery UX & non-destructive RB-03 (#707)
+Reviewed main baseline: 97203555fba3250237dbc9c44a2d81c77e14eef4.
+Deploy exactly the resulting reviewed release-request SHA from current main
+through the existing Vercel Production Deploy immutable prebuilt workflow.
+
+Scope:
+- #707: password-authenticated login now differentiates an inactive profile
+  from an institutional identity not admitted due to email verification,
+  mismatch or other access block. It directs users to the existing first-party
+  Neon OTP UI, without granting access. Upstream signout before rejection.
+- Session refresh remains fail-closed and clears cookie on denied identity.
+- RB-03 runbook prioritizes verified email OTP on existing GOD-MODE identity;
+  never delete Auth identities or reactivate claimed bootstrap to fix email.
+- Regression tests cover 403 admission, session not issued, OTP UI and
+  unchanged current Auth/claim trust model.
+- Run CI, versioned Neon parity, Vercel production SHA READY and
+  Production Auth Smoke; preserve anonymous FIDC denial and auto-Git disabled.
+- Do NOT flip emailVerified in SQL, create/disable/delete users, issue OTP
+  from automation, bypass existing auth, or claim D-07/A2/A3-A5/A7 passed.
+- Project master Supabase/Neon reconciliation remains #643, outside this release.
