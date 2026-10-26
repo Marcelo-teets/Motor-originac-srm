@@ -27,6 +27,9 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     bootstrapClaims: diagnosticCount('bootstrap_claims'),
     totalMonitoringOutputs: diagnosticCount('total_monitoring_outputs'),
     outputsWithoutRunId: diagnosticCount('orphan_monitoring_outputs'),
+    datasetOutputsWithoutRunId: diagnosticCount('dataset_outputs_without_run_id'),
+    datasetOutputsWithSourcePointer: diagnosticCount('dataset_outputs_with_provenance_pointer'),
+    captureOutputsWithoutRunId: diagnosticCount('capture_outputs_without_run_id'),
     lastConnectorStartedAt: metrics.last_connector_started_at ?? null,
     lastOutputCapturedAt: metrics.last_output_captured_at ?? null,
   };
@@ -79,8 +82,13 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
       ...(administratorCount === 0 && diagnostics.authIdentityCount === 0 && diagnostics.bootstrapClaims === 0
         ? ['D-07 initial administrator is not enrolled. The bootstrap must be attended by the authorized person and switched off immediately after enrollment.']
         : []),
-      ...(diagnostics.outputsWithoutRunId !== null && diagnostics.outputsWithoutRunId > 0
-        ? [`${diagnostics.outputsWithoutRunId} monitoring outputs lack run_id and cannot satisfy A7 lineage.`]
+      ...(diagnostics.captureOutputsWithoutRunId !== null && diagnostics.captureOutputsWithoutRunId > 0
+        ? [`${diagnostics.captureOutputsWithoutRunId} capture outputs lack run_id and cannot satisfy A7 lineage; inspect capture origin before any backfill.`]
+        : []),
+      ...(diagnostics.datasetOutputsWithoutRunId !== null
+        && diagnostics.datasetOutputsWithSourcePointer !== null
+        && diagnostics.datasetOutputsWithSourcePointer < diagnostics.datasetOutputsWithoutRunId
+        ? [`${diagnostics.datasetOutputsWithoutRunId - diagnostics.datasetOutputsWithSourcePointer} public dataset outputs lack a source and record-key pointer; review provenance.`]
         : []),
     ],
   };
@@ -114,6 +122,18 @@ select
  (select count(*) from private.auth_bootstrap_claim) as bootstrap_claims,
  (select count(*) from public.monitoring_outputs) as total_monitoring_outputs,
  (select count(*) from public.monitoring_outputs where run_id is null) as orphan_monitoring_outputs,
+ (select count(*) from public.monitoring_outputs
+   where run_id is null and output_type = 'public_dataset_record'
+ ) as dataset_outputs_without_run_id,
+ (select count(*) from public.monitoring_outputs
+   where run_id is null and output_type = 'public_dataset_record'
+     and source_id is not null
+     and nullif(btrim(payload->>'publicRecordKey'), '') is not null
+     and coalesce(nullif(btrim(url), ''), nullif(btrim(evidence_url), '')) is not null
+ ) as dataset_outputs_with_provenance_pointer,
+ (select count(*) from public.monitoring_outputs
+   where run_id is null and output_type is distinct from 'public_dataset_record'
+ ) as capture_outputs_without_run_id,
  (select max(started_at) from public.source_connector_runs) as last_connector_started_at,
  (select max(captured_at) from public.monitoring_outputs) as last_output_captured_at,
  (select count(*) from public.discovered_company_candidates where metadata->>'researchCohort'='fidc_dcm_first_party_credit_v5') as first_party_research_candidates,
@@ -224,6 +244,7 @@ export const formatV5AcceptanceSummary = (report) => [
   '',
   '### Diagnóstico de rastreabilidade (não concede aprovação)',
   `Execuções registradas: ${report.diagnostics?.totalConnectorRuns ?? 'indisponível'}; outputs: ${report.diagnostics?.totalMonitoringOutputs ?? 'indisponível'}; sem run_id: ${report.diagnostics?.outputsWithoutRunId ?? 'indisponível'}.`,
+  `Sem run_id por origem: registros de dataset público ${report.diagnostics?.datasetOutputsWithoutRunId ?? 'indisponível'} (com fonte, URL e chave do registro ${report.diagnostics?.datasetOutputsWithSourcePointer ?? 'indisponível'}); capturas ${report.diagnostics?.captureOutputsWithoutRunId ?? 'indisponível'}. Datasets não representam captura cron A7.`,
   `Última execução: ${report.diagnostics?.lastConnectorStartedAt ?? 'indisponível'}; última captura: ${report.diagnostics?.lastOutputCapturedAt ?? 'indisponível'}.`,
   '',
   'Não declarar 100% sem sign-off institucional, aprovação humana e sete dias completos de monitoramento real.',
