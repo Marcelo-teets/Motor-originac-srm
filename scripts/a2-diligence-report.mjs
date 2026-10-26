@@ -78,7 +78,7 @@ export const formatA2DiligenceSummary = (report) => [
   '| --- | --- | --- | --- | --- |',
   ...report.candidates.map(candidate =>
     '| ' + markdownCell(candidate.company) + ' / ' + markdownCell(candidate.cnpj)
-    + ' | ' + (candidate.sourceUrl ? '[Abrir fonte](' + candidate.sourceUrl.replace(/[()]/g, encodeURIComponent) + ')' : 'Não cadastrada')
+    + ' | ' + (candidate.sourceUrl ? '[Abrir fonte](' + candidate.sourceUrl.replace(/[()|<>]/g, encodeURIComponent) + ')' : 'Não cadastrada')
     + ' | ' + markdownCell(candidate.openEvidence.join(', '))
     + ' | ' + markdownCell(candidate.nextAction)
     + ' | [Revisar identidade](' + candidate.reviewUrl + ') |'
@@ -86,7 +86,7 @@ export const formatA2DiligenceSummary = (report) => [
   '',
   '**Controle:** identidade aprovada não significa qualificação creditícia. Crédito, cessibilidade, funding gap e ticket exigem evidências e revisão humana antes de score/ranking/pipeline.',
   '',
-].join('\\n');
+].join('\n');
 
 export async function collectA2DiligenceReport(connectionString) {
   assert.ok(typeof connectionString === 'string' && connectionString.length > 0, 'Neon connection required');
