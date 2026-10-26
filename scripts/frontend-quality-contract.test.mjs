@@ -299,3 +299,11 @@ test('credit review UI keeps unassessed facts distinct from explicit no/zero', a
   assert.match(form, /unreviewedFields\.length > 0/);
   assert.match(form, /value=\{form\[field\] \?\? ''\}/);
 });
+
+test('credit review cannot approve unsaved form edits against a stale persisted draft', async () => {
+  const form = await read('frontend/src/pages/CompanyCreditReviewPage.tsx');
+  assert.match(form, /const hasUnsavedChanges = packet !== null && JSON\.stringify\(form\) !== JSON\.stringify\(formFromPacket\(packet\)\)/);
+  assert.match(form, /if \(hasUnsavedChanges\) \{\s*setError\('Salve as alterações da revisão antes de aprovar o outcome\.'\);\s*return;/);
+  assert.match(form, /disabled=\{saving \|\| !latestReviewId \|\| hasUnsavedChanges \|\| unreviewedFields\.length > 0/);
+  assert.match(form, /Há alterações não salvas\. Salve a revisão antes de aprovar\./);
+});
