@@ -57,6 +57,6 @@ test('candidate identifiers are mandatory and Markdown cannot inject new rows', 
   const report = buildA2DiligenceReport([{ ...source, company_name: 'Teste | linha\nquebrada', raw_payload: { ...source.raw_payload, nextDiligence: 'Buscar | evidência\nno contrato' } }]);
   const summary = formatA2DiligenceSummary(report);
   assert.equal(summary.split('\n').filter(line => line.startsWith('| ')).length, 3);
-  assert.match(summary, /Teste   linha quebrada/);
+  assert.match(summary, /Teste linha quebrada/);
   assert.ok(!summary.includes('Buscar | evidência'));
 });
