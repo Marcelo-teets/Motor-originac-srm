@@ -295,7 +295,7 @@ test('credit review UI keeps unassessed facts distinct from explicit no/zero', a
     assert.match(form, new RegExp(field + ': null,'));
     assert.match(form, new RegExp(field + ': asOptional(?:Boolean|Number)\\(payload\\.' + field + '\\)'));
   }
-  assert.match(form, /<option value="">Não avaliado<\\/option>/);
-  assert.match(form, /unreviewedFields\\.length > 0/);
-  assert.match(form, /value=\\{form\\[field\\] \\?\\? ''\\}/);
+  assert.match(form, /<option value="">Não avaliado<\/option>/);
+  assert.match(form, /unreviewedFields\.length > 0/);
+  assert.match(form, /value=\{form\[field\] \?\? ''\}/);
 });
