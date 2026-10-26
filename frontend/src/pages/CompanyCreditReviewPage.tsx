@@ -261,6 +261,9 @@ export function CompanyCreditReviewPage() {
     'executionScore', 'timingScore', 'confidence',
   ] as const).filter((field) => form[field] === null);
 
+  // Never approve an older persisted draft while the visible form has unsaved changes.
+  const hasUnsavedChanges = packet !== null && JSON.stringify(form) !== JSON.stringify(formFromPacket(packet));
+
   const updateField = <K extends keyof ReviewForm>(field: K, value: ReviewForm[K]) => setForm((current) => ({ ...current, [field]: value }));
   const updateEvidence = (index: number, field: keyof EvidenceRow, value: string) => setForm((current) => ({
     ...current,
@@ -299,6 +302,10 @@ export function CompanyCreditReviewPage() {
 
   const approve = async () => {
     if (!latestReviewId || !activeCompanyId) return;
+    if (hasUnsavedChanges) {
+      setError('Salve as alterações da revisão antes de aprovar o outcome.');
+      return;
+    }
     if (unreviewedFields.length) {
       setError('Preencha as avaliações financeiras e os scores ainda não avaliados antes de aprovar.');
       return;
@@ -461,9 +468,12 @@ export function CompanyCreditReviewPage() {
                   {unreviewedFields.length} campos financeiros ainda não avaliados. Salve como rascunho; a aprovação exige avaliação explícita.
                 </div>
               ) : null}
+              {hasUnsavedChanges ? (
+                <div className="auth-alert auth-alert-warning">Há alterações não salvas. Salve a revisão antes de aprovar.</div>
+              ) : null}
               <div className="pill-row">
                 <button type="button" className="button secondary" disabled={saving} onClick={() => void saveDraft()}>Salvar revisão</button>
-                <button type="button" className="button primary" disabled={saving || !latestReviewId || unreviewedFields.length > 0 || latestStatus === 'approved' || latestStatus === 'rejected'} onClick={() => void approve()}>Aprovar outcome</button>
+                <button type="button" className="button primary" disabled={saving || !latestReviewId || hasUnsavedChanges || unreviewedFields.length > 0 || latestStatus === 'approved' || latestStatus === 'rejected'} onClick={() => void approve()}>Aprovar outcome</button>
                 <button type="button" className="button secondary" disabled={saving || activeCompany.approved_outcome !== 'eligible'} onClick={() => void materialize()}>Materializar qualification</button>
               </div>
 
