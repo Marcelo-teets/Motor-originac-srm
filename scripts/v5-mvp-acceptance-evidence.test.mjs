@@ -95,6 +95,9 @@ test('production acceptance reports historical orphan output diagnostics without
     total_connector_runs: '416',
     total_monitoring_outputs: '310',
     orphan_monitoring_outputs: '310',
+    dataset_outputs_without_run_id: '264',
+    dataset_outputs_with_provenance_pointer: '264',
+    capture_outputs_without_run_id: '46',
     last_connector_started_at: '2026-10-19T20:18:04.960Z',
     last_output_captured_at: '2026-10-19T20:18:02.704Z',
   };
@@ -102,6 +105,9 @@ test('production acceptance reports historical orphan output diagnostics without
   assert.equal(report.diagnostics.totalConnectorRuns,416);
   assert.equal(report.diagnostics.totalMonitoringOutputs,310);
   assert.equal(report.diagnostics.outputsWithoutRunId,310);
+  assert.equal(report.diagnostics.datasetOutputsWithoutRunId,264);
+  assert.equal(report.diagnostics.datasetOutputsWithSourcePointer,264);
+  assert.equal(report.diagnostics.captureOutputsWithoutRunId,46);
   assert.equal(report.gates.find(g=>g.gate==='A7')?.status,'blocked');
   assert.match(formatV5AcceptanceSummary(report),/sem run_id: 310/);
   assert.ok(report.warnings.some(message=>message.includes('lack run_id')));
@@ -232,4 +238,57 @@ test('A7 workflow reruns read-only acceptance on evaluator and regression change
   assert.match(workflow, /cron: '13 13 \* \* \*'/);
   assert.match(workflow, /BEGIN TRANSACTION READ ONLY|node scripts\/v5-mvp-acceptance-evidence.mjs/);
   assert.doesNotMatch(workflow, /INSERT INTO|UPDATE public\.|MOTOR_AUTH_BOOTSTRAP_ENABLED/);
+});
+
+test('source-keyed public datasets are not incorrectly labeled as broken capture lineage', () => {
+  const report = evaluateV5Acceptance({
+    metrics: {
+      ...metrics,
+      orphan_monitoring_outputs: '264',
+      dataset_outputs_without_run_id: '264',
+      dataset_outputs_with_provenance_pointer: '264',
+      capture_outputs_without_run_id: '0',
+    },
+    monitoringDays: sevenElapsed(),
+  });
+  assert.equal(report.diagnostics.outputsWithoutRunId, 264);
+  assert.equal(report.diagnostics.captureOutputsWithoutRunId, 0);
+  assert.ok(!report.warnings.some(warning => warning.includes('capture outputs lack run_id')));
+  assert.match(formatV5AcceptanceSummary(report), /registros de dataset público 264 \(com fonte, URL e chave do registro 264\); capturas 0/);
+  assert.equal(report.gates.find(gate => gate.gate === 'A7')?.status, 'blocked');
+});
+
+test('dataset records missing provenance are surfaced without manufacturing source confidence', () => {
+  const report = evaluateV5Acceptance({
+    metrics: {
+      ...metrics,
+      orphan_monitoring_outputs: '3',
+      dataset_outputs_without_run_id: '2',
+      dataset_outputs_with_provenance_pointer: '1',
+      capture_outputs_without_run_id: '1',
+    },
+    monitoringDays: [],
+  });
+  assert.ok(report.warnings.some(warning => warning.includes('1 public dataset outputs lack a source')));
+  assert.ok(report.warnings.some(warning => warning.includes('1 capture outputs lack run_id')));
+  assert.throws(() => evaluateV5Acceptance({
+    metrics: {
+      ...metrics,
+      orphan_monitoring_outputs: '3',
+      dataset_outputs_without_run_id: '2',
+      dataset_outputs_with_provenance_pointer: '2',
+      capture_outputs_without_run_id: '2',
+    },
+    monitoringDays: [],
+  }), /partition all missing run_id outputs/);
+});
+
+test('Neon provenance diagnostics have SQL-level partition and source pointer checks', async () => {
+  const {readFileSync} = await import('node:fs');
+  const src = readFileSync(new URL('./v5-mvp-acceptance-evidence.mjs', import.meta.url), 'utf8');
+  assert.match(src, /output_type = 'public_dataset_record'/);
+  assert.match(src, /output_type is distinct from 'public_dataset_record'/);
+  assert.match(src, /payload->>'publicRecordKey'/);
+  assert.match(src, /source_id is not null/);
+  assert.match(src, /BEGIN TRANSACTION READ ONLY/);
 });
