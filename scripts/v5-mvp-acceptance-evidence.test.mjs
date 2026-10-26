@@ -292,3 +292,13 @@ test('Neon provenance diagnostics have SQL-level partition and source pointer ch
   assert.match(src, /source_id is not null/);
   assert.match(src, /BEGIN TRANSACTION READ ONLY/);
 });
+
+test('A7 reaches verified status after seven observed days even while human signoffs are blocked', () => {
+  const healthy = sevenElapsed().map(day => ({
+    ...day, successful_connector_runs: 2, connector_outputs: 2, monitoring_outputs: 2,
+  }));
+  const report = evaluateV5Acceptance({ metrics, monitoringDays: healthy });
+  assert.equal(report.gates.find(gate => gate.gate === 'A7')?.status, 'verified');
+  assert.equal(report.gates.find(gate => gate.gate === 'D-07')?.status, 'blocked');
+  assert.equal(report.status, 'blocked');
+});
