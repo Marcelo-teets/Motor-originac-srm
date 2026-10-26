@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const COHORT = 'fidc_dcm_first_party_credit_v5';
 const REQUIRED_FIELDS = ['portfolioOwnership', 'fundingGap', 'ticketFit'];
+const REVIEW_BASE_URL = 'https://motor-originac-srm.vercel.app/identity-review?candidateId=';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const markdownCell = (value) => String(value ?? '').replace(/[\\|<>\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
 const normalizeCnpj = (value) => String(value ?? '').toUpperCase().replace(/[.\/\-\s]/g, '');
 const cleanUrl = (value) => {
   try {
@@ -19,6 +22,8 @@ export function buildA2DiligenceReport(rows, generatedAt = new Date().toISOStrin
   assert.ok(Number.isFinite(Date.parse(generatedAt)), 'Invalid report timestamp');
   const seen = new Set();
   const candidates = rows.map((row) => {
+    const candidateId = String(row.id ?? '').trim();
+    assert.match(candidateId, UUID_PATTERN, 'Invalid canonical candidate identifier');
     const cnpj = normalizeCnpj(row.cnpj);
     assert.match(cnpj, /^[A-Z0-9]{12}[0-9]{2}$/, 'Invalid candidate CNPJ identity');
     assert.ok(!seen.has(cnpj), 'Duplicate A2 candidate identity');
@@ -34,6 +39,8 @@ export function buildA2DiligenceReport(rows, generatedAt = new Date().toISOStrin
     const missing = REQUIRED_FIELDS.filter((field) => payload[field] !== 'verified');
     return {
       company: String(row.company_name ?? '').trim(),
+      candidateId,
+      reviewUrl: REVIEW_BASE_URL + encodeURIComponent(candidateId),
       cnpj,
       sourceUrl,
       sourceBacked: Boolean(sourceUrl),
@@ -60,6 +67,27 @@ export function buildA2DiligenceReport(rows, generatedAt = new Date().toISOStrin
   };
 }
 
+export const formatA2DiligenceSummary = (report) => [
+  '## Motor — diligência humana de cinco candidatas A2',
+  '',
+  'Origem: Neon canônico, leitura somente. Links de fonte **cadastrados**, não validados como prova de funding ou titularidade.',
+  '',
+  'Candidatas: **' + report.total + '**; pendentes: **' + report.pending + '**; com URL cadastrada: **' + report.sourceBacked + '**.',
+  '',
+  '| Empresa / CNPJ | Fonte registrada | Pendências | Próxima ação | Fluxo institucional |',
+  '| --- | --- | --- | --- | --- |',
+  ...report.candidates.map(candidate =>
+    '| ' + markdownCell(candidate.company) + ' / ' + markdownCell(candidate.cnpj)
+    + ' | ' + (candidate.sourceUrl ? '[Abrir fonte](' + candidate.sourceUrl.replace(/[()|<>]/g, encodeURIComponent) + ')' : 'Não cadastrada')
+    + ' | ' + markdownCell(candidate.openEvidence.join(', '))
+    + ' | ' + markdownCell(candidate.nextAction)
+    + ' | [Revisar identidade](' + candidate.reviewUrl + ') |'
+  ),
+  '',
+  '**Controle:** identidade aprovada não significa qualificação creditícia. Crédito, cessibilidade, funding gap e ticket exigem evidências e revisão humana antes de score/ranking/pipeline.',
+  '',
+].join('\n');
+
 export async function collectA2DiligenceReport(connectionString) {
   assert.ok(typeof connectionString === 'string' && connectionString.length > 0, 'Neon connection required');
   const parsed = new URL(connectionString);
@@ -70,7 +98,7 @@ export async function collectA2DiligenceReport(connectionString) {
   try {
     await client.query('BEGIN TRANSACTION READ ONLY');
     const { rows } = await client.query(`
-      select company_name, cnpj, candidate_status, source_url, raw_payload, metadata
+      select id, company_name, cnpj, candidate_status, source_url, raw_payload, metadata
       from public.discovered_company_candidates
       where metadata->>'researchCohort' = $1
       order by company_name, cnpj
@@ -92,6 +120,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const report = await collectA2DiligenceReport(process.env.MOTOR_NEON_DATABASE_URL || process.env.DATABASE_URL);
     if (process.env.A2_REPORT_PATH) writeFileSync(process.env.A2_REPORT_PATH, JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatA2DiligenceSummary(report));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

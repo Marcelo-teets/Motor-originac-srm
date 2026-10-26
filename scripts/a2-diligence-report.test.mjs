@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildA2DiligenceReport, collectA2DiligenceReport } from './a2-diligence-report.mjs';
+import { buildA2DiligenceReport, collectA2DiligenceReport, formatA2DiligenceSummary } from './a2-diligence-report.mjs';
 
 const source = {
+  id: '00000000-0000-4000-8000-000000000001',
   company_name: 'Jeitto', cnpj: '20.937.849/0001-01',
   candidate_status: 'captured', source_url: 'https://jeitto.com.br/terms/termos-e-condicoes-de-uso',
   raw_payload: {
@@ -38,4 +39,24 @@ test('identity collision and invalid URL cannot count as source-backed diligence
 test('connection rejects external or absent database before query', async () => {
   await assert.rejects(collectA2DiligenceReport('postgresql://a:b@localhost/db'), /Canonical Neon/);
   await assert.rejects(collectA2DiligenceReport(''), /Neon connection required/);
+});
+
+test('human dossier links to existing candidate identity workflow without approving credit', () => {
+  const report = buildA2DiligenceReport([source], '2026-10-26T13:00:00Z');
+  const candidate = report.candidates[0];
+  assert.equal(candidate.reviewUrl, 'https://motor-originac-srm.vercel.app/identity-review?candidateId=00000000-0000-4000-8000-000000000001');
+  assert.equal(candidate.creditQualificationAuthorized, false);
+  const summary = formatA2DiligenceSummary(report);
+  assert.match(summary, /\[Revisar identidade\]\(https:\/\/motor-originac-srm\.vercel\.app\/identity-review\?candidateId=/);
+  assert.match(summary, /Links de fonte \*\*cadastrados\*\*/);
+  assert.ok(summary.includes('\n| Empresa / CNPJ |'));
+  assert.ok(!summary.includes('raw_payload'));
+});
+test('candidate identifiers are mandatory and Markdown cannot inject new rows', () => {
+  assert.throws(() => buildA2DiligenceReport([{ ...source, id: '../other' }]), /Invalid canonical candidate identifier/);
+  const report = buildA2DiligenceReport([{ ...source, company_name: 'Teste | linha\nquebrada', raw_payload: { ...source.raw_payload, nextDiligence: 'Buscar | evidência\nno contrato' } }]);
+  const summary = formatA2DiligenceSummary(report);
+  assert.equal(summary.split('\n').filter(line => line.startsWith('| ')).length, 3);
+  assert.match(summary, /Teste linha quebrada/);
+  assert.ok(!summary.includes('Buscar | evidência'));
 });
