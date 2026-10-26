@@ -306,3 +306,27 @@ Scope:
 - Do NOT flip emailVerified in SQL, create/disable/delete users, issue OTP
   from automation, bypass existing auth, or claim D-07/A2/A3-A5/A7 passed.
 - Project master Supabase/Neon reconciliation remains #643, outside this release.
+
+
+---
+Motor Originação SRM — release request 2026-10-26 (security + A2/A7 operational evidence)
+Reviewed main baseline: 3370039ce8a194ca24a16fcdd136a0eb7f1dd5bf.
+Required deploy SHA: exact main merge-commit of THIS reviewed release request.
+
+Includes only independently validated main merges:
+- #713: patched body-parser 2.4.0 / qs 6.16.1, regenerated npm lockfile,
+  CI + production npm audit=success. Remediates newly published high alert.
+- #711: source-attributed CVM/public dataset outputs separated from unlinked
+  company captures; A7 SQL remains unchanged and fail closed.
+- #715: A2 research candidates have validated canonical UUID deep links to
+  institutional /identity-review and readable GitHub Actions Step Summary;
+  no credit scoring or automatic approval.
+- Live A7 evidence 2026-10-19..25: seven elapsed calendar days, 2 linked real
+  completed company cron runs and 2 eligible outputs per day; verifier status
+  verified. D-07, A2 and A3-A5 remain blocked until eligible human review.
+- No schema migrations, no new accounts, no unverified funding assumptions.
+- Reviewed CI, exact-SHA production prebuild, Vercel READY, migration gate,
+  Neon data/auth parity, Auth smoke, anonymous FIDC denial and disabled auto
+  Git deployments must remain enforced. Abort release if any gate fails.
+- Source of truth GitHub main; Supabase/Neon reconciliation issue #643 remains
+  pending, not silently rearchitected.
