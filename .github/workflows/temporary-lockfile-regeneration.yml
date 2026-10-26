@@ -24,7 +24,9 @@ jobs:
           node-version: 24
           cache: npm
       - name: Resolve patched transitive dependencies from official npm registry
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+        run: npm update body-parser qs iconv-lite content-type --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Diagnose patched installed versions
+        run: node -e "const lock=require('./package-lock.json'); for(const name of ['body-parser','qs','iconv-lite','content-type']) console.log(name,lock.packages['node_modules/'+name]?.version)"
       - name: Confirm restored lockfile is reproducible
         run: npm ci --ignore-scripts
       - name: Enforce zero high-severity production advisories
