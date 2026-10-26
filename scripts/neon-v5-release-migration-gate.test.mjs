@@ -172,3 +172,21 @@ test('Jeitto source-backed CCB candidate is not automatically qualified or promo
   assert.doesNotMatch(sql, /(?:insert\s+into|update|delete\s+from)\s+public\.(?:companies|company_credit_reviews|qualification_snapshots|score_snapshots|lead_score_snapshots|ranking_v2|pipeline|user_profiles)/i);
   assert.doesNotMatch(sql, /(?:drop|truncate)\s+(?:table|schema)/i);
 });
+
+test('Neon SQL requires explicit and consistent human credit assessments at finalization', () => {
+  const file = 'db/neon/20261026_neon_credit_review_finalization_evidence_guard.sql';
+  assert.ok(APPROVED_V5_PENDING_MIGRATIONS.includes(file));
+  const sql = readFileSync(new URL('../' + file, import.meta.url), 'utf8');
+  assert.ok(sql.includes('security invoker'));
+  assert.ok(sql.includes("new.status not in ('approved', 'rejected')"));
+  assert.ok(sql.includes("jsonb_typeof(new.review_payload->v_field)"));
+  assert.ok(sql.includes("new.review_payload->v_field is distinct from v_stored"));
+  assert.ok(sql.includes("new.review_payload->'confidence' is distinct from to_jsonb(new.confidence)"));
+  for (const field of ['hasCreditProduct','creditIsCore','hasReceivables','receivablesStructurable',
+    'hasFidc','usesStructuredDebt','fitFidc','fitDcm','structuralScore',
+    'capitalScore','receivablesScore','executionScore','timingScore']) {
+    assert.ok(sql.includes("'" + field + "'"), 'Missing reviewed field: ' + field);
+  }
+  assert.ok(sql.includes('before insert or update'));
+  assert.ok(sql.includes('on public.company_credit_reviews'));
+});

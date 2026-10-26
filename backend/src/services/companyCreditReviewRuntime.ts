@@ -61,29 +61,54 @@ const asMetadata = (value: unknown): Record<string, unknown> =>
 // an explicit JSON null is not an assessment. Check stored, typed review facts
 // server-side before allowing the privileged approve RPC.
 export const unreviewedCreditFields = (review: CreditReviewRow): string[] => {
-  const requiredBooleanFields = [
-    'has_credit_product', 'credit_is_core', 'has_receivables',
-    'receivables_structurable', 'has_fidc', 'uses_structured_debt',
-    'fit_fidc', 'fit_dcm',
-  ] as const;
-  const requiredScores = [
-    'structural_score', 'capital_score', 'receivables_score',
-    'execution_score', 'timing_score',
-  ] as const;
+  const payload = asMetadata(review.review_payload);
+  const booleanFields = {
+    has_credit_product: 'hasCreditProduct',
+    credit_is_core: 'creditIsCore',
+    has_receivables: 'hasReceivables',
+    receivables_structurable: 'receivablesStructurable',
+    has_fidc: 'hasFidc',
+    uses_structured_debt: 'usesStructuredDebt',
+    fit_fidc: 'fitFidc',
+    fit_dcm: 'fitDcm',
+  } as const;
+  const scoreFields = {
+    structural_score: 'structuralScore',
+    capital_score: 'capitalScore',
+    receivables_score: 'receivablesScore',
+    execution_score: 'executionScore',
+    timing_score: 'timingScore',
+  } as const;
   const missing: string[] = [];
-  for (const field of requiredBooleanFields) {
-    if (typeof review[field] !== 'boolean') missing.push(field);
-  }
-  for (const field of requiredScores) {
-    if (review[field] === null || review[field] === undefined || !Number.isFinite(Number(review[field]))) {
-      missing.push(field);
+
+  for (const [storedKey, payloadKey] of Object.entries(booleanFields) as Array<
+    [keyof typeof booleanFields, typeof booleanFields[keyof typeof booleanFields]]
+  >) {
+    const stored = review[storedKey];
+    const submitted = payload[payloadKey];
+    if (typeof stored !== 'boolean' || typeof submitted !== 'boolean' || stored !== submitted) {
+      missing.push(storedKey);
     }
   }
-  const confidence = asMetadata(review.review_payload).confidence;
-  if (confidence === null || confidence === undefined || typeof confidence === 'boolean'
-    || (typeof confidence !== 'string' && typeof confidence !== 'number')
-    || (typeof confidence === 'string' && !confidence.trim())
-    || !Number.isFinite(Number(confidence))) missing.push('confidence');
+  for (const [storedKey, payloadKey] of Object.entries(scoreFields) as Array<
+    [keyof typeof scoreFields, typeof scoreFields[keyof typeof scoreFields]]
+  >) {
+    const stored = review[storedKey];
+    const submitted = payload[payloadKey];
+    const storedNumber = stored === null || stored === undefined || typeof stored === 'boolean' ? NaN : Number(stored);
+    if (typeof submitted !== 'number' || !Number.isFinite(submitted)
+      || submitted < 0 || submitted > 100
+      || !Number.isFinite(storedNumber) || storedNumber !== submitted) {
+      missing.push(storedKey);
+    }
+  }
+  const confidence = payload.confidence;
+  const storedConfidence = review.confidence === null || review.confidence === undefined
+    ? NaN : Number(review.confidence);
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence)
+    || confidence < 0 || confidence > 1
+    || !Number.isFinite(storedConfidence) || storedConfidence !== confidence) missing.push('confidence');
+
   return missing;
 };
 
