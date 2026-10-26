@@ -58,7 +58,17 @@ const asDataStatus = (value: unknown): CompanyDataStatus => {
 };
 
 const asBoolean = (value: unknown) => value === true || value === 'true';
+// Keep unknown/not-reviewed credit facts distinct from an explicitly reviewed "no".
+const asOptionalBoolean = (value: unknown): boolean | undefined => {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return undefined;
+};
 const asNumber = (value: unknown): number | undefined => {
+  // Number(null), Number('') and Number(false) all produce 0; none is evidence.
+  if (value === null || value === undefined || typeof value === 'boolean') return undefined;
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
@@ -78,19 +88,19 @@ const asApprovedCreditReview = (source: Record<string, unknown>): ApprovedCompan
     status,
     outcome: outcome === 'eligible' || outcome === 'monitor_only' || outcome === 'ineligible' ? outcome : undefined,
     creditProductType: asText(source.credit_product_type),
-    creditIsCore: source.credit_is_core === undefined ? undefined : asBoolean(source.credit_is_core),
-    hasReceivables: source.credit_review_has_receivables === undefined ? undefined : asBoolean(source.credit_review_has_receivables),
-    receivablesStructurable: source.receivables_structurable === undefined ? undefined : asBoolean(source.receivables_structurable),
+    creditIsCore: asOptionalBoolean(source.credit_is_core),
+    hasReceivables: asOptionalBoolean(source.credit_review_has_receivables),
+    receivablesStructurable: asOptionalBoolean(source.receivables_structurable),
     receivablesType: asStringArray(source.receivables_type),
     receivablesRecurrenceLevel: asText(source.receivables_recurrence_level),
     receivablesPredictabilityLevel: asText(source.receivables_predictability_level),
-    hasFidc: source.credit_review_has_fidc === undefined ? undefined : asBoolean(source.credit_review_has_fidc),
-    usesStructuredDebt: source.credit_review_uses_structured_debt === undefined ? undefined : asBoolean(source.credit_review_uses_structured_debt),
+    hasFidc: asOptionalBoolean(source.credit_review_has_fidc),
+    usesStructuredDebt: asOptionalBoolean(source.credit_review_uses_structured_debt),
     fundingStructureType: asText(source.credit_review_funding_structure_type),
     capitalStructureQuality: asText(source.capital_structure_quality),
     fundingGapLevel: asText(source.funding_gap_level),
-    fitFidc: source.credit_review_fit_fidc === undefined ? undefined : asBoolean(source.credit_review_fit_fidc),
-    fitDcm: source.credit_review_fit_dcm === undefined ? undefined : asBoolean(source.credit_review_fit_dcm),
+    fitFidc: asOptionalBoolean(source.credit_review_fit_fidc),
+    fitDcm: asOptionalBoolean(source.credit_review_fit_dcm),
     timingLevel: asText(source.timing_level),
     suggestedStructure: asText(source.suggested_structure),
     structuralScore: asNumber(source.credit_review_structural_score),
