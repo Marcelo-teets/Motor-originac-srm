@@ -330,3 +330,25 @@ Includes only independently validated main merges:
   Git deployments must remain enforced. Abort release if any gate fails.
 - Source of truth GitHub main; Supabase/Neon reconciliation issue #643 remains
   pending, not silently rearchitected.
+
+
+---
+Motor Originação SRM — credit evidence finalization release (26/10/2026)
+Reviewed main baseline: 294a83706ab94343ab092863f7a73402c62d1e4a
+Deploy only the immutable merge-commit SHA of this reviewed release request.
+
+- #712 fixes null/unknown interpretation in credit review, frontend starts with
+  unassessed fields and backend rejects unreviewed approval before RPC.
+- #717 enforces 8 explicit reviewed boolean facts, 5 scores (0–100) and
+  confidence (0–1) at the PostgreSQL finalization boundary, comparing stored
+  values with original human submission; includes API parity tests.
+- Approved add-only Neon migration:
+  db/neon/20261026_neon_credit_review_finalization_evidence_guard.sql
+  No row backfills, promotion, users, scores or human approval is created.
+- CI + Neon Runtime Parity must pass on exact reviewed code. Release with the
+  existing Vercel immutable prebuilt workflow and verify migration ledger,
+  production READY, exact frontend/backend SHA, Auth smoke, anonymous denial.
+- Remain blocked: admin email verification (D-07), human A2 and 5 Gold reviews
+  (A3–A5). Maintain A7 (already evidenced for seven consecutive days).
+- Supabase/Neon historical reconciliation still tracked by issue #643; no
+  unreviewed cutover or destructive migration.
