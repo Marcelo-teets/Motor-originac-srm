@@ -41,6 +41,7 @@ type CreditReviewRow = {
   reviewer_user_id?: string | null;
   reviewer_email?: string | null;
   reviewed_at?: string | null;
+  review_payload?: Record<string, unknown> | null;
 };
 
 type ReviewApprovalResult = {
@@ -55,6 +56,36 @@ type ReviewApprovalResult = {
 
 const asMetadata = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+// The database's older review RPC checks whether some JSON keys exist, but
+// an explicit JSON null is not an assessment. Check stored, typed review facts
+// server-side before allowing the privileged approve RPC.
+export const unreviewedCreditFields = (review: CreditReviewRow): string[] => {
+  const requiredBooleanFields = [
+    'has_credit_product', 'credit_is_core', 'has_receivables',
+    'receivables_structurable', 'has_fidc', 'uses_structured_debt',
+    'fit_fidc', 'fit_dcm',
+  ] as const;
+  const requiredScores = [
+    'structural_score', 'capital_score', 'receivables_score',
+    'execution_score', 'timing_score',
+  ] as const;
+  const missing: string[] = [];
+  for (const field of requiredBooleanFields) {
+    if (typeof review[field] !== 'boolean') missing.push(field);
+  }
+  for (const field of requiredScores) {
+    if (review[field] === null || review[field] === undefined || !Number.isFinite(Number(review[field]))) {
+      missing.push(field);
+    }
+  }
+  const confidence = asMetadata(review.review_payload).confidence;
+  if (confidence === null || confidence === undefined || typeof confidence === 'boolean'
+    || (typeof confidence !== 'string' && typeof confidence !== 'number')
+    || (typeof confidence === 'string' && !confidence.trim())
+    || !Number.isFinite(Number(confidence))) missing.push('confidence');
+  return missing;
+};
 
 export class CompanyCreditReviewRuntime {
   private readonly client = getDataClient();
@@ -107,7 +138,7 @@ export class CompanyCreditReviewRuntime {
       filters: [{ column: 'id', value: reviewId }],
       limit: 1,
     }) as CreditReviewRow[];
-    if (!rows[0]) throw new Error('credit review not found after approval');
+    if (!rows[0]) throw new Error('credit review not found');
     return rows[0];
   }
 
@@ -227,6 +258,14 @@ export class CompanyCreditReviewRuntime {
     materialize?: boolean;
   }) {
     await this.requireGodMode(input.reviewer.userId);
+    const reviewBeforeApproval = await this.getReviewById(input.reviewId);
+    const unreviewed = unreviewedCreditFields(reviewBeforeApproval);
+    if (unreviewed.length) {
+      throw Object.assign(
+        new Error(`Credit review cannot be approved with unassessed fields: ${unreviewed.join(', ')}`),
+        { statusCode: 422 },
+      );
+    }
     const approval = await this.requireClient().rpc<ReviewApprovalResult>('approve_company_credit_review', {
       p_review_id: input.reviewId,
       p_approved_outcome: input.approvedOutcome,

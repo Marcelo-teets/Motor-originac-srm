@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { CompanySeed } from '../types/platform.js';
 import {
   attachCompanyDecisionMetadata,
+  type DecisionAwareCompany,
   evaluateCompanyDecisionEligibility,
   isCompanyApprovedForCreditDerivation,
   isCompanyDecisionEligible,
@@ -158,4 +159,88 @@ test('capture scoring requires an identifiable approved human credit review beyo
     });
     assert.equal(isCompanyApprovedForCreditDerivation(blocked), false, JSON.stringify(patch));
   }
+});
+
+test('unreviewed or null credit fields remain unknown rather than false or zero', () => {
+  const company = attachCompanyDecisionMetadata(baseCompany(), {
+    data_status: 'real',
+    identity_review_status: 'approved',
+    decision_eligible: true,
+    credit_review_id: 'human-review-nullables',
+    credit_review_status: 'approved',
+    qualification_status: 'eligible',
+    credit_is_core: null,
+    credit_review_has_receivables: 'unknown',
+    receivables_structurable: '',
+    credit_review_has_fidc: undefined,
+    credit_review_uses_structured_debt: null,
+    credit_review_fit_fidc: null,
+    credit_review_fit_dcm: 'pending',
+    credit_review_structural_score: null,
+    credit_review_capital_score: '',
+    credit_review_receivables_score: false,
+    credit_review_execution_score: 'not_assessed',
+    credit_review_timing_score: undefined,
+    credit_review_confidence: ' ',
+  }) as DecisionAwareCompany;
+
+  assert.equal(isCompanyApprovedForCreditDerivation(company), true);
+  assert.ok(company.creditReview);
+  for (const field of [
+    'creditIsCore', 'hasReceivables', 'receivablesStructurable', 'hasFidc',
+    'usesStructuredDebt', 'fitFidc', 'fitDcm', 'structuralScore',
+    'capitalScore', 'receivablesScore', 'executionScore', 'timingScore', 'confidence',
+  ] as const) {
+    assert.equal(company.creditReview?.[field], undefined, field);
+  }
+});
+
+test('explicit negative answers and legitimate zero scores survive credit review mapping', () => {
+  const company = attachCompanyDecisionMetadata(baseCompany(), {
+    data_status: 'real',
+    identity_review_status: 'approved',
+    decision_eligible: true,
+    credit_review_id: 'human-review-zeroes',
+    credit_review_status: 'approved',
+    qualification_status: 'eligible',
+    credit_is_core: false,
+    credit_review_has_receivables: 'false',
+    receivables_structurable: true,
+    credit_review_has_fidc: 'true',
+    credit_review_uses_structured_debt: false,
+    credit_review_fit_fidc: 'false',
+    credit_review_fit_dcm: true,
+    credit_review_structural_score: 0,
+    credit_review_capital_score: '0',
+    credit_review_receivables_score: 25,
+    credit_review_execution_score: '42',
+    credit_review_timing_score: 0,
+    credit_review_confidence: '0',
+  }) as DecisionAwareCompany;
+
+  assert.deepEqual({
+    creditIsCore: company.creditReview?.creditIsCore,
+    hasReceivables: company.creditReview?.hasReceivables,
+    receivablesStructurable: company.creditReview?.receivablesStructurable,
+    hasFidc: company.creditReview?.hasFidc,
+    usesStructuredDebt: company.creditReview?.usesStructuredDebt,
+    fitFidc: company.creditReview?.fitFidc,
+    fitDcm: company.creditReview?.fitDcm,
+  }, {
+    creditIsCore: false,
+    hasReceivables: false,
+    receivablesStructurable: true,
+    hasFidc: true,
+    usesStructuredDebt: false,
+    fitFidc: false,
+    fitDcm: true,
+  });
+  assert.deepEqual([
+    company.creditReview?.structuralScore,
+    company.creditReview?.capitalScore,
+    company.creditReview?.receivablesScore,
+    company.creditReview?.executionScore,
+    company.creditReview?.timingScore,
+    company.creditReview?.confidence,
+  ], [0, 0, 25, 42, 0, 0]);
 });

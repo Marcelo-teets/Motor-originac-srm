@@ -58,29 +58,29 @@ type ReviewPacket = {
 type EvidenceRow = { dimension: EvidenceDimension; title: string; url: string; observedAt: string; sourceType: string };
 
 type ReviewForm = {
-  hasCreditProduct: boolean;
-  creditIsCore: boolean;
+  hasCreditProduct: boolean | null;
+  creditIsCore: boolean | null;
   creditProductType: string;
-  hasReceivables: boolean;
-  receivablesStructurable: boolean;
+  hasReceivables: boolean | null;
+  receivablesStructurable: boolean | null;
   receivablesType: string;
   receivablesRecurrenceLevel: string;
   receivablesPredictabilityLevel: string;
-  hasFidc: boolean;
-  usesStructuredDebt: boolean;
+  hasFidc: boolean | null;
+  usesStructuredDebt: boolean | null;
   fundingStructureType: string;
   capitalStructureQuality: string;
   fundingGapLevel: string;
-  fitFidc: boolean;
-  fitDcm: boolean;
+  fitFidc: boolean | null;
+  fitDcm: boolean | null;
   timingLevel: string;
   suggestedStructure: string;
-  structuralScore: number;
-  capitalScore: number;
-  receivablesScore: number;
-  executionScore: number;
-  timingScore: number;
-  confidence: number;
+  structuralScore: number | null;
+  capitalScore: number | null;
+  receivablesScore: number | null;
+  executionScore: number | null;
+  timingScore: number | null;
+  confidence: number | null;
   recommendedOutcome: ReviewOutcome;
   rationale: string;
   nextAction: string;
@@ -95,29 +95,29 @@ const emptyEvidence = (): EvidenceRow[] => ([
 ]);
 
 const emptyForm = (): ReviewForm => ({
-  hasCreditProduct: false,
-  creditIsCore: false,
+  hasCreditProduct: null,
+  creditIsCore: null,
   creditProductType: '',
-  hasReceivables: false,
-  receivablesStructurable: false,
+  hasReceivables: null,
+  receivablesStructurable: null,
   receivablesType: '',
   receivablesRecurrenceLevel: 'medium',
   receivablesPredictabilityLevel: 'medium',
-  hasFidc: false,
-  usesStructuredDebt: false,
+  hasFidc: null,
+  usesStructuredDebt: null,
   fundingStructureType: '',
   capitalStructureQuality: 'unknown',
   fundingGapLevel: 'unknown',
-  fitFidc: false,
-  fitDcm: false,
+  fitFidc: null,
+  fitDcm: null,
   timingLevel: 'medium',
   suggestedStructure: '',
-  structuralScore: 0,
-  capitalScore: 0,
-  receivablesScore: 0,
-  executionScore: 0,
-  timingScore: 0,
-  confidence: 0.75,
+  structuralScore: null,
+  capitalScore: null,
+  receivablesScore: null,
+  executionScore: null,
+  timingScore: null,
+  confidence: null,
   recommendedOutcome: 'monitor_only',
   rationale: '',
   nextAction: '',
@@ -128,7 +128,18 @@ const asRecord = (value: unknown): Record<string, unknown> => typeof value === '
   ? value as Record<string, unknown>
   : {};
 const asArray = (value: unknown) => Array.isArray(value) ? value : [];
-const asBoolean = (value: unknown) => value === true || value === 'true';
+const asOptionalBoolean = (value: unknown): boolean | null => {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return null;
+};
+const asOptionalNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || typeof value === 'boolean') return null;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
 const asNumber = (value: unknown, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const text = (value: unknown) => typeof value === 'string' ? value : '';
 
@@ -147,29 +158,29 @@ const formFromPacket = (packet: ReviewPacket): ReviewForm => {
     };
   }).filter((item) => ['credit_product', 'receivables', 'funding', 'timing'].includes(item.dimension));
   return {
-    hasCreditProduct: asBoolean(payload.hasCreditProduct),
-    creditIsCore: asBoolean(payload.creditIsCore),
+    hasCreditProduct: asOptionalBoolean(payload.hasCreditProduct),
+    creditIsCore: asOptionalBoolean(payload.creditIsCore),
     creditProductType: text(payload.creditProductType),
-    hasReceivables: asBoolean(payload.hasReceivables),
-    receivablesStructurable: asBoolean(payload.receivablesStructurable),
+    hasReceivables: asOptionalBoolean(payload.hasReceivables),
+    receivablesStructurable: asOptionalBoolean(payload.receivablesStructurable),
     receivablesType: asArray(payload.receivablesType).map(String).join(', '),
     receivablesRecurrenceLevel: text(payload.receivablesRecurrenceLevel) || 'medium',
     receivablesPredictabilityLevel: text(payload.receivablesPredictabilityLevel) || 'medium',
-    hasFidc: asBoolean(payload.hasFidc),
-    usesStructuredDebt: asBoolean(payload.usesStructuredDebt),
+    hasFidc: asOptionalBoolean(payload.hasFidc),
+    usesStructuredDebt: asOptionalBoolean(payload.usesStructuredDebt),
     fundingStructureType: text(payload.fundingStructureType),
     capitalStructureQuality: text(payload.capitalStructureQuality) || 'unknown',
     fundingGapLevel: text(payload.fundingGapLevel) || 'unknown',
-    fitFidc: asBoolean(payload.fitFidc),
-    fitDcm: asBoolean(payload.fitDcm),
+    fitFidc: asOptionalBoolean(payload.fitFidc),
+    fitDcm: asOptionalBoolean(payload.fitDcm),
     timingLevel: text(payload.timingLevel) || 'medium',
     suggestedStructure: text(payload.suggestedStructure),
-    structuralScore: asNumber(payload.structuralScore),
-    capitalScore: asNumber(payload.capitalScore),
-    receivablesScore: asNumber(payload.receivablesScore),
-    executionScore: asNumber(payload.executionScore),
-    timingScore: asNumber(payload.timingScore),
-    confidence: asNumber(payload.confidence, 0.75),
+    structuralScore: asOptionalNumber(payload.structuralScore),
+    capitalScore: asOptionalNumber(payload.capitalScore),
+    receivablesScore: asOptionalNumber(payload.receivablesScore),
+    executionScore: asOptionalNumber(payload.executionScore),
+    timingScore: asOptionalNumber(payload.timingScore),
+    confidence: asOptionalNumber(payload.confidence),
     recommendedOutcome: (text(payload.recommendedOutcome) || 'monitor_only') as ReviewOutcome,
     rationale: text(payload.rationale),
     nextAction: text(payload.nextAction),
@@ -243,6 +254,16 @@ export function CompanyCreditReviewPage() {
   const latestReviewId = text(latestReview.id) || activeCompany?.latest_review_id || '';
   const latestStatus = text(latestReview.status) || activeCompany?.review_status || 'not_started';
 
+  const unreviewedFields = ([
+    'hasCreditProduct', 'creditIsCore', 'hasReceivables', 'receivablesStructurable',
+    'hasFidc', 'usesStructuredDebt', 'fitFidc', 'fitDcm',
+    'structuralScore', 'capitalScore', 'receivablesScore',
+    'executionScore', 'timingScore', 'confidence',
+  ] as const).filter((field) => form[field] === null);
+
+  // Never approve an older persisted draft while the visible form has unsaved changes.
+  const hasUnsavedChanges = packet !== null && JSON.stringify(form) !== JSON.stringify(formFromPacket(packet));
+
   const updateField = <K extends keyof ReviewForm>(field: K, value: ReviewForm[K]) => setForm((current) => ({ ...current, [field]: value }));
   const updateEvidence = (index: number, field: keyof EvidenceRow, value: string) => setForm((current) => ({
     ...current,
@@ -281,6 +302,14 @@ export function CompanyCreditReviewPage() {
 
   const approve = async () => {
     if (!latestReviewId || !activeCompanyId) return;
+    if (hasUnsavedChanges) {
+      setError('Salve as alterações da revisão antes de aprovar o outcome.');
+      return;
+    }
+    if (unreviewedFields.length) {
+      setError('Preencha as avaliações financeiras e os scores ainda não avaliados antes de aprovar.');
+      return;
+    }
     try {
       setSaving(true);
       setError(null);
@@ -390,8 +419,8 @@ export function CompanyCreditReviewPage() {
                   ['fitFidc', 'Fit FIDC?'], ['fitDcm', 'Fit DCM?'],
                 ] as Array<[keyof ReviewForm, string]>).map(([field, label]) => (
                   <label key={String(field)}>{label}
-                    <select value={String(form[field])} onChange={(event) => updateField(field, (event.target.value === 'true') as never)}>
-                      <option value="false">Não</option><option value="true">Sim</option>
+                    <select value={form[field] === null ? '' : String(form[field])} onChange={(event) => updateField(field, (event.target.value === '' ? null : event.target.value === 'true') as never)}>
+                      <option value="">Não avaliado</option><option value="false">Não</option><option value="true">Sim</option>
                     </select>
                   </label>
                 ))}
@@ -414,9 +443,9 @@ export function CompanyCreditReviewPage() {
 
               <div className="grid cols-2">
                 {(['structuralScore', 'capitalScore', 'receivablesScore', 'executionScore', 'timingScore'] as const).map((field) => (
-                  <label key={field}>{field.replace('Score', '')}<input type="number" min="0" max="100" value={form[field]} onChange={(e) => updateField(field, Number(e.target.value))} /></label>
+                  <label key={field}>{field.replace('Score', '')}<input type="number" min="0" max="100" value={form[field] ?? ''} onChange={(e) => updateField(field, e.target.value === '' ? null : Number(e.target.value))} /></label>
                 ))}
-                <label>Confiança<input type="number" min="0" max="1" step="0.01" value={form.confidence} onChange={(e) => updateField('confidence', Number(e.target.value))} /></label>
+                <label>Confiança<input type="number" min="0" max="1" step="0.01" value={form.confidence ?? ''} onChange={(e) => updateField('confidence', e.target.value === '' ? null : Number(e.target.value))} /></label>
               </div>
               <label>Rationale<textarea value={form.rationale} onChange={(e) => updateField('rationale', e.target.value)} rows={5} /></label>
               <label>Próxima ação<textarea value={form.nextAction} onChange={(e) => updateField('nextAction', e.target.value)} rows={3} /></label>
@@ -434,9 +463,17 @@ export function CompanyCreditReviewPage() {
                 </div>
               </Card>
 
+              {unreviewedFields.length > 0 ? (
+                <div className="auth-alert auth-alert-error">
+                  {unreviewedFields.length} campos financeiros ainda não avaliados. Salve como rascunho; a aprovação exige avaliação explícita.
+                </div>
+              ) : null}
+              {hasUnsavedChanges ? (
+                <div className="auth-alert auth-alert-warning">Há alterações não salvas. Salve a revisão antes de aprovar.</div>
+              ) : null}
               <div className="pill-row">
                 <button type="button" className="button secondary" disabled={saving} onClick={() => void saveDraft()}>Salvar revisão</button>
-                <button type="button" className="button primary" disabled={saving || !latestReviewId || latestStatus === 'approved' || latestStatus === 'rejected'} onClick={() => void approve()}>Aprovar outcome</button>
+                <button type="button" className="button primary" disabled={saving || !latestReviewId || hasUnsavedChanges || unreviewedFields.length > 0 || latestStatus === 'approved' || latestStatus === 'rejected'} onClick={() => void approve()}>Aprovar outcome</button>
                 <button type="button" className="button secondary" disabled={saving || activeCompany.approved_outcome !== 'eligible'} onClick={() => void materialize()}>Materializar qualification</button>
               </div>
 

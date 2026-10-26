@@ -283,3 +283,27 @@ test('Capture Inbox starts with actionable identity diligence, not an issuer-onl
   assert.match(review, /if \(!candidate\) return;/);
   assert.doesNotMatch(inbox, /useState<QueueType>\('commercial'\)/);
 });
+
+test('credit review UI keeps unassessed facts distinct from explicit no/zero', async () => {
+  const form = await read('frontend/src/pages/CompanyCreditReviewPage.tsx');
+  for (const field of [
+    'hasCreditProduct', 'creditIsCore', 'hasReceivables', 'receivablesStructurable',
+    'hasFidc', 'usesStructuredDebt', 'fitFidc', 'fitDcm',
+    'structuralScore', 'capitalScore', 'receivablesScore',
+    'executionScore', 'timingScore', 'confidence',
+  ]) {
+    assert.match(form, new RegExp(field + ': null,'));
+    assert.match(form, new RegExp(field + ': asOptional(?:Boolean|Number)\\(payload\\.' + field + '\\)'));
+  }
+  assert.match(form, /<option value="">Não avaliado<\/option>/);
+  assert.match(form, /unreviewedFields\.length > 0/);
+  assert.match(form, /value=\{form\[field\] \?\? ''\}/);
+});
+
+test('credit review cannot approve unsaved form edits against a stale persisted draft', async () => {
+  const form = await read('frontend/src/pages/CompanyCreditReviewPage.tsx');
+  assert.match(form, /const hasUnsavedChanges = packet !== null && JSON\.stringify\(form\) !== JSON\.stringify\(formFromPacket\(packet\)\)/);
+  assert.match(form, /if \(hasUnsavedChanges\) \{\s*setError\('Salve as alterações da revisão antes de aprovar o outcome\.'\);\s*return;/);
+  assert.match(form, /disabled=\{saving \|\| !latestReviewId \|\| hasUnsavedChanges \|\| unreviewedFields\.length > 0/);
+  assert.match(form, /Há alterações não salvas\. Salve a revisão antes de aprovar\./);
+});
