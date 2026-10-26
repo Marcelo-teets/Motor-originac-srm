@@ -33,6 +33,21 @@ export const evaluateV5Acceptance = ({ metrics, monitoringDays }, minimumQualifi
     lastConnectorStartedAt: metrics.last_connector_started_at ?? null,
     lastOutputCapturedAt: metrics.last_output_captured_at ?? null,
   };
+  if (diagnostics.outputsWithoutRunId !== null
+    && diagnostics.datasetOutputsWithoutRunId !== null
+    && diagnostics.captureOutputsWithoutRunId !== null) {
+    assert.equal(
+      diagnostics.datasetOutputsWithoutRunId + diagnostics.captureOutputsWithoutRunId,
+      diagnostics.outputsWithoutRunId,
+      'Lineage diagnostics must partition all missing run_id outputs',
+    );
+  }
+  if (diagnostics.datasetOutputsWithoutRunId !== null && diagnostics.datasetOutputsWithSourcePointer !== null) {
+    assert.ok(
+      diagnostics.datasetOutputsWithSourcePointer <= diagnostics.datasetOutputsWithoutRunId,
+      'Source-backed dataset count cannot exceed dataset output count',
+    );
+  }
   const normalizedDays = monitoringDays.map((row) => {
     const sourceRuns = Number(row.successful_connector_runs);
     const connectorOutputs = Number(row.connector_outputs);
