@@ -56,7 +56,7 @@ test('candidate identifiers are mandatory and Markdown cannot inject new rows', 
   assert.throws(() => buildA2DiligenceReport([{ ...source, id: '../other' }]), /Invalid canonical candidate identifier/);
   const report = buildA2DiligenceReport([{ ...source, company_name: 'Teste | linha\nquebrada', raw_payload: { ...source.raw_payload, nextDiligence: 'Buscar | evidência\nno contrato' } }]);
   const summary = formatA2DiligenceSummary(report);
-  assert.equal(summary.split('\n').filter(line => line.startsWith('| ')).length, 2);
+  assert.equal(summary.split('\n').filter(line => line.startsWith('| ')).length, 3);
   assert.match(summary, /Teste   linha quebrada/);
   assert.ok(!summary.includes('Buscar | evidência'));
 });
