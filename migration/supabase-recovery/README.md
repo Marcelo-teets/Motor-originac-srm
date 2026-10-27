@@ -34,6 +34,19 @@
 > de acesso, retenção, remapeamento de PK/FK e destino aprovado.
 >
 
+> **Gate de proveniência de qualificação (27/10/2026, somente leitura):**
+> O Supabase legado contém 1.090 `qualification_snapshots` de 24 empresas,
+> sem referências órfãs a `companies`. Desses, **1.027** foram criados por
+> `capture_derived_sync` ou `material_trigger_engine`, e **63** não
+> identificam o criador. Todos têm campo de evidência e score preenchido,
+> mas **nenhum deles comprova revisão humana**. O Neon operacional contém
+> zero snapshots. Execute
+> `node migration/supabase-recovery/qualification-provenance-preflight.mjs`
+> com as mesmas URLs de auditoria usadas no preflight de identidade.
+> O relatório só contém agregados e retorna **exit 2** mesmo com sucesso
+> na consulta: importação, aprovação humana e cutover continuam bloqueados.
+> `created_by` desconhecido é sempre classificado como não verificado.
+>
 > **Atualização auditada em 20/10/2026 — prevalece sobre o estado de 06/10 abaixo:**
 > O Supabase institucional `hdghpmssudrqhsbvrdyt` voltou a aceitar consultas
 > SQL de leitura: 74 empresas, 1.426 candidatas, 27.448 monitoring outputs,
