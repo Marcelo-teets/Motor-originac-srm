@@ -11,6 +11,7 @@ on:
       - 'db/neon/**'
       - 'db/migrations/**'
       - 'scripts/lib/**'
+      - 'migration/supabase-recovery/**'
       - 'scripts/apply-neon-runtime-migrations.mjs'
       - 'scripts/neon-runtime-parity-check.mjs'
       - '.github/workflows/neon-runtime-parity.yml'
@@ -44,6 +45,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'chore/neon-db-cutover'
         run: node scripts/neon-runtime-parity-check.mjs
 
+      - name: Test legacy qualification provenance preflight
+        if: github.event_name == 'pull_request'
+        run: node --test migration/supabase-recovery/qualification-provenance-preflight.test.mjs
       - name: Validate Neon migration/runtime contracts on ordinary PRs
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'chore/neon-db-cutover'
         run: node --test scripts/neon-migration-plan-contract.test.mjs scripts/neon-runtime-contract.test.mjs
