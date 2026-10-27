@@ -11,6 +11,7 @@ on:
       - 'db/neon/**'
       - 'db/migrations/**'
       - 'scripts/lib/**'
+      - 'migration/supabase-recovery/**'
       - 'scripts/apply-neon-runtime-migrations.mjs'
       - 'scripts/neon-runtime-parity-check.mjs'
       - '.github/workflows/neon-runtime-parity.yml'
