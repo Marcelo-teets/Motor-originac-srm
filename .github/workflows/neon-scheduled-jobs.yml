@@ -49,10 +49,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Load canonical Neon connection from Vercel vault
-        if: contains(github.event.schedule || inputs.jobs, '*/15') || contains(inputs.jobs || '', 'reprocessing') || contains(inputs.jobs || '', 'entity-resolution') || contains(inputs.jobs || '', 'derived-materialization')
-        run: bash scripts/load-neon-from-vercel.sh
-
       - name: Resolve jobs for this trigger
         id: jobs
         shell: bash
@@ -67,6 +63,17 @@ jobs:
           if ! printf '%s' "$JOBS" | grep -Eq '^[a-z,-]+$'; then echo "Invalid jobs: $JOBS"; exit 1; fi
           echo "jobs=${JOBS}" >> "$GITHUB_OUTPUT"
           echo "Resolved jobs: ${JOBS}"
+
+      - name: Preflight Neon compute budget (metadata only, fail closed)
+        if: contains(steps.jobs.outputs.jobs, 'reprocessing') || contains(steps.jobs.outputs.jobs, 'entity-resolution') || contains(steps.jobs.outputs.jobs, 'derived-materialization')
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: steep-poetry-38942951
+        run: node scripts/neon-free-budget-guard.mjs
+
+      - name: Load canonical Neon connection from Vercel vault
+        if: contains(github.event.schedule || inputs.jobs, '*/15') || contains(inputs.jobs || '', 'reprocessing') || contains(inputs.jobs || '', 'entity-resolution') || contains(inputs.jobs || '', 'derived-materialization')
+        run: bash scripts/load-neon-from-vercel.sh
 
       - name: Validate secrets
         shell: bash
