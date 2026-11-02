@@ -26,7 +26,14 @@ const fields = Object.freeze([
 export function normalizeAggregate(row) {
   assert.ok(row && typeof row === 'object', 'Missing qualification aggregate');
   const values = Object.fromEntries(fields.map(field => {
-    const value = Number(row[field]);
+    const raw = row[field];
+    // PostgreSQL bigint counts arrive as decimal strings with the default pg parser.
+    // Number(null), Number('') and Number(false) are zero; never coerce them into audit evidence.
+    const decimalString = typeof raw === 'string' && /^(?:0|[1-9][0-9]*)$/.test(raw);
+    const safeNumber = typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0;
+    assert.ok(decimalString || safeNumber,
+      `Invalid nonnegative integer aggregate: ${field}`);
+    const value = Number(raw);
     assert.ok(Number.isSafeInteger(value) && value >= 0,
       `Invalid nonnegative integer aggregate: ${field}`);
     return [field, value];
