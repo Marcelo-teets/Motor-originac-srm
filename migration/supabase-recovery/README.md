@@ -47,6 +47,30 @@
 > na consulta: importação, aprovação humana e cutover continuam bloqueados.
 > `created_by` desconhecido é sempre classificado como não verificado.
 >
+> **Recuperação seletiva de Company Master — 02/11/2026 (P0):**
+> `node migration/supabase-recovery/company-master-staging.mjs`
+> executa, por padrão, apenas uma prévia agregada e somente leitura dos cadastros
+> nos dois bancos. O relatório separa CNPJs inválidos, duplicidades, colisões
+> de UUID/CNPJ/domínio e identidades elegíveis a teste. A auditoria preliminar
+> identificou 74 empresas no Supabase, 2 no Neon, 66 CNPJs válidos no
+> Supabase e 8 inválidos. Nenhum score, sinal, reviewer, ownership ou
+> aprovação histórica pode ser transferido por esse utilitário.
+>
+> Para um **teste em branch Neon isolado**, após backup e revisão, configurar
+> `MOTOR_NEON_STAGING_DATABASE_URL` com endpoint distinto do host de produção,
+> manter `MOTOR_SUPABASE_AUDIT_DATABASE_URL` e `MOTOR_NEON_DATABASE_URL`
+> em acesso autorizado e definir explicitamente
+> `MOTOR_RECOVERY_ALLOW_STAGING=REVIEWED_STAGING_ONLY`. Só então executar
+> `node migration/supabase-recovery/company-master-staging.mjs --apply-staging`.
+> A ferramenta compara o baseline do branch com produção, recusa colisões,
+> usa transação com rollback, não sobrescreve cadastros e preserva os oito
+> registros inválidos na origem. Saída contém somente agregados.
+> **Não habilitar esta operação diretamente em produção.**
+>
+> O resultado de staging **não aprova cutover, retorno ao Supabase,
+> qualificação de crédito nem sincronização bidirecional**. Os bloqueios de
+> proveniência, source_id e revisão humana continuam vigentes.
+>
 > **Atualização auditada em 20/10/2026 — prevalece sobre o estado de 06/10 abaixo:**
 > O Supabase institucional `hdghpmssudrqhsbvrdyt` voltou a aceitar consultas
 > SQL de leitura: 74 empresas, 1.426 candidatas, 27.448 monitoring outputs,
