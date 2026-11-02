@@ -42,6 +42,14 @@ test('malformed or inconsistent aggregates fail closed', () => {
   assert.throws(() => normalizeAggregate(aggregate({ orphan_company_refs: '1091' })), /exceeds total/);
 });
 
+test('empty or coerced aggregate values fail closed instead of becoming zero', () => {
+  for (const value of [null, undefined, '', ' ', false, true, [], {}, '1e3', '01', -1, 1.5, '9007199254740992']) {
+    assert.throws(() => normalizeAggregate(aggregate({ orphan_company_refs: value })),
+      /Invalid nonnegative integer aggregate: orphan_company_refs/);
+  }
+  assert.equal(normalizeAggregate(aggregate()).orphanCompanyReferences, 0);
+});
+
 test('audit SQL is read-only and outputs only aggregate statistics', () => {
   const source = readFileSync(new URL('./qualification-provenance-preflight.mjs', import.meta.url), 'utf8');
   assert.match(source, /BEGIN TRANSACTION READ ONLY/);
