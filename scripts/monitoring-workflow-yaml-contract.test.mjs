@@ -36,3 +36,25 @@ test('critical capture and Neon scheduled jobs keep real bounded cron contracts'
   assert.match(jobs, /scripts\/run-neon-scheduled-jobs\.mjs/);
   assert.doesNotMatch(capture + jobs, /MOTOR_AUTH_BOOTSTRAP_ENABLED=true/);
 });
+
+// P0: a healthy storage guard is not a compute-budget preflight; neither
+// scheduler may open Neon before metadata-only, fail-closed quota validation.
+test('Neon scheduled and daily recovery workflows gate database access on compute budget', () => {
+  const workflows = [
+    read('.github/workflows/neon-scheduled-jobs.yml'),
+    read('.github/workflows/capture-daily-recovery.yml'),
+  ];
+  for (const yaml of workflows) {
+    const preflight = yaml.indexOf('      - name: Preflight Neon compute budget (metadata only, fail closed)');
+    const loadConnection = yaml.indexOf('      - name: Load canonical Neon connection from Vercel vault');
+    assert.ok(preflight > 0 && loadConnection > preflight, 'quota preflight must precede DB credential loading');
+    assert.ok(yaml.includes('NEON_API_KEY: ${{ secrets.NEON_API_KEY }}'), 'provider API credential is scoped to the guard');
+    assert.ok(yaml.includes('run: node scripts/neon-free-budget-guard.mjs'), 'must reuse shared fail-closed guard');
+  }
+  const jobs = workflows[0];
+  assert.ok(jobs.indexOf('      - name: Resolve jobs for this trigger') < jobs.indexOf('      - name: Preflight Neon compute budget'), 'resolve requested jobs before conditional preflight');
+  assert.ok(jobs.includes("contains(steps.jobs.outputs.jobs, 'reprocessing')"));
+  assert.ok(jobs.includes("contains(steps.jobs.outputs.jobs, 'derived-materialization')"));
+  const recovery = workflows[1];
+  assert.ok(recovery.indexOf('      - name: Preflight Neon compute budget') < recovery.indexOf('      - name: Validate storage budget for bounded recovery'));
+});
