@@ -120,7 +120,7 @@ test('normalized_domain on existing company blocks target collision', () => {
 
 test('CLI outputs aggregates only, and uses rollback on failure', () => {
   const source = readFileSync(new URL('./company-master-staging.mjs', import.meta.url), 'utf8');
-  assert.match(source, /BEGIN TRANSACTION READ ONLY/);
+  assert.match(source, /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY/);
   assert.match(source, /MOTOR_NEON_STAGING_DATABASE_URL/);
   assert.match(source, /MOTOR_RECOVERY_ALLOW_STAGING/);
   assert.match(source, /ROLLBACK/);
