@@ -41,7 +41,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test scripts/capture/should-run-daily-recovery.test.mjs
+      - run: node --test scripts/capture/should-run-daily-recovery.test.mjs scripts/monitoring-workflow-yaml-contract.test.mjs scripts/neon-free-budget-guard.test.mjs
 
   capture:
     if: github.event_name != 'pull_request'
@@ -64,6 +64,11 @@ jobs:
           cache: npm
       - name: Install existing runtime dependencies
         run: npm ci --ignore-scripts
+      - name: Preflight Neon compute budget (metadata only, fail closed)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: steep-poetry-38942951
+        run: node scripts/neon-free-budget-guard.mjs
       - name: Load canonical Neon connection from Vercel vault
         run: bash scripts/load-neon-from-vercel.sh
       - name: Validate storage budget for bounded recovery
