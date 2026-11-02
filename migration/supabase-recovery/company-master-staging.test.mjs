@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   planCompanyMasterStage, assertStagingNotProduction,
-  assertStagingBaselineMatchesProduction,
+  assertStagingBaselineMatchesProduction, assertStagingTableParity,
+  STAGING_BASELINE_TABLES,
 } from './company-master-staging.mjs';
 
 const uuid = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
@@ -81,9 +82,45 @@ test('staging baseline must match production exactly', () => {
     /Staging baseline differs/);
 });
 
+test('staging requires exact multi-table row counts and content fingerprints', () => {
+  const makeBaseline = () => Object.fromEntries(STAGING_BASELINE_TABLES.map(table =>
+    [table, {count: '2', digest: 'a'.repeat(32)}]));
+  const production = makeBaseline(), staging = makeBaseline();
+  assert.doesNotThrow(() => assertStagingTableParity(production, staging));
+  staging.company_signals.count = '3';
+  assert.throws(() => assertStagingTableParity(production, staging),
+    /Staging row count diverges: company_signals/);
+  staging.company_signals.count = '2';
+  staging.monitoring_outputs.digest = 'b'.repeat(32);
+  assert.throws(() => assertStagingTableParity(production, staging),
+    /Staging row contents diverge: monitoring_outputs/);
+  delete staging.source_catalog;
+  assert.throws(() => assertStagingTableParity(production, staging),
+    /Missing or invalid baseline for source_catalog/);
+});
+
+test('branch baseline is fail-closed on malformed or missing digests', () => {
+  const baseline = Object.fromEntries(STAGING_BASELINE_TABLES.map(table =>
+    [table, {count: '0', digest: 'd41d8cd98f00b204e9800998ecf8427e'}]));
+  assert.throws(() => assertStagingTableParity(null, baseline),
+    /Both table baselines/);
+  assert.throws(() => assertStagingTableParity(baseline, {}),
+    /Missing or invalid baseline/);
+  baseline.companies.count = '-1';
+  assert.throws(() => assertStagingTableParity(baseline, baseline),
+    /Missing or invalid baseline/);
+});
+
+test('normalized_domain on existing company blocks target collision', () => {
+  const incoming = src();
+  const existing = other(42, {domain: '', normalized_domain: 'one.example.br'});
+  const plan = planCompanyMasterStage([incoming], [existing]);
+  assert.equal(plan.report.collidingTargetIdentity, 1);
+});
+
 test('CLI outputs aggregates only, and uses rollback on failure', () => {
   const source = readFileSync(new URL('./company-master-staging.mjs', import.meta.url), 'utf8');
-  assert.match(source, /BEGIN TRANSACTION READ ONLY/);
+  assert.match(source, /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY/);
   assert.match(source, /MOTOR_NEON_STAGING_DATABASE_URL/);
   assert.match(source, /MOTOR_RECOVERY_ALLOW_STAGING/);
   assert.match(source, /ROLLBACK/);

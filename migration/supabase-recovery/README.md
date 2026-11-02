@@ -66,6 +66,17 @@
 > usa transação com rollback, não sobrescreve cadastros e preserva os oito
 > registros inválidos na origem. Saída contém somente agregados.
 > **Não habilitar esta operação diretamente em produção.**
+> **Proteção adicional de paridade (02/11/2026):** antes de qualquer INSERT
+> no branch de staging, o código compara os UUIDs/CNPJs/domínios do Company Master
+> e as contagens + hashes de conteúdo de nove tabelas críticas: companies,
+> source_catalog, search_profiles, monitoring_outputs, company_signals,
+> qualification_snapshots, company_credit_reviews,
+> discovered_company_candidates e pipeline. Uma cópia antiga do branch
+> `preview/main`, mesmo com as mesmas empresas, não é homologação suficiente;
+> um único desvio faz rollback integral e bloqueia a carga. Crie um branch
+> efêmero a partir do HEAD da produção na ocasião do teste, com endpoint próprio.
+>
+
 >
 > O resultado de staging **não aprova cutover, retorno ao Supabase,
 > qualificação de crédito nem sincronização bidirecional**. Os bloqueios de

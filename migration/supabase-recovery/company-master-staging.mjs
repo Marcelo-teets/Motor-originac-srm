@@ -16,7 +16,7 @@ const keyCounts = (rows, get) => {
   }
   return keys;
 };
-const rowDomain = x => domain(x.domain || x.website_url || x.website);
+const rowDomain = x => domain(x.normalized_domain || x.domain || x.website_url || x.website);
 const clean = x => typeof x === 'string' ? (x.trim() || null) : null;
 
 export function planCompanyMasterStage(source, target) {
@@ -100,7 +100,7 @@ export function assertStagingNotProduction(productionUrl, stagingUrl) {
 
 const SOURCE_SQL = 'select id::text, legal_name, trade_name, cnpj, domain, website, website_url, ' +
   'description, segment, subsegment, sector, sub_sector, country, geography from public.companies';
-const TARGET_SQL = 'select id::text, cnpj, domain, website, website_url, metadata from public.companies';
+const TARGET_SQL = 'select id::text, cnpj, normalized_domain, domain, website, website_url, metadata from public.companies';
 const STAGING_SQL = [
   'insert into public.companies',
   '(id, legal_name, trade_name, cnpj, domain, normalized_domain, website, website_url,',
@@ -115,16 +115,53 @@ const STAGING_SQL = [
   'on conflict do nothing returning id',
 ].join('\n');
 
-async function inspectReadOnly(url, sql, applicationName) {
+// Full-row, ordered digests protect against staging branches that merely have
+// the same company IDs but differ in signals, sources, monitoring, or approvals.
+// Fixed allowlist: no user-controlled schema/table names in SQL.
+export const STAGING_BASELINE_TABLES = Object.freeze([
+  'companies', 'source_catalog', 'search_profiles', 'monitoring_outputs',
+  'company_signals', 'qualification_snapshots', 'company_credit_reviews',
+  'discovered_company_candidates', 'pipeline',
+]);
+
+export function assertStagingTableParity(production, staging) {
+  assert.ok(production && staging && typeof production === 'object' &&
+    typeof staging === 'object', 'Both table baselines are required');
+  for (const table of STAGING_BASELINE_TABLES) {
+    const a = production[table], b = staging[table];
+    assert.ok(a && b && /^(?:0|[1-9][0-9]*)$/.test(String(a.count)) &&
+      /^(?:0|[1-9][0-9]*)$/.test(String(b.count)) &&
+      /^[0-9a-f]{32}$/.test(String(a.digest)) && /^[0-9a-f]{32}$/.test(String(b.digest)),
+    'Missing or invalid baseline for ' + table);
+    assert.equal(String(b.count), String(a.count), 'Staging row count diverges: ' + table);
+    assert.equal(b.digest, a.digest, 'Staging row contents diverge: ' + table);
+  }
+}
+
+async function inspectTableBaseline(db) {
+  const stats = {};
+  for (const table of STAGING_BASELINE_TABLES) {
+    const query = 'select count(*)::bigint as count, ' +
+      "md5(coalesce(string_agg(md5(to_jsonb(t)::text), '|' order by t.id::text), '')) as digest " +
+      'from public.' + table + ' t';
+    const {rows} = await db.query(query);
+    assert.ok(rows.length === 1, 'Invalid baseline query result: ' + table);
+    stats[table] = {count: String(rows[0].count), digest: rows[0].digest};
+  }
+  return stats;
+}
+
+async function inspectReadOnly(url, sql, applicationName, includeBaseline = false) {
   const {default: pg} = await import('pg');
   const db = new pg.Client({connectionString: url, connectionTimeoutMillis: 10000,
     statement_timeout: 20000, application_name: applicationName});
   await db.connect();
   try {
-    await db.query('BEGIN TRANSACTION READ ONLY');
+    await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const rows = (await db.query(sql)).rows;
+    const baseline = includeBaseline ? await inspectTableBaseline(db) : null;
     await db.query('COMMIT');
-    return rows;
+    return {rows, baseline};
   } catch (err) {
     await db.query('ROLLBACK').catch(() => {});
     throw err;
@@ -135,11 +172,12 @@ async function inspectReadOnly(url, sql, applicationName) {
 
 export async function runCompanyMasterStage({supabaseUrl, productionUrl, stagingUrl, applyStaging = false}) {
   assertAuditConnections(supabaseUrl, productionUrl);
-  const [source, production] = await Promise.all([
+  const [sourceState, productionState] = await Promise.all([
     inspectReadOnly(supabaseUrl, SOURCE_SQL, 'motor-company-recovery-source-readonly'),
-    inspectReadOnly(productionUrl, TARGET_SQL, 'motor-company-recovery-production-readonly'),
+    inspectReadOnly(productionUrl, TARGET_SQL, 'motor-company-recovery-production-readonly', true),
   ]);
-  const plan = planCompanyMasterStage(source, production);
+  const production = productionState.rows;
+  const plan = planCompanyMasterStage(sourceState.rows, production);
   if (!applyStaging) return {...plan.report, stagingApplied: false};
   assertStagingNotProduction(productionUrl, stagingUrl);
   assert.equal(process.env.MOTOR_RECOVERY_ALLOW_STAGING, 'REVIEWED_STAGING_ONLY',
@@ -151,9 +189,10 @@ export async function runCompanyMasterStage({supabaseUrl, productionUrl, staging
     statement_timeout: 30000, application_name: 'motor-company-recovery-staging-only'});
   await db.connect();
   try {
-    await db.query('BEGIN');
+    await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
     const baseline = (await db.query(TARGET_SQL)).rows;
     assertStagingBaselineMatchesProduction(production, baseline);
+    assertStagingTableParity(productionState.baseline, await inspectTableBaseline(db));
     const inserted = plan.records.length ?
       await db.query(STAGING_SQL, [JSON.stringify(plan.records)]) : {rowCount: 0};
     assert.equal(inserted.rowCount, plan.records.length,
