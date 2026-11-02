@@ -58,3 +58,18 @@ test('Neon scheduled and daily recovery workflows gate database access on comput
   const recovery = workflows[1];
   assert.ok(recovery.indexOf('      - name: Preflight Neon compute budget') < recovery.indexOf('      - name: Validate storage budget for bounded recovery'));
 });
+
+// The acceptance evidence schedule performs live SELECTs and can wake production compute.
+test('scheduled V5 acceptance evidence fails closed before opening Neon', () => {
+  const yaml = read('.github/workflows/v5-daily-acceptance-evidence.yml');
+  const preflight = yaml.indexOf('      - name: Preflight Neon compute budget (metadata only, fail closed)');
+  const load = yaml.indexOf('      - name: Read canonical Vercel production Neon connection');
+  const evaluate = yaml.indexOf('      - name: Evaluate seven fully elapsed days of genuine monitoring');
+  const diligence = yaml.indexOf('      - name: Export live A2 primary-source human diligence queue');
+  assert.ok(preflight > 0 && load > preflight && evaluate > load && diligence > evaluate,
+    'metadata-only compute guard must run before any production Neon evidence queries');
+  assert.ok(yaml.includes('NEON_API_KEY: ${{ secrets.NEON_API_KEY }}'));
+  assert.ok(yaml.includes('run: node scripts/neon-free-budget-guard.mjs'));
+  assert.match(yaml, /node scripts\/v5-mvp-acceptance-evidence\.mjs/);
+  assert.match(yaml, /node scripts\/a2-diligence-report\.mjs/);
+});

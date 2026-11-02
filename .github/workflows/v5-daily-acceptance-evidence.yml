@@ -49,6 +49,12 @@ jobs:
       - name: Validate evaluator regression tests
         run: node --test scripts/v5-mvp-acceptance-evidence.test.mjs
 
+      - name: Preflight Neon compute budget (metadata only, fail closed)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: steep-poetry-38942951
+        run: node scripts/neon-free-budget-guard.mjs
+
       - name: Read canonical Vercel production Neon connection
         shell: bash
         run: |
