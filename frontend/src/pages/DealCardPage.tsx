@@ -131,6 +131,7 @@ export function DealCardPage() {
           materiality,confidence:0.6,claimType:'fact'}],
       });
       if(result?.status!=='ingested')throw new Error(result?.reason||'Fonte não vinculada.');
+      await api.rebuildDealCard(session,selected);
       setSourceTitle('');setSourceUrl('');setFieldValue('');setPeriod('');
     },'Fonte registrada como evidência pendente. A afirmação ainda precisa ser validada.');
   };
@@ -285,6 +286,11 @@ export function DealCardPage() {
                   await api.reviewDealEvidence(session,selected,{claimId:ev.id,status:'disputed',note:reviewNotes[ev.id]});
                   await api.rebuildDealCard(session,selected);
                 },'Evidência contestada; conflito preservado.')}>Contestar</button>
+              <button type="button" className="secondary" disabled={busy||!(reviewNotes[ev.id]??'').trim()}
+                onClick={()=>void execute(async()=>{
+                  await api.reviewDealEvidence(session,selected,{claimId:ev.id,status:'superseded',note:reviewNotes[ev.id]});
+                  await api.rebuildDealCard(session,selected);
+                },'Evidência substituída e histórico preservado.')}>Substituir</button>
             </div>
           </div>:ev.resolution_note?<small>{ev.resolution_note}</small>:null}
         </div>)}</div>:<EmptyState title="Sem afirmações capturadas." description="Adicione evidências ou conecte futuramente os provedores autorizados." />}
