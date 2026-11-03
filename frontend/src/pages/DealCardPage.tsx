@@ -181,7 +181,7 @@ export function DealCardPage() {
           </label>
           <label>Produto
             <select value={product} onChange={e=>setProduct(e.target.value)}>
-              {products.map(p=><option key={p} value={p}>{p.replaceAll('_',' ')}</option>)}
+              {products.map(p=><option key={p} value={p}>{p.replace(/_/g,' ')}</option>)}
             </select>
           </label>
           <label>Revisita de (opcional)
