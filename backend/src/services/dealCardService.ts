@@ -164,6 +164,40 @@ export class DealCardService {
       attribution_note: body.attributionNote ?? null, linked_by: actor,
     }], 'opportunity_id,originator_id,contribution_type');
   }
+  async createOriginator(dealId: string, actor: string, body: {
+    displayName: string; legalName?: string; taxId?: string; profileType?: string;
+  }) {
+    await this.member(dealId, actor, true);
+    if (!body.displayName?.trim()) this.fail('Nome do originador obrigatório.');
+    if (body.taxId) {
+      const found = await this.db().select('dcm_originators', {
+        filters: [{ column: 'tax_id', value: body.taxId }], limit: 1,
+      });
+      if (found[0]) return found[0];
+    }
+    const rows = await this.db().insert('dcm_originators', [{
+      id: randomUUID(), display_name: body.displayName.trim(),
+      legal_name: body.legalName ?? null, tax_id: body.taxId ?? null,
+      profile_type: body.profileType ?? null,
+    }]);
+    return rows[0];
+  }
+  async approveCard(dealId: string, actor: string, snapshotId: string) {
+    const member = await this.member(dealId, actor, true);
+    if (member.role !== 'owner') this.fail('Aprovação do Deal Card exige responsável da operação.', 403);
+    const rows = await this.db().select('dcm_card_snapshots', {
+      filters: [{ column: 'opportunity_id', value: dealId }, { column: 'id', value: snapshotId }],
+      limit: 1,
+    });
+    const snapshot = rows[0] as any;
+    if (!snapshot) this.fail('Versão não encontrada.', 404);
+    const readiness = snapshot.payload?.readiness;
+    if (readiness?.status !== 'INFORMATIONAL') this.fail('Há informações ou conflitos pendentes.');
+    const updated = await this.db().update('dcm_card_snapshots', {
+      state: 'approved', reviewed_at: new Date().toISOString(), reviewed_by: actor,
+    }, [{ column: 'id', value: snapshotId }, { column: 'opportunity_id', value: dealId }]);
+    return updated[0];
+  }
   private async buildPayload(dealId: string) {
     const opportunity = await this.opportunity(dealId);
     const [sources, claims, events, partners] = await Promise.all([
