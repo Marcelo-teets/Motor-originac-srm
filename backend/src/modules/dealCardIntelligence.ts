@@ -189,10 +189,14 @@ export function assembleDealCard(input: {
     const ordered = [...group].sort((a, b) => {
       const pa = sourceMap.get(a.sourceId)?.provider ?? 'manual';
       const pb = sourceMap.get(b.sourceId)?.provider ?? 'manual';
-      return (Number(b.status === 'validated') - Number(a.status === 'validated')) * 1_000_000
-        + (priority[pb] - priority[pa]) * 10_000
-        + (b.confidence - a.confidence) * 100
-        + stamp(b.effectiveAt) - stamp(a.effectiveAt);
+      // Strict lexicographic ranking: timestamps must never overpower human validation.
+      const validation = Number(b.status === 'validated') - Number(a.status === 'validated');
+      if (validation) return validation;
+      const sourceRank = priority[pb] - priority[pa];
+      if (sourceRank) return sourceRank;
+      const confidence = b.confidence - a.confidence;
+      if (confidence) return confidence;
+      return stamp(b.effectiveAt) - stamp(a.effectiveAt);
     });
     const first = ordered[0];
     const variants = new Set(ordered.map(c => canonical(c.value)));
