@@ -39,6 +39,13 @@ export const navItems = [
     group: 'Radar',
   },
   {
+    to: '/deal-cards',
+    label: 'Deal Cards',
+    shortLabel: 'Fichas vivas de operações',
+    description: 'Revise fatos e fontes, consolide o histórico e acompanhe cada operação DCM.',
+    group: 'Execução comercial',
+  },
+  {
     to: '/dcm-daily',
     label: 'Abordagens',
     shortLabel: 'Fila diária DCM',
