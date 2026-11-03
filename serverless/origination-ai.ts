@@ -20,6 +20,48 @@ export const handleOriginationAi = async (req: RequestWithBody, res: VercelRespo
   const body = req.body ?? {};
 
   if (method === 'GET' && action === 'agents') return ok(res, 200, originationIntroAgents);
+
+  // Deal Card v1 operates on opportunityId, never on the company alone.
+  // Every action below performs opportunity-member access control in the service.
+  if (action.startsWith('deal-')) {
+    const { DealCardService } = await import('../backend/src/services/dealCardService.js');
+    const dealService = new DealCardService();
+    const dealId = one(req.query.dealId) ?? '';
+    if (method === 'GET' && action === 'deal-list')
+      return ok(res, 200, await dealService.list(authUser.id, companyId || undefined));
+    if (method === 'POST' && action === 'deal-create')
+      return ok(res, 201, await dealService.create(authUser.id, {
+        companyId: String(body.companyId ?? companyId),
+        title: String(body.title ?? ''), product: body.product ? String(body.product) : undefined,
+        revisitOf: body.revisitOf ? String(body.revisitOf) : null,
+      }));
+    if (!dealId) throw Object.assign(new Error('dealId é obrigatório.'), { statusCode: 400 });
+    if (method === 'GET' && action === 'deal-card')
+      return ok(res, 200, await dealService.getCard(dealId, authUser.id));
+    if (method === 'GET' && action === 'deal-evidence')
+      return ok(res, 200, await dealService.getEvidence(dealId, authUser.id));
+    if (method === 'POST' && action === 'deal-capture')
+      return ok(res, 201, await dealService.capture(dealId, authUser.id, body as any));
+    if (method === 'POST' && action === 'deal-review-claim')
+      return ok(res, 200, await dealService.reviewClaim(dealId, authUser.id, {
+        claimId: String(body.claimId ?? ''), status: String(body.status ?? ''),
+        note: String(body.note ?? ''),
+      }));
+    if (method === 'POST' && action === 'deal-add-event')
+      return ok(res, 201, await dealService.addEvent(dealId, authUser.id, body as any));
+    if (method === 'POST' && action === 'deal-link-originator')
+      return ok(res, 200, await dealService.linkOriginator(dealId, authUser.id, body as any));
+    if (method === 'POST' && action === 'deal-create-originator')
+      return ok(res, 201, await dealService.createOriginator(dealId, authUser.id, body as any));
+    if (method === 'POST' && action === 'deal-add-member')
+      return ok(res, 200, await dealService.addMember(dealId, authUser.id, body as any));
+    if (method === 'POST' && action === 'deal-rebuild')
+      return ok(res, 201, await dealService.rebuild(dealId, authUser.id));
+    if (method === 'POST' && action === 'deal-approve')
+      return ok(res, 200, await dealService.approveCard(dealId, authUser.id, String(body.snapshotId ?? '')));
+    throw Object.assign(new Error('Unsupported Deal Card action.'), { statusCode: 405 });
+  }
+
   if (!companyId) throw Object.assign(new Error('companyId é obrigatório.'), { statusCode: 400 });
 
   if (method === 'GET' && action === 'evidence') return ok(res, 200, await service.getEvidence(companyId));
