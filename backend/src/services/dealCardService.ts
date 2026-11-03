@@ -191,6 +191,10 @@ export class DealCardService {
     });
     const snapshot = rows[0] as any;
     if (!snapshot) this.fail('Versão não encontrada.', 404);
+    const latest = await this.getCard(dealId, actor) as any;
+    if (latest.id !== snapshotId || snapshot.state !== 'draft') {
+      this.fail('Somente a última versão em rascunho pode ser aprovada.', 409);
+    }
     const readiness = snapshot.payload?.readiness;
     if (readiness?.status !== 'INFORMATIONAL') this.fail('Há informações ou conflitos pendentes.');
     const updated = await this.db().update('dcm_card_snapshots', {
