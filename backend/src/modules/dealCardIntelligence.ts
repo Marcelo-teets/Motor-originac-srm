@@ -148,6 +148,8 @@ export type DealCard = {
   opportunity: Opportunity;
   originators: Originator[];
   fields: Record<string, CardField>;
+  executiveSummary: string;
+  glossary: Array<{ term: string; definition: string }>;
   conflicts: Array<{ field: string; period: string | null; evidenceIds: string[]; severity: Materiality; action: string }>;
   readiness: { status: 'BLOCKED' | 'REVIEW_REQUIRED' | 'INFORMATIONAL'; missing: string[]; humanApprovalRequired: true };
   actions: DealEvent[];
@@ -162,6 +164,40 @@ const mandatoryByProduct: Record<string, string[]> = {
   CRA: ['financialNeed', 'requestedAmount', 'receivables', 'contract', 'assignmentEligibility', 'financials'],
   DEBENTURE: ['financialNeed', 'requestedAmount', 'financials', 'debtStructure', 'cashflow'],
   DEBENTURE_INCENTIVADA: ['financialNeed', 'requestedAmount', 'financials', 'debtStructure', 'cashflow', 'incentiveEligibility'],
+};
+
+const BASIC_GLOSSARY = [
+  { term: 'Lastro', definition: 'Ativo, crédito ou direito que sustenta economicamente o fluxo da operação; sua elegibilidade requer análise documental.' },
+  { term: 'Cessão', definition: 'Transferência de um direito creditório conforme instrumento, condições e formalidades aplicáveis.' },
+  { term: 'Coobrigação', definition: 'Possível responsabilidade adicional do cedente ou terceiro pelo pagamento, sujeita aos termos contratuais.' },
+];
+const PRODUCT_GLOSSARY: Record<string, Array<{term:string;definition:string}>> = {
+  FIDC: [
+    {term:'FIDC',definition:'Fundo de investimento em direitos creditórios, submetido à regulamentação aplicável da CVM.'},
+    {term:'Subordinação',definition:'Ordem contratual de absorção de perdas e preferência de pagamento entre classes/subclasses, conforme documentos.'},
+    {term:'Loan tape',definition:'Base granular da carteira, idealmente por contrato/parcela, utilizada para análises financeiras e de risco.'},
+  ],
+  CRI: [{term:'CRI',definition:'Certificado de Recebíveis Imobiliários; exige vínculo e enquadramento do lastro.'}],
+  CRA: [{term:'CRA',definition:'Certificado de Recebíveis do Agronegócio; exige vínculo e enquadramento do lastro.'}],
+  DEBENTURE: [{term:'Debênture',definition:'Título de dívida emitido por companhia, regido por escritura e legislação aplicável.'}],
+  DEBENTURE_INCENTIVADA: [{term:'Debênture incentivada',definition:'Debênture sujeita a requisitos legais e setoriais específicos para o enquadramento de incentivo.'}],
+};
+const formatAmount = (value: unknown) => typeof value === 'number'
+  ? new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0}).format(value)
+  : typeof value === 'string' ? value : 'não validado';
+const cardNarrative = (opportunity: Opportunity, fields: Record<string, CardField>) => {
+  const read = (key: string) => Object.entries(fields).find(([name,value]) =>
+    name.split('@')[0] === key && value.status === 'validated')?.[1]?.value;
+  const parts = [
+    `Operação ${opportunity.product.replaceAll('_',' ')} de ${opportunity.title}, atualmente em ${opportunity.stage}.`,
+  ];
+  const amount=read('requestedAmount');
+  if(amount!==undefined)parts.push(`Valor indicado e validado: ${formatAmount(amount)}.`);
+  const need=read('financialNeed');
+  if(typeof need==='string' && need.trim())parts.push(`Finalidade: ${need.trim()}.`);
+  if(read('receivables')!==undefined)parts.push('Informações de recebíveis constam das evidências validadas; elegibilidade jurídica não foi presumida.');
+  if(parts.length===1)parts.push('Detalhes financeiros, lastro e termos ainda dependem de revisão de evidências.');
+  return parts.join(' ');
 };
 
 export function assembleDealCard(input: {
@@ -236,6 +272,8 @@ export function assembleDealCard(input: {
     opportunity,
     originators: input.originators ?? [],
     fields, conflicts,
+    executiveSummary: cardNarrative(opportunity, fields),
+    glossary: [...(PRODUCT_GLOSSARY[product] ?? []), ...BASIC_GLOSSARY],
     readiness: {
       status: blocked ? 'BLOCKED' : missing.length ? 'REVIEW_REQUIRED' : 'INFORMATIONAL',
       missing,
