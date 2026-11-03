@@ -216,6 +216,30 @@ export const api = {
       },
     };
   },
+  listDealCards: async (session: SessionData | null, companyId?: string): Promise<any[]> =>
+    (await requestEnvelope<any[]>(`/origination-ai/deal-list${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ''}`, session)).data,
+  createDealCard: async (session: SessionData | null, payload: { companyId: string; title: string; product: string; revisitOf?: string }) =>
+    (await requestEnvelope<any>('/origination-ai/deal-create', session, { method: 'POST', body: JSON.stringify(payload) })).data,
+  getDealCard: async (session: SessionData | null, dealId: string) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-card?dealId=${encodeURIComponent(dealId)}`, session)).data,
+  getDealEvidence: async (session: SessionData | null, dealId: string) =>
+    (await requestEnvelope<any[]>(`/origination-ai/deal-evidence?dealId=${encodeURIComponent(dealId)}`, session)).data,
+  captureDealSource: async (session: SessionData | null, dealId: string, payload: Record<string, unknown>) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-capture?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify(payload) })).data,
+  reviewDealEvidence: async (session: SessionData | null, dealId: string, payload: { claimId: string; status: string; note: string }) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-review-claim?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify(payload) })).data,
+  addDealEvent: async (session: SessionData | null, dealId: string, payload: Record<string, unknown>) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-add-event?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify(payload) })).data,
+  rebuildDealCard: async (session: SessionData | null, dealId: string) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-rebuild?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify({}) })).data,
+  approveDealCard: async (session: SessionData | null, dealId: string, snapshotId: string) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-approve?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify({ snapshotId }) })).data,
+
   getOriginationOperatingSystem: async (session: SessionData | null): Promise<DataState<OriginationOperatingSystem>> => {
     const os = await requestEnvelope<OriginationOperatingSystem>('/origination/os', session);
     return {
