@@ -16,6 +16,7 @@ const CompaniesPage = lazy(() => import('./pages/CompaniesPage').then((module) =
 const CompanyCreditReviewPage = lazy(() => import('./pages/CompanyCreditReviewPage').then((module) => ({ default: module.CompanyCreditReviewPage })));
 const CompanyDetailKnowledgePage = lazy(() => import('./pages/CompanyDetailKnowledgePage').then((module) => ({ default: module.CompanyDetailKnowledgePage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const DealCardPage = lazy(() => import('./pages/DealCardPage').then((module) => ({ default: module.DealCardPage })));
 const DcmDailyOutreachPage = lazy(() => import('./pages/DcmDailyOutreachPage').then((module) => ({ default: module.DcmDailyOutreachPage })));
 const FidcMarketMapPage = lazy(() => import('./pages/FidcMarketMapPage').then((module) => ({ default: module.FidcMarketMapPage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
@@ -85,6 +86,7 @@ export default function App() {
             <Route path="knowledge-search" element={<KnowledgeSearchPage />} />
             <Route path="outcome-operations" element={<OutcomeOperationsPage />} />
             <Route path="pipeline" element={portfolioGate(<PipelinePage />)} />
+            <Route path="deal-cards" element={<DealCardPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
