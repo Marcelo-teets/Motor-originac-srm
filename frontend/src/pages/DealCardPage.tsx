@@ -11,6 +11,8 @@ type Evidence = { id: string; source_id: string; field_key: string; reference_pe
 type Snapshot = { id: string; version: number; state: string; payload: {
   opportunity: { title: string; product: string; stage: string; status: string; revisitOf?: string | null };
   readiness: { status: string; missing: string[] };
+  executiveSummary: string;
+  glossary: Array<{term:string;definition:string}>;
   fields: Record<string,{value:unknown;status:string;period:string|null;confidence:number;sourceIds:string[]}>;
   conflicts: Array<{field:string;period:string|null;action:string}>;
   sources: Array<{id:string;provider:string;title:string;sourceRef?:string|null;occurredAt?:string|null}>;
@@ -220,6 +222,8 @@ export function DealCardPage() {
           {snapshot.payload.conflicts.length?<div className="state-box state-error"><strong>Conflitos materiais: </strong>
             {snapshot.payload.conflicts.map((c,i)=><div key={i}>{c.field} ({c.period??'sem período'}) — {c.action}</div>)}
           </div>:null}
+          <h3>Resumo executivo</h3>
+          <p>{snapshot.payload.executiveSummary}</p>
           <h3>Sumário dos fatos e hipóteses</h3>
           {Object.keys(snapshot.payload.fields).length?<table className="dense-table"><thead><tr><th>Campo</th><th>Valor</th><th>Revisão</th></tr></thead>
             <tbody>{Object.entries(snapshot.payload.fields).map(([key,value])=><tr key={key}>
@@ -229,6 +233,11 @@ export function DealCardPage() {
           {snapshot.payload.sources.length? <ul className="list">{snapshot.payload.sources.map(s=><li key={s.id}>
             <span>{s.provider}: {s.title}</span>{validLink(s.sourceRef)?<a href={s.sourceRef!} target="_blank" rel="noopener noreferrer">Abrir fonte</a>:null}
           </li>)}</ul>:<p>Sem fontes associadas.</p>}
+          <details><summary>Glossário desta operação</summary>
+            <dl>{snapshot.payload.glossary?.map(entry=><div key={entry.term} style={{marginBottom:10}}>
+              <dt><strong>{entry.term}</strong></dt><dd>{entry.definition}</dd>
+            </div>)}</dl>
+          </details>
           <h3>Pendências e linha do tempo</h3>
           {snapshot.payload.actions.length?<ul className="list">{snapshot.payload.actions.map(a=><li key={a.id}>{a.title}
             {a.dueAt?` · até ${new Date(a.dueAt).toLocaleDateString('pt-BR')}`:''}</li>)}</ul>:<p>Sem pendências abertas registradas.</p>}
