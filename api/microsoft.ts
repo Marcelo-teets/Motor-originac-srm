@@ -296,6 +296,75 @@ const graphCollection = async <T>(accessToken: string, path: string, maxPages = 
   return items;
 };
 
+type DealSourceWatch = {
+  id: string;owner_user_id:string;provider:'outlook_email'|'outlook_calendar'|'teams'|'sharepoint';
+  external_id:string;context_id:string;status:'active'|'paused';
+  last_fingerprint:string|null;consecutive_errors:number;
+};
+const watchEnabled = () => process.env.DEAL_CARD_MICROSOFT_WATCH_ENABLED === 'true';
+
+/**
+ * Narrow delegated source read. Only an exact, consented source ID is used.
+ * No Graph delta links, arbitrary URLs, whole mailboxes or channel lists.
+ */
+const fetchExactWatchRecord = async (connection: MicrosoftConnection, watch: {
+  provider: DealSourceWatch['provider'];externalId:string;chatId?:string;driveId?:string;
+}) => {
+  const { microsoftGraphLookup, projectExternalRecord } =
+    await import('../backend/src/modules/dealExternalSources.js');
+  const lookup = microsoftGraphLookup(watch);
+  const token = await getAccessToken(connection);
+  const granted = new Set(token.connection.granted_scopes ?? []);
+  const acceptable = lookup.scope === 'Files.Read'
+    ? ['Files.Read','Files.Read.All','Sites.Read.All']
+    : [lookup.scope];
+  if (!acceptable.some(scope=>granted.has(scope))) {
+    throw new ApiError(`Escopo Microsoft ${lookup.scope} insuficiente para monitoramento.`,403);
+  }
+  const raw=await graphRequest<JsonRecord>(token.accessToken,lookup.path);
+  const record=projectExternalRecord(watch.provider,raw);
+  if (record.externalId !== watch.externalId) throw new ApiError('Fonte Microsoft retornou ID divergente.',409);
+  return record;
+};
+const monitorOneExactSource = async (watch: DealSourceWatch, connection: MicrosoftConnection) => {
+  const { fingerprintOfRecord, safeWatchFailureCode } =
+    await import('../backend/src/modules/dealSourceWatch.js');
+  try {
+    const record=await fetchExactWatchRecord(connection,{
+      provider:watch.provider,externalId:watch.external_id,
+      ...(watch.provider==='teams'?{chatId:watch.context_id}:{}),
+      ...(watch.provider==='sharepoint'?{driveId:watch.context_id}:{}),
+    });
+    const fingerprint=fingerprintOfRecord(record);
+    const changed=fingerprint!==watch.last_fingerprint;
+    if (changed) {
+      const { DealCardService }=await import('../backend/src/services/dealCardService.js');
+      await new DealCardService().enqueueSource(watch.owner_user_id,{
+        provider:record.provider,externalId:record.externalId,title:record.title,
+        sourceRef:record.url,occurredAt:record.occurredAt,fingerprint:record.resourceFingerprint,
+      });
+    }
+    await dbUpdate('dcm_source_watches',{id:`eq.${watch.id}`,
+      owner_user_id:`eq.${watch.owner_user_id}`,status:'eq.active'},{
+      last_fingerprint:fingerprint,last_checked_at:nowIso(),
+      ...(changed?{last_changed_at:nowIso()}:{}),
+      consecutive_errors:0,last_error_code:null,updated_at:nowIso(),
+    });
+    return {ok:true,changed};
+  } catch (error) {
+    const consecutiveErrors=Number(watch.consecutive_errors ?? 0)+1;
+    const paused=consecutiveErrors>=3;
+    await dbUpdate('dcm_source_watches',{
+      id:`eq.${watch.id}`,owner_user_id:`eq.${watch.owner_user_id}`,status:'eq.active',
+    },{
+      consecutive_errors:consecutiveErrors,status:paused?'paused':'active',
+      last_checked_at:nowIso(),last_error_code:safeWatchFailureCode(error),
+      updated_at:nowIso(),
+    });
+    return {ok:false,changed:false,paused,errorCode:safeWatchFailureCode(error)};
+  }
+};
+
 const ensureTodoList = async (connection: MicrosoftConnection, accessToken: string) => {
   if (connection.todo_list_id) return connection.todo_list_id;
   const lists = await graphCollection<JsonRecord>(accessToken, '/me/todo/lists');
@@ -617,6 +686,38 @@ export default async function handler(req: MicrosoftRequest, res: VercelResponse
       });
     }
 
+    if (operation === 'cron-deal-watches' && ['GET','POST'].includes(req.method ?? '')) {
+      if (!isCronAuthorized(req)) throw new ApiError('Cron Microsoft não autorizado.',401);
+      if (!watchEnabled()) return writeJson(res,200,{
+        status:'real',generatedAt:nowIso(),data:{enabled:false,checked:0,changed:0,failed:0},
+      });
+      const { MAX_WATCHES_PER_RUN }=await import('../backend/src/modules/dealSourceWatch.js');
+      const watches=await dbSelect<DealSourceWatch[]>('dcm_source_watches',{
+        select:'*',status:'eq.active',order:'last_checked_at.asc',limit:String(MAX_WATCHES_PER_RUN),
+      });
+      const started=Date.now();
+      const summary={enabled:true,checked:0,changed:0,failed:0,paused:0};
+      for(const watch of watches) {
+        if(Date.now()-started>18_000) break;
+        const conn=await getConnection(watch.owner_user_id);
+        if(!conn || conn.status!=='active'){
+          await dbUpdate('dcm_source_watches',{id:`eq.${watch.id}`,owner_user_id:`eq.${watch.owner_user_id}`},{
+            status:'paused',last_checked_at:nowIso(),last_error_code:'OAUTH_DISCONNECTED',
+            updated_at:nowIso(),
+          });
+          summary.failed++;summary.paused++;summary.checked++;
+          continue;
+        }
+        const item=await monitorOneExactSource(watch,conn);
+        summary.checked++;
+        if(item.changed)summary.changed++;
+        if(!item.ok)summary.failed++;
+        if(item.paused)summary.paused++;
+      }
+      return writeJson(res,summary.failed?207:200,{status:summary.failed?'partial':'real',
+        generatedAt:nowIso(),data:summary});
+    }
+
     const user = await authenticate(req);
     const connection = await getConnection(user.id);
 
@@ -705,6 +806,69 @@ export default async function handler(req: MicrosoftRequest, res: VercelResponse
       const card = captured.status === 'ingested' ? await service.rebuild(dealId, user.id) : null;
       return writeJson(res, 201, { status: 'real', generatedAt: nowIso(),
         data: { captured, cardVersion: (card as any)?.snapshot?.version ?? null } });
+    }
+
+    // Each watch is an explicit opt-in for ONE item, using the owner's OAuth.
+    if (operation === 'deal-watch-list' && req.method === 'GET') {
+      const items=await dbSelect<DealSourceWatch[]>('dcm_source_watches',{
+        select:'id,provider,external_id,context_id,status,last_checked_at,last_changed_at,consecutive_errors,last_error_code',
+        owner_user_id:`eq.${user.id}`,limit:'100',order:'created_at.desc',
+      });
+      return writeJson(res,200,{status:'real',generatedAt:nowIso(),data:items});
+    }
+    if (operation === 'deal-watch-add' && req.method === 'POST') {
+      if (!watchEnabled() || process.env.DEAL_CARD_MICROSOFT_ENABLED!=='true')
+        throw new ApiError('Monitoramento Microsoft não habilitado para a SRM.',503);
+      const { normalizeWatchRequest, fingerprintOfRecord }=
+        await import('../backend/src/modules/dealSourceWatch.js');
+      const watch=normalizeWatchRequest({
+        provider:String(req.body?.provider??'') as DealSourceWatch['provider'],
+        externalId:String(req.body?.externalId??''),
+        chatId:typeof req.body?.chatId==='string'?req.body.chatId:undefined,
+        driveId:typeof req.body?.driveId==='string'?req.body.driveId:undefined,
+        confirmed:req.body?.confirmed===true,
+      });
+      const record=await fetchExactWatchRecord(connection,{
+        provider:watch.provider,externalId:watch.external_id,
+        ...(watch.provider==='teams'?{chatId:watch.context_id}:{}),
+        ...(watch.provider==='sharepoint'?{driveId:watch.context_id}:{}),
+      });
+      const { DealCardService }=await import('../backend/src/services/dealCardService.js');
+      const queued=await new DealCardService().enqueueSource(user.id,{
+        provider:record.provider,externalId:record.externalId,title:record.title,
+        sourceRef:record.url,occurredAt:record.occurredAt,fingerprint:record.resourceFingerprint,
+      });
+      const added=await dbUpsert<DealSourceWatch[]>('dcm_source_watches',[{
+        owner_user_id:user.id,provider:watch.provider,external_id:watch.external_id,
+        context_id:watch.context_id,status:'active',
+        last_fingerprint:fingerprintOfRecord(record),last_checked_at:nowIso(),
+        last_changed_at:nowIso(),consecutive_errors:0,last_error_code:null,updated_at:nowIso(),
+      }],'owner_user_id,provider,external_id,context_id');
+      return writeJson(res,201,{status:'real',generatedAt:nowIso(),
+        data:{watch:added[0],intakeId:queued.id,approvalRequired:true}});
+    }
+    if (operation === 'deal-watch-pause' && req.method === 'POST') {
+      const watchId=String(req.body?.watchId??'');
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(watchId))
+        throw new ApiError('watchId inválido.',400);
+      const changed=await dbUpdate<DealSourceWatch[]>('dcm_source_watches',{
+        id:`eq.${watchId}`,owner_user_id:`eq.${user.id}`,
+      },{status:'paused',updated_at:nowIso()});
+      if(!changed.length) throw new ApiError('Monitor não encontrado.',404);
+      return writeJson(res,200,{status:'real',generatedAt:nowIso(),data:{paused:true,watchId}});
+    }
+    if (operation === 'deal-watch-check' && req.method === 'POST') {
+      if (!watchEnabled()) throw new ApiError('Monitoramento não habilitado.',503);
+      const watchId=String(req.body?.watchId??'');
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(watchId))
+        throw new ApiError('watchId inválido.',400);
+      const found=await dbSelect<DealSourceWatch[]>('dcm_source_watches',{
+        select:'*',id:`eq.${watchId}`,owner_user_id:`eq.${user.id}`,status:'eq.active',limit:'1',
+      });
+      if(!found[0]) throw new ApiError('Monitor ativo não encontrado.',404);
+      const result=await monitorOneExactSource(found[0],connection);
+      return writeJson(res,result.ok?200:207,{status:result.ok?'real':'partial',
+        generatedAt:nowIso(),data:result});
     }
 
     if (operation === 'bootstrap' && req.method === 'POST') {
