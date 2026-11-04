@@ -6,6 +6,9 @@ import { Card, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../
 import type { CompanyListItem } from '../lib/types';
 
 type Deal = { id: string; company_id: string; title: string; product: string; stage: string; status: string; revisit_of?: string | null };
+type WatchItem = {id:string;provider:string;external_id:string;context_id:string;
+  status:'active'|'paused';last_checked_at?:string|null;last_changed_at?:string|null;
+  consecutive_errors?:number;last_error_code?:string|null};
 type InboxItem = {id:string; provider:string; external_id:string; title:string; source_ref?:string|null;
   status:'pending'|'linked'|'ignored'; suggested_opportunity_id?:string|null; linked_opportunity_id?:string|null;
   first_seen_at:string; last_seen_at:string; seen_count:number; resolution_note?:string|null };
@@ -44,6 +47,10 @@ export function DealCardPage() {
   const [companies,setCompanies] = useState<CompanyListItem[]>([]);
   const [deals,setDeals] = useState<Deal[]>([]);
   const [inbox,setInbox] = useState<InboxItem[]>([]);
+  const [watches,setWatches] = useState<WatchItem[]>([]);
+  const [watchLoaded,setWatchLoaded] = useState(false);
+  const [watchConfirmed,setWatchConfirmed] = useState(false);
+
   const [inboxStatus,setInboxStatus] = useState('pending');
   const [inboxProvider,setInboxProvider] = useState('outlook_email');
   const [inboxExternalId,setInboxExternalId] = useState('');
@@ -82,6 +89,10 @@ export function DealCardPage() {
   const [actionDue,setActionDue] = useState('');
   const [reviewNotes,setReviewNotes] = useState<Record<string,string>>({});
 
+  const loadWatches = async () => {
+    setWatches((await api.listMicrosoftDealWatches(session)) as WatchItem[]);
+    setWatchLoaded(true);
+  };
   const loadInbox = async (status: string = inboxStatus) => {
     const rows=await api.listDealSourceInbox(session,status);
     setInbox(rows as InboxItem[]);
@@ -154,6 +165,27 @@ export function DealCardPage() {
       await loadInbox();
     },'A fonte Microsoft foi consultada com sua permissão e colocada na fila, sem vínculo automático.',false);
   };
+  const startWatch = async () => {
+    if (!watchConfirmed || !inboxExternalId.trim()) return;
+    await execute(async()=>{
+      await api.createMicrosoftDealWatch(session,{
+        provider:inboxProvider,externalId:inboxExternalId.trim(),confirmed:true,
+        ...(inboxProvider==='teams'?{chatId:inboxChatId.trim()}:{}),
+        ...(inboxProvider==='sharepoint'?{driveId:inboxDriveId.trim()}:{}),
+      });
+      setWatchConfirmed(false);
+      await Promise.all([loadWatches(),loadInbox()]);
+    },'Monitoramento deste ID cadastrado com sua autorização explícita. A execução recorrente depende da ativação corporativa.',false);
+  };
+  const pauseWatch = async (id: string) => execute(async()=>{
+    await api.pauseMicrosoftDealWatch(session,id);
+    await loadWatches();
+  },'Monitoramento pausado. Evidências já registradas foram preservadas.',false);
+  const checkWatch = async (id: string) => execute(async()=>{
+    const result=await api.checkMicrosoftDealWatch(session,id);
+    await Promise.all([loadWatches(),loadInbox()]);
+    if(result?.ok===false)throw new Error('Verificação sem sucesso: '+String(result.errorCode??'erro de fonte'));
+  },'Fonte verificada: alterações foram encaminhadas à fila para decisão humana.',false);
   const resolveSource = async (item: InboxItem, action:'link'|'ignore') => {
     const target = action==='link' ? inboxTargets[item.id] : undefined;
     const note = (inboxNotes[item.id]??'').trim();
@@ -316,8 +348,42 @@ export function DealCardPage() {
             Exige conexão Microsoft autorizada e escopo de leitura. A consulta é apenas do ID indicado;
             o conteúdo completo não é armazenado na fila.
           </p>
+          <label style={{display:'flex',gap:10,alignItems:'center'}}>
+            <input type="checkbox" checked={watchConfirmed}
+              onChange={e=>setWatchConfirmed(e.target.checked)} />
+            Autorizo monitorar periodicamente somente este ID na minha conta Microsoft.
+          </label>
+          <button type="button" className="secondary"
+            disabled={busy||!watchConfirmed||!inboxExternalId.trim()||
+              (inboxProvider==='teams'&&!inboxChatId.trim())||
+              (inboxProvider==='sharepoint'&&!inboxDriveId.trim())}
+            onClick={()=>void startWatch()}>
+            Autorizar monitoramento deste registro
+          </button>
         </>:null}
       </form>
+      <div className="top-gap">
+        <button type="button" className="secondary" disabled={busy}
+          onClick={()=>void execute(loadWatches,'Monitores Microsoft carregados.',false)}>
+          Consultar meus monitores Microsoft
+        </button>
+        {watchLoaded?<div className="stack-blocks top-gap">
+          {watches.length?watches.map(w=><div className="mini-panel" key={w.id}>
+            <div className="row-between"><strong>{w.provider} · {w.external_id}</strong>
+              <Pill tone={w.status==='active'?'info':'warning'}>{w.status}</Pill></div>
+            <p className="table-helper">
+              {w.last_checked_at?'Última consulta: '+new Date(w.last_checked_at).toLocaleString('pt-BR'):'Sem consulta registrada'}
+              {w.last_error_code?' · '+w.last_error_code:''}
+            </p>
+            {w.status==='active'?<div className="pill-row">
+              <button type="button" className="secondary" disabled={busy}
+                onClick={()=>void checkWatch(w.id)}>Verificar agora</button>
+              <button type="button" className="secondary" disabled={busy}
+                onClick={()=>void pauseWatch(w.id)}>Pausar monitoramento</button>
+            </div>:null}
+          </div>):<p>Nenhum registro monitorado nesta conta.</p>}
+        </div>:null}
+      </div>
       <div className="top-gap">
         <label>Visualizar fila
           <select value={inboxStatus} onChange={e=>{
