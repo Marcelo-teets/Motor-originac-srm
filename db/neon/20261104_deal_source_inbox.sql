@@ -59,3 +59,16 @@ comment on table public.dcm_source_intake is
   'Private, minimally identifying source metadata awaiting explicit deal association. No source body or transcript.';
 comment on table public.dcm_source_intake_decisions is
   'Append-only human attribution and discard decisions. No automatic matching permissions.';
+
+-- Even the application DB role cannot modify or remove recorded decisions.
+-- A superuser/database administrator can still perform authorized maintenance.
+create or replace function public.dcm_block_source_intake_decision_mutation()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'Deal source intake decisions are append-only';
+end
+$$;
+drop trigger if exists dcm_source_intake_decisions_immutable on public.dcm_source_intake_decisions;
+create trigger dcm_source_intake_decisions_immutable
+before update or delete on public.dcm_source_intake_decisions
+for each row execute function public.dcm_block_source_intake_decision_mutation();
