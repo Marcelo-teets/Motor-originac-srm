@@ -64,7 +64,7 @@ test('Fireflies adapter accesses exact meeting ID with key only in request heade
   assert.equal(called,'https://api.fireflies.ai/graphql');
   assert.equal(record.provider,'fireflies');
   assert.equal(record.excerpt,'Funding de R$ 80 milhões');
-  assert.equal(captureFromExternal(record,'deal-1').claims?.[0]?.status,undefined);
+  assert.equal(captureFromExternal(record,'deal-1').claims?.[0]?.claimType,'hypothesis');
 });
 test('Fireflies response fails closed on different ID and GraphQL errors', async () => {
   const fake = (value:unknown):typeof fetch => async()=>new Response(JSON.stringify(value),{status:200});
