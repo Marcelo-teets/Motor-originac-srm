@@ -224,6 +224,14 @@ export const api = {
     (await requestEnvelope<any>(`/origination-ai/deal-card?dealId=${encodeURIComponent(dealId)}`, session)).data,
   getDealEvidence: async (session: SessionData | null, dealId: string) =>
     (await requestEnvelope<any[]>(`/origination-ai/deal-evidence?dealId=${encodeURIComponent(dealId)}`, session)).data,
+  importFirefliesDealSource: async (session: SessionData | null, dealId: string, meetingId: string) =>
+    (await requestEnvelope<any>(`/origination-ai/deal-import-fireflies?dealId=${encodeURIComponent(dealId)}`, session,
+      { method: 'POST', body: JSON.stringify({ meetingId }) })).data,
+  importMicrosoftDealSource: async (session: SessionData | null, payload: {
+    dealId: string; provider: string; externalId: string; chatId?: string; driveId?: string;
+  }) =>
+    (await requestEnvelope<any>('/integrations/microsoft/deal-source-import', session,
+      { method: 'POST', body: JSON.stringify(payload) })).data,
   captureDealSource: async (session: SessionData | null, dealId: string, payload: Record<string, unknown>) =>
     (await requestEnvelope<any>(`/origination-ai/deal-capture?dealId=${encodeURIComponent(dealId)}`, session,
       { method: 'POST', body: JSON.stringify(payload) })).data,
