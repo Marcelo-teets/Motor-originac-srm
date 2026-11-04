@@ -36,6 +36,19 @@ export const handleOriginationAi = async (req: RequestWithBody, res: VercelRespo
         revisitOf: body.revisitOf ? String(body.revisitOf) : null,
       }));
     if (!dealId) throw Object.assign(new Error('dealId é obrigatório.'), { statusCode: 400 });
+    // Shared Fireflies key is opt-in and reserved to the named deal owner.
+    if (method === 'POST' && action === 'deal-import-fireflies') {
+      if (process.env.DEAL_CARD_FIREFLIES_ENABLED !== 'true') {
+        throw Object.assign(new Error('Conector Fireflies não habilitado pela SRM.'), { statusCode: 503 });
+      }
+      await dealService.assertOwner(dealId, authUser.id);
+      const meetingId = typeof body.meetingId === 'string' ? body.meetingId : '';
+      const { fetchFirefliesById, captureFromExternal } = await import('../backend/src/modules/dealExternalSources.js');
+      const source = await fetchFirefliesById(meetingId, process.env.FIREFLIES_API_KEY ?? '');
+      const captured = await dealService.capture(dealId, authUser.id, captureFromExternal(source, dealId));
+      const card = captured.status === 'ingested' ? await dealService.rebuild(dealId, authUser.id) : null;
+      return ok(res, 201, { captured, cardVersion: (card as any)?.snapshot?.version ?? null });
+    }
     if (method === 'GET' && action === 'deal-card')
       return ok(res, 200, await dealService.getCard(dealId, authUser.id));
     if (method === 'GET' && action === 'deal-evidence')
