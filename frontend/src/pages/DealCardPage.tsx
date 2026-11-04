@@ -338,7 +338,18 @@ export function DealCardPage() {
                 onClick={()=>void execute(async()=>{
                   await api.reviewDealEvidence(session,selected,{claimId:ev.id,status:'validated',note:reviewNotes[ev.id]});
                   await api.rebuildDealCard(session,selected);
-                },'Informação validada e card recalculado.')}>Validar</button>
+                },'Revisão registrada. Hipóteses permanecem pendentes de confirmação documental.')}>{ev.claim_type==='hypothesis'?'Validar hipótese':'Validar'}</button>
+              {ev.claim_type === 'hypothesis' ? <button type="button" className="secondary"
+                disabled={busy || (reviewNotes[ev.id]??'').trim().length < 30}
+                title="Confirme apenas após conferir uma fonte primária e justificar a decisão."
+                onClick={()=>void execute(async()=>{
+                  await api.reviewDealEvidence(session,selected,{
+                    claimId:ev.id,status:'validated',claimType:'fact',note:reviewNotes[ev.id],
+                  });
+                  await api.rebuildDealCard(session,selected);
+                },'Hipótese confirmada como fato, com revisão humana documentada.')}>
+                Confirmar como fato
+              </button> : null}
               <button type="button" className="secondary" disabled={busy||!(reviewNotes[ev.id]??'').trim()}
                 onClick={()=>void execute(async()=>{
                   await api.reviewDealEvidence(session,selected,{claimId:ev.id,status:'disputed',note:reviewNotes[ev.id]});
