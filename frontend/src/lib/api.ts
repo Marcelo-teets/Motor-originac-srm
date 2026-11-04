@@ -239,6 +239,18 @@ export const api = {
   importFirefliesDealSource: async (session: SessionData | null, dealId: string, meetingId: string) =>
     (await requestEnvelope<any>(`/origination-ai/deal-import-fireflies?dealId=${encodeURIComponent(dealId)}`, session,
       { method: 'POST', body: JSON.stringify({ meetingId }) })).data,
+  listMicrosoftDealWatches: async (session: SessionData | null): Promise<any[]> =>
+    (await requestEnvelope<any[]>('/integrations/microsoft/deal-watch-list',session)).data,
+  createMicrosoftDealWatch: async (session: SessionData | null, payload: {
+    provider:string;externalId:string;chatId?:string;driveId?:string;confirmed:true;
+  }) => (await requestEnvelope<any>('/integrations/microsoft/deal-watch-add',session,
+    {method:'POST',body:JSON.stringify(payload)})).data,
+  pauseMicrosoftDealWatch: async (session: SessionData | null, watchId:string) =>
+    (await requestEnvelope<any>('/integrations/microsoft/deal-watch-pause',session,
+      {method:'POST',body:JSON.stringify({watchId})})).data,
+  checkMicrosoftDealWatch: async (session: SessionData | null, watchId:string) =>
+    (await requestEnvelope<any>('/integrations/microsoft/deal-watch-check',session,
+      {method:'POST',body:JSON.stringify({watchId})})).data,
   enqueueMicrosoftDealSource: async (session: SessionData | null, payload: {
     provider: string; externalId: string; chatId?: string; driveId?: string;
   }) => (await requestEnvelope<any>('/integrations/microsoft/deal-source-inbox', session,
