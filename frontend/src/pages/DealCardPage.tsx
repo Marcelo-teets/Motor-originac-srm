@@ -6,6 +6,9 @@ import { Card, EmptyState, ErrorState, LoadingState, PageIntro, Pill } from '../
 import type { CompanyListItem } from '../lib/types';
 
 type Deal = { id: string; company_id: string; title: string; product: string; stage: string; status: string; revisit_of?: string | null };
+type InboxItem = {id:string; provider:string; external_id:string; title:string; source_ref?:string|null;
+  status:'pending'|'linked'|'ignored'; suggested_opportunity_id?:string|null; linked_opportunity_id?:string|null;
+  first_seen_at:string; last_seen_at:string; seen_count:number; resolution_note?:string|null };
 type Evidence = { id: string; source_id: string; field_key: string; reference_period?: string | null; value_json: unknown;
   claim_type: string; materiality: string; status: string; confidence: number; resolution_note?: string | null };
 type Snapshot = { id: string; version: number; state: string; payload: {
@@ -40,6 +43,15 @@ export function DealCardPage() {
   const [params,setParams] = useSearchParams();
   const [companies,setCompanies] = useState<CompanyListItem[]>([]);
   const [deals,setDeals] = useState<Deal[]>([]);
+  const [inbox,setInbox] = useState<InboxItem[]>([]);
+  const [inboxStatus,setInboxStatus] = useState('pending');
+  const [inboxProvider,setInboxProvider] = useState('outlook_email');
+  const [inboxExternalId,setInboxExternalId] = useState('');
+  const [inboxTitle,setInboxTitle] = useState('');
+  const [inboxSourceRef,setInboxSourceRef] = useState('');
+  const [inboxTargets,setInboxTargets] = useState<Record<string,string>>({});
+  const [inboxNotes,setInboxNotes] = useState<Record<string,string>>({});
+
   const [selected,setSelected] = useState(params.get('dealId') ?? '');
   const [snapshot,setSnapshot] = useState<Snapshot|null>(null);
   const [evidence,setEvidence] = useState<Evidence[]>([]);
@@ -68,6 +80,10 @@ export function DealCardPage() {
   const [actionDue,setActionDue] = useState('');
   const [reviewNotes,setReviewNotes] = useState<Record<string,string>>({});
 
+  const loadInbox = async (status: string = inboxStatus) => {
+    const rows=await api.listDealSourceInbox(session,status);
+    setInbox(rows as InboxItem[]);
+  };
   const loadDeals = async () => {
     const [list, companiesState] = await Promise.all([api.listDealCards(session),api.getCompanies(session)]);
     setDeals(list);
@@ -83,10 +99,10 @@ export function DealCardPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);setError('');
-    Promise.all([api.listDealCards(session),api.getCompanies(session)])
-      .then(async ([list,state]) => {
+    Promise.all([api.listDealCards(session),api.getCompanies(session),api.listDealSourceInbox(session)])
+      .then(async ([list,state,queue]) => {
         if (!live) return;
-        setDeals(list);setCompanies(state.data);
+        setDeals(list);setCompanies(state.data);setInbox(queue as InboxItem[]);
         const id = params.get('dealId') || '';
         if (id) await loadDetails(id);
       }).catch(e => {if(live)setError(e instanceof Error?e.message:String(e));})
@@ -110,6 +126,30 @@ export function DealCardPage() {
       setNotice(message);
     } catch(e) {setError(e instanceof Error?e.message:String(e));}
     finally {setBusy(false);}
+  };
+  const submitInbox = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inboxTitle.trim() || !inboxExternalId.trim()) return;
+    await execute(async()=>{
+      await api.addDealSourceInbox(session,{
+        provider:inboxProvider,title:inboxTitle.trim(),externalId:inboxExternalId.trim(),
+        ...(inboxSourceRef.trim()?{sourceRef:inboxSourceRef.trim()}:{}),
+      });
+      setInboxTitle('');setInboxExternalId('');setInboxSourceRef('');
+      await loadInbox();
+    },'Fonte recebida em quarentena, sem vínculo automático com qualquer oportunidade.',false);
+  };
+  const resolveSource = async (item: InboxItem, action:'link'|'ignore') => {
+    const target = action==='link' ? inboxTargets[item.id] : undefined;
+    const note = (inboxNotes[item.id]??'').trim();
+    if (note.length < 10 || (action==='link'&&!target)) return;
+    await execute(async()=>{
+      await api.resolveDealSourceInbox(session,{
+        intakeId:item.id,action,...(target?{dealId:target}:{}),note,
+      });
+      if(target) await api.rebuildDealCard(session,target);
+      await loadInbox();
+    },action==='link'?'Vínculo aprovado, auditado e registrado na oportunidade.':'Fonte descartada com justificativa registrada.');
   };
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,6 +256,88 @@ export function DealCardPage() {
         </form>
       </Card>
     </section>
+    <Card title="Inbox de fontes para triagem" subtitle="Uma fonte pode chegar antes de sabermos a qual oportunidade pertence">
+      <p className="table-helper">
+        A origem fica em uma fila privada e não alimenta nenhum Deal Card até você selecionar
+        a operação e justificar o vínculo. Registre apenas metadados; não copie e-mails,
+        transcrições ou dados pessoais para esta tela.
+      </p>
+      <form onSubmit={e=>void submitInbox(e)} style={{display:'grid',gap:10,maxWidth:700}}>
+        <label>Tipo de fonte
+          <select value={inboxProvider} onChange={e=>setInboxProvider(e.target.value)}>
+            {providers.map(p=><option value={p} key={p}>{p}</option>)}
+          </select>
+        </label>
+        <label>ID original do registro
+          <input required maxLength={400} value={inboxExternalId}
+            onChange={e=>setInboxExternalId(e.target.value)} placeholder="ID único na fonte original" />
+        </label>
+        <label>Título da fonte
+          <input required maxLength={240} value={inboxTitle}
+            onChange={e=>setInboxTitle(e.target.value)} placeholder="Ex.: Reunião de apresentação do negócio" />
+        </label>
+        <label>Link HTTPS (opcional, sem tokens de acesso)
+          <input value={inboxSourceRef} onChange={e=>setInboxSourceRef(e.target.value)}
+            placeholder="https://..." />
+        </label>
+        <button type="submit" disabled={busy||!inboxTitle.trim()||!inboxExternalId.trim()}>
+          Adicionar à fila, sem vincular
+        </button>
+      </form>
+      <div className="top-gap">
+        <label>Visualizar fila
+          <select value={inboxStatus} onChange={e=>{
+            setInboxStatus(e.target.value);
+            void loadInbox(e.target.value).catch(err=>setError(String(err)));
+          }}>
+            <option value="pending">Pendentes de vínculo</option>
+            <option value="linked">Já vinculadas</option>
+            <option value="ignored">Descartadas</option>
+            <option value="all">Todas</option>
+          </select>
+        </label>
+        {inbox.length?<div className="stack-blocks top-gap">
+          {inbox.map(item=><div className="mini-panel" key={item.id}>
+            <div className="row-between"><strong>{item.title}</strong>
+              <Pill tone={item.status==='pending'?'warning':'info'}>{item.status}</Pill>
+            </div>
+            <p className="table-helper">{item.provider} · ID: {item.external_id}
+              {item.seen_count>1?' · reapresentada '+item.seen_count+' vezes':''}</p>
+            {item.source_ref&&validLink(item.source_ref)?<a href={item.source_ref}
+              target="_blank" rel="noopener noreferrer">Consultar fonte original</a>:null}
+            {item.status==='pending'?<div style={{display:'grid',gap:8,maxWidth:650}}>
+              {item.suggested_opportunity_id?
+                <p className="table-helper">Vínculo sugerido, ainda não confirmado:
+                  {deals.find(d=>d.id===item.suggested_opportunity_id)?.title??'não disponível'}
+                </p>:null}
+              <label>Escolha explicitamente a oportunidade
+                <select value={inboxTargets[item.id]??''}
+                  onChange={e=>setInboxTargets(s=>({...s,[item.id]:e.target.value}))}>
+                  <option value="">Sem vínculo aprovado</option>
+                  {deals.map(d=><option value={d.id} key={d.id}>{d.title}</option>)}
+                </select>
+              </label>
+              <label>Justificativa da decisão (mínimo 10 caracteres)
+                <textarea rows={2} maxLength={2000} value={inboxNotes[item.id]??''}
+                  onChange={e=>setInboxNotes(s=>({...s,[item.id]:e.target.value}))}
+                  placeholder="Indique como confirmou a oportunidade correta." />
+              </label>
+              <div className="pill-row">
+                <button type="button" disabled={busy||!(inboxTargets[item.id])||
+                  (inboxNotes[item.id]??'').trim().length<10}
+                  onClick={()=>void resolveSource(item,'link')}>Aprovar vínculo</button>
+                <button type="button" className="secondary"
+                  disabled={busy||(inboxNotes[item.id]??'').trim().length<10}
+                  onClick={()=>void resolveSource(item,'ignore')}>Descartar fonte</button>
+              </div>
+            </div>:<p className="table-helper">
+              {item.status==='linked'?'Vinculada a '+(deals.find(d=>d.id===item.linked_opportunity_id)?.title??'oportunidade autorizada'):'Descartada'}
+              {item.resolution_note?' · '+item.resolution_note:''}
+            </p>}
+          </div>)}
+        </div>:<EmptyState title="Nenhuma fonte nesta situação." description="A triagem protege operações e parceiros de associações incorretas."/>}
+      </div>
+    </Card>
     {selected ? <section className="stack-blocks">
       <Card title={snapshot?.payload?.opportunity.title??'Deal Card ainda não gerado'}
         subtitle={`Oportunidade ${selected} · ${snapshot ? 'Versão '+snapshot.version+' · '+snapshot.state:'Sem snapshot'}`}>
