@@ -651,6 +651,51 @@ export default async function handler(req: MicrosoftRequest, res: VercelResponse
 
     if (!connection) throw new ApiError('Conta Microsoft ainda não conectada.', 409);
 
+    // Narrow, opt-in, single-record imports. The logged-in user's own
+    // delegated Microsoft token is used; no tenant-wide mailbox crawler.
+    if (operation === 'deal-source-import' && req.method === 'POST') {
+      if (process.env.DEAL_CARD_MICROSOFT_ENABLED !== 'true') {
+        throw new ApiError('Conector Microsoft do Deal Card não habilitado.', 503);
+      }
+      const dealId = String(req.body?.dealId ?? '');
+      const externalId = String(req.body?.externalId ?? '');
+      const provider = String(req.body?.provider ?? '');
+      if (!dealId || !externalId) throw new ApiError('dealId e externalId são obrigatórios.', 400);
+      const { DealCardService } = await import('../backend/src/services/dealCardService.js');
+      const service = new DealCardService();
+      await service.assertEditable(dealId, user.id);
+      const { microsoftGraphLookup, projectExternalRecord, captureFromExternal } =
+        await import('../backend/src/modules/dealExternalSources.js');
+      if (!['outlook_email','outlook_calendar','teams','sharepoint'].includes(provider)) {
+        throw new ApiError('Provedor Microsoft inválido.', 400);
+      }
+      const lookup = microsoftGraphLookup({
+        provider: provider as 'outlook_email' | 'outlook_calendar' | 'teams' | 'sharepoint',
+        externalId,
+        chatId: typeof req.body?.chatId === 'string' ? req.body.chatId : undefined,
+        driveId: typeof req.body?.driveId === 'string' ? req.body.driveId : undefined,
+      });
+      const token = await getAccessToken(connection);
+      const granted = new Set(token.connection.granted_scopes ?? []);
+      const permission = lookup.scope;
+      const acceptable = permission === 'Files.Read'
+        ? ['Files.Read','Files.Read.All','Sites.Read.All']
+        : [permission];
+      if (!acceptable.some((scope) => granted.has(scope))) {
+        throw new ApiError(`Permissão Microsoft ${permission} não concedida. Configure o escopo e refaça o consentimento.`, 403);
+      }
+      const raw = await graphRequest<JsonRecord>(token.accessToken, lookup.path);
+      const record = projectExternalRecord(
+        provider as 'outlook_email' | 'outlook_calendar' | 'teams' | 'sharepoint',
+        raw,
+      );
+      if (record.externalId !== externalId) throw new ApiError('A fonte retornada possui ID divergente.', 409);
+      const captured = await service.capture(dealId, user.id, captureFromExternal(record, dealId));
+      const card = captured.status === 'ingested' ? await service.rebuild(dealId, user.id) : null;
+      return writeJson(res, 201, { status: 'real', generatedAt: nowIso(),
+        data: { captured, cardVersion: (card as any)?.snapshot?.version ?? null } });
+    }
+
     if (operation === 'bootstrap' && req.method === 'POST') {
       const token = await getAccessToken(connection);
       const todoListId = await ensureTodoList(token.connection, token.accessToken);
