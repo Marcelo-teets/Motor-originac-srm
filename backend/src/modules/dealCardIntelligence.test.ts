@@ -76,3 +76,12 @@ test('reviewed actions are removed from outstanding; history is preserved', () =
   assert.equal(card.actions.length,1);
   assert.equal(card.history.length,2);
 });
+
+test('reviewed hypotheses remain pending and cannot satisfy hard checklist fields', () => {
+  const card=assembleDealCard({opportunity,sources:[source('a')],
+    claims:[claim('c1','a','requestedAmount',50_000_000,{claimType:'hypothesis',status:'validated'})],
+    events:[]});
+  assert.equal(card.fields.requestedAmount.status,'pending_review');
+  assert.ok(card.readiness.missing.includes('requestedAmount'));
+  assert.equal(card.readiness.status,'REVIEW_REQUIRED');
+});
