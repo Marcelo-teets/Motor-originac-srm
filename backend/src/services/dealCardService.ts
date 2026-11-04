@@ -5,7 +5,7 @@ import {
   type DealEvent, type DealSource, type Opportunity, type Originator,
 } from '../modules/dealCardIntelligence.js';
 import { normalizeProduct } from '../modules/originationAiFlow.js';
-import { normalizeSourceIntake, mustReviewIntakeResolution, type SourceIntakeInput } from '../modules/dealSourceInbox.js';
+import { isUuid, normalizeSourceIntake, mustReviewIntakeResolution, type SourceIntakeInput } from '../modules/dealSourceInbox.js';
 
 /**
  * Authenticated Neon service. No mailbox scanning or third-party credentials here:
@@ -131,6 +131,7 @@ export class DealCardService {
     `, [actor,status]);
   }
   async inboxHistory(actor: string, intakeId: string) {
+    if (!isUuid(intakeId)) this.fail('Identificador da fonte inválido.');
     return this.db().query(`
       select d.decision,d.actor_user_id,d.opportunity_id,d.note,d.decided_at
       from public.dcm_source_intake_decisions d
@@ -142,6 +143,7 @@ export class DealCardService {
   async resolveInbox(actor: string, intakeId: string, input: {
     action: 'link' | 'ignore'; dealId?: string; note: string;
   }) {
+    if (!isUuid(intakeId)) this.fail('Identificador da fonte inválido.');
     mustReviewIntakeResolution('pending',input.action,input.note,input.dealId);
     if (input.action === 'link') {
       const dealId = input.dealId!;
