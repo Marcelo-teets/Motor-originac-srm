@@ -203,4 +203,6 @@ As alegações entram como **`proposed`**, inclusive quando o próprio extrator 
 
 ## Limitações atuais (não omitir ao apresentar)
 
-Implementado nesta branch: schema proposto, engine determinístico, workflow de ingestão manual/API, revisão humana, timeline, ações, ACL e snapshots. **Não implementado/ligado ainda**: sincronizadores live Microsoft/Fireflies/SharePoint, webhooks/jobs, UI de revisão no frontend, migração em banco real, deploy e homologação de ponta a ponta. Evitar chamar de produção até concluir o aceite.
+Implementado nesta branch: schema proposto, engine determinístico, workflow de ingestão manual/API, interface no frontend, revisão humana, timeline, ações, ACL e snapshots. Também há **consultas sob demanda por ID explícito** ao Fireflies e Microsoft Graph (Outlook, Agenda, Teams chat e metadados de SharePoint), por meio de credenciais autorizadas e *feature flags desligadas por padrão*. Detalhes em [DEAL_CARD_CONNECTORS.md](./DEAL_CARD_CONNECTORS.md).
+
+**Não implementado/ligado ainda**: varredura autorizada/recorrente, webhooks/jobs, extração de documentos, transcrições completas, matching persistente/quarentena de fontes ambíguas, integração com credenciais reais de produção, migração em banco real, deploy e homologação de ponta a ponta. A revisão de hipótese não equivale à validação documental de fato; é necessária reclassificação explícita e fundamentada. Evitar chamar de produção até concluir o aceite.
