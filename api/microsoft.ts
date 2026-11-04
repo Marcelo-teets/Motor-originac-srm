@@ -653,17 +653,18 @@ export default async function handler(req: MicrosoftRequest, res: VercelResponse
 
     // Narrow, opt-in, single-record imports. The logged-in user's own
     // delegated Microsoft token is used; no tenant-wide mailbox crawler.
-    if (operation === 'deal-source-import' && req.method === 'POST') {
+    if (['deal-source-import','deal-source-inbox'].includes(operation) && req.method === 'POST') {
       if (process.env.DEAL_CARD_MICROSOFT_ENABLED !== 'true') {
         throw new ApiError('Conector Microsoft do Deal Card não habilitado.', 503);
       }
       const dealId = String(req.body?.dealId ?? '');
       const externalId = String(req.body?.externalId ?? '');
       const provider = String(req.body?.provider ?? '');
-      if (!dealId || !externalId) throw new ApiError('dealId e externalId são obrigatórios.', 400);
+      const toInbox = operation === 'deal-source-inbox';
+      if (!externalId || (!toInbox && !dealId)) throw new ApiError('Identificador da fonte e, para importação direta, dealId são obrigatórios.', 400);
       const { DealCardService } = await import('../backend/src/services/dealCardService.js');
       const service = new DealCardService();
-      await service.assertEditable(dealId, user.id);
+      if (!toInbox) await service.assertEditable(dealId, user.id);
       const { microsoftGraphLookup, projectExternalRecord, captureFromExternal } =
         await import('../backend/src/modules/dealExternalSources.js');
       if (!['outlook_email','outlook_calendar','teams','sharepoint'].includes(provider)) {
@@ -690,6 +691,16 @@ export default async function handler(req: MicrosoftRequest, res: VercelResponse
         raw,
       );
       if (record.externalId !== externalId) throw new ApiError('A fonte retornada possui ID divergente.', 409);
+      if (toInbox) {
+        const queued = await service.enqueueSource(user.id, {
+          provider: record.provider, externalId: record.externalId, title: record.title,
+          sourceRef: record.url, occurredAt: record.occurredAt,
+          fingerprint: record.resourceFingerprint,
+        });
+        return writeJson(res, 201, { status: 'real', generatedAt: nowIso(), data: {
+          intakeId: queued.id, status: queued.status, newReviewRequired: queued.status === 'pending',
+        } });
+      }
       const captured = await service.capture(dealId, user.id, captureFromExternal(record, dealId));
       const card = captured.status === 'ingested' ? await service.rebuild(dealId, user.id) : null;
       return writeJson(res, 201, { status: 'real', generatedAt: nowIso(),
