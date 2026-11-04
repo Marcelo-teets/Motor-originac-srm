@@ -241,7 +241,7 @@ export function assembleDealCard(input: {
     const key = first.period ? first.field + '@' + first.period : first.field;
     fields[key] = {
       value: disputed ? null : first.value,
-      status: disputed ? 'disputed' : first.status === 'validated' ? 'validated' : 'pending_review',
+      status: disputed ? 'disputed' : first.status === 'validated' && first.claimType === 'fact' ? 'validated' : 'pending_review',
       period: first.period ?? null,
       confidence: disputed ? 0 : first.confidence,
       evidenceIds: ordered.map(c => c.id),
