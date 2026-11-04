@@ -35,6 +35,27 @@ export const handleOriginationAi = async (req: RequestWithBody, res: VercelRespo
         title: String(body.title ?? ''), product: body.product ? String(body.product) : undefined,
         revisitOf: body.revisitOf ? String(body.revisitOf) : null,
       }));
+    // Intake is user-owned and may exist before ANY deal association.
+    if (method === 'GET' && action === 'deal-inbox-list')
+      return ok(res, 200, await dealService.listInbox(authUser.id, one(req.query.status) ?? 'pending'));
+    if (method === 'POST' && action === 'deal-inbox-add')
+      return ok(res, 201, await dealService.enqueueSource(authUser.id, body as any));
+    if (method === 'GET' && action === 'deal-inbox-history') {
+      const intakeId = one(req.query.intakeId) ?? '';
+      if (!intakeId) throw Object.assign(new Error('intakeId obrigatório.'), { statusCode: 400 });
+      return ok(res, 200, await dealService.inboxHistory(authUser.id, intakeId));
+    }
+    if (method === 'POST' && action === 'deal-inbox-resolve') {
+      const intakeId = String(body.intakeId ?? '');
+      if (!intakeId) throw Object.assign(new Error('intakeId obrigatório.'), { statusCode: 400 });
+      const actionType = String(body.action ?? '');
+      if (actionType !== 'link' && actionType !== 'ignore')
+        throw Object.assign(new Error('Decisão de triagem inválida.'), { statusCode: 400 });
+      return ok(res, 200, await dealService.resolveInbox(authUser.id, intakeId, {
+        action: actionType, dealId: body.dealId ? String(body.dealId) : undefined,
+        note: String(body.note ?? ''),
+      }));
+    }
     if (!dealId) throw Object.assign(new Error('dealId é obrigatório.'), { statusCode: 400 });
     // Shared Fireflies key is opt-in and reserved to the named deal owner.
     if (method === 'POST' && action === 'deal-import-fireflies') {
