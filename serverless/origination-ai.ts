@@ -59,6 +59,7 @@ export const handleOriginationAi = async (req: RequestWithBody, res: VercelRespo
       return ok(res, 200, await dealService.reviewClaim(dealId, authUser.id, {
         claimId: String(body.claimId ?? ''), status: String(body.status ?? ''),
         note: String(body.note ?? ''),
+        claimType: body.claimType ? String(body.claimType) : undefined,
       }));
     if (method === 'POST' && action === 'deal-add-event')
       return ok(res, 201, await dealService.addEvent(dealId, authUser.id, body as any));
