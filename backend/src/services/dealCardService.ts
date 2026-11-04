@@ -138,12 +138,25 @@ export class DealCardService {
     }
     return { status: 'ingested', sourceId: persisted.id, newClaims: added, reviewRequired: true };
   }
-  async reviewClaim(dealId: string, actor: string, body: { claimId: string; status: string; note: string }) {
+  async reviewClaim(dealId: string, actor: string, body: { claimId: string; status: string; note: string; claimType?: string }) {
     await this.member(dealId, actor, true);
     if (!body.claimId || !['validated','disputed','superseded'].includes(body.status)
       || !body.note?.trim()) this.fail('claimId, status e justificativa são obrigatórios.');
+    const current = await this.db().select('dcm_evidence_claims', {
+      filters: [{ column: 'id', value: body.claimId }, { column: 'opportunity_id', value: dealId }],
+      limit: 1,
+    });
+    if (!current[0]) this.fail('Evidência não encontrada.', 404);
+    if (body.claimType && !['fact','analysis','hypothesis','unknown'].includes(body.claimType)) {
+      this.fail('Classificação de afirmação inválida.');
+    }
+    if (body.claimType === 'fact' && current[0].claim_type !== 'fact'
+      && (body.status !== 'validated' || body.note.trim().length < 30)) {
+      this.fail('Para confirmar uma hipótese como fato, registre justificativa fundamentada com no mínimo 30 caracteres.');
+    }
     const rows = await this.db().update('dcm_evidence_claims', {
       status: body.status, reviewed_by: actor, reviewed_at: new Date().toISOString(),
+      ...(body.claimType ? { claim_type: body.claimType } : {}),
       resolution_note: body.note.trim(), updated_at: new Date().toISOString(),
     }, [{ column: 'id', value: body.claimId }, { column: 'opportunity_id', value: dealId }]);
     if (!rows[0]) this.fail('Evidência não encontrada.', 404);
