@@ -30,6 +30,11 @@ export class DealCardService {
     if (write && membership.role === 'viewer') this.fail('Permissão de leitura apenas.', 403);
     return membership as { role: 'owner' | 'editor' | 'viewer' };
   }
+  /** Authorization boundary for server-only external provider imports. */
+  async assertEditable(dealId: string, actor: string) {
+    await this.member(dealId, actor, true);
+    return true;
+  }
   private async opportunity(dealId: string) {
     const rows = await this.db().select('dcm_opportunities', {
       filters: [{ column: 'id', value: dealId }], limit: 1,
