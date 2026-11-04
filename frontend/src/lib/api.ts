@@ -235,7 +235,7 @@ export const api = {
   captureDealSource: async (session: SessionData | null, dealId: string, payload: Record<string, unknown>) =>
     (await requestEnvelope<any>(`/origination-ai/deal-capture?dealId=${encodeURIComponent(dealId)}`, session,
       { method: 'POST', body: JSON.stringify(payload) })).data,
-  reviewDealEvidence: async (session: SessionData | null, dealId: string, payload: { claimId: string; status: string; note: string }) =>
+  reviewDealEvidence: async (session: SessionData | null, dealId: string, payload: { claimId: string; status: string; note: string; claimType?: string }) =>
     (await requestEnvelope<any>(`/origination-ai/deal-review-claim?dealId=${encodeURIComponent(dealId)}`, session,
       { method: 'POST', body: JSON.stringify(payload) })).data,
   addDealEvent: async (session: SessionData | null, dealId: string, payload: Record<string, unknown>) =>
