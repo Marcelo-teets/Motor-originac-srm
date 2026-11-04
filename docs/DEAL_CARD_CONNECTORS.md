@@ -76,3 +76,43 @@ Todos exigem `Authorization: Bearer <token Neon do usuário>`. Mesmo IDs válido
 - Microsoft Graph [Get chat message](https://learn.microsoft.com/en-us/graph/api/chatmessage-get?view=graph-rest-1.0)
 - Microsoft Graph [Get drive item](https://learn.microsoft.com/en-us/graph/api/driveitem-get?view=graph-rest-1.0)
 - Fireflies [GraphQL/API](https://fireflies.ai/api)
+
+
+## v1.2 — Inbox de fontes, decisões humanas e monitoramento restrito (04/11/2026)
+
+### Caixa de triagem de origem desconhecida
+
+- `dcm_source_intake` guarda apenas metadados: quem apresentou, fonte, ID original, título, link HTTPS sem parâmetros, data, hash e sugestão opcional.
+- `dcm_source_intake_decisions` registra as decisões `linked`/`ignored` em tabela com bloqueio de UPDATE/DELETE por trigger. Não há vínculo por nome de empresa.
+- `/api/origination-ai/deal-inbox-list` (GET), `deal-inbox-add` (POST), `deal-inbox-resolve` (POST) e `deal-inbox-history` (GET) exigem token Neon; leitura/decisão restrita ao próprio usuário. Para vincular exige ser owner/editor da oportunidade e justificar; operação e auditoria são atualizadas atomicamente.
+- Se o usuário tentar capturar sem confirmar o vínculo em `deal-capture`, o registro deixa de desaparecer: permanece na inbox com `status=quarantined`, sem conteúdo integral e sem alterar o Deal Card.
+- Reapresentações idênticas incrementam `seen_count`, sem mudar decisões anteriores. Mudanças de versão criam um novo item para revisão; links resolvidos não são reabertos automaticamente.
+- A UI mostra pendentes, vinculadas e descartadas, e permite escolher uma das oportunidades às quais o usuário já tem acesso.
+- **Atribuição à mesma empresa não é atribuição ao mesmo deal.** Cada vínculo tem que ser aprovado por pessoa.
+
+### Microsoft 365: coleta inicial antes de conhecer a oportunidade
+
+O endpoint `POST /api/integrations/microsoft/deal-source-inbox` aceita `provider`, `externalId` e, quando necessário, `chatId` ou `driveId`. Usa o token delegado do usuário, permissões Graph do tipo de fonte, seleciona apenas o ID indicado, e envia **metadados** para a inbox, sem vínculo automático. `DEAL_CARD_MICROSOFT_ENABLED=true` continua obrigatório.
+
+### Monitoramento incremental somente de registros explicitamente autorizados
+
+A implementação de `dcm_source_watches` oferece o início de coleta recorrente sem varrer toda a caixa de e-mail:
+
+1. O usuário escolhe um **ID exato** de Outlook Email, Outlook Calendar, Teams Chat ou SharePoint. Para Teams, fornece o chatId; para SharePoint, o driveId.
+2. Marca uma caixa de consentimento específico: `confirmed: true` e solicita `POST /api/integrations/microsoft/deal-watch-add`. A API valida a existência da fonte com a **conta delegada daquele usuário**, confirma o escopo e adiciona uma versão inicial à inbox.
+3. O watch persiste apenas IDs, proprietário, hash da versão consultada e horários/erros sanitizados. Não contém corpo, anexo, transcrição, token ou URL opaca de paginação.
+4. A execução de `/api/integrations/microsoft/cron-deal-watches` exige `CRON_SECRET` no backend e `DEAL_CARD_MICROSOFT_WATCH_ENABLED=true`. A rotina busca **somente watches ativos, no máximo 6 por chamada, com limite aproximado de 18 segundos para iniciar novas consultas**. Não é uma varredura de caixas de e-mail.
+5. Se o conteúdo/versão mudou, os metadados são colocados na inbox com novo fingerprint. **Nenhuma decisão de evidência ou associação é tomada automaticamente.**
+6. Em três falhas consecutivas o watch é automaticamente pausado para evitar tentativas repetitivas. Desconectar Microsoft também impede nova coleta e pode pausar o monitor.
+7. O usuário pode consultar `GET /api/integrations/microsoft/deal-watch-list`, forçar verificação por ID (`deal-watch-check`) e pausar (`deal-watch-pause`). A habilitação corporativa e agendamento ainda **não foram realizados**.
+
+**Bandeiras:** `DEAL_CARD_MICROSOFT_ENABLED=false` e `DEAL_CARD_MICROSOFT_WATCH_ENABLED=false` por padrão, em ambientes novos e existentes. Um administrador autorizado deve aprovar consentimento e ativação em homologação. `CRON_SECRET` já é uma variável existente do Motor; jamais adicioná-la ao frontend.
+
+### Limitações técnicas / jurídicas atuais
+
+- Não há inventário de fontes da empresa, leitura de pastas completas, subscriptions Graph, delta queries ou varredura de e-mails.
+- Não é válido presumir que o conector Microsoft do ChatGPT conceda acesso à aplicação Motor: são autenticações e autorizações independentes.
+- Watchers exigem que o proprietário da conexão e o recurso permaneçam autorizados, e não substituem a política de retenção, LGPD e aprovação do departamento de TI.
+- Arquivos SharePoint são capturados por metadados; leitura/parse da loan tape, de contratos e demonstrações ainda não foi desenvolvida.
+- O cron depende de agendamento externo. Escrever a rota não significa que ela esteja ativa ou agendada. A versão em desenvolvimento **não modifica produção**.
+- Antes de liberar, homologar concorrência de decisões, duas operações da mesma empresa, dois usuários com permissões distintas, revogação de consentimento, reset de token, fail-closed de Graph, incremental modificado/não modificado e falhas repetidas.
