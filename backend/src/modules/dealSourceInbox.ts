@@ -26,6 +26,10 @@ export type IntakeNormalized = {
   suggested_opportunity_id: string | null;
 };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+export const isUuid = (value: string | undefined | null) =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 const cleanText = (value: unknown, label: string, max: number) => {
   if (typeof value !== 'string' || !value.trim() || value.length > max ||
     /[\x00-\x1F\x7F]/.test(value)) throw new Error(label + ' inválido.');
@@ -58,7 +62,7 @@ export function normalizeSourceIntake(input: SourceIntakeInput): IntakeNormalize
   if (input.occurredAt && !occurred_at) throw new Error('Data da fonte inválida.');
   const fingerprint = input.fingerprint ? cleanText(input.fingerprint, 'Impressão da versão', 256) : '';
   const suggested_opportunity_id = input.suggestedDealId || null;
-  if (suggested_opportunity_id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suggested_opportunity_id)) {
+  if (suggested_opportunity_id && !isUuid(suggested_opportunity_id)) {
     throw new Error('Oportunidade sugerida inválida.');
   }
   // Keep the version stable across retries; do not hash receivedAt or user id.
@@ -74,6 +78,7 @@ export function mustReviewIntakeResolution(status: string, action: string, note:
   if (!['link','ignore'].includes(action)) throw new Error('Decisão de triagem inválida.');
   if (note.trim().length < 10 || note.length > 2000) throw new Error('Justificativa de 10 a 2000 caracteres obrigatória.');
   if (action === 'link' && !dealId) throw new Error('Selecione uma oportunidade para vincular.');
+  if (action === 'link' && !isUuid(dealId)) throw new Error('ID da oportunidade inválido.');
   if (action === 'ignore' && dealId) throw new Error('Descarte não pode vincular uma oportunidade.');
   return true;
 }
