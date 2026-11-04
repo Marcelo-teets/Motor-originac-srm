@@ -49,6 +49,8 @@ export function DealCardPage() {
   const [inboxExternalId,setInboxExternalId] = useState('');
   const [inboxTitle,setInboxTitle] = useState('');
   const [inboxSourceRef,setInboxSourceRef] = useState('');
+  const [inboxChatId,setInboxChatId] = useState('');
+  const [inboxDriveId,setInboxDriveId] = useState('');
   const [inboxTargets,setInboxTargets] = useState<Record<string,string>>({});
   const [inboxNotes,setInboxNotes] = useState<Record<string,string>>({});
 
@@ -138,6 +140,19 @@ export function DealCardPage() {
       setInboxTitle('');setInboxExternalId('');setInboxSourceRef('');
       await loadInbox();
     },'Fonte recebida em quarentena, sem vínculo automático com qualquer oportunidade.',false);
+  };
+  const enqueueMicrosoftSource = async () => {
+    if (!['outlook_email','outlook_calendar','teams','sharepoint'].includes(inboxProvider)
+      || !inboxExternalId.trim()) return;
+    await execute(async()=>{
+      await api.enqueueMicrosoftDealSource(session,{
+        provider:inboxProvider, externalId:inboxExternalId.trim(),
+        ...(inboxProvider==='teams'?{chatId:inboxChatId.trim()}:{}),
+        ...(inboxProvider==='sharepoint'?{driveId:inboxDriveId.trim()}:{}),
+      });
+      setInboxExternalId('');setInboxTitle('');setInboxSourceRef('');
+      await loadInbox();
+    },'A fonte Microsoft foi consultada com sua permissão e colocada na fila, sem vínculo automático.',false);
   };
   const resolveSource = async (item: InboxItem, action:'link'|'ignore') => {
     const target = action==='link' ? inboxTargets[item.id] : undefined;
@@ -281,8 +296,27 @@ export function DealCardPage() {
             placeholder="https://..." />
         </label>
         <button type="submit" disabled={busy||!inboxTitle.trim()||!inboxExternalId.trim()}>
-          Adicionar à fila, sem vincular
+          Adicionar metadados à fila
         </button>
+        {['outlook_email','outlook_calendar','teams','sharepoint'].includes(inboxProvider)?<>
+          {inboxProvider==='teams'?<label>ID do chat Microsoft
+            <input value={inboxChatId} required maxLength={400}
+              onChange={e=>setInboxChatId(e.target.value)} /></label>:null}
+          {inboxProvider==='sharepoint'?<label>ID da biblioteca Microsoft
+            <input value={inboxDriveId} required maxLength={400}
+              onChange={e=>setInboxDriveId(e.target.value)} /></label>:null}
+          <button className="secondary" type="button"
+            disabled={busy||!inboxExternalId.trim()||
+              (inboxProvider==='teams'&&!inboxChatId.trim())||
+              (inboxProvider==='sharepoint'&&!inboxDriveId.trim())}
+            onClick={()=>void enqueueMicrosoftSource()}>
+            Consultar Microsoft 365 e trazer à fila
+          </button>
+          <p className="table-helper">
+            Exige conexão Microsoft autorizada e escopo de leitura. A consulta é apenas do ID indicado;
+            o conteúdo completo não é armazenado na fila.
+          </p>
+        </>:null}
       </form>
       <div className="top-gap">
         <label>Visualizar fila
