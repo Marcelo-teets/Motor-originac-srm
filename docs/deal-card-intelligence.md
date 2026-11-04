@@ -206,3 +206,16 @@ As alegações entram como **`proposed`**, inclusive quando o próprio extrator 
 Implementado nesta branch: schema proposto, engine determinístico, workflow de ingestão manual/API, interface no frontend, revisão humana, timeline, ações, ACL e snapshots. Também há **consultas sob demanda por ID explícito** ao Fireflies e Microsoft Graph (Outlook, Agenda, Teams chat e metadados de SharePoint), por meio de credenciais autorizadas e *feature flags desligadas por padrão*. Detalhes em [DEAL_CARD_CONNECTORS.md](./DEAL_CARD_CONNECTORS.md).
 
 **Não implementado/ligado ainda**: varredura autorizada/recorrente, webhooks/jobs, extração de documentos, transcrições completas, matching persistente/quarentena de fontes ambíguas, integração com credenciais reais de produção, migração em banco real, deploy e homologação de ponta a ponta. A revisão de hipótese não equivale à validação documental de fato; é necessária reclassificação explícita e fundamentada. Evitar chamar de produção até concluir o aceite.
+
+
+## Evolução 04/11/2026 — triagem persistente e watchlist restrita (branch, não produção)
+
+A arquitetura evoluiu com `dcm_source_intake` e `dcm_source_intake_decisions`: agora a fonte sem vínculo fica persistida como **metadados em quarentena**, privada para o usuário que a recebeu. A decisão de `link` (com acesso ao deal) ou `ignore` exige justificativa e gera registro imutável. O processo não confunde empresa, oportunidade ou revisita.
+
+Foi incluída também a tabela `dcm_source_watches` e endpoints que permitem **monitorar apenas IDs exatos de recursos Microsoft autorizados individualmente pelo usuário**, com checkpoint por versão, limite de consultas e pausa por erros. Alterações são encaminhadas à inbox para triagem. Não há mineração de caixas postais, canais, drives ou agregação automática de fontes.
+
+A interface `/deal-cards` tem inclusão, seleção, descarte e histórico de fontes, coleta pontual Microsoft e opções de ativar/pausar/checar um watch específico.
+
+Migrações adicionais: `db/neon/20261104_deal_source_inbox.sql` e `db/neon/20261104_deal_source_watches.sql`. Flags novas: `DEAL_CARD_MICROSOFT_WATCH_ENABLED=false` por padrão.
+
+**Próximos gates inalterados:** migração Neon de homologação, teste com dados corporativos reais autorizados, autorização TI/Jurídico/LGPD, configuração de agendamento protegido por `CRON_SECRET`, observabilidade, aprovação expressa para produção. Não houve aplicação de migração nem deploy neste trabalho. Ver [manual técnico específico](./DEAL_CARD_CONNECTORS.md).
