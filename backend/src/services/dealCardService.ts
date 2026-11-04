@@ -35,6 +35,12 @@ export class DealCardService {
     await this.member(dealId, actor, true);
     return true;
   }
+  /** Shared Fireflies workspace key is strictly restricted to deal owner. */
+  async assertOwner(dealId: string, actor: string) {
+    const member = await this.member(dealId, actor, true);
+    if (member.role !== 'owner') this.fail('Importação Fireflies exige responsável da oportunidade.', 403);
+    return true;
+  }
   private async opportunity(dealId: string) {
     const rows = await this.db().select('dcm_opportunities', {
       filters: [{ column: 'id', value: dealId }], limit: 1,
