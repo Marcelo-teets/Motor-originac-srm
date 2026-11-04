@@ -216,6 +216,18 @@ export const api = {
       },
     };
   },
+  listDealSourceInbox: async (session: SessionData | null, status: string = 'pending'): Promise<any[]> =>
+    (await requestEnvelope<any[]>(`/origination-ai/deal-inbox-list?status=${encodeURIComponent(status)}`,session)).data,
+  addDealSourceInbox: async (session: SessionData | null, payload: {
+    provider:string;externalId:string;title:string;sourceRef?:string;occurredAt?:string;suggestedDealId?:string;
+  }) => (await requestEnvelope<any>('/origination-ai/deal-inbox-add',session,
+    {method:'POST',body:JSON.stringify(payload)})).data,
+  resolveDealSourceInbox: async (session: SessionData | null, payload: {
+    intakeId:string;action:'link'|'ignore';dealId?:string;note:string;
+  }) => (await requestEnvelope<any>('/origination-ai/deal-inbox-resolve',session,
+    {method:'POST',body:JSON.stringify(payload)})).data,
+  getDealSourceInboxHistory: async (session: SessionData | null, intakeId:string): Promise<any[]> =>
+    (await requestEnvelope<any[]>(`/origination-ai/deal-inbox-history?intakeId=${encodeURIComponent(intakeId)}`,session)).data,
   listDealCards: async (session: SessionData | null, companyId?: string): Promise<any[]> =>
     (await requestEnvelope<any[]>(`/origination-ai/deal-list${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ''}`, session)).data,
   createDealCard: async (session: SessionData | null, payload: { companyId: string; title: string; product: string; revisitOf?: string }) =>
