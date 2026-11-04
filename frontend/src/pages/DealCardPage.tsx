@@ -52,6 +52,10 @@ export function DealCardPage() {
   const [product,setProduct] = useState('FIDC');
   const [revisitOf,setRevisitOf] = useState('');
   const [provider,setProvider] = useState('manual');
+  const [connectedProvider,setConnectedProvider] = useState('fireflies');
+  const [externalSourceId,setExternalSourceId] = useState('');
+  const [sourceChatId,setSourceChatId] = useState('');
+  const [sourceDriveId,setSourceDriveId] = useState('');
   const [sourceTitle,setSourceTitle] = useState('');
   const [sourceUrl,setSourceUrl] = useState('');
   const [field,setField] = useState('financialNeed');
@@ -136,6 +140,22 @@ export function DealCardPage() {
       await api.rebuildDealCard(session,selected);
       setSourceTitle('');setSourceUrl('');setFieldValue('');setPeriod('');
     },'Fonte registrada como evidência pendente. A afirmação ainda precisa ser validada.');
+  };
+  const importConnected = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selected || !externalSourceId.trim()) return;
+    await execute(async () => {
+      if (connectedProvider === 'fireflies') {
+        await api.importFirefliesDealSource(session,selected,externalSourceId.trim());
+      } else {
+        await api.importMicrosoftDealSource(session,{
+          dealId:selected,provider:connectedProvider,externalId:externalSourceId.trim(),
+          ...(connectedProvider === 'teams'?{chatId:sourceChatId.trim()}:{}),
+          ...(connectedProvider === 'sharepoint'?{driveId:sourceDriveId.trim()}:{}),
+        });
+      }
+      setExternalSourceId('');
+    },'Fonte consultada e associada à operação. Eventuais informações financeiras permanecem pendentes de revisão.');
   };
   const addEvent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,6 +264,35 @@ export function DealCardPage() {
           <div className="table-helper">{snapshot.payload.history.slice(0,12).map(e=>
             <div key={e.id}>{new Date(e.happenedAt).toLocaleDateString('pt-BR')} · {e.type} · {e.title}</div>)}</div>
         </>:<p>Registre fontes e gere a primeira versão do Deal Card.</p>}
+      </Card>
+      <Card title="Consultar fonte conectada" subtitle="Busque uma reunião, mensagem ou arquivo específico, com permissão da conta institucional">
+        <form onSubmit={e=>void importConnected(e)} style={{display:'grid',gap:10,maxWidth:650}}>
+          <p className="table-helper">
+            Importação sob demanda por ID. O Motor não percorre toda a sua caixa de e-mail ou as reuniões do workspace.
+            O acesso dependerá da autorização da SRM e dos escopos concedidos no Microsoft 365 ou no Fireflies.
+          </p>
+          <label>Fonte
+            <select value={connectedProvider} onChange={e=>setConnectedProvider(e.target.value)}>
+              {['fireflies','outlook_email','outlook_calendar','teams','sharepoint'].map(p=>
+                <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+          <label>ID exato da fonte
+            <input required value={externalSourceId} onChange={e=>setExternalSourceId(e.target.value)}
+              placeholder="Identificador da reunião, e-mail, evento, mensagem ou arquivo" maxLength={400}/>
+          </label>
+          {connectedProvider==='teams'?<label>ID do chat
+            <input required value={sourceChatId} onChange={e=>setSourceChatId(e.target.value)}
+              maxLength={400} placeholder="chatId do Teams" /></label>:null}
+          {connectedProvider==='sharepoint'?<label>ID da biblioteca (drive)
+            <input required value={sourceDriveId} onChange={e=>setSourceDriveId(e.target.value)}
+              maxLength={400} placeholder="driveId da biblioteca" /></label>:null}
+          <button type="submit" disabled={busy||!externalSourceId.trim()||
+            (connectedProvider==='teams'&&!sourceChatId.trim())||
+            (connectedProvider==='sharepoint'&&!sourceDriveId.trim())}>
+            Consultar e registrar fonte
+          </button>
+        </form>
       </Card>
       <section className="grid cols-2 detail-layout">
         <Card title="Coleta assistida" subtitle="Registre a referência e a informação; nada é validado automaticamente">
