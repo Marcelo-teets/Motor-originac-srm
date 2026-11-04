@@ -44,6 +44,8 @@ export const REQUIRED_RELATIONS = Object.freeze([
   'public.dcm_opportunity_originators',
   'public.dcm_originators',
   'public.dcm_source_items',
+  'public.dcm_source_intake',
+  'public.dcm_source_intake_decisions',
   'public.dcm_daily_leads',
   'public.dcm_daily_outreach_queue_v',
   'public.dcm_outreach_feedback',
