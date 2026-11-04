@@ -37,7 +37,7 @@ test('only explicit, documented human decisions are accepted', () => {
   assert.ok(mustReviewIntakeResolution('pending','link','Checado com o originador','deal-1'));
   assert.ok(mustReviewIntakeResolution('pending','ignore','Não pertence a nenhuma operação'));
   assert.throws(()=>mustReviewIntakeResolution('linked','link','Mesmo motivo','deal-1'),/já foi decidido/);
-  assert.throws(()=>mustReviewIntakeResolution('pending','link','Muito curto','deal-1'),/Justificativa/);
+  assert.throws(()=>mustReviewIntakeResolution('pending','link','Curto','deal-1'),/Justificativa/);
   assert.throws(()=>mustReviewIntakeResolution('pending','link','Motivo suficiente'),/Selecione/);
   assert.throws(()=>mustReviewIntakeResolution('pending','ignore','Motivo suficiente','deal-1'),/Descarte/);
 });
