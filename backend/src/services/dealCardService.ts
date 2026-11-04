@@ -5,6 +5,7 @@ import {
   type DealEvent, type DealSource, type Opportunity, type Originator,
 } from '../modules/dealCardIntelligence.js';
 import { normalizeProduct } from '../modules/originationAiFlow.js';
+import { normalizeSourceIntake, mustReviewIntakeResolution, type SourceIntakeInput } from '../modules/dealSourceInbox.js';
 
 /**
  * Authenticated Neon service. No mailbox scanning or third-party credentials here:
@@ -96,12 +97,122 @@ export class DealCardService {
       opportunity_id: dealId, user_id: body.userId, role: body.role ?? 'viewer',
     }], 'opportunity_id,user_id');
   }
+  /**
+   * Inbox is private to the submitting user until they select a specific deal.
+   * No free-text bodies, message previews or transcript contents are retained.
+   */
+  async enqueueSource(actor: string, input: SourceIntakeInput) {
+    const record = normalizeSourceIntake(input);
+    if (record.suggested_opportunity_id) await this.member(record.suggested_opportunity_id, actor);
+    const rows = await this.db().query(`
+      insert into public.dcm_source_intake
+        (submitted_by,provider,external_id,title,source_ref,occurred_at,content_sha256,suggested_opportunity_id)
+      values ($1,$2,$3,$4,$5,$6,$7,$8::uuid)
+      on conflict (submitted_by,provider,external_id,content_sha256)
+      do update set
+        last_seen_at = now(),
+        seen_count = public.dcm_source_intake.seen_count + 1
+      returning id,provider,external_id,title,source_ref,occurred_at,
+                suggested_opportunity_id,status,linked_opportunity_id,
+                first_seen_at,last_seen_at,seen_count
+    `, [actor,record.provider,record.external_id,record.title,record.source_ref,
+      record.occurred_at,record.content_sha256,record.suggested_opportunity_id]);
+    return rows[0];
+  }
+  async listInbox(actor: string, status: string = 'pending') {
+    if (!['pending','linked','ignored','all'].includes(status)) this.fail('Filtro de triagem inválido.');
+    return this.db().query(`
+      select id,provider,external_id,title,source_ref,occurred_at,
+        suggested_opportunity_id,status,linked_opportunity_id,
+        first_seen_at,last_seen_at,seen_count,reviewed_at,resolution_note
+      from public.dcm_source_intake
+      where submitted_by=$1 and ($2='all' or status=$2)
+      order by last_seen_at desc limit 100
+    `, [actor,status]);
+  }
+  async inboxHistory(actor: string, intakeId: string) {
+    return this.db().query(`
+      select d.decision,d.actor_user_id,d.opportunity_id,d.note,d.decided_at
+      from public.dcm_source_intake_decisions d
+      join public.dcm_source_intake q on q.id=d.intake_id
+      where q.submitted_by=$1 and q.id=$2::uuid
+      order by d.decided_at desc limit 100
+    `, [actor,intakeId]);
+  }
+  async resolveInbox(actor: string, intakeId: string, input: {
+    action: 'link' | 'ignore'; dealId?: string; note: string;
+  }) {
+    mustReviewIntakeResolution('pending',input.action,input.note,input.dealId);
+    if (input.action === 'link') {
+      const dealId = input.dealId!;
+      await this.assertEditable(dealId,actor);
+      // One atomic DB statement: source insertion, queue transition, immutable
+      // attribution audit. Concurrent reviewers cannot link twice.
+      const rows = await this.db().query(`
+        with candidate as (
+          select * from public.dcm_source_intake
+          where id=$1::uuid and submitted_by=$2 and status='pending' for update
+        ), admitted as (
+          select 1 from public.dcm_opportunity_members m
+          where m.opportunity_id=$3::uuid and m.user_id=$2 and m.role in ('owner','editor')
+        ), inserted as (
+          insert into public.dcm_source_items
+            (id,opportunity_id,provider,external_id,title,source_ref,content_sha256,
+             occurred_at,match_method,reviewed_by)
+          select gen_random_uuid(),$3::uuid,c.provider,c.external_id,c.title,c.source_ref,
+            c.content_sha256,c.occurred_at,'human_approved',$2
+          from candidate c where exists (select 1 from admitted)
+          on conflict (opportunity_id,provider,external_id,content_sha256) do nothing
+          returning id
+        ), previous as (
+          select s.id from public.dcm_source_items s join candidate c on
+            s.opportunity_id=$3::uuid and s.provider=c.provider and
+            s.external_id=c.external_id and s.content_sha256=c.content_sha256
+        ), moved as (
+          update public.dcm_source_intake q
+          set status='linked',linked_opportunity_id=$3::uuid,reviewed_by=$2,
+            reviewed_at=now(),resolution_note=$4
+          where q.id in (select id from candidate)
+          and exists (select 1 from admitted)
+          and (exists (select 1 from inserted) or exists (select 1 from previous))
+          returning q.id,q.status,q.linked_opportunity_id
+        ), audited as (
+          insert into public.dcm_source_intake_decisions
+            (intake_id,decision,actor_user_id,opportunity_id,note)
+          select id,'linked',$2,$3::uuid,$4 from moved returning id
+        ) select id,status,linked_opportunity_id from moved
+      `, [intakeId,actor,dealId,input.note.trim()]);
+      if (!rows[0]) this.fail('Fonte não está pendente ou usuário não autorizado.', 409);
+      return rows[0];
+    }
+    const rows = await this.db().query(`
+      with moved as (
+        update public.dcm_source_intake
+        set status='ignored',reviewed_by=$2,reviewed_at=now(),resolution_note=$3
+        where id=$1::uuid and submitted_by=$2 and status='pending'
+        returning id,status,linked_opportunity_id
+      ), audited as (
+        insert into public.dcm_source_intake_decisions
+          (intake_id,decision,actor_user_id,opportunity_id,note)
+        select id,'ignored',$2,null,$3 from moved returning id
+      ) select id,status,linked_opportunity_id from moved
+    `, [intakeId,actor,input.note.trim()]);
+    if (!rows[0]) this.fail('Fonte não está pendente ou usuário não autorizado.', 409);
+    return rows[0];
+  }
   async capture(dealId: string, actor: string, input: CaptureInput) {
     await this.member(dealId, actor, true);
     if (input.opportunityId && input.opportunityId !== dealId) this.fail('Vínculo com outra oportunidade proibido.');
     const normalized = normalizeCapture({ ...input, opportunityId: dealId });
     if (normalized.state === 'quarantine' || !normalized.source) {
-      return { status: 'quarantined', reason: normalized.reason, stored: false };
+      const intake = await this.enqueueSource(actor, {
+        provider: input.provider, externalId: input.externalId, title: input.title,
+        sourceRef: input.sourceRef, occurredAt: input.occurredAt,
+        // The full unstructured message is never written to the inbox.
+        fingerprint: input.content ? createHash('sha256').update(input.content).digest('hex') : undefined,
+        suggestedDealId: dealId,
+      });
+      return { status: 'quarantined', reason: normalized.reason, stored: true, intakeId: intake.id };
     }
     const record = normalized.source;
     const filter = [
