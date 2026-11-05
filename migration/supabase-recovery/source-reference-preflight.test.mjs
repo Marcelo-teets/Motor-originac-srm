@@ -73,5 +73,7 @@ test('source catalogue SQL only reads official catalog and grouped references', 
   assert.match(contents,/REPEATABLE READ READ ONLY/);
   assert.match(contents,/assertAuditConnections\(supabaseUrl, neonUrl\)/);
   assert.match(contents,/GROUP BY source_id/);
+  assert.match(contents,/metadata->>'baseUrl'/);
+  assert.match(contents,/nullif\(btrim\(url\),''\)/);
   assert.doesNotMatch(contents,/\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b\s+(?:INTO\s+|FROM\s+|TABLE\s+)?public\./i);
 });
