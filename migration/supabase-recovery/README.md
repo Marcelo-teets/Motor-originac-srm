@@ -47,6 +47,34 @@
 > na consulta: importação, aprovação humana e cutover continuam bloqueados.
 > `created_by` desconhecido é sempre classificado como não verificado.
 >
+> **Auditoria de contratos de fontes e FKs (05/11/2026, P0, somente leitura):**
+> Execute `node migration/supabase-recovery/source-reference-preflight.mjs` com
+> `MOTOR_SUPABASE_AUDIT_DATABASE_URL` e `MOTOR_NEON_DATABASE_URL` obtidas
+> do cofre autorizado. Usa transações `REPEATABLE READ READ ONLY`, compara
+> `source_catalog.metadata.code` por chave única, hostname HTTPS (campo
+> `url` ou `metadata.baseUrl` se vazio) e `source_type`, e contabiliza referências nas tabelas
+> `monitoring_outputs`, `company_signals` e `source_connector_runs`.
+> Relatório agrega candidatos técnicos, colisões, contratos divergentes e
+> referências sem fonte, **sem imprimir URLs, UUIDs, CNPJs ou payloads**.
+> A saída intencionalmente retorna código **2** porque nenhuma correspondência
+> de código/hostname equivale a mapeamento aprovado, identidade jurídica ou
+> lastro creditício verificado. Não modifica nenhum dos bancos.
+>
+> Em 05/11, leitura direta confirmou que o catálogo Neon tem 106 códigos,
+> 19 URLs principais, 30 `metadata.baseUrl` e **48 fontes** com ao menos
+> um desses endereços. As **58 restantes** não devem ser tecnicamente
+> aprovadas por correspondência de código apenas.
+>
+> A auditoria de 02/11 identificou **78 códigos** de fontes coincidentes,
+> mas **zero UUIDs** idênticos. Isso é somente uma coincidência textual inicial.
+> É necessário validar domínio HTTPS, tipo de fonte e dependências antes
+> de qualquer remapeamento. Os 8 cadastros com CNPJ inválido concentravam
+> 17.896 sinais e 22.953 outputs legados; alguns nomes aparecem nos mocks/seeds
+> do repositório. São **suspeitos de origem sintética**, não entidades reais
+> confirmadas, e devem permanecer fora do ranking até verificação externa.
+> O branch de homologação da recuperação possui 66 empresas com status
+> `unverified_identity` — nenhum score, aprovação ou sinal foi transferido.
+>
 > **Recuperação seletiva de Company Master — 02/11/2026 (P0):**
 > `node migration/supabase-recovery/company-master-staging.mjs`
 > executa, por padrão, apenas uma prévia agregada e somente leitura dos cadastros
