@@ -131,7 +131,9 @@ async function inspect(url, withReferences) {
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const sources = (await client.query(
-      "SELECT id::text AS id, metadata->>'code' AS code, url, source_type FROM public.source_catalog" )).rows;
+      "SELECT id::text AS id, metadata->>'code' AS code, " +
+      "coalesce(nullif(btrim(url),''), nullif(btrim(metadata->>'baseUrl'),'')) AS url, " +
+      "source_type FROM public.source_catalog" )).rows;
     const references = {};
     if (withReferences) for (const table of AUDITED_REFERENCE_TABLES) {
       references[table] = (await client.query(
